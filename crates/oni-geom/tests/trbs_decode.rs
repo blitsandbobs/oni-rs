@@ -58,6 +58,8 @@ fn level0_characters_decode() {
             parent: p.parent,
             mesh: Some(&p.mesh),
             blend: false,
+            additive: false,
+            self_illum: false,
             texture_uri: None,
         })
         .collect();

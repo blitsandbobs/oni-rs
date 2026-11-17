@@ -43,6 +43,10 @@ const TXMP_MIN_SIZE: usize = 156;
 
 /// `M3cTextureFlags_HasMipMap` — texture stores a full mip chain.
 pub const FLAG_HAS_MIPMAP: u32 = 1 << 0;
+/// `M3cTextureFlags_Blend_Additive` — drawn with additive blending (glow).
+pub const FLAG_BLEND_ADDITIVE: u32 = 1 << 10;
+/// `M3cTextureFlags_SelfIlluminent` — full-bright, ignores scene lighting.
+pub const FLAG_SELF_ILLUMINENT: u32 = 1 << 11;
 /// `M3cTextureFlags_LittleEndian` — pixel data is little-endian.
 pub const FLAG_LITTLE_ENDIAN: u32 = 1 << 12;
 
@@ -118,6 +122,18 @@ impl TextureMap {
     /// True when the texture stores a full mipmap chain.
     pub fn has_mipmap(&self) -> bool {
         self.flags & FLAG_HAS_MIPMAP != 0
+    }
+
+    /// True when the texture is drawn with additive blending (glowing screens,
+    /// energy, fire — `M3cTextureFlags_Blend_Additive`).
+    pub fn is_additive(&self) -> bool {
+        self.flags & FLAG_BLEND_ADDITIVE != 0
+    }
+
+    /// True when the texture is self-illuminated (full-bright, ignores scene
+    /// lighting — `M3cTextureFlags_SelfIlluminent`).
+    pub fn is_self_illuminated(&self) -> bool {
+        self.flags & FLAG_SELF_ILLUMINENT != 0
     }
 
     /// Total stored size of the pixel data (full mip chain if present), matching

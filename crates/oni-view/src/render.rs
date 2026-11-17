@@ -56,17 +56,26 @@ struct Uniforms {
     view_proj: [[f32; 4]; 4],
 }
 
+/// Which blend bucket a primitive draws in (controls pass order + pipeline).
+#[derive(Clone, Copy, PartialEq)]
+enum Bucket {
+    Opaque,
+    Alpha,
+    Additive,
+}
+
 struct GpuPrim {
     vbuf: wgpu::Buffer,
     ibuf: wgpu::Buffer,
     count: u32,
     texture: usize,
-    blend: bool,
+    bucket: Bucket,
 }
 
 pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
+    additive_pipeline: wgpu::RenderPipeline,
     uniform_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     tex_bgs: Vec<wgpu::BindGroup>,
@@ -136,9 +145,9 @@ impl Renderer {
             ],
         };
 
-        let make_pipeline = |blend: bool| {
+        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(if blend { "blend" } else { "opaque" }),
+                label: Some(label),
                 layout: Some(&pipeline_layout),
                 vertex: wgpu::VertexState {
                     module: &shader,
@@ -151,7 +160,7 @@ impl Renderer {
                     entry_point: Some("fs_main"),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
-                        blend: blend.then_some(wgpu::BlendState::ALPHA_BLENDING),
+                        blend,
                         write_mask: wgpu::ColorWrites::ALL,
                     })],
                     compilation_options: Default::default(),
@@ -163,7 +172,7 @@ impl Renderer {
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
-                    depth_write_enabled: !blend,
+                    depth_write_enabled: depth_write,
                     depth_compare: wgpu::CompareFunction::Less,
                     stencil: Default::default(),
                     bias: Default::default(),
@@ -173,8 +182,18 @@ impl Renderer {
                 cache: None,
             })
         };
-        let opaque_pipeline = make_pipeline(false);
-        let blend_pipeline = make_pipeline(true);
+        // Additive: src*alpha + dst (glowing, no depth write).
+        let additive = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::SrcAlpha,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent::OVER,
+        };
+        let opaque_pipeline = make_pipeline("opaque", None, true);
+        let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
+        let additive_pipeline = make_pipeline("additive", Some(additive), false);
 
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
@@ -213,6 +232,7 @@ impl Renderer {
         Renderer {
             opaque_pipeline,
             blend_pipeline,
+            additive_pipeline,
             uniform_buf,
             uniform_bg,
             tex_bgs,
@@ -298,14 +318,14 @@ impl Renderer {
             });
             pass.set_bind_group(0, &self.uniform_bg, &[]);
 
-            // Opaque first, then blended.
-            for blend in [false, true] {
-                pass.set_pipeline(if blend {
-                    &self.blend_pipeline
-                } else {
-                    &self.opaque_pipeline
-                });
-                for p in self.prims.iter().filter(|p| p.blend == blend) {
+            // Opaque (depth write), then alpha, then additive glow on top.
+            for (bucket, pipeline) in [
+                (Bucket::Opaque, &self.opaque_pipeline),
+                (Bucket::Alpha, &self.blend_pipeline),
+                (Bucket::Additive, &self.additive_pipeline),
+            ] {
+                pass.set_pipeline(pipeline);
+                for p in self.prims.iter().filter(|p| p.bucket == bucket) {
                     let bg = self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex);
                     pass.set_bind_group(1, bg, &[]);
                     pass.set_vertex_buffer(0, p.vbuf.slice(..));
@@ -329,12 +349,19 @@ fn upload_prim(device: &wgpu::Device, p: &Prim) -> GpuPrim {
         contents: bytemuck::cast_slice(&p.indices),
         usage: wgpu::BufferUsages::INDEX,
     });
+    let bucket = if p.additive {
+        Bucket::Additive
+    } else if p.blend {
+        Bucket::Alpha
+    } else {
+        Bucket::Opaque
+    };
     GpuPrim {
         vbuf,
         ibuf,
         count: p.indices.len() as u32,
         texture: p.texture.unwrap_or(usize::MAX),
-        blend: p.blend,
+        bucket,
     }
 }
 

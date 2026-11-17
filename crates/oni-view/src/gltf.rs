@@ -30,6 +30,8 @@ pub struct Prim {
     pub texture: Option<usize>,
     /// Alpha-blended (transparent) material.
     pub blend: bool,
+    /// Additive-blended (glowing) material — from Oni texture flags (`extras`).
+    pub additive: bool,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -149,23 +151,24 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
     // Texture path per material (deduplicated).
     let mut tex_paths: Vec<PathBuf> = Vec::new();
     let mut tex_index: BTreeMap<String, usize> = BTreeMap::new();
-    let mut material_texture = |mat_idx: usize| -> (Option<usize>, bool) {
+    // Returns (texture index, blend, additive, self_illuminated).
+    let mut material_texture = |mat_idx: usize| -> (Option<usize>, bool, bool, bool) {
         let mat = &json["materials"][mat_idx];
         let blend = mat["alphaMode"].as_str() == Some("BLEND");
+        let additive = mat["extras"]["additive"].as_bool().unwrap_or(false);
+        let self_illum = mat["extras"]["selfIllum"].as_bool().unwrap_or(false);
         let Some(ti) = mat["pbrMetallicRoughness"]["baseColorTexture"]["index"].as_u64() else {
-            return (None, blend);
+            return (None, blend, additive, self_illum);
         };
         let src = json["textures"][ti as usize]["source"].as_u64().unwrap() as usize;
         let uri = json["images"][src]["uri"].as_str().unwrap_or("");
         let path = normalize(dir, uri);
         let key = path.to_string_lossy().into_owned();
-        (
-            Some(*tex_index.entry(key).or_insert_with(|| {
-                tex_paths.push(path);
-                tex_paths.len() - 1
-            })),
-            blend,
-        )
+        let idx = *tex_index.entry(key).or_insert_with(|| {
+            tex_paths.push(path);
+            tex_paths.len() - 1
+        });
+        (Some(idx), blend, additive, self_illum)
     };
 
     let mut prims = Vec::new();
@@ -198,10 +201,12 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 .as_u64()
                 .map(|a| read_floats(&json, bin, a as usize));
             let idx = read_indices(&json, bin, prim["indices"].as_u64().unwrap() as usize);
-            let (texture, blend) = prim["material"]
+            let (texture, blend, additive, self_illum) = prim["material"]
                 .as_u64()
                 .map(|m| material_texture(m as usize))
-                .unwrap_or((None, false));
+                .unwrap_or((None, false, false, false));
+            // Self-lit / additive surfaces ignore baked lighting (full bright).
+            let full_bright = additive || self_illum;
 
             let n = pos.len() / 3;
             let mut verts = Vec::with_capacity(n);
@@ -219,10 +224,13 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                     .as_ref()
                     .map(|a| [a[v * 2], a[v * 2 + 1]])
                     .unwrap_or([0.0, 0.0]);
-                let color = col
-                    .as_ref()
-                    .map(|a| [a[v * 3], a[v * 3 + 1], a[v * 3 + 2]])
-                    .unwrap_or([1.0, 1.0, 1.0]);
+                let color = if full_bright {
+                    [1.0, 1.0, 1.0]
+                } else {
+                    col.as_ref()
+                        .map(|a| [a[v * 3], a[v * 3 + 1], a[v * 3 + 2]])
+                        .unwrap_or([1.0, 1.0, 1.0])
+                };
                 verts.push(Vertex {
                     pos: p.into(),
                     normal: normal.into(),
@@ -235,6 +243,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 indices: idx,
                 texture,
                 blend,
+                additive,
             });
         }
     }

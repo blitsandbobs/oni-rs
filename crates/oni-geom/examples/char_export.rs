@@ -64,6 +64,8 @@ fn main() -> ExitCode {
                 parent: p.parent,
                 mesh: Some(&p.mesh),
                 blend: false,
+                additive: false,
+                self_illum: false,
                 texture_uri: p
                     .mesh
                     .base_texture

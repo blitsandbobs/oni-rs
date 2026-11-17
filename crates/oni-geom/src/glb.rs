@@ -263,6 +263,10 @@ pub struct SceneNode<'a> {
     pub texture_uri: Option<String>,
     /// Whether this node's material is alpha-blended (transparent).
     pub blend: bool,
+    /// Additive-blended (glowing) material — carried in material `extras`.
+    pub additive: bool,
+    /// Self-illuminated (full-bright) material — carried in material `extras`.
+    pub self_illum: bool,
 }
 
 /// Serializes a node hierarchy (each node carrying a mesh) to a `.glb`.
@@ -273,9 +277,9 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
     let mut acc_count = 0u32;
     let mut meshes = String::new();
 
-    // Deduplicate textures/materials by (URI, blend).
+    // Deduplicate textures/materials by (URI, blend, additive, self_illum).
     let mut tex_uris: Vec<String> = Vec::new();
-    let mut mat_for_uri: std::collections::BTreeMap<(String, bool), usize> =
+    let mut mat_for_uri: std::collections::BTreeMap<(String, bool, bool, bool), usize> =
         std::collections::BTreeMap::new();
     let mut tex_for_uri: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
@@ -296,25 +300,37 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
         // Append this mesh's accessors.
         let (attrs, idx_acc) =
             append_mesh(&mut bin, &mut views, &mut accessors, &mut acc_count, mesh);
-        // Resolve material, deduplicated by (texture, blend mode).
+        // Resolve material, deduplicated by (texture, blend, additive, selfIllum).
         let mat = match &n.texture_uri {
-            Some(uri) => *mat_for_uri.entry((uri.clone(), n.blend)).or_insert_with(|| {
-                let img = *tex_for_uri.entry(uri.clone()).or_insert_with(|| {
-                    let i = tex_uris.len();
-                    tex_uris.push(uri.clone());
-                    i
-                });
-                let alpha = if n.blend {
-                    ",\"alphaMode\":\"BLEND\""
-                } else {
-                    ""
-                };
-                let m = materials.len();
-                materials.push(format!(
-                    "{{\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{img}}},\"metallicFactor\":0,\"roughnessFactor\":1}},\"doubleSided\":true{alpha}}}"
-                ));
-                m
-            }),
+            Some(uri) => *mat_for_uri
+                .entry((uri.clone(), n.blend, n.additive, n.self_illum))
+                .or_insert_with(|| {
+                    let img = *tex_for_uri.entry(uri.clone()).or_insert_with(|| {
+                        let i = tex_uris.len();
+                        tex_uris.push(uri.clone());
+                        i
+                    });
+                    // Additive implies transparency.
+                    let alpha = if n.blend || n.additive {
+                        ",\"alphaMode\":\"BLEND\""
+                    } else {
+                        ""
+                    };
+                    // Oni-specific render flags ride in `extras`.
+                    let extras = if n.additive || n.self_illum {
+                        format!(
+                            ",\"extras\":{{\"additive\":{},\"selfIllum\":{}}}",
+                            n.additive, n.self_illum
+                        )
+                    } else {
+                        String::new()
+                    };
+                    let m = materials.len();
+                    materials.push(format!(
+                        "{{\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{img}}},\"metallicFactor\":0,\"roughnessFactor\":1}},\"doubleSided\":true{alpha}{extras}}}"
+                    ));
+                    m
+                }),
             None => default_mat,
         };
         if !meshes.is_empty() {

@@ -120,14 +120,27 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
     }
     files.sort_by_key(|f| f.level);
 
-    // --- Pass 1: global named-asset index: (tag, name) -> canonical file index ---
+    // --- Pass 1: global named-asset index: (tag, name) -> canonical file index.
+    // Also collect texture render flags (additive / self-illuminated) by name,
+    // so a placeholder reference in one level resolves to the real flags. ---
     let mut global_named: BTreeMap<(FourCc, String), usize> = BTreeMap::new();
+    let mut texture_flags: BTreeMap<String, (bool, bool)> = BTreeMap::new();
     for (fi, f) in files.iter().enumerate() {
         let dat = Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}")))?;
         for inst in &dat.instances {
             if let Some(name) = &inst.name {
-                if !name.is_empty() && dat.instance_data(inst).is_some() {
-                    global_named.entry((inst.tag, name.clone())).or_insert(fi);
+                if !name.is_empty() {
+                    if let Some(d) = dat.instance_data(inst) {
+                        global_named.entry((inst.tag, name.clone())).or_insert(fi);
+                        // TXMP flags live at offset 128 (M3cTextureFlags).
+                        if inst.tag == TAG_TXMP_ && d.len() >= 132 {
+                            let fl = u32::from_le_bytes([d[128], d[129], d[130], d[131]]);
+                            texture_flags.entry(name.clone()).or_insert((
+                                fl & oni_texture::FLAG_BLEND_ADDITIVE != 0,
+                                fl & oni_texture::FLAG_SELF_ILLUMINENT != 0,
+                            ));
+                        }
+                    }
                 }
             }
         }
@@ -188,7 +201,7 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         )?;
         convert_characters(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
-        let env_objects = convert_environment(&dat, &f.root, &root, &mut stats)?;
+        let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
         stats.object_animations = convert_object_animations(&dat, &root)?;
         stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
         stats.films = convert_films(&dat, &root)?;
@@ -445,6 +458,23 @@ struct NodeSpec {
     mesh: Option<usize>,
     uri: Option<String>,
     blend: bool,
+    additive: bool,
+    self_illum: bool,
+}
+
+/// Looks up a texture's Oni render flags `(additive, self_illuminated)` by name
+/// (resolves placeholder references via the global flag map).
+fn env_texture_flags(
+    dat: &Dat<'_>,
+    tex_idx: usize,
+    flags: &BTreeMap<String, (bool, bool)>,
+) -> (bool, bool) {
+    dat.instances
+        .get(tex_idx)
+        .and_then(|i| i.name.as_ref())
+        .and_then(|n| flags.get(n))
+        .copied()
+        .unwrap_or((false, false))
 }
 
 /// Emits the level world geometry as `<root>/environment.glb`: the AKEV static
@@ -455,6 +485,7 @@ fn convert_environment(
     dat: &Dat<'_>,
     this_root: &str,
     root: &Path,
+    tex_flags: &BTreeMap<String, (bool, bool)>,
     stats: &mut LevelStats,
 ) -> std::io::Result<Vec<EnvObjectInfo>> {
     use oni_geom::glb::{scene_to_glb, SceneNode};
@@ -488,6 +519,10 @@ fn convert_environment(
         // Static world: one root node per texture.
         for (i, g) in level.environment.iter().enumerate() {
             let m = push_mesh(&mut meshes, g);
+            let (additive, self_illum) = g
+                .tex_instance
+                .map(|ti| env_texture_flags(dat, ti, tex_flags))
+                .unwrap_or((false, false));
             specs.push(NodeSpec {
                 name: format!(
                     "env_{}",
@@ -500,6 +535,8 @@ fn convert_environment(
                     .tex_instance
                     .and_then(|ti| env_texture_uri(dat, ti, this_root)),
                 blend: g.blend,
+                additive,
+                self_illum,
             });
         }
 
@@ -515,9 +552,15 @@ fn convert_environment(
                 mesh: None,
                 uri: None,
                 blend: false,
+                additive: false,
+                self_illum: false,
             });
             for g in &obj.groups {
                 let m = push_mesh(&mut meshes, g);
+                let (additive, self_illum) = g
+                    .tex_instance
+                    .map(|ti| env_texture_flags(dat, ti, tex_flags))
+                    .unwrap_or((false, false));
                 specs.push(NodeSpec {
                     name: format!(
                         "{}_{}",
@@ -531,6 +574,8 @@ fn convert_environment(
                         .tex_instance
                         .and_then(|ti| env_texture_uri(dat, ti, this_root)),
                     blend: g.blend,
+                    additive,
+                    self_illum,
                 });
             }
             object_infos.push(EnvObjectInfo {
@@ -552,6 +597,8 @@ fn convert_environment(
                 mesh: s.mesh.map(|mi| &meshes[mi]),
                 texture_uri: s.uri.clone(),
                 blend: s.blend,
+                additive: s.additive,
+                self_illum: s.self_illum,
             })
             .collect();
         std::fs::create_dir_all(root)?;
@@ -955,6 +1002,8 @@ fn convert_characters(
                 parent: p.parent,
                 mesh: Some(&p.mesh),
                 blend: false,
+                additive: false,
+                self_illum: false,
                 texture_uri: p
                     .mesh
                     .base_texture
