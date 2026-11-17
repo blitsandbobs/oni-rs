@@ -950,6 +950,37 @@ fn convert_animations(
 /// The default neutral pose: frame 0 of the unarmed standing idle.
 const DEFAULT_POSE_ANIM: &str = "NINJAidle1";
 
+const TAG_TRMA: FourCc = FourCc(0x5452_4D41);
+const TAG_ONCC_: FourCc = FourCc(0x4F4E_4343);
+
+/// Decodes a `TRMA` (body texture array): one TXMP name per body part, in part
+/// order. `pad[22]`, `numMaps` u16 @22, `maps[]` (TXMP refs) @24.
+fn decode_trma_maps(dat: &Dat<'_>, trma_name: &str) -> Vec<Option<String>> {
+    let Some(inst) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_TRMA && i.name.as_deref() == Some(trma_name))
+    else {
+        return Vec::new();
+    };
+    let Some(d) = dat.instance_data(inst) else {
+        return Vec::new();
+    };
+    let n = le_u16(d, 22) as usize;
+    (0..n)
+        .map(|k| {
+            let r = le_u32(d, 24 + k * 4);
+            (r & 1 != 0)
+                .then(|| {
+                    dat.instances
+                        .get((r >> 8) as usize)
+                        .and_then(|t| t.name.clone())
+                })
+                .flatten()
+        })
+        .collect()
+}
+
 fn convert_characters(
     dat: &Dat<'_>,
     raw: Option<&[u8]>,
@@ -960,6 +991,15 @@ fn convert_characters(
 ) -> std::io::Result<()> {
     use oni_geom::character;
     use oni_geom::glb::{scene_to_glb, SceneNode};
+
+    // body name -> its TRMA (body-texture array) name, via the character class.
+    let body_to_trma: BTreeMap<String, String> = dat
+        .instances
+        .iter()
+        .filter(|i| i.tag == TAG_ONCC_)
+        .filter_map(|i| oni_geom::charclass::decode_character_class(dat, i))
+        .filter_map(|cc| Some((cc.body?, cc.textures?)))
+        .collect();
 
     // Resolve the default neutral pose once (its keyframes live in .raw).
     let pose = raw.and_then(|raw| {
@@ -991,11 +1031,18 @@ fn convert_characters(
         let dir = root_to_common(root).join("characters").join(&name);
         std::fs::create_dir_all(&dir)?;
 
+        // Per-part body textures (TRMA), one TXMP per part in part order.
+        let part_textures = body_to_trma
+            .get(&name)
+            .map(|trma| decode_trma_maps(dat, trma))
+            .unwrap_or_default();
+
         // model.glb is at common/characters/<name>/, textures at common/textures/.
         let nodes: Vec<SceneNode> = body
             .parts
             .iter()
-            .map(|p| SceneNode {
+            .enumerate()
+            .map(|(i, p)| SceneNode {
                 name: p.bone.clone(),
                 translation: p.translation,
                 rotation: p.rotation,
@@ -1004,11 +1051,13 @@ fn convert_characters(
                 blend: false,
                 additive: false,
                 self_illum: false,
-                texture_uri: p
-                    .mesh
-                    .base_texture
-                    .as_ref()
-                    .map(|t| format!("../../textures/{}.png", sanitize(t))),
+                // Prefer the per-part body texture; fall back to the mesh base map.
+                texture_uri: part_textures
+                    .get(i)
+                    .cloned()
+                    .flatten()
+                    .or_else(|| p.mesh.base_texture.clone())
+                    .map(|t| format!("../../textures/{}.png", sanitize(&t))),
             })
             .collect();
         std::fs::write(dir.join("model.glb"), scene_to_glb(&nodes))?;
