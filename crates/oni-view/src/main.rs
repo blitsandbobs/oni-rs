@@ -17,6 +17,7 @@ mod app;
 mod camera;
 mod gltf;
 mod particles;
+mod physics;
 mod render;
 mod skel;
 
@@ -72,8 +73,11 @@ fn main() {
     let mut particles_path = None;
     let (mut eye, mut target, mut char_path, mut anim_path, mut char_pos, mut time) =
         (None, None, None, None, None, None);
+    let (mut sim, mut walk): (Option<u32>, Option<Vec3>) = (None, None);
     while let Some(flag) = args.next() {
         match flag.as_str() {
+            "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
+            "--walk" => walk = args.next().and_then(parse_vec3),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
@@ -123,7 +127,7 @@ fn main() {
         .unwrap_or_default();
 
     // Optional character.
-    let charview = char_path.map(|p| {
+    let mut charview = char_path.map(|p| {
         eprintln!("loading character {}...", p.display());
         let character = skel::load_character(&p).expect("load character");
         let clip = anim_path.as_ref().map(|ap| {
@@ -144,6 +148,37 @@ fn main() {
         }
     });
 
+    // E3: run the kinematic physics for `--sim` ticks, applying `--walk` as the
+    // per-tick horizontal move. Gravity + move-and-slide settle the character on
+    // the floor and against walls; the final feet position becomes its placement.
+    if let (Some(cv), Some(ticks)) = (charview.as_mut(), sim) {
+        let (verts, idx) = level_collision_mesh(&scene);
+        let (mn, mx) = cv.aabb(0.0);
+        // The model's origin is the pelvis, not the feet; `foot_offset` is how
+        // far the lowest point sits below the origin (negative). Physics tracks
+        // the *feet*, so we convert origin<->feet by this offset.
+        let origin = cv.placement.transform_point3(Vec3::ZERO);
+        let foot_offset = mn.y - origin.y;
+        let height = (mx.y - mn.y).max(2.0);
+        let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
+        let start_feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
+        let mut phys = physics::Physics::new(&verts, &idx, start_feet, height, radius);
+        let walk = walk.unwrap_or(Vec3::ZERO);
+        let mut feet = start_feet;
+        for _ in 0..ticks {
+            feet = phys.step(walk);
+        }
+        // Place the model so its feet rest at the settled ground point.
+        let new_origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
+        eprintln!(
+            "physics: feet {:?} -> {:?} after {ticks} ticks, grounded={}",
+            start_feet.to_array().map(|v| v.round()),
+            feet.to_array().map(|v| v.round()),
+            phys.grounded
+        );
+        cv.placement = Mat4::from_translation(new_origin);
+    }
+
     match screenshot {
         Some(out) => run_screenshot(
             &scene,
@@ -157,6 +192,19 @@ fn main() {
         ),
         None => app::run(scene, charview, particles, eye, target),
     }
+}
+
+/// Concatenates all of the scene's triangles into one vertex/index buffer for a
+/// Rapier trimesh collider (the level's collision geometry).
+fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
+    let mut verts: Vec<[f32; 3]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    for p in &scene.prims {
+        let base = verts.len() as u32;
+        verts.extend(p.vertices.iter().map(|v| v.pos));
+        indices.extend(p.indices.iter().map(|i| base + i));
+    }
+    (verts, indices)
 }
 
 fn parse_vec3(s: String) -> Option<Vec3> {
