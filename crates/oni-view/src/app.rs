@@ -29,21 +29,30 @@ struct State {
     looking: bool,
     move_speed: f32,
     last: Instant,
+    start: Instant,
+    charview: Option<crate::CharView>,
 }
 
 pub struct App {
     scene: Option<Scene>,
+    charview: Option<crate::CharView>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
     state: Option<State>,
 }
 
-/// Runs the windowed viewer (consumes the scene).
-pub fn run(scene: Scene, eye: Option<Vec3>, target: Option<Vec3>) {
+/// Runs the windowed viewer (consumes the scene and optional character).
+pub fn run(
+    scene: Scene,
+    charview: Option<crate::CharView>,
+    eye: Option<Vec3>,
+    target: Option<Vec3>,
+) {
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut app = App {
         scene: Some(scene),
+        charview,
         eye,
         target,
         state: None,
@@ -90,15 +99,26 @@ impl ApplicationHandler for App {
         };
         surface.configure(&gpu.device, &config);
 
-        let renderer = Renderer::new(&gpu, &scene, format);
+        let charview = self.charview.take();
+        let renderer = Renderer::new(
+            &gpu,
+            &scene,
+            charview.as_ref().map(|c| &c.character),
+            format,
+        );
         let move_speed = scene.extent() * 0.4;
-        let mut cam = crate::default_camera(&scene, config.width as f32 / config.height as f32);
+        let aspect = config.width as f32 / config.height as f32;
+        let mut cam = match &charview {
+            Some(cv) => crate::frame_character(cv, aspect, 0.0),
+            None => crate::default_camera(&scene, aspect),
+        };
         match (self.eye, self.target) {
             (Some(e), Some(t)) => cam.look_at(e, t),
             (Some(e), None) => cam.look_at(e, scene.center()),
             _ => {}
         }
 
+        let now = Instant::now();
         self.state = Some(State {
             gpu,
             surface,
@@ -109,7 +129,9 @@ impl ApplicationHandler for App {
             keys: HashSet::new(),
             looking: false,
             move_speed,
-            last: Instant::now(),
+            last: now,
+            start: now,
+            charview,
         });
     }
 
@@ -218,12 +240,22 @@ impl State {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
+        // Loop the character's animation over elapsed time.
+        let bones = match &self.charview {
+            Some(cv) => {
+                let dur = cv.clip.as_ref().map(|c| c.duration).unwrap_or(1.0);
+                let t = self.start.elapsed().as_secs_f32() % dur.max(0.001);
+                cv.bones(t)
+            }
+            None => Vec::new(),
+        };
         self.renderer.render(
             &self.gpu,
             &view,
             self.config.width,
             self.config.height,
             self.cam.view_proj(),
+            &bones,
         );
         frame.present();
     }

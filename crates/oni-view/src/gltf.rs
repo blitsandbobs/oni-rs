@@ -63,8 +63,16 @@ fn comp_count(ty: &str) -> usize {
     }
 }
 
+/// Splits a `.glb` into its JSON chunk and BIN chunk data.
+pub(crate) fn glb_json_bin(bytes: &[u8]) -> (Value, &[u8]) {
+    let json_len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
+    let json: Value = serde_json::from_slice(&bytes[20..20 + json_len]).expect("glb json");
+    let bin_start = 20 + json_len + 8;
+    (json, &bytes[bin_start..])
+}
+
 /// Reads an accessor's floats (component type 5126) as rows of `comp` values.
-fn read_floats(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<f32> {
+pub(crate) fn read_floats(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<f32> {
     let acc = &json["accessors"][acc_idx];
     let bv = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
     let off = bv["byteOffset"].as_u64().unwrap_or(0) as usize
@@ -85,7 +93,7 @@ fn read_floats(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<f32> {
 }
 
 /// Reads an index accessor (u32, component type 5125).
-fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<u32> {
+pub(crate) fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<u32> {
     let acc = &json["accessors"][acc_idx];
     let bv = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
     let off = bv["byteOffset"].as_u64().unwrap_or(0) as usize
@@ -103,14 +111,7 @@ fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<u32> {
 pub fn load(path: &Path) -> std::io::Result<Scene> {
     let bytes = std::fs::read(path)?;
     let dir = path.parent().unwrap_or(Path::new("."));
-
-    // glb: 12-byte header, then chunks [len u32][type u32][data].
-    let json_len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
-    let json_start = 20;
-    let json: Value = serde_json::from_slice(&bytes[json_start..json_start + json_len])
-        .map_err(std::io::Error::other)?;
-    let bin_start = json_start + json_len + 8; // skip BIN chunk header
-    let bin = &bytes[bin_start..];
+    let (json, bin) = glb_json_bin(&bytes);
 
     let nodes = json["nodes"].as_array().cloned().unwrap_or_default();
 
@@ -261,7 +262,7 @@ fn f(a: &[Value], i: usize) -> f32 {
 }
 
 /// Resolves a (possibly `../`-prefixed) glTF URI against the glb's directory.
-fn normalize(dir: &Path, uri: &str) -> PathBuf {
+pub(crate) fn normalize(dir: &Path, uri: &str) -> PathBuf {
     let mut p = dir.to_path_buf();
     for seg in uri.split('/') {
         match seg {

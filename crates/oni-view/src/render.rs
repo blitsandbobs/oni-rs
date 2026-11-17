@@ -30,11 +30,15 @@ impl Gpu {
             })
             .await
             .expect("no suitable GPU adapter");
+        let limits = wgpu::Limits {
+            max_push_constant_size: 64, // one 4x4 model matrix
+            ..wgpu::Limits::default()
+        };
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
                 label: Some("oni-view"),
-                required_features: wgpu::Features::empty(),
-                required_limits: wgpu::Limits::default(),
+                required_features: wgpu::Features::PUSH_CONSTANTS,
+                required_limits: limits,
                 memory_hints: wgpu::MemoryHints::Performance,
                 experimental_features: wgpu::ExperimentalFeatures::disabled(),
                 trace: wgpu::Trace::Off,
@@ -70,6 +74,9 @@ struct GpuPrim {
     count: u32,
     texture: usize,
     bucket: Bucket,
+    /// Bone index for a character part (world matrix comes from the pose), or
+    /// `None` for pre-baked world-space environment geometry (identity model).
+    bone: Option<usize>,
 }
 
 pub struct Renderer {
@@ -85,7 +92,12 @@ pub struct Renderer {
 }
 
 impl Renderer {
-    pub fn new(gpu: &Gpu, scene: &Scene, format: wgpu::TextureFormat) -> Renderer {
+    pub fn new(
+        gpu: &Gpu,
+        scene: &Scene,
+        character: Option<&crate::skel::Character>,
+        format: wgpu::TextureFormat,
+    ) -> Renderer {
         let device = &gpu.device;
 
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -131,7 +143,10 @@ impl Renderer {
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("level"),
             bind_group_layouts: &[&uniform_bgl, &tex_bgl],
-            push_constant_ranges: &[],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::VERTEX,
+                range: 0..64,
+            }],
         });
 
         let vbl = wgpu::VertexBufferLayout {
@@ -219,7 +234,8 @@ impl Renderer {
             ..Default::default()
         });
 
-        // Textures (missing/unreadable → magenta placeholder).
+        // Textures (missing/unreadable → magenta placeholder). Scene textures
+        // keep their indices; character textures are appended and mapped.
         let mut tex_bgs = Vec::with_capacity(scene.textures.len());
         for path in &scene.textures {
             let (w, h, rgba) = load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
@@ -227,7 +243,48 @@ impl Renderer {
         }
         let default_tex = make_texture_bg(gpu, &tex_bgl, &sampler, 1, 1, &[200, 200, 200, 255]);
 
-        let prims = scene.prims.iter().map(|p| upload_prim(device, p)).collect();
+        let mut prims: Vec<GpuPrim> = scene.prims.iter().map(|p| upload_prim(device, p)).collect();
+
+        // Character parts (bone-local meshes, drawn via the pose).
+        if let Some(ch) = character {
+            let mut char_tex: std::collections::BTreeMap<std::path::PathBuf, usize> =
+                std::collections::BTreeMap::new();
+            for part in &ch.parts {
+                let texture = part.texture.as_ref().map(|path| {
+                    *char_tex.entry(path.clone()).or_insert_with(|| {
+                        let (w, h, rgba) =
+                            load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
+                        tex_bgs.push(make_texture_bg(gpu, &tex_bgl, &sampler, w, h, &rgba));
+                        tex_bgs.len() - 1
+                    })
+                });
+                let bucket = if part.additive {
+                    Bucket::Additive
+                } else if part.blend {
+                    Bucket::Alpha
+                } else {
+                    Bucket::Opaque
+                };
+                let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("char_vbuf"),
+                    contents: bytemuck::cast_slice(&part.vertices),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("char_ibuf"),
+                    contents: bytemuck::cast_slice(&part.indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                prims.push(GpuPrim {
+                    vbuf,
+                    ibuf,
+                    count: part.indices.len() as u32,
+                    texture: texture.unwrap_or(usize::MAX),
+                    bucket,
+                    bone: Some(part.bone),
+                });
+            }
+        }
 
         Renderer {
             opaque_pipeline,
@@ -264,7 +321,8 @@ impl Renderer {
         self.depth = Some((view, w, h));
     }
 
-    /// Renders the scene into `target` (`w`×`h`) from `view_proj`.
+    /// Renders the scene into `target` (`w`×`h`) from `view_proj`. `bones` holds
+    /// the character's posed world matrices (empty for an environment-only view).
     pub fn render(
         &mut self,
         gpu: &Gpu,
@@ -272,6 +330,7 @@ impl Renderer {
         w: u32,
         h: u32,
         view_proj: Mat4,
+        bones: &[Mat4],
     ) {
         self.ensure_depth(&gpu.device, w, h);
         gpu.queue.write_buffer(
@@ -326,6 +385,15 @@ impl Renderer {
             ] {
                 pass.set_pipeline(pipeline);
                 for p in self.prims.iter().filter(|p| p.bucket == bucket) {
+                    let model = match p.bone {
+                        Some(i) => bones.get(i).copied().unwrap_or(Mat4::IDENTITY),
+                        None => Mat4::IDENTITY,
+                    };
+                    pass.set_push_constants(
+                        wgpu::ShaderStages::VERTEX,
+                        0,
+                        bytemuck::cast_slice(&model.to_cols_array()),
+                    );
                     let bg = self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex);
                     pass.set_bind_group(1, bg, &[]);
                     pass.set_vertex_buffer(0, p.vbuf.slice(..));
@@ -362,6 +430,7 @@ fn upload_prim(device: &wgpu::Device, p: &Prim) -> GpuPrim {
         count: p.indices.len() as u32,
         texture: p.texture.unwrap_or(usize::MAX),
         bucket,
+        bone: None,
     }
 }
 
@@ -510,6 +579,9 @@ struct Uniforms { view_proj: mat4x4<f32> };
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
+struct Push { model: mat4x4<f32> };
+var<push_constant> pc: Push;
+
 struct VSOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) uv: vec2<f32>,
@@ -524,7 +596,7 @@ fn vs_main(
     @location(3) color: vec3<f32>,
 ) -> VSOut {
     var out: VSOut;
-    out.clip = u.view_proj * vec4<f32>(pos, 1.0);
+    out.clip = u.view_proj * pc.model * vec4<f32>(pos, 1.0);
     out.uv = uv;
     out.color = color;
     return out;
