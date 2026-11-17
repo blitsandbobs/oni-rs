@@ -23,7 +23,7 @@ mod skel;
 
 use std::path::PathBuf;
 
-use glam::{Mat4, Vec3};
+use glam::{Mat4, Quat, Vec3};
 
 use crate::camera::Camera;
 use crate::render::{Gpu, Renderer};
@@ -74,10 +74,12 @@ fn main() {
     let (mut eye, mut target, mut char_path, mut anim_path, mut char_pos, mut time) =
         (None, None, None, None, None, None);
     let (mut sim, mut walk): (Option<u32>, Option<Vec3>) = (None, None);
+    let mut facing: Option<f32> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
             "--walk" => walk = args.next().and_then(parse_vec3),
+            "--facing" => facing = args.next().and_then(|s| s.parse().ok()),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
@@ -163,12 +165,29 @@ fn main() {
         let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
         let start_feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
         let mut phys = physics::Physics::new(&verts, &idx, start_feet, height, radius);
-        let walk = walk.unwrap_or(Vec3::ZERO);
+
+        // Movement source: the animation's root motion (rotated by facing) when
+        // present, else the constant `--walk` vector. This is the faithful model:
+        // the clip *is* the locomotion speed.
+        let yaw = facing.unwrap_or(0.0).to_radians();
+        let rot = Quat::from_rotation_y(yaw);
+        let use_root =
+            walk.is_none() && cv.clip.as_ref().is_some_and(|c| !c.root_motion.is_empty());
+        let dt = 1.0 / skel::FPS;
+        let mut anim_t = time.unwrap_or(0.0);
         let mut feet = start_feet;
         for _ in 0..ticks {
-            feet = phys.step(walk);
+            let local = if use_root {
+                let d = cv.clip.as_ref().unwrap().root_delta(anim_t);
+                Vec3::new(d.x, 0.0, d.y)
+            } else {
+                walk.unwrap_or(Vec3::ZERO)
+            };
+            feet = phys.step(rot * local);
+            if use_root {
+                anim_t += dt;
+            }
         }
-        // Place the model so its feet rest at the settled ground point.
         let new_origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
         eprintln!(
             "physics: feet {:?} -> {:?} after {ticks} ticks, grounded={}",
@@ -176,7 +195,11 @@ fn main() {
             feet.to_array().map(|v| v.round()),
             phys.grounded
         );
-        cv.placement = Mat4::from_translation(new_origin);
+        cv.placement = Mat4::from_rotation_translation(rot, new_origin);
+        // Pose the render at the final animation time.
+        if use_root {
+            time = Some(anim_t);
+        }
     }
 
     match screenshot {

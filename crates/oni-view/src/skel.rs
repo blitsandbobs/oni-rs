@@ -49,7 +49,25 @@ pub struct Channel {
 pub struct Clip {
     pub duration: f32,
     pub channels: Vec<Channel>,
+    /// Per-frame character-local `[x, z]` root-motion displacement (from the
+    /// animation's `extras.rootMotion`). Empty if the clip has none.
+    pub root_motion: Vec<[f32; 2]>,
 }
+
+impl Clip {
+    /// The local `[x, z]` root-motion displacement for the frame at `time`
+    /// (seconds), looping. Zero if the clip has no root motion.
+    pub fn root_delta(&self, time: f32) -> glam::Vec2 {
+        if self.root_motion.is_empty() {
+            return glam::Vec2::ZERO;
+        }
+        let frame = (time * crate::skel::FPS) as usize % self.root_motion.len();
+        glam::Vec2::from(self.root_motion[frame])
+    }
+}
+
+/// Animation playback rate (Oni animations run at 60 fps).
+pub const FPS: f32 = 60.0;
 
 impl Character {
     /// World matrix per bone, posed by `clip` at `time` (rest pose when `clip`
@@ -221,9 +239,24 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             rotations,
         });
     }
+    // Root motion from the animation's extras.
+    let root_motion: Vec<[f32; 2]> = anim["extras"]["rootMotion"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|p| {
+                    let x = p.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    let z = p.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
+                    [x, z]
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(Clip {
         duration: duration.max(0.001),
         channels,
+        root_motion,
     })
 }
 
