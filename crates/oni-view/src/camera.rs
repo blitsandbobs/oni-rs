@@ -39,6 +39,15 @@ impl Camera {
         self.forward().cross(Vec3::Y).normalize()
     }
 
+    /// World-space right/up vectors of the camera plane, for orienting
+    /// camera-facing billboards (`right = forward × Y`, `up = right × forward`).
+    pub fn billboard_basis(&self) -> (Vec3, Vec3) {
+        let fwd = self.forward();
+        let right = fwd.cross(Vec3::Y).normalize_or_zero();
+        let up = right.cross(fwd).normalize_or_zero();
+        (right, up)
+    }
+
     /// Look from `eye` toward `target`.
     pub fn look_at(&mut self, eye: Vec3, target: Vec3) {
         self.eye = eye;
