@@ -111,6 +111,26 @@ fn animation_decodes_all_frames() {
             assert!((n - 1.0).abs() < 1e-3, "unit quaternion");
         }
     }
+    // Validate the scalar-field offsets: the struct's numFrames (u16 @356) and
+    // fps (u16 @342) must agree with the independently-derived values. If 356
+    // lands exactly on numFrames, every earlier offset (type/state/varient) is
+    // correct too.
+    let d = dat.instance_data(anim).expect("instance data");
+    let struct_num_frames = u16::from_le_bytes([d[356], d[357]]) as u32;
+    assert_eq!(
+        struct_num_frames, clip.num_frames,
+        "struct numFrames @356 vs derived count"
+    );
+    assert_eq!(u16::from_le_bytes([d[342], d[343]]), 60, "fps field @342");
+    // The state-machine fields decode to small enum values (not garbage).
+    assert!(
+        clip.from_state < 64,
+        "fromState enum, got {}",
+        clip.from_state
+    );
+    assert!(clip.to_state < 64, "toState enum, got {}", clip.to_state);
+    assert!(clip.anim_type < 512, "type enum, got {}", clip.anim_type);
+
     // Root motion: one local [x,z] per frame; a run accumulates forward (z).
     assert_eq!(
         clip.root_motion.len(),

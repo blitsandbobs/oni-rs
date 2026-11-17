@@ -13,6 +13,7 @@
 //!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
+mod anim_state;
 mod app;
 mod camera;
 mod gltf;
@@ -41,6 +42,15 @@ impl CharView {
     pub fn bones(&self, time: f32) -> Vec<Mat4> {
         self.character
             .pose(self.clip.as_ref(), time)
+            .into_iter()
+            .map(|m| self.placement * m)
+            .collect()
+    }
+    /// Posed bone world matrices using a specific clip (for the state machine,
+    /// which chooses the clip per tick rather than using `self.clip`).
+    pub fn bones_with(&self, clip: &Clip, time: f32) -> Vec<Mat4> {
+        self.character
+            .pose(Some(clip), time)
             .into_iter()
             .map(|m| self.placement * m)
             .collect()
@@ -76,12 +86,14 @@ fn main() {
     let (mut sim, mut walk): (Option<u32>, Option<Vec3>) = (None, None);
     let mut facing: Option<f32> = None;
     let mut play = false;
+    let mut anim_prefix: Option<String> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
             "--walk" => walk = args.next().and_then(parse_vec3),
             "--facing" => facing = args.next().and_then(|s| s.parse().ok()),
             "--play" => play = true,
+            "--anim-prefix" => anim_prefix = args.next(),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
@@ -152,6 +164,26 @@ fn main() {
         }
     });
 
+    // Play mode: build the character's locomotion state machine from its whole
+    // animation set (all `{PREFIX}*.glb` beside the given --anim).
+    let mut loco = if play {
+        anim_path.as_ref().and_then(|ap| {
+            let dir = ap.parent()?;
+            let prefix = anim_prefix.clone().unwrap_or_else(|| {
+                // Derive the prefix from the leading uppercase run of the name.
+                ap.file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|n| n.chars().take_while(|c| c.is_ascii_uppercase()).collect())
+                    .unwrap_or_default()
+            });
+            let coll = anim_state::AnimCollection::load(dir, &prefix).ok()?;
+            eprintln!("play: loaded {} '{}' clips", coll.len(), prefix);
+            (!coll.is_empty()).then(|| anim_state::Locomotion::new(coll))
+        })
+    } else {
+        None
+    };
+
     // E3: run the kinematic physics for `--sim` ticks, applying `--walk` as the
     // per-tick horizontal move. Gravity + move-and-slide settle the character on
     // the floor and against walls; the final feet position becomes its placement.
@@ -179,16 +211,21 @@ fn main() {
         let mut anim_t = time.unwrap_or(0.0);
         let mut feet = start_feet;
         for _ in 0..ticks {
-            let local = if use_root {
+            let local = if let Some(l) = loco.as_mut() {
+                // State-machine driven (holds "forward"): clip choice + motion.
+                let d = l.tick(anim_state::Input {
+                    forward: true,
+                    backward: false,
+                });
+                Vec3::new(d.x, 0.0, d.y)
+            } else if use_root {
                 let d = cv.clip.as_ref().unwrap().root_delta(anim_t);
+                anim_t += dt;
                 Vec3::new(d.x, 0.0, d.y)
             } else {
                 walk.unwrap_or(Vec3::ZERO)
             };
             feet = phys.step(rot * local);
-            if use_root {
-                anim_t += dt;
-            }
         }
         let new_origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
         eprintln!(
@@ -198,8 +235,11 @@ fn main() {
             phys.grounded
         );
         cv.placement = Mat4::from_rotation_translation(rot, new_origin);
-        // Pose the render at the final animation time.
-        if use_root {
+        // Pose the render at the final animation frame (SM clip, or --time).
+        if let Some(l) = loco.as_ref() {
+            cv.clip = Some(l.clip().clone());
+            time = Some(l.frame_time());
+        } else if use_root {
             time = Some(anim_t);
         }
     }
@@ -215,7 +255,7 @@ fn main() {
             target,
             time,
         ),
-        None => app::run(scene, charview, particles, eye, target, play),
+        None => app::run(scene, charview, particles, eye, target, play, loco),
     }
 }
 

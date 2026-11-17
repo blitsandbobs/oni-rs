@@ -39,6 +39,7 @@ pub struct Character {
 }
 
 /// One bone's rotation track (bound by name).
+#[derive(Clone)]
 pub struct Channel {
     pub bone_name: String,
     pub times: Vec<f32>,
@@ -46,12 +47,22 @@ pub struct Channel {
 }
 
 /// An animation clip.
+#[derive(Clone)]
 pub struct Clip {
     pub duration: f32,
     pub channels: Vec<Channel>,
     /// Per-frame character-local `[x, z]` root-motion displacement (from the
     /// animation's `extras.rootMotion`). Empty if the clip has none.
     pub root_motion: Vec<[f32; 2]>,
+    /// Action type (`TRtAnimType`): Run, Stand, Idle, Run_Start, … Drives the
+    /// locomotion state machine (see [`crate::anim_state`]).
+    pub anim_type: u16,
+    /// Body state this clip starts from (`TRtAnimState`).
+    pub from_state: u16,
+    /// Body state this clip ends in; becomes the next lookup's `from_state`.
+    pub to_state: u16,
+    /// Variant bits required to select this clip.
+    pub varient: u16,
 }
 
 impl Clip {
@@ -253,10 +264,17 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         })
         .unwrap_or_default();
 
+    let ex = &anim["extras"];
+    let u16_field = |k: &str| ex[k].as_u64().unwrap_or(0) as u16;
+
     Ok(Clip {
         duration: duration.max(0.001),
         channels,
         root_motion,
+        anim_type: u16_field("animType"),
+        from_state: u16_field("fromState"),
+        to_state: u16_field("toState"),
+        varient: u16_field("varient"),
     })
 }
 

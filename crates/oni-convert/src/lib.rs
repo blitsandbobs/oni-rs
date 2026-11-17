@@ -885,6 +885,14 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if clip.flags != 0 {
         obj.insert("flags".into(), serde_json::json!(clip.flags));
     }
+    // State-machine fields (TRtAnimType / TRtAnimState): type, from/to body
+    // state, and variant bits. Drives the locomotion animation state machine.
+    obj.insert("animType".into(), serde_json::json!(clip.anim_type));
+    obj.insert("fromState".into(), serde_json::json!(clip.from_state));
+    obj.insert("toState".into(), serde_json::json!(clip.to_state));
+    if clip.varient != 0 {
+        obj.insert("varient".into(), serde_json::json!(clip.varient));
+    }
     if !clip.attacks.is_empty() {
         let attacks: Vec<serde_json::Value> = clip
             .attacks

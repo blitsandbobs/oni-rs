@@ -177,6 +177,17 @@ const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .
 const TRAM_ATTACKS: usize = 3; // `attacks` is the 4th tm_raw pointer (index 3)
 const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
 const TRAM_FLAGS: usize = 52; // `flags` u32, right after the pointer block
+                              // Scalar state-machine fields. Offsets: 52-byte pointer block, then flags(4),
+                              // directAnimation[2](8), usedParts(4), replaceParts(4), finalRotation(4),
+                              // moveDirection+vocalizationType(4), extentInfo(232), attackName[16],
+                              // hardPause+softPause(4), numNewSounds+soundName(8), soundFrame+fps(4),
+                              // compressionSize(2), then the contiguous u16 run below.
+const TRAM_TYPE: usize = 346; // `type` (TRtAnimType)
+const TRAM_AIMING: usize = 348; // `aimingType`
+const TRAM_FROM_STATE: usize = 350; // `fromState` (TRtAnimState)
+const TRAM_TO_STATE: usize = 352; // `toState`
+                                  // (`numFrames` sits at 356 — the trbs_decode test reads it to validate this math.)
+const TRAM_VARIENT: usize = 360; // `varient` (variant bits)
 const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
 
@@ -289,6 +300,17 @@ pub struct Clip {
     pub flags: u32,
     /// Attacks: hit windows + effects (empty for non-attack animations).
     pub attacks: Vec<Attack>,
+    /// The action this clip performs (`TRtAnimation.type`, a `TRtAnimType`):
+    /// stand, run, walk, turn, etc. Drives the locomotion state machine.
+    pub anim_type: u16,
+    /// Aiming screen / weapon-holding variant (`TRtAnimation.aimingType`).
+    pub aiming_type: u16,
+    /// Body state this clip starts from (`TRtAnimation.fromState`, a `TRtAnimState`).
+    pub from_state: u16,
+    /// Body state this clip ends in (`TRtAnimation.toState`).
+    pub to_state: u16,
+    /// Variant bits required to select this clip (`TRtAnimation.varient`).
+    pub varient: u16,
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -386,6 +408,11 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         root_motion,
         flags,
         attacks,
+        anim_type: read_u16(d, TRAM_TYPE).unwrap_or(0),
+        aiming_type: read_u16(d, TRAM_AIMING).unwrap_or(0),
+        from_state: read_u16(d, TRAM_FROM_STATE).unwrap_or(0),
+        to_state: read_u16(d, TRAM_TO_STATE).unwrap_or(0),
+        varient: read_u16(d, TRAM_VARIENT).unwrap_or(0),
     })
 }
 
