@@ -75,11 +75,13 @@ fn main() {
         (None, None, None, None, None, None);
     let (mut sim, mut walk): (Option<u32>, Option<Vec3>) = (None, None);
     let mut facing: Option<f32> = None;
+    let mut play = false;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
             "--walk" => walk = args.next().and_then(parse_vec3),
             "--facing" => facing = args.next().and_then(|s| s.parse().ok()),
+            "--play" => play = true,
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
@@ -213,7 +215,7 @@ fn main() {
             target,
             time,
         ),
-        None => app::run(scene, charview, particles, eye, target),
+        None => app::run(scene, charview, particles, eye, target, play),
     }
 }
 

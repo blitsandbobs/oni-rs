@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::Vec3;
+use glam::{Mat4, Quat, Vec2, Vec3};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -17,6 +17,20 @@ use winit::window::{Window, WindowId};
 use crate::camera::Camera;
 use crate::gltf::Scene;
 use crate::render::{Gpu, Renderer};
+
+/// Play-mode character controller state (E3.1): the character is driven by the
+/// 60 Hz physics + its animation root motion, with a third-person follow camera.
+struct PlayState {
+    physics: crate::physics::Physics,
+    yaw: f32,
+    anim_t: f32,
+    foot_offset: f32,
+    height: f32,
+    accum: f32,
+}
+
+const TICK: f32 = 1.0 / 60.0;
+const TURN_SPEED: f32 = 0.05; // radians per tick
 
 struct State {
     gpu: Gpu,
@@ -31,6 +45,7 @@ struct State {
     last: Instant,
     start: Instant,
     charview: Option<crate::CharView>,
+    play: Option<PlayState>,
 }
 
 pub struct App {
@@ -39,16 +54,19 @@ pub struct App {
     particles: Vec<crate::particles::Particle>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
+    play: bool,
     state: Option<State>,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
+/// `play` enables the third-person character controller (needs a character).
 pub fn run(
     scene: Scene,
     charview: Option<crate::CharView>,
     particles: Vec<crate::particles::Particle>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
+    play: bool,
 ) {
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -58,6 +76,7 @@ pub fn run(
         particles,
         eye,
         target,
+        play,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -110,6 +129,30 @@ impl ApplicationHandler for App {
             &self.particles,
             format,
         );
+
+        // Build the play-mode controller (level trimesh + character capsule).
+        let play = if self.play {
+            charview.as_ref().map(|cv| {
+                let (verts, idx) = crate::level_collision_mesh(&scene);
+                let (mn, mx) = cv.aabb(0.0);
+                let origin = cv.placement.transform_point3(Vec3::ZERO);
+                let foot_offset = mn.y - origin.y;
+                let height = (mx.y - mn.y).max(2.0);
+                let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
+                let feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
+                PlayState {
+                    physics: crate::physics::Physics::new(&verts, &idx, feet, height, radius),
+                    yaw: 0.0,
+                    anim_t: 0.0,
+                    foot_offset,
+                    height,
+                    accum: 0.0,
+                }
+            })
+        } else {
+            None
+        };
+
         let move_speed = scene.extent() * 0.4;
         let aspect = config.width as f32 / config.height as f32;
         let mut cam = match &charview {
@@ -136,6 +179,7 @@ impl ApplicationHandler for App {
             last: now,
             start: now,
             charview,
+            play,
         });
     }
 
@@ -204,6 +248,12 @@ impl State {
         let dt = (now - self.last).as_secs_f32().min(0.1);
         self.last = now;
 
+        // Play mode: drive the character at a fixed 60 Hz.
+        if self.play.is_some() {
+            self.update_play(dt);
+            return;
+        }
+
         let fast =
             self.keys.contains(&KeyCode::ShiftLeft) || self.keys.contains(&KeyCode::ShiftRight);
         let speed = self.move_speed * dt * if fast { 4.0 } else { 1.0 };
@@ -233,6 +283,49 @@ impl State {
         }
     }
 
+    /// Play-mode character controller: W/S move (root motion), A/D turn; the
+    /// camera follows third-person. Stepped at a fixed 60 Hz.
+    fn update_play(&mut self, dt: f32) {
+        let fwd_held = self.keys.contains(&KeyCode::KeyW);
+        let back_held = self.keys.contains(&KeyCode::KeyS);
+        let turn = (self.keys.contains(&KeyCode::KeyD) as i32
+            - self.keys.contains(&KeyCode::KeyA) as i32) as f32;
+        let clip = self.charview.as_ref().and_then(|c| c.clip.as_ref());
+
+        let Some(play) = self.play.as_mut() else {
+            return;
+        };
+        play.accum += dt;
+        while play.accum >= TICK {
+            play.accum -= TICK;
+            play.yaw += turn * TURN_SPEED;
+            let world_move = if fwd_held || back_held {
+                let local = clip
+                    .map(|c| c.root_delta(play.anim_t))
+                    .unwrap_or(Vec2::ZERO);
+                let dir = if back_held && !fwd_held { -1.0 } else { 1.0 };
+                play.anim_t += TICK;
+                Quat::from_rotation_y(play.yaw) * Vec3::new(local.x * dir, 0.0, local.y * dir)
+            } else {
+                play.anim_t = 0.0;
+                Vec3::ZERO
+            };
+            play.physics.step(world_move);
+        }
+
+        let (feet, yaw, foot_offset, height) =
+            (play.physics.feet, play.yaw, play.foot_offset, play.height);
+        if let Some(cv) = self.charview.as_mut() {
+            let origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
+            cv.placement = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), origin);
+        }
+        // Third-person follow camera (behind + above, looking at the torso).
+        let center = feet + Vec3::new(0.0, height * 0.55, 0.0);
+        let fwd = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+        let eye = center - fwd * (height * 2.2) + Vec3::new(0.0, height * 0.4, 0.0);
+        self.cam.look_at(eye, center);
+    }
+
     fn render(&mut self) {
         let frame = match self.surface.get_current_texture() {
             Ok(f) => f,
@@ -244,14 +337,16 @@ impl State {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        // Loop the character's animation over elapsed time.
-        let bones = match &self.charview {
-            Some(cv) => {
+        // Pose the character: at the play-mode animation time, or looping over
+        // elapsed time in the free-fly viewer.
+        let bones = match (&self.charview, &self.play) {
+            (Some(cv), Some(play)) => cv.bones(play.anim_t),
+            (Some(cv), None) => {
                 let dur = cv.clip.as_ref().map(|c| c.duration).unwrap_or(1.0);
                 let t = self.start.elapsed().as_secs_f32() % dur.max(0.001);
                 cv.bones(t)
             }
-            None => Vec::new(),
+            _ => Vec::new(),
         };
         let (cam_right, cam_up) = self.cam.billboard_basis();
         self.renderer.render(
