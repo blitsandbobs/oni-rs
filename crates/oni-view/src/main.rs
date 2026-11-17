@@ -20,6 +20,7 @@ mod gltf;
 mod particles;
 mod physics;
 mod render;
+mod script;
 mod skel;
 
 use std::path::PathBuf;
@@ -87,6 +88,7 @@ fn main() {
     let mut facing: Option<f32> = None;
     let mut play = false;
     let mut anim_prefix: Option<String> = None;
+    let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
@@ -94,6 +96,7 @@ fn main() {
             "--facing" => facing = args.next().and_then(|s| s.parse().ok()),
             "--play" => play = true,
             "--anim-prefix" => anim_prefix = args.next(),
+            "--script" => script_path = args.next().map(PathBuf::from),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
@@ -166,7 +169,7 @@ fn main() {
 
     // Play mode: build the character's locomotion state machine from its whole
     // animation set (all `{PREFIX}*.glb` beside the given --anim).
-    let mut loco = if play {
+    let mut loco = if play || script_path.is_some() {
         anim_path.as_ref().and_then(|ap| {
             let dir = ap.parent()?;
             let prefix = anim_prefix.clone().unwrap_or_else(|| {
@@ -242,6 +245,15 @@ fn main() {
         } else if use_root {
             time = Some(anim_t);
         }
+    }
+
+    // Scripted scenario (headless Lua driver) takes precedence.
+    if let Some(sp) = script_path {
+        match charview {
+            Some(cv) => script::run_script(&sp, scene, cv, particles, loco),
+            None => eprintln!("--script requires --character"),
+        }
+        return;
     }
 
     match screenshot {
@@ -337,9 +349,33 @@ fn run_screenshot(
     let bones = charview.map(|c| c.bones(t)).unwrap_or_default();
     let (cam_right, cam_up) = cam.billboard_basis();
 
-    // Offscreen color target.
+    let rgba = render_to_rgba(
+        &gpu,
+        &mut renderer,
+        format,
+        (w, h),
+        cam.view_proj(),
+        &bones,
+        (cam_right, cam_up),
+    );
+    write_png(out, w, h, &rgba);
+    eprintln!("wrote {} ({w}x{h})", out.display());
+}
+
+/// Renders one frame to an offscreen texture and reads it back as RGBA8 bytes.
+/// Shared by `run_screenshot` and the scripting host.
+#[allow(clippy::too_many_arguments)]
+pub fn render_to_rgba(
+    gpu: &Gpu,
+    renderer: &mut Renderer,
+    format: wgpu::TextureFormat,
+    (w, h): (u32, u32),
+    view_proj: Mat4,
+    bones: &[Mat4],
+    (cam_right, cam_up): (Vec3, Vec3),
+) -> Vec<u8> {
     let color = gpu.device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("screenshot"),
+        label: Some("offscreen"),
         size: wgpu::Extent3d {
             width: w,
             height: h,
@@ -353,16 +389,7 @@ fn run_screenshot(
         view_formats: &[],
     });
     let view = color.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer.render(
-        &gpu,
-        &view,
-        w,
-        h,
-        cam.view_proj(),
-        &bones,
-        cam_right,
-        cam_up,
-    );
+    renderer.render(gpu, &view, w, h, view_proj, bones, cam_right, cam_up);
 
     // Copy to a readback buffer (bytes_per_row aligned to 256).
     let bpr = (4 * w).div_ceil(256) * 256;
@@ -409,12 +436,10 @@ fn run_screenshot(
     }
     drop(data);
     buffer.unmap();
-
-    write_png(out, w, h, &rgba);
-    eprintln!("wrote {} ({w}x{h})", out.display());
+    rgba
 }
 
-fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) {
+pub fn write_png(path: &std::path::Path, w: u32, h: u32, rgba: &[u8]) {
     let file = std::fs::File::create(path).expect("create png");
     let mut encoder = png::Encoder::new(std::io::BufWriter::new(file), w, h);
     encoder.set_color(png::ColorType::Rgba);
