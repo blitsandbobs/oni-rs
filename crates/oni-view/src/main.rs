@@ -25,7 +25,7 @@ mod skel;
 
 use std::path::PathBuf;
 
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 
 use crate::camera::Camera;
 use crate::render::{Gpu, Renderer};
@@ -84,16 +84,11 @@ fn main() {
     let mut particles_path = None;
     let (mut eye, mut target, mut char_path, mut anim_path, mut char_pos, mut time) =
         (None, None, None, None, None, None);
-    let (mut sim, mut walk): (Option<u32>, Option<Vec3>) = (None, None);
-    let mut facing: Option<f32> = None;
     let mut play = false;
     let mut anim_prefix: Option<String> = None;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
-            "--sim" => sim = args.next().and_then(|s| s.parse().ok()),
-            "--walk" => walk = args.next().and_then(parse_vec3),
-            "--facing" => facing = args.next().and_then(|s| s.parse().ok()),
             "--play" => play = true,
             "--anim-prefix" => anim_prefix = args.next(),
             "--script" => script_path = args.next().map(PathBuf::from),
@@ -146,7 +141,7 @@ fn main() {
         .unwrap_or_default();
 
     // Optional character.
-    let mut charview = char_path.map(|p| {
+    let charview = char_path.map(|p| {
         eprintln!("loading character {}...", p.display());
         let character = skel::load_character(&p).expect("load character");
         let clip = anim_path.as_ref().map(|ap| {
@@ -169,7 +164,7 @@ fn main() {
 
     // Play mode: build the character's locomotion state machine from its whole
     // animation set (all `{PREFIX}*.glb` beside the given --anim).
-    let mut loco = if play || script_path.is_some() {
+    let loco = if play || script_path.is_some() {
         anim_path.as_ref().and_then(|ap| {
             let dir = ap.parent()?;
             let prefix = anim_prefix.clone().unwrap_or_else(|| {
@@ -187,67 +182,9 @@ fn main() {
         None
     };
 
-    // E3: run the kinematic physics for `--sim` ticks, applying `--walk` as the
-    // per-tick horizontal move. Gravity + move-and-slide settle the character on
-    // the floor and against walls; the final feet position becomes its placement.
-    if let (Some(cv), Some(ticks)) = (charview.as_mut(), sim) {
-        let (verts, idx) = level_collision_mesh(&scene);
-        let (mn, mx) = cv.aabb(0.0);
-        // The model's origin is the pelvis, not the feet; `foot_offset` is how
-        // far the lowest point sits below the origin (negative). Physics tracks
-        // the *feet*, so we convert origin<->feet by this offset.
-        let origin = cv.placement.transform_point3(Vec3::ZERO);
-        let foot_offset = mn.y - origin.y;
-        let height = (mx.y - mn.y).max(2.0);
-        let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
-        let start_feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
-        let mut phys = physics::Physics::new(&verts, &idx, start_feet, height, radius);
-
-        // Movement source: the animation's root motion (rotated by facing) when
-        // present, else the constant `--walk` vector. This is the faithful model:
-        // the clip *is* the locomotion speed.
-        let yaw = facing.unwrap_or(0.0).to_radians();
-        let rot = Quat::from_rotation_y(yaw);
-        let use_root =
-            walk.is_none() && cv.clip.as_ref().is_some_and(|c| !c.root_motion.is_empty());
-        let dt = 1.0 / skel::FPS;
-        let mut anim_t = time.unwrap_or(0.0);
-        let mut feet = start_feet;
-        for _ in 0..ticks {
-            let local = if let Some(l) = loco.as_mut() {
-                // State-machine driven (holds "forward"): clip choice + motion.
-                let d = l.tick(anim_state::Input {
-                    forward: true,
-                    backward: false,
-                });
-                Vec3::new(d.x, 0.0, d.y)
-            } else if use_root {
-                let d = cv.clip.as_ref().unwrap().root_delta(anim_t);
-                anim_t += dt;
-                Vec3::new(d.x, 0.0, d.y)
-            } else {
-                walk.unwrap_or(Vec3::ZERO)
-            };
-            feet = phys.step(rot * local);
-        }
-        let new_origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
-        eprintln!(
-            "physics: feet {:?} -> {:?} after {ticks} ticks, grounded={}",
-            start_feet.to_array().map(|v| v.round()),
-            feet.to_array().map(|v| v.round()),
-            phys.grounded
-        );
-        cv.placement = Mat4::from_rotation_translation(rot, new_origin);
-        // Pose the render at the final animation frame (SM clip, or --time).
-        if let Some(l) = loco.as_ref() {
-            cv.clip = Some(l.clip().clone());
-            time = Some(l.frame_time());
-        } else if use_root {
-            time = Some(anim_t);
-        }
-    }
-
-    // Scripted scenario (headless Lua driver) takes precedence.
+    // Scripted scenario (headless Lua driver): drives physics + the locomotion
+    // state machine from a `.lua` file (see `scenarios/`). Replaces the old
+    // `--sim`/`--walk`/`--facing` test flags.
     if let Some(sp) = script_path {
         match charview {
             Some(cv) => script::run_script(&sp, scene, cv, particles, loco),

@@ -65,18 +65,6 @@ pub struct Clip {
     pub varient: u16,
 }
 
-impl Clip {
-    /// The local `[x, z]` root-motion displacement for the frame at `time`
-    /// (seconds), looping. Zero if the clip has no root motion.
-    pub fn root_delta(&self, time: f32) -> glam::Vec2 {
-        if self.root_motion.is_empty() {
-            return glam::Vec2::ZERO;
-        }
-        let frame = (time * crate::skel::FPS) as usize % self.root_motion.len();
-        glam::Vec2::from(self.root_motion[frame])
-    }
-}
-
 /// Animation playback rate (Oni animations run at 60 fps).
 pub const FPS: f32 = 60.0;
 

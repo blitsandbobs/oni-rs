@@ -16,6 +16,7 @@
 //! - `step(n)` — advance `n` 60 Hz ticks (state machine + physics)
 //! - `cam(ex,ey,ez, tx,ty,tz)` — place the camera (eye, look-at target)
 //! - `pos()` — returns the character's feet `x, y, z`
+//! - `grounded()` — whether the character is currently on the ground
 //! - `anim()` — returns the current clip name
 //! - `screenshot(path [, w, h])` — render one frame to a PNG
 
@@ -226,6 +227,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let f = h.borrow().physics.feet;
             Ok((f.x, f.y, f.z))
         })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "grounded",
+        lua.create_function(move |_, ()| Ok(h.borrow().physics.grounded))?,
     )?;
 
     let h = host.clone();
