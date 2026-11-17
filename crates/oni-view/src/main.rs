@@ -48,10 +48,16 @@ impl CharView {
             .collect()
     }
     /// Posed bone world matrices using a specific clip (for the state machine,
-    /// which chooses the clip per tick rather than using `self.clip`).
-    pub fn bones_with(&self, clip: &Clip, time: f32) -> Vec<Mat4> {
+    /// which chooses the clip per tick rather than using `self.clip`), with an
+    /// optional stitch blend `(saved pose, weight)`.
+    pub fn bones_with(
+        &self,
+        clip: &Clip,
+        time: f32,
+        stitch: Option<(&[glam::Quat], f32)>,
+    ) -> Vec<Mat4> {
         self.character
-            .pose(Some(clip), time)
+            .pose_blended(Some(clip), time, stitch)
             .into_iter()
             .map(|m| self.placement * m)
             .collect()

@@ -17,6 +17,7 @@
 //! - `cam(ex,ey,ez, tx,ty,tz)` — place the camera (eye, look-at target)
 //! - `pos()` — returns the character's feet `x, y, z`
 //! - `grounded()` — whether the character is currently on the ground
+//! - `stitch()` — the current clip-blend weight (0 = not blending)
 //! - `anim()` — returns the current clip name
 //! - `screenshot(path [, w, h])` — render one frame to a PNG
 
@@ -94,7 +95,7 @@ impl ScriptHost {
         for _ in 0..n {
             let local = match &mut self.loco {
                 Some(l) => {
-                    let d = l.tick(self.input);
+                    let d = l.tick(self.input, Some(&self.charview.character));
                     Vec3::new(d.x, 0.0, d.y)
                 }
                 None => Vec3::ZERO,
@@ -118,7 +119,9 @@ impl ScriptHost {
             _ => {}
         }
         let bones = match &self.loco {
-            Some(l) => self.charview.bones_with(l.clip(), l.frame_time()),
+            Some(l) => self
+                .charview
+                .bones_with(l.clip(), l.frame_time(), l.blend()),
             None => self.charview.bones(t),
         };
         let basis = cam.billboard_basis();
@@ -233,6 +236,20 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "grounded",
         lua.create_function(move |_, ()| Ok(h.borrow().physics.grounded))?,
+    )?;
+
+    // The current clip-to-clip stitch blend weight (0 = not blending).
+    let h = host.clone();
+    g.set(
+        "stitch",
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow()
+                .loco
+                .as_ref()
+                .and_then(|l| l.blend())
+                .map(|(_, t)| t)
+                .unwrap_or(0.0))
+        })?,
     )?;
 
     let h = host.clone();

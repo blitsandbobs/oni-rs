@@ -130,6 +130,12 @@ fn animation_decodes_all_frames() {
     );
     assert!(clip.to_state < 64, "toState enum, got {}", clip.to_state);
     assert!(clip.anim_type < 512, "type enum, got {}", clip.anim_type);
+    // endInterpolation is a small frame count (the engine asserts < 60).
+    assert!(
+        clip.end_interpolation < 60,
+        "endInterp is a frame count, got {}",
+        clip.end_interpolation
+    );
 
     // Root motion: one local [x,z] per frame; a run accumulates forward (z).
     assert_eq!(

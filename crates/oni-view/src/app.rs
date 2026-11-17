@@ -296,20 +296,30 @@ impl State {
         let turn = (self.keys.contains(&KeyCode::KeyD) as i32
             - self.keys.contains(&KeyCode::KeyA) as i32) as f32;
 
-        let Some(play) = self.play.as_mut() else {
-            return;
-        };
-        play.accum += dt;
-        while play.accum >= TICK {
-            play.accum -= TICK;
-            play.yaw += turn * TURN_SPEED;
-            // The animation state machine chooses the clip and yields this
-            // frame's character-local root motion; facing rotates it to world.
-            let local = play.loco.tick(input);
-            let world_move = Quat::from_rotation_y(play.yaw) * Vec3::new(local.x, 0.0, local.y);
-            play.physics.step(world_move);
+        // Step the simulation (character immutably borrowed for stitch capture,
+        // play state mutably — disjoint fields).
+        {
+            let Some(cv) = self.charview.as_ref() else {
+                return;
+            };
+            let Some(play) = self.play.as_mut() else {
+                return;
+            };
+            play.accum += dt;
+            while play.accum >= TICK {
+                play.accum -= TICK;
+                play.yaw += turn * TURN_SPEED;
+                // The animation state machine chooses the clip and yields this
+                // frame's character-local root motion; facing rotates it to world.
+                let local = play.loco.tick(input, Some(&cv.character));
+                let world_move = Quat::from_rotation_y(play.yaw) * Vec3::new(local.x, 0.0, local.y);
+                play.physics.step(world_move);
+            }
         }
 
+        let Some(play) = self.play.as_ref() else {
+            return;
+        };
         let (feet, yaw, foot_offset, height) =
             (play.physics.feet, play.yaw, play.foot_offset, play.height);
         if let Some(cv) = self.charview.as_mut() {
@@ -337,7 +347,9 @@ impl State {
         // Pose the character: at the play-mode animation time, or looping over
         // elapsed time in the free-fly viewer.
         let bones = match (&self.charview, &self.play) {
-            (Some(cv), Some(play)) => cv.bones_with(play.loco.clip(), play.loco.frame_time()),
+            (Some(cv), Some(play)) => {
+                cv.bones_with(play.loco.clip(), play.loco.frame_time(), play.loco.blend())
+            }
             (Some(cv), None) => {
                 let dur = cv.clip.as_ref().map(|c| c.duration).unwrap_or(1.0);
                 let t = self.start.elapsed().as_secs_f32() % dur.max(0.001);

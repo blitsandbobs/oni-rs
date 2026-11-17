@@ -63,23 +63,59 @@ pub struct Clip {
     pub to_state: u16,
     /// Variant bits required to select this clip.
     pub varient: u16,
+    /// Frames to blend out of this clip when it ends (`endInterpolation`).
+    pub end_interpolation: u16,
+    /// Max frames another clip may blend into this one (`maxInterpolation`).
+    pub max_interpolation: u16,
 }
 
 /// Animation playback rate (Oni animations run at 60 fps).
 pub const FPS: f32 = 60.0;
 
 impl Character {
+    /// The local rotation `clip` applies to each bone at `time` (rest rotation
+    /// when `clip` is `None` or a bone has no track). This is the per-bone
+    /// orientation posing uses — captured as the source pose for stitching.
+    pub fn local_rotations(&self, clip: Option<&Clip>, time: f32) -> Vec<Quat> {
+        self.bones
+            .iter()
+            .map(|b| {
+                clip.and_then(|c| c.channels.iter().find(|ch| ch.bone_name == b.name))
+                    .map(|ch| sample(ch, time))
+                    .unwrap_or(b.rotation)
+            })
+            .collect()
+    }
+
     /// World matrix per bone, posed by `clip` at `time` (rest pose when `clip`
     /// is `None` or a bone has no track).
     pub fn pose(&self, clip: Option<&Clip>, time: f32) -> Vec<Mat4> {
+        self.pose_blended(clip, time, None)
+    }
+
+    /// Like [`pose`](Self::pose), but when `stitch` is `Some((saved, t))` each
+    /// bone's rotation is blended toward the `saved` pose by weight `t`
+    /// (`t = 1` → fully `saved`, `t = 0` → fully `clip`) — Oni's animation
+    /// stitching (`ONrCharacter_BuildQuaternions`, nlerp of new vs saved).
+    pub fn pose_blended(
+        &self,
+        clip: Option<&Clip>,
+        time: f32,
+        stitch: Option<(&[Quat], f32)>,
+    ) -> Vec<Mat4> {
         let n = self.bones.len();
         let mut world = vec![Mat4::IDENTITY; n];
         for i in 0..n {
             let b = &self.bones[i];
-            let rot = clip
+            let mut rot = clip
                 .and_then(|c| c.channels.iter().find(|ch| ch.bone_name == b.name))
                 .map(|ch| sample(ch, time))
                 .unwrap_or(b.rotation);
+            if let Some((saved, t)) = stitch {
+                if let Some(&s) = saved.get(i) {
+                    rot = nlerp(rot, s, t);
+                }
+            }
             let local = Mat4::from_rotation_translation(rot, b.translation);
             world[i] = match b.parent {
                 Some(p) => world[p] * local,
@@ -88,6 +124,13 @@ impl Character {
         }
         world
     }
+}
+
+/// Normalized lerp from `a` (t=0) to `b` (t=1), flipping `b` into `a`'s
+/// hemisphere first so the short arc is taken (matches `MUrQuat_Lerp`).
+fn nlerp(a: Quat, b: Quat, t: f32) -> Quat {
+    let b = if a.dot(b) < 0.0 { -b } else { b };
+    a.lerp(b, t)
 }
 
 /// Samples a rotation channel at `time` (linear/slerp between keys).
@@ -263,6 +306,8 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         from_state: u16_field("fromState"),
         to_state: u16_field("toState"),
         varient: u16_field("varient"),
+        end_interpolation: u16_field("endInterp"),
+        max_interpolation: u16_field("maxInterp"),
     })
 }
 

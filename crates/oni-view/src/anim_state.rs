@@ -17,9 +17,20 @@
 
 use std::path::Path;
 
-use glam::Vec2;
+use glam::{Quat, Vec2};
 
-use crate::skel::{self, Clip};
+use crate::skel::{self, Character, Clip};
+
+/// Default stitch length when interrupting into a clip (`ONcNumStitchingFrames`).
+const STITCH_FRAMES: f32 = 8.0;
+
+/// An in-progress clip-to-clip blend ("stitch"): the pose at the moment of the
+/// switch, interpolated out over `count` frames.
+struct Stitch {
+    saved: Vec<Quat>,
+    itr: f32,
+    count: f32,
+}
 
 /// `TRtAnimType` values (from `Oni_Character_Animation.h`; validated against the
 /// decoded data — e.g. `NINJArun1stepa` is `Run_Start` = 208).
@@ -121,6 +132,8 @@ pub struct Locomotion {
     /// The `to_state` of the current clip = the `from_state` for the next lookup.
     next_state: u16,
     varient: u16,
+    /// Active clip-to-clip blend, if any.
+    stitch: Option<Stitch>,
 }
 
 impl Locomotion {
@@ -144,7 +157,16 @@ impl Locomotion {
             cur_type,
             next_state,
             varient,
+            stitch: None,
         }
+    }
+
+    /// The active stitch blend for posing: `(saved pose, weight)` where weight
+    /// `1 → saved`, `0 → current clip`. `None` when not stitching.
+    pub fn blend(&self) -> Option<(&[Quat], f32)> {
+        self.stitch
+            .as_ref()
+            .map(|s| (s.saved.as_slice(), 1.0 - s.itr / s.count))
     }
 
     /// The clip currently playing.
@@ -173,7 +195,18 @@ impl Locomotion {
 
     /// Advances one 60 Hz tick: picks/continues a clip per the probe chain and
     /// returns the character-local `[x, z]` root-motion for this frame.
-    pub fn tick(&mut self, input: Input) -> Vec2 {
+    /// `character` (when given) lets a clip switch capture the current pose to
+    /// blend out of — pass `None` to drive the machine without stitching.
+    pub fn tick(&mut self, input: Input, character: Option<&Character>) -> Vec2 {
+        // Advance any in-progress stitch (so a stitch begun this tick renders at
+        // full strength this frame, then decays).
+        if let Some(s) = &mut self.stitch {
+            s.itr += 1.0;
+            if s.itr >= s.count {
+                self.stitch = None;
+            }
+        }
+
         let finished = self.frame + 1.0 >= self.frame_count();
         let resting = matches!(
             self.cur_type,
@@ -182,18 +215,25 @@ impl Locomotion {
         let chosen = self.choose(input);
 
         if finished {
-            // Clip ended: chain to the chosen clip (or settle to standing).
+            // Clip ended: chain to the chosen clip (or settle to standing). A
+            // natural chain blends out over the old clip's `endInterpolation`.
             let next = chosen
                 .or_else(|| {
                     self.coll
                         .lookup(anim_type::STAND, state::STANDING, self.varient)
                 })
                 .unwrap_or(self.cur);
-            self.switch_to(next);
+            let count = self.clip().end_interpolation as f32;
+            self.switch_to(next, count, character);
         } else if resting {
-            // Idling: interrupt immediately if the input wants movement.
+            // Idling: interrupt immediately if the input wants movement. An
+            // interrupt blends over min(8, maxInterpolation) of the new clip.
             match chosen {
-                Some(n) if n != self.cur => self.switch_to(n),
+                Some(n) if n != self.cur => {
+                    let count =
+                        STITCH_FRAMES.min(self.coll.entries[n].clip.max_interpolation as f32);
+                    self.switch_to(n, count, character);
+                }
                 _ => self.frame += 1.0,
             }
         } else {
@@ -209,7 +249,19 @@ impl Locomotion {
             .unwrap_or(Vec2::ZERO)
     }
 
-    fn switch_to(&mut self, i: usize) {
+    /// Switches to clip `i`, optionally starting a `count`-frame blend out of the
+    /// current pose (captured from `character` at the current clip/frame).
+    fn switch_to(&mut self, i: usize, count: f32, character: Option<&Character>) {
+        if count >= 1.0 {
+            if let Some(ch) = character {
+                let saved = ch.local_rotations(Some(self.clip()), self.frame_time());
+                self.stitch = Some(Stitch {
+                    saved,
+                    itr: 0.0,
+                    count,
+                });
+            }
+        }
         self.cur = i;
         self.frame = 0.0;
         let e = &self.coll.entries[i];
@@ -319,7 +371,7 @@ mod tests {
         let mut types = Vec::new();
         let mut forward_motion = 0.0f32;
         for _ in 0..90 {
-            forward_motion += loco.tick(fwd).y;
+            forward_motion += loco.tick(fwd, None).y;
             types.push((loco.cur_type, loco.clip_name().to_string()));
         }
         assert!(
@@ -343,7 +395,7 @@ mod tests {
         let idle = Input::default();
         let mut rested = false;
         for _ in 0..180 {
-            loco.tick(idle);
+            loco.tick(idle, None);
             if matches!(loco.cur_type, anim_type::STAND | anim_type::IDLE) {
                 rested = true;
                 break;

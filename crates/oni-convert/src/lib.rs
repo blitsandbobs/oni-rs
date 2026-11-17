@@ -893,6 +893,18 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if clip.varient != 0 {
         obj.insert("varient".into(), serde_json::json!(clip.varient));
     }
+    if clip.end_interpolation != 0 {
+        obj.insert(
+            "endInterp".into(),
+            serde_json::json!(clip.end_interpolation),
+        );
+    }
+    if clip.max_interpolation != 0 {
+        obj.insert(
+            "maxInterp".into(),
+            serde_json::json!(clip.max_interpolation),
+        );
+    }
     if !clip.attacks.is_empty() {
         let attacks: Vec<serde_json::Value> = clip
             .attacks

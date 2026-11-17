@@ -28,6 +28,7 @@ with `--anim-prefix`).
 | `run.lua` | Idle → run (start → loop) → settle, driven by holding "forward". |
 | `drop.lua` | Gravity: dropped from height, lands grounded at `y≈0`. Use `--char-pos 200,20,300`. |
 | `collision.lua` | Move-and-slide: running into the lockers stops her (no tunnelling). |
+| `stitch.lua` | Clip-to-clip blending: the idle→run interrupt blends (weight 1→0 over 8 frames) instead of snapping. |
 
 ## Lua API
 
@@ -39,6 +40,7 @@ with `--anim-prefix`).
 | `cam(ex,ey,ez, tx,ty,tz)` | Place the camera (eye, look-at target). |
 | `pos()` → `x,y,z` | The character's feet position. |
 | `grounded()` → `bool` | Whether she's on the ground. |
+| `stitch()` → `weight` | Current clip-blend weight (0 = not blending). |
 | `anim()` → `name` | The clip currently playing. |
 | `screenshot(path [,w,h])` | Render one frame to a PNG (default 800×600). |
 

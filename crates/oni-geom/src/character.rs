@@ -188,6 +188,9 @@ const TRAM_FROM_STATE: usize = 350; // `fromState` (TRtAnimState)
 const TRAM_TO_STATE: usize = 352; // `toState`
                                   // (`numFrames` sits at 356 — the trbs_decode test reads it to validate this math.)
 const TRAM_VARIENT: usize = 360; // `varient` (variant bits)
+                                 // ...varientEnd(362), atomicStart(364), atomicEnd(366), then:
+const TRAM_END_INTERP: usize = 368; // `endInterpolation` (frames to blend when leaving)
+const TRAM_MAX_INTERP: usize = 370; // `maxInterpolation` (cap on blend into this clip)
 const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
 
@@ -311,6 +314,10 @@ pub struct Clip {
     pub to_state: u16,
     /// Variant bits required to select this clip (`TRtAnimation.varient`).
     pub varient: u16,
+    /// Frames to blend out of this clip when it ends (`endInterpolation`).
+    pub end_interpolation: u16,
+    /// Max frames another clip may blend into this one (`maxInterpolation`).
+    pub max_interpolation: u16,
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -413,6 +420,8 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         from_state: read_u16(d, TRAM_FROM_STATE).unwrap_or(0),
         to_state: read_u16(d, TRAM_TO_STATE).unwrap_or(0),
         varient: read_u16(d, TRAM_VARIENT).unwrap_or(0),
+        end_interpolation: read_u16(d, TRAM_END_INTERP).unwrap_or(0),
+        max_interpolation: read_u16(d, TRAM_MAX_INTERP).unwrap_or(0),
     })
 }
 
