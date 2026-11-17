@@ -136,3 +136,87 @@ impl Physics {
         self.feet
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A large flat floor quad at y=0 (two triangles), no assets needed.
+    fn floor() -> (Vec<[f32; 3]>, Vec<u32>) {
+        (
+            vec![
+                [-50.0, 0.0, -50.0],
+                [50.0, 0.0, -50.0],
+                [50.0, 0.0, 50.0],
+                [-50.0, 0.0, 50.0],
+            ],
+            vec![0, 1, 2, 0, 2, 3],
+        )
+    }
+
+    /// The floor plus a vertical wall at x = 5 (spanning z and y).
+    fn floor_and_wall() -> (Vec<[f32; 3]>, Vec<u32>) {
+        let (mut v, mut i) = floor();
+        let b = v.len() as u32;
+        v.extend_from_slice(&[
+            [5.0, 0.0, -50.0],
+            [5.0, 10.0, -50.0],
+            [5.0, 10.0, 50.0],
+            [5.0, 0.0, 50.0],
+        ]);
+        i.extend_from_slice(&[b, b + 1, b + 2, b, b + 2, b + 3]);
+        (v, i)
+    }
+
+    #[test]
+    fn drops_and_lands_grounded() {
+        let (v, i) = floor();
+        let mut p = Physics::new(&v, &i, Vec3::new(0.0, 20.0, 0.0), 4.0, 0.7);
+        for _ in 0..200 {
+            p.step(Vec3::ZERO);
+        }
+        assert!(p.grounded, "settles grounded after falling");
+        assert!(
+            p.feet.y.abs() < 0.3,
+            "feet rest at floor level, got {}",
+            p.feet.y
+        );
+    }
+
+    #[test]
+    fn walks_freely_on_open_floor() {
+        let (v, i) = floor();
+        let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
+        for _ in 0..10 {
+            p.step(Vec3::ZERO); // settle
+        }
+        let x0 = p.feet.x;
+        for _ in 0..30 {
+            p.step(Vec3::new(0.3, 0.0, 0.0)); // move +x across open floor
+        }
+        assert!(p.feet.x - x0 > 5.0, "moved freely, dx = {}", p.feet.x - x0);
+        assert!(p.feet.y.abs() < 0.3, "stays on the floor while moving");
+    }
+
+    #[test]
+    fn wall_blocks_and_does_not_tunnel() {
+        let (v, i) = floor_and_wall(); // wall at x = 5
+        let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
+        for _ in 0..10 {
+            p.step(Vec3::ZERO);
+        }
+        for _ in 0..60 {
+            p.step(Vec3::new(0.5, 0.0, 0.0)); // push hard into the +x wall (30u desired)
+        }
+        assert!(
+            p.feet.x > 3.0,
+            "advanced toward the wall, got x = {}",
+            p.feet.x
+        );
+        assert!(
+            p.feet.x < 6.0,
+            "stopped at the wall, no tunnelling, got x = {}",
+            p.feet.x
+        );
+    }
+}
