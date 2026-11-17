@@ -586,7 +586,7 @@ pub fn animation_to_glb(
     joints: &[Joint],
     anim_name: &str,
     channels: &[AnimChannel],
-    root_motion: &[[f32; 2]],
+    extras_json: &str,
 ) -> Vec<u8> {
     let mut bin: Vec<u8> = Vec::new();
     let mut views: Vec<(usize, usize)> = Vec::new();
@@ -695,16 +695,12 @@ pub fn animation_to_glb(
         ));
     }
 
-    // Root motion (per-frame local [x,z] displacement) rides in the animation's
-    // `extras` — it drives the character's world position, not the skeleton.
-    let extras = if root_motion.is_empty() {
+    // Oni-specific data (root motion, combat) rides in the animation's `extras`,
+    // built by the caller (it has the decoded clip).
+    let extras = if extras_json.is_empty() {
         String::new()
     } else {
-        let pts: Vec<String> = root_motion
-            .iter()
-            .map(|p| format!("[{},{}]", f(p[0]), f(p[1])))
-            .collect();
-        format!(",\"extras\":{{\"rootMotion\":[{}]}}", pts.join(","))
+        format!(",\"extras\":{extras_json}")
     };
 
     let json = format!(

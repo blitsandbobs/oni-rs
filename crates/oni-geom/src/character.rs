@@ -174,6 +174,27 @@ pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
 // source drifted from the data, so we derive them from the frame data itself.
 const TRAM_DATA: usize = 44; // tm_raw `data` -> byte offset into .raw
 const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .raw
+const TRAM_ATTACKS: usize = 3; // `attacks` is the 4th tm_raw pointer (index 3)
+const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
+const TRAM_FLAGS: usize = 52; // `flags` u32, right after the pointer block
+const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
+const MAX_ATTACKS: usize = 16;
+
+/// One attack's hit window + effects (`TRtAttack`, `BFW_Totoro.h`). Frames are
+/// animation frames; the attack connects during `[first_damage_frame,
+/// last_damage_frame]`.
+#[derive(Clone, Copy, Debug)]
+pub struct Attack {
+    pub damage: u16,
+    pub knockback: f32,
+    pub first_damage_frame: u16,
+    pub last_damage_frame: u16,
+    pub hit_stun: u16,
+    pub block_stun: u16,
+    pub stagger: u16,
+    pub damage_bits: u32,
+    pub flags: u32,
+}
 
 fn read_u16(b: &[u8], o: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]]))
@@ -264,6 +285,10 @@ pub struct Clip {
     /// animation's `positions` track; `y` is always 0 — vertical is gravity).
     /// Empty if the animation has no position track (e.g. a static idle).
     pub root_motion: Vec<[f32; 2]>,
+    /// Animation flags (`TRtAnimation.flags`).
+    pub flags: u32,
+    /// Attacks: hit windows + effects (empty for non-attack animations).
+    pub attacks: Vec<Attack>,
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -345,12 +370,56 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         _ => Vec::new(),
     };
 
+    // Combat: flags (stable, right after the pointer block) + the attacks array
+    // (bounded by the next-larger tm_raw pointer, so we never read the drifted
+    // `numAttacks` scalar).
+    let flags = read_u32(d, TRAM_FLAGS).unwrap_or(0);
+    let ptrs: Vec<u32> = (0..TRAM_NUM_PTRS)
+        .filter_map(|k| read_u32(d, k * 4))
+        .collect();
+    let attacks = decode_attacks(raw, &ptrs);
+
     Some(Clip {
         fps: ANIM_FPS,
         num_frames: num_frames + 1,
         channels,
         root_motion,
+        flags,
+        attacks,
     })
+}
+
+/// Decodes the `attacks` array, bounding its length by the gap to the next
+/// `tm_raw` pointer in `.raw` (avoids the drifted `numAttacks` count).
+fn decode_attacks(raw: &[u8], ptrs: &[u32]) -> Vec<Attack> {
+    let off = ptrs[TRAM_ATTACKS] as usize;
+    if off == 0 {
+        return Vec::new();
+    }
+    let bound = ptrs
+        .iter()
+        .map(|&p| p as usize)
+        .filter(|&p| p > off)
+        .min()
+        .unwrap_or(off + ATTACK_SIZE);
+    let n = ((bound - off) / ATTACK_SIZE).min(MAX_ATTACKS);
+    (0..n)
+        .filter_map(|a| {
+            let o = off + a * ATTACK_SIZE;
+            Some(Attack {
+                damage_bits: read_u32(raw, o)?,
+                knockback: read_f32(raw, o + 4)?,
+                flags: read_u32(raw, o + 8)?,
+                damage: read_u16(raw, o + 12)?,
+                first_damage_frame: read_u16(raw, o + 14)?,
+                last_damage_frame: read_u16(raw, o + 16)?,
+                // damageAnimation @18 (skipped)
+                hit_stun: read_u16(raw, o + 20)?,
+                block_stun: read_u16(raw, o + 22)?,
+                stagger: read_u16(raw, o + 24)?,
+            })
+        })
+        .collect()
 }
 
 /// Applies a pose (per-part quaternions) to a body's parts. When `zero_root` is

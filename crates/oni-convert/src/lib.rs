@@ -875,6 +875,43 @@ fn anim_set_prefix(name: &str) -> &str {
 
 /// Emits shared animation clips as `common/animations/<name>.glb` — a named-bone
 /// reference skeleton plus the animation, retargetable by bone name.
+/// Builds an animation's glTF `extras` JSON from a decoded clip: root motion
+/// (per-frame local `[x,z]`) and combat data (flags + attack hit windows).
+fn animation_extras(clip: &oni_geom::character::Clip) -> String {
+    let mut obj = serde_json::Map::new();
+    if !clip.root_motion.is_empty() {
+        obj.insert("rootMotion".into(), serde_json::json!(clip.root_motion));
+    }
+    if clip.flags != 0 {
+        obj.insert("flags".into(), serde_json::json!(clip.flags));
+    }
+    if !clip.attacks.is_empty() {
+        let attacks: Vec<serde_json::Value> = clip
+            .attacks
+            .iter()
+            .map(|a| {
+                serde_json::json!({
+                    "damage": a.damage,
+                    "knockback": a.knockback,
+                    "firstDamageFrame": a.first_damage_frame,
+                    "lastDamageFrame": a.last_damage_frame,
+                    "hitStun": a.hit_stun,
+                    "blockStun": a.block_stun,
+                    "stagger": a.stagger,
+                    "damageBits": a.damage_bits,
+                    "attackFlags": a.flags,
+                })
+            })
+            .collect();
+        obj.insert("attacks".into(), serde_json::json!(attacks));
+    }
+    if obj.is_empty() {
+        String::new()
+    } else {
+        serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
+    }
+}
+
 fn convert_animations(
     dat: &Dat<'_>,
     raw: Option<&[u8]>,
@@ -935,7 +972,8 @@ fn convert_animations(
             })
             .collect();
         let name = asset_name(dat, inst);
-        let glb = animation_to_glb(&joints, &name, &channels, &clip.root_motion);
+        let extras = animation_extras(&clip);
+        let glb = animation_to_glb(&joints, &name, &channels, &extras);
         std::fs::write(dir.join(format!("{name}.glb")), &glb)?;
         emitted.push(name);
         stats.animations += 1;

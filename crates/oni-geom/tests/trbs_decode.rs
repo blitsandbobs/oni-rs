@@ -122,6 +122,21 @@ fn animation_decodes_all_frames() {
         forward > 1.0,
         "run accumulates forward z motion, got {forward}"
     );
+
+    // An attack animation carries a hit window with damage.
+    if let Some(kick) = oni_geom::character::find_animation(&dat, "NINCOMkick_heavy") {
+        let a = oni_geom::character::decode_animation(&dat, kick, &raw).expect("decode kick");
+        let atk = a.attacks.first().expect("kick has an attack");
+        assert!(atk.damage > 0, "attack deals damage");
+        assert!(
+            atk.first_damage_frame < atk.last_damage_frame,
+            "valid hit window"
+        );
+        assert!(
+            (atk.last_damage_frame as u32) < a.num_frames,
+            "hit window within the clip"
+        );
+    }
     eprintln!(
         "decoded {}-frame clip, {} channels, forward root motion {forward:.1}",
         clip.num_frames,
