@@ -15,15 +15,16 @@ fn main() -> ExitCode {
 
     match oni_convert::convert(Path::new(&input), Path::new(&output)) {
         Ok(report) => {
-            let (mut t, mut s, mut m, mut c, mut a) = (0, 0, 0, 0, 0);
+            let (mut t, mut s, mut m, mut c, mut a, mut p) = (0, 0, 0, 0, 0, 0);
             for (root, st) in &report.levels {
                 println!(
-                    "{root:12} tex={:<5} snd={:<5} mesh={:<5} chars={:<4} anims={:<5}{}",
+                    "{root:12} tex={:<5} snd={:<5} mesh={:<5} chars={:<4} anims={:<5} parts={:<4}{}",
                     st.textures,
                     st.sounds,
                     st.meshes,
                     st.characters,
                     st.animations,
+                    st.particles,
                     if st.warnings.is_empty() {
                         String::new()
                     } else {
@@ -35,9 +36,10 @@ fn main() -> ExitCode {
                 m += st.meshes;
                 c += st.characters;
                 a += st.animations;
+                p += st.particles;
             }
             println!(
-                "total: {t} textures, {s} sounds, {m} meshes, {c} characters, {a} animations -> {output}/oni.json"
+                "total: {t} textures, {s} sounds, {m} meshes, {c} characters, {a} animations, {p} particles -> {output}/oni.json"
             );
             println!(
                 "references: {} resolved, {} dangling",

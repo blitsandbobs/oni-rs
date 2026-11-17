@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 mod level_json;
+mod particles;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -59,6 +60,8 @@ pub struct LevelStats {
     pub strings: usize,
     /// Cutscene recordings (`FILM`) written.
     pub films: usize,
+    /// Environment particles (`ENVP`) written to `particles.json`.
+    pub particles: usize,
     /// Fonts (`TSFT`) written.
     pub fonts: usize,
     /// Objects written to level.json.
@@ -125,8 +128,12 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
     // so a placeholder reference in one level resolves to the real flags. ---
     let mut global_named: BTreeMap<(FourCc, String), usize> = BTreeMap::new();
     let mut texture_flags: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    // Particle classes (PAR3 binary data) are globally named; level0 wins ties.
+    let mut particle_classes: BTreeMap<String, particles::ParticleClass> = BTreeMap::new();
     for (fi, f) in files.iter().enumerate() {
         let dat = Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}")))?;
+        let raw = std::fs::read(f.path.with_extension("raw")).ok();
+        particles::collect_particle_classes(&dat, raw.as_deref(), &mut particle_classes);
         for inst in &dat.instances {
             if let Some(name) = &inst.name {
                 if !name.is_empty() {
@@ -203,6 +210,8 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
         stats.object_animations = convert_object_animations(&dat, &root)?;
+        stats.particles =
+            particles::convert_particles(&dat, &f.root, &root, &particle_classes, &texture_flags)?;
         stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = convert_fonts(&dat, &root)?;
@@ -614,24 +623,24 @@ const TAG_TSTR: FourCc = FourCc(0x5453_7472); // 'T','S','t','r'
 const TAG_FILM: FourCc = FourCc(0x4649_4C4D);
 const TAG_TSFT: FourCc = FourCc(0x5453_4654);
 
-fn le_u16(d: &[u8], o: usize) -> u16 {
+pub(crate) fn le_u16(d: &[u8], o: usize) -> u16 {
     d.get(o..o + 2)
         .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
 }
 fn le_i16(d: &[u8], o: usize) -> i16 {
     le_u16(d, o) as i16
 }
-fn le_u32(d: &[u8], o: usize) -> u32 {
+pub(crate) fn le_u32(d: &[u8], o: usize) -> u32 {
     d.get(o..o + 4)
         .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 fn le_u64(d: &[u8], o: usize) -> u64 {
     (le_u32(d, o) as u64) | ((le_u32(d, o + 4) as u64) << 32)
 }
-fn le_f32(d: &[u8], o: usize) -> f32 {
+pub(crate) fn le_f32(d: &[u8], o: usize) -> f32 {
     f32::from_bits(le_u32(d, o))
 }
-fn cstr(d: &[u8], o: usize, n: usize) -> String {
+pub(crate) fn cstr(d: &[u8], o: usize, n: usize) -> String {
     let s = d.get(o..o + n).unwrap_or(&[]);
     let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
     String::from_utf8_lossy(&s[..end]).into_owned()
@@ -1124,7 +1133,7 @@ fn asset_name(_dat: &Dat<'_>, inst: &Instance) -> String {
 
 /// Computes a relative path from directory `from_dir` to file `to_path`
 /// (both output-root-relative, `/`-separated).
-fn rel_path(from_dir: &str, to_path: &str) -> String {
+pub(crate) fn rel_path(from_dir: &str, to_path: &str) -> String {
     let from: Vec<&str> = from_dir.split('/').filter(|s| !s.is_empty()).collect();
     let to: Vec<&str> = to_path.split('/').filter(|s| !s.is_empty()).collect();
     let mut common = 0;
@@ -1137,7 +1146,7 @@ fn rel_path(from_dir: &str, to_path: &str) -> String {
     parts.join("/")
 }
 
-fn sanitize(name: &str) -> String {
+pub(crate) fn sanitize(name: &str) -> String {
     let s: String = name
         .chars()
         .map(|c| {
@@ -1200,6 +1209,7 @@ fn write_manifest(
                     "environments": s.environments, "envObjects": s.env_objects,
                     "objectAnimations": s.object_animations, "strings": s.strings,
                     "films": s.films, "fonts": s.fonts, "objects": s.objects,
+                    "particles": s.particles,
                     "warnings": s.warnings,
                 }),
             )

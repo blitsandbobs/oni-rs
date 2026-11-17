@@ -60,6 +60,36 @@ struct Uniforms {
     view_proj: [[f32; 4]; 4],
 }
 
+/// One corner of a billboard quad. The world position is built in the vertex
+/// shader as `center + (cam_right * corner.x + cam_up * corner.y) * size`, so
+/// the quad always faces the camera.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct ParticleVertex {
+    center: [f32; 3],
+    size: f32,
+    corner: [f32; 2],
+    uv: [f32; 2],
+}
+
+/// Camera billboard basis, pushed per particle draw (right/up world vectors).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct BillboardPush {
+    right: [f32; 3],
+    _pad0: f32,
+    up: [f32; 3],
+    _pad1: f32,
+}
+
+/// A batch of billboards sharing one texture.
+struct ParticleGroup {
+    vbuf: wgpu::Buffer,
+    ibuf: wgpu::Buffer,
+    count: u32,
+    texture: usize,
+}
+
 /// Which blend bucket a primitive draws in (controls pass order + pipeline).
 #[derive(Clone, Copy, PartialEq)]
 enum Bucket {
@@ -83,11 +113,13 @@ pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     additive_pipeline: wgpu::RenderPipeline,
+    particle_pipeline: wgpu::RenderPipeline,
     uniform_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     tex_bgs: Vec<wgpu::BindGroup>,
     default_tex: wgpu::BindGroup,
     prims: Vec<GpuPrim>,
+    particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
 
@@ -96,6 +128,7 @@ impl Renderer {
         gpu: &Gpu,
         scene: &Scene,
         character: Option<&crate::skel::Character>,
+        particles: &[crate::particles::Particle],
         format: wgpu::TextureFormat,
     ) -> Renderer {
         let device = &gpu.device;
@@ -103,6 +136,10 @@ impl Renderer {
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("level"),
             source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
+        let particle_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("particle"),
+            source: wgpu::ShaderSource::Wgsl(PARTICLE_SHADER.into()),
         });
 
         let uniform_bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -210,6 +247,54 @@ impl Renderer {
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         let additive_pipeline = make_pipeline("additive", Some(additive), false);
 
+        // Billboard particle pipeline: camera-facing quads, additive glow,
+        // depth-tested against the scene but with no depth write.
+        let particle_vbl = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<ParticleVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x3, // center
+                1 => Float32,   // size
+                2 => Float32x2, // corner
+                3 => Float32x2, // uv
+            ],
+        };
+        let particle_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("particle"),
+            layout: Some(&pipeline_layout),
+            vertex: wgpu::VertexState {
+                module: &particle_shader,
+                entry_point: Some("vs_main"),
+                buffers: std::slice::from_ref(&particle_vbl),
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &particle_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(additive),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                cull_mode: None,
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: false,
+                depth_compare: wgpu::CompareFunction::Less,
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
+
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
             size: std::mem::size_of::<Uniforms>() as u64,
@@ -286,15 +371,71 @@ impl Renderer {
             }
         }
 
+        // Billboard particles, batched by texture. Each particle contributes a
+        // quad (4 verts / 6 indices); the quad is oriented in the vertex shader.
+        let mut particle_tex: std::collections::BTreeMap<std::path::PathBuf, usize> =
+            std::collections::BTreeMap::new();
+        let mut batches: std::collections::BTreeMap<usize, (Vec<ParticleVertex>, Vec<u32>)> =
+            std::collections::BTreeMap::new();
+        for p in particles {
+            let Some(path) = &p.texture else { continue };
+            let tex = *particle_tex.entry(path.clone()).or_insert_with(|| {
+                let (w, h, rgba) =
+                    load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
+                tex_bgs.push(make_texture_bg(gpu, &tex_bgl, &sampler, w, h, &rgba));
+                tex_bgs.len() - 1
+            });
+            let (verts, indices) = batches.entry(tex).or_default();
+            let base = verts.len() as u32;
+            // Corners CCW: (-,-) (+,-) (+,+) (-,+); v flipped so the PNG is upright.
+            for (cx, cy, u, v) in [
+                (-1.0, -1.0, 0.0, 1.0),
+                (1.0, -1.0, 1.0, 1.0),
+                (1.0, 1.0, 1.0, 0.0),
+                (-1.0, 1.0, 0.0, 0.0),
+            ] {
+                verts.push(ParticleVertex {
+                    center: p.position.to_array(),
+                    size: p.size,
+                    corner: [cx, cy],
+                    uv: [u, v],
+                });
+            }
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        let particle_groups: Vec<ParticleGroup> = batches
+            .into_iter()
+            .map(|(texture, (verts, indices))| {
+                let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("particle_vbuf"),
+                    contents: bytemuck::cast_slice(&verts),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("particle_ibuf"),
+                    contents: bytemuck::cast_slice(&indices),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                ParticleGroup {
+                    vbuf,
+                    ibuf,
+                    count: indices.len() as u32,
+                    texture,
+                }
+            })
+            .collect();
+
         Renderer {
             opaque_pipeline,
             blend_pipeline,
             additive_pipeline,
+            particle_pipeline,
             uniform_buf,
             uniform_bg,
             tex_bgs,
             default_tex,
             prims,
+            particles: particle_groups,
             depth: None,
         }
     }
@@ -323,6 +464,7 @@ impl Renderer {
 
     /// Renders the scene into `target` (`w`×`h`) from `view_proj`. `bones` holds
     /// the character's posed world matrices (empty for an environment-only view).
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         gpu: &Gpu,
@@ -331,6 +473,8 @@ impl Renderer {
         h: u32,
         view_proj: Mat4,
         bones: &[Mat4],
+        cam_right: glam::Vec3,
+        cam_up: glam::Vec3,
     ) {
         self.ensure_depth(&gpu.device, w, h);
         gpu.queue.write_buffer(
@@ -399,6 +543,26 @@ impl Renderer {
                     pass.set_vertex_buffer(0, p.vbuf.slice(..));
                     pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..p.count, 0, 0..1);
+                }
+            }
+
+            // Billboard particles last: additive glow on top of everything,
+            // oriented to the camera via the push-constant right/up basis.
+            if !self.particles.is_empty() {
+                pass.set_pipeline(&self.particle_pipeline);
+                let push = BillboardPush {
+                    right: cam_right.to_array(),
+                    _pad0: 0.0,
+                    up: cam_up.to_array(),
+                    _pad1: 0.0,
+                };
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::bytes_of(&push));
+                for g in &self.particles {
+                    let bg = self.tex_bgs.get(g.texture).unwrap_or(&self.default_tex);
+                    pass.set_bind_group(1, bg, &[]);
+                    pass.set_vertex_buffer(0, g.vbuf.slice(..));
+                    pass.set_index_buffer(g.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..g.count, 0, 0..1);
                 }
             }
         }
@@ -608,5 +772,44 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Baked vertex lighting modulates the texture; small ambient floor.
     let shade = max(in.color, vec3<f32>(0.12));
     return vec4<f32>(texel.rgb * shade * 1.25, texel.a);
+}
+"#;
+
+/// Camera-facing billboard shader for additive particle sprites. The quad is
+/// built from each vertex's `center`/`size`/`corner` using the camera's
+/// world-space right/up basis (pushed per draw).
+const PARTICLE_SHADER: &str = r#"
+struct Uniforms { view_proj: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
+
+struct Push { right: vec3<f32>, up: vec3<f32> };
+var<push_constant> pc: Push;
+
+struct VSOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+};
+
+@vertex
+fn vs_main(
+    @location(0) center: vec3<f32>,
+    @location(1) size: f32,
+    @location(2) corner: vec2<f32>,
+    @location(3) uv: vec2<f32>,
+) -> VSOut {
+    let world = center + (pc.right * corner.x + pc.up * corner.y) * size;
+    var out: VSOut;
+    out.clip = u.view_proj * vec4<f32>(world, 1.0);
+    out.uv = uv;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    // Additive sprite: the glow texture is added (SrcAlpha, One). The dark
+    // surround of these textures contributes ~0, leaving a clean glow.
+    return textureSample(tex, samp, in.uv);
 }
 "#;

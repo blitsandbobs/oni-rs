@@ -36,15 +36,17 @@ struct State {
 pub struct App {
     scene: Option<Scene>,
     charview: Option<crate::CharView>,
+    particles: Vec<crate::particles::Particle>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
     state: Option<State>,
 }
 
-/// Runs the windowed viewer (consumes the scene and optional character).
+/// Runs the windowed viewer (consumes the scene, optional character, particles).
 pub fn run(
     scene: Scene,
     charview: Option<crate::CharView>,
+    particles: Vec<crate::particles::Particle>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
 ) {
@@ -53,6 +55,7 @@ pub fn run(
     let mut app = App {
         scene: Some(scene),
         charview,
+        particles,
         eye,
         target,
         state: None,
@@ -104,6 +107,7 @@ impl ApplicationHandler for App {
             &gpu,
             &scene,
             charview.as_ref().map(|c| &c.character),
+            &self.particles,
             format,
         );
         let move_speed = scene.extent() * 0.4;
@@ -249,6 +253,7 @@ impl State {
             }
             None => Vec::new(),
         };
+        let (cam_right, cam_up) = self.cam.billboard_basis();
         self.renderer.render(
             &self.gpu,
             &view,
@@ -256,6 +261,8 @@ impl State {
             self.config.height,
             self.cam.view_proj(),
             &bones,
+            cam_right,
+            cam_up,
         );
         frame.present();
     }

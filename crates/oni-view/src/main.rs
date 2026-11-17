@@ -4,14 +4,19 @@
 //! optionally, a character `model.glb` posed by a `TRAM` animation clip. Runs
 //! windowed with a free-fly camera, or headless to a screenshot PNG.
 //!
+//! Placed environment particles (`particles.json`, from the converter) render as
+//! additive glowing billboards; they auto-load next to the scene `.glb`, or via
+//! `--particles`.
+//!
 //! ```text
 //! oni-view <scene.glb> [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z]
-//!     [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
+//!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
 mod app;
 mod camera;
 mod gltf;
+mod particles;
 mod render;
 mod skel;
 
@@ -58,17 +63,19 @@ impl CharView {
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(scene_path) = args.next().map(PathBuf::from) else {
-        eprintln!("usage: oni-view <scene.glb> [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]");
+        eprintln!("usage: oni-view <scene.glb> [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]");
         std::process::exit(2);
     };
 
     let mut screenshot = None;
     let mut size = (1280u32, 720u32);
+    let mut particles_path = None;
     let (mut eye, mut target, mut char_path, mut anim_path, mut char_pos, mut time) =
         (None, None, None, None, None, None);
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
+            "--particles" => particles_path = args.next().map(PathBuf::from),
             "--size" => {
                 if let Some((w, h)) = args.next().and_then(|s| {
                     s.split_once('x')
@@ -95,6 +102,26 @@ fn main() {
         scene.textures.len()
     );
 
+    // Environment particles: an explicit path, else `particles.json` next to the
+    // scene (the converter writes it into each level folder beside `environment.glb`).
+    let particles_path = particles_path.or_else(|| {
+        let p = scene_path.with_file_name("particles.json");
+        p.is_file().then_some(p)
+    });
+    let particles = particles_path
+        .as_ref()
+        .map(|p| {
+            let ps = particles::load(p);
+            let additive = ps.iter().filter(|q| q.additive).count();
+            eprintln!(
+                "  {} particles ({additive} additive) from {}",
+                ps.len(),
+                p.display()
+            );
+            ps
+        })
+        .unwrap_or_default();
+
     // Optional character.
     let charview = char_path.map(|p| {
         eprintln!("loading character {}...", p.display());
@@ -118,8 +145,17 @@ fn main() {
     });
 
     match screenshot {
-        Some(out) => run_screenshot(&scene, charview.as_ref(), &out, size, eye, target, time),
-        None => app::run(scene, charview, eye, target),
+        Some(out) => run_screenshot(
+            &scene,
+            charview.as_ref(),
+            &particles,
+            &out,
+            size,
+            eye,
+            target,
+            time,
+        ),
+        None => app::run(scene, charview, particles, eye, target),
     }
 }
 
@@ -152,9 +188,11 @@ pub fn frame_character(cv: &CharView, aspect: f32, time: f32) -> Camera {
 }
 
 /// Headless: render one frame to an offscreen texture and write a PNG.
+#[allow(clippy::too_many_arguments)]
 fn run_screenshot(
     scene: &gltf::Scene,
     charview: Option<&CharView>,
+    particles: &[particles::Particle],
     out: &std::path::Path,
     (w, h): (u32, u32),
     eye: Option<Vec3>,
@@ -164,7 +202,13 @@ fn run_screenshot(
     let gpu = pollster::block_on(Gpu::new(None));
     eprintln!("  GPU: {}", gpu.adapter.get_info().name);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let mut renderer = Renderer::new(&gpu, scene, charview.map(|c| &c.character), format);
+    let mut renderer = Renderer::new(
+        &gpu,
+        scene,
+        charview.map(|c| &c.character),
+        particles,
+        format,
+    );
 
     let aspect = w as f32 / h as f32;
     let t = time.unwrap_or(0.0);
@@ -178,6 +222,7 @@ fn run_screenshot(
         _ => {}
     }
     let bones = charview.map(|c| c.bones(t)).unwrap_or_default();
+    let (cam_right, cam_up) = cam.billboard_basis();
 
     // Offscreen color target.
     let color = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -195,7 +240,16 @@ fn run_screenshot(
         view_formats: &[],
     });
     let view = color.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer.render(&gpu, &view, w, h, cam.view_proj(), &bones);
+    renderer.render(
+        &gpu,
+        &view,
+        w,
+        h,
+        cam.view_proj(),
+        &bones,
+        cam_right,
+        cam_up,
+    );
 
     // Copy to a readback buffer (bytes_per_row aligned to 256).
     let bpr = (4 * w).div_ceil(256) * 256;
