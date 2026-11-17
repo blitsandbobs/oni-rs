@@ -1,0 +1,19 @@
+[package]
+name = "oni-view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version = "1.87"
+description = "Oni level viewer — renders the converted glTF/PNG tree with wgpu (E1)"
+
+[dependencies]
+wgpu = "27"
+winit = "0.30"
+glam = "0.30"
+bytemuck = { version = "1", features = ["derive"] }
+pollster = "0.4"
+serde_json = "1"
+png = "0.17"
+
+[lints.rust]
+unsafe_code = "forbid"

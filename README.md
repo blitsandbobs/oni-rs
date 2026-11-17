@@ -29,6 +29,7 @@ under Mono on the real Anniversary Edition data and assert our output matches.
 | `oni-template-gen` | one-time codegen: parse the C `tm_template` headers → `oni-template/src/generated.rs` (dev tool; not shipped) | ✅ |
 | `oni-geom`    | `M3GM` geometry + `TRBS` character bodies → glTF (`.glb`) | ✅ milestone 6/8 |
 | `oni-convert` | GameDataFolder → modern `oni/` tree: assets + cross-file resolution + `level.json` | ✅ milestone 7 |
+| `oni-view` | Level viewer: renders a converted `environment.glb` with `wgpu` (textures + baked lighting); windowed free-fly or headless screenshot | ✅ engine E1 |
 
 Reference data and OniSplit oracle outputs live **outside** the workspace in
 `../original/` and `../generated/` (copyrighted assets — not committed).
