@@ -1,0 +1,9 @@
+[package]
+name = "oni-fourcc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Four-character-code type for Oni/Bungie Framework template tags"
+
+[lints.rust]
+unsafe_code = "forbid"

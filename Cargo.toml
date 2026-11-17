@@ -1,0 +1,27 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/oni-fourcc",
+    "crates/oni-bytes",
+    "crates/oni-dat",
+    "crates/oni-texture",
+    "crates/oni-sound",
+    "crates/oni-template",
+    "crates/oni-template-gen",
+    "crates/oni-geom",
+    "crates/oni-convert",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+repository = "local"
+rust-version = "1.74"
+
+# A ground-up, portable Rust reimplementation of Oni's data formats,
+# validated against OniSplit. See README.md.
+[workspace.dependencies]
+oni-fourcc = { path = "crates/oni-fourcc" }
+oni-bytes = { path = "crates/oni-bytes" }
+oni-dat = { path = "crates/oni-dat" }

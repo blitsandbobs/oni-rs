@@ -1,0 +1,12 @@
+[package]
+name = "oni-sound"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oni SNDD sound parsing and WAV extraction"
+
+[dependencies]
+oni-dat = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

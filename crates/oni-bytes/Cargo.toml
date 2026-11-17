@@ -1,0 +1,9 @@
+[package]
+name = "oni-bytes"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Endian-aware byte cursor for parsing Oni data files"
+
+[lints.rust]
+unsafe_code = "forbid"

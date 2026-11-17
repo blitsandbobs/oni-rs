@@ -1,0 +1,428 @@
+//! Decode Oni `TRBS` character bodies into a rigid skeletal model.
+//!
+//! A `TRBS` (`TRtBodySet`) holds 5 LOD bodies. Each `TRCM` (`TRtBody`) has
+//! `numParts` and references three parallel per-part arrays (`BFW_Totoro.h`):
+//!   * `TRGA` — one `M3GM` geometry per part,
+//!   * `TRTA` — one `M3tPoint3D` translation per part (the bone offset from its
+//!     parent),
+//!   * `TRIA` — one `{parent, child, sibling}` index block per part (hierarchy).
+//!
+//! Oni is *rigid skeletal*: each part is a separate mesh in bone-local space,
+//! positioned by the bone transform. So the body maps directly onto a glTF node
+//! tree — one node per part, carrying the bone translation and the part mesh —
+//! which also makes it animation-ready (rotations drive node transforms).
+
+use oni_dat::{Dat, FourCc, Instance};
+
+use crate::{extract_mesh, Mesh};
+
+/// The `TRBS` (body set) template tag.
+pub const TAG_TRBS: FourCc = FourCc(0x5452_4253);
+
+/// Body level-of-detail selectors (`TRtBodySelector`).
+pub mod lod {
+    /// Lowest detail.
+    pub const SUPER_LOW: usize = 0;
+    /// Low detail.
+    pub const LOW: usize = 1;
+    /// Medium detail.
+    pub const MEDIUM: usize = 2;
+    /// High detail (the usual choice).
+    pub const HIGH: usize = 3;
+    /// Highest detail.
+    pub const SUPER_HIGH: usize = 4;
+}
+
+// TRCM (TRtBody) field offsets.
+const TRCM_NUM_PARTS: usize = 4;
+const TRCM_GEO_STORE: usize = 84;
+const TRCM_TRANS_STORE: usize = 88;
+const TRCM_IDX_STORE: usize = 92;
+// Array element offsets (all tm_pad[22] + varindex u16 at 22, data at 24).
+const ARR_DATA: usize = 24;
+
+/// Names of the 19 bones of Oni's standard biped skeleton, in part order
+/// (matches OniSplit's DAE rig).
+pub const BONE_NAMES: [&str; 19] = [
+    "pelvis",
+    "left_thigh",
+    "left_calf",
+    "left_foot",
+    "right_thigh",
+    "right_calf",
+    "right_foot",
+    "mid",
+    "chest",
+    "neck",
+    "head",
+    "left_shoulder",
+    "left_biceps",
+    "left_wrist",
+    "left_handfist",
+    "right_shoulder",
+    "right_biceps",
+    "right_wrist",
+    "right_handfist",
+];
+
+/// One body part: a rigid mesh at a named skeleton node.
+#[derive(Clone, Debug)]
+pub struct BodyPart {
+    /// Bone name (e.g. `left_calf`), or `"bone<N>"` if outside the standard rig.
+    pub bone: String,
+    /// Bone translation relative to the parent part.
+    pub translation: [f32; 3],
+    /// Pose rotation quaternion `[x, y, z, w]` (identity until a pose is applied).
+    pub rotation: [f32; 4],
+    /// Parent part index, or `None` for the root.
+    pub parent: Option<usize>,
+    /// The part's mesh (in bone-local space).
+    pub mesh: Mesh,
+}
+
+/// A decoded character body (one LOD).
+#[derive(Clone, Debug)]
+pub struct Body {
+    /// Body name (from the `TRBS` instance).
+    pub name: Option<String>,
+    /// Parts in skeleton order.
+    pub parts: Vec<BodyPart>,
+}
+
+fn read_u32(d: &[u8], o: usize) -> Option<u32> {
+    d.get(o..o + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+}
+fn read_f32(d: &[u8], o: usize) -> Option<f32> {
+    read_u32(d, o).map(f32::from_bits)
+}
+fn ref_index(v: u32) -> Option<usize> {
+    if v & 1 != 0 {
+        Some((v >> 8) as usize)
+    } else {
+        None
+    }
+}
+fn resolve<'a>(dat: &'a Dat<'a>, ref_val: u32) -> Option<&'a [u8]> {
+    dat.instance_data(dat.instances.get(ref_index(ref_val)?)?)
+}
+
+/// Extracts a character [`Body`] from a `TRBS` instance at the given LOD.
+pub fn extract_body(dat: &Dat<'_>, trbs: &Instance, lod: usize) -> Option<Body> {
+    if trbs.tag != TAG_TRBS {
+        return None;
+    }
+    let bs = dat.instance_data(trbs)?;
+    let body_ref = read_u32(bs, lod * 4)?;
+    let body = resolve(dat, body_ref)?;
+
+    let num_parts =
+        u16::from_le_bytes([*body.get(TRCM_NUM_PARTS)?, body[TRCM_NUM_PARTS + 1]]) as usize;
+
+    let geo = resolve(dat, read_u32(body, TRCM_GEO_STORE)?)?;
+    let trans = resolve(dat, read_u32(body, TRCM_TRANS_STORE)?)?;
+    let idx = resolve(dat, read_u32(body, TRCM_IDX_STORE)?)?;
+
+    let mut parts = Vec::with_capacity(num_parts);
+    for i in 0..num_parts {
+        // geometry (M3GM) for this part
+        let geo_ref = read_u32(geo, ARR_DATA + i * 4)?;
+        let m3gm_inst = dat.instances.get(ref_index(geo_ref)?)?;
+        let mesh = extract_mesh(dat, m3gm_inst)?;
+
+        // translation (M3tPoint3D, 12 bytes)
+        let to = ARR_DATA + i * 12;
+        let translation = [
+            read_f32(trans, to)?,
+            read_f32(trans, to + 4)?,
+            read_f32(trans, to + 8)?,
+        ];
+
+        // hierarchy (TRtIndexBlock: parent, child, sibling, zero)
+        let parent_byte = *idx.get(ARR_DATA + i * 4)? as usize;
+        let parent = if i == 0 || parent_byte == i {
+            None
+        } else {
+            Some(parent_byte)
+        };
+
+        let bone = BONE_NAMES
+            .get(i)
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("bone{i}"));
+        parts.push(BodyPart {
+            bone,
+            translation,
+            rotation: [0.0, 0.0, 0.0, 1.0],
+            parent,
+            mesh,
+        });
+    }
+
+    Some(Body {
+        name: trbs.name.clone(),
+        parts,
+    })
+}
+
+/// The `TRAM` (animation) template tag.
+pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
+
+// The only reliable TRAM struct offset: `data` is field 12 (twelve `tm_raw`
+// pointers), *before* the variable-size `extentInfo`, so its offset is fixed.
+// `numParts` and `compressionSize` sit past `extentInfo` where the released
+// source drifted from the data, so we derive them from the frame data itself.
+const TRAM_DATA: usize = 44; // tm_raw -> byte offset into .raw
+
+fn read_u16(b: &[u8], o: usize) -> Option<u16> {
+    Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]]))
+}
+
+/// Decodes frame 0's per-part rotation quaternions `[x,y,z,w]` from a `TRAM`
+/// animation (the first keyframe of each part's stream — no interpolation). The
+/// frame data lives in the companion `.raw` and is self-describing:
+/// `[numParts × u16 offset table][per-part keyframe streams]`, so `numParts =
+/// offsets[0] / 2` and `compressionSize` follows from the stream lengths.
+pub fn frame0_pose(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Vec<[f32; 4]>> {
+    if anim.tag != TAG_TRAM {
+        return None;
+    }
+    let d = dat.instance_data(anim)?;
+    let data_off = read_u32(d, TRAM_DATA)? as usize;
+
+    // numParts = size of the u16 offset table = offsets[0] / 2.
+    let off0 = read_u16(raw, data_off)? as usize;
+    if off0 < 2 || !off0.is_multiple_of(2) {
+        return None;
+    }
+    let num_parts = off0 / 2;
+    if num_parts == 0 || num_parts > 64 {
+        return None;
+    }
+
+    let offsets: Vec<usize> = (0..num_parts)
+        .map(|i| read_u16(raw, data_off + i * 2).map(|v| v as usize))
+        .collect::<Option<_>>()?;
+    let comp = derive_compression(&offsets)?;
+
+    let mut out = Vec::with_capacity(num_parts);
+    for &off_i in &offsets {
+        out.push(decode_quat(comp, raw.get(data_off + off_i..)?)?);
+    }
+    Some(out)
+}
+
+/// Infers `compressionSize` from the per-part keyframe stream lengths. Each
+/// stream is `comp + k·(1 + comp)` bytes (one quaternion plus gap-prefixed
+/// keyframes), so the true `comp` makes every stream satisfy
+/// `(len - comp) % (comp + 1) == 0`.
+fn derive_compression(offsets: &[usize]) -> Option<u16> {
+    let streams: Vec<usize> = offsets
+        .windows(2)
+        .map(|w| w[1].saturating_sub(w[0]))
+        .filter(|&s| s > 0)
+        .collect();
+    for comp in [6u16, 16, 8, 4, 3] {
+        let c = comp as usize;
+        if !streams.is_empty()
+            && streams
+                .iter()
+                .all(|&s| s >= c && (s - c).is_multiple_of(c + 1))
+        {
+            return Some(comp);
+        }
+    }
+    None
+}
+
+/// Oni animations run at a fixed 60 frames per second (per the engine comment
+/// in `TRrQuatArray_SetAnimationInternal`).
+pub const ANIM_FPS: f32 = 60.0;
+
+/// One bone's rotation keyframes within a [`Clip`].
+#[derive(Clone, Debug)]
+pub struct BoneChannel {
+    /// Part/bone index (0..numParts).
+    pub part: usize,
+    /// Keyframe times in seconds.
+    pub times: Vec<f32>,
+    /// Quaternion `[x,y,z,w]` at each keyframe.
+    pub rotations: Vec<[f32; 4]>,
+}
+
+/// A decoded animation clip: per-bone rotation keyframes.
+#[derive(Clone, Debug)]
+pub struct Clip {
+    /// Frames per second (always [`ANIM_FPS`]).
+    pub fps: f32,
+    /// Total frame count.
+    pub num_frames: u32,
+    /// One channel per bone.
+    pub channels: Vec<BoneChannel>,
+}
+
+/// Decodes a full `TRAM` animation: every keyframe of every bone.
+///
+/// Each part's stream is `[quat][gap,quat][gap,quat]…`; a keyframe's frame
+/// number accumulates the 1-byte gaps. The frame data is self-describing
+/// (`numParts = offsets[0]/2`, `compressionSize` from stream lengths), and
+/// `numFrames` is the furthest keyframe reached by the length-bounded parts.
+pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Clip> {
+    if anim.tag != TAG_TRAM {
+        return None;
+    }
+    let d = dat.instance_data(anim)?;
+    let data_off = read_u32(d, TRAM_DATA)? as usize;
+    let off0 = read_u16(raw, data_off)? as usize;
+    if off0 < 2 || !off0.is_multiple_of(2) {
+        return None;
+    }
+    let num_parts = off0 / 2;
+    if num_parts == 0 || num_parts > 64 {
+        return None;
+    }
+    let offsets: Vec<usize> = (0..num_parts)
+        .map(|i| read_u16(raw, data_off + i * 2).map(|v| v as usize))
+        .collect::<Option<_>>()?;
+    let comp = derive_compression(&offsets)? as usize;
+
+    // numFrames: the furthest keyframe reached by length-bounded parts
+    // (all but the last, whose stream has no following offset to bound it).
+    let mut num_frames: u32 = 0;
+    for w in offsets.windows(2) {
+        let (start, end) = (data_off + w[0], data_off + w[1]);
+        let mut pos = start + comp;
+        let mut frame: u32 = 0;
+        while pos + 1 + comp <= end {
+            frame += raw.get(pos).copied()? as u32;
+            pos += 1 + comp;
+        }
+        num_frames = num_frames.max(frame);
+    }
+
+    let mut channels = Vec::with_capacity(num_parts);
+    for (i, &off_i) in offsets.iter().enumerate() {
+        let start = data_off + off_i;
+        let end = offsets
+            .get(i + 1)
+            .map(|o| data_off + o)
+            .unwrap_or(raw.len());
+        let mut times = vec![0.0];
+        let mut rotations = vec![decode_quat(comp as u16, raw.get(start..)?)?];
+        let mut pos = start + comp;
+        let mut frame: u32 = 0;
+        while pos + 1 + comp <= end && frame < num_frames {
+            frame += raw.get(pos).copied()? as u32;
+            let q = decode_quat(comp as u16, raw.get(pos + 1..)?)?;
+            pos += 1 + comp;
+            times.push(frame as f32 / ANIM_FPS);
+            rotations.push(q);
+        }
+        channels.push(BoneChannel {
+            part: i,
+            times,
+            rotations,
+        });
+    }
+
+    Some(Clip {
+        fps: ANIM_FPS,
+        num_frames: num_frames + 1,
+        channels,
+    })
+}
+
+/// Applies a pose (per-part quaternions) to a body's parts. When `zero_root` is
+/// set, the root bone's rotation is left identity (dropping the animation's
+/// facing) for a neutral upright pose.
+pub fn apply_pose(body: &mut Body, quats: &[[f32; 4]], zero_root: bool) {
+    for (i, part) in body.parts.iter_mut().enumerate() {
+        if let Some(q) = quats.get(i) {
+            part.rotation = if i == 0 && zero_root {
+                [0.0, 0.0, 0.0, 1.0]
+            } else {
+                *q
+            };
+        }
+    }
+}
+
+fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
+    let u16le = |o: usize| -> Option<u16> { Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
+    let i16le = |o: usize| -> Option<i16> { Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
+    Some(match comp {
+        6 => {
+            // Euler XYZ: each u16 maps to [0, 2*pi).
+            let f = std::f32::consts::TAU / 65535.0;
+            euler_xyz_to_quat(
+                u16le(0)? as f32 * f,
+                u16le(2)? as f32 * f,
+                u16le(4)? as f32 * f,
+            )
+        }
+        8 => {
+            // Direct i16 quaternion, /32767.
+            let s = 1.0 / 32767.0;
+            normalize([
+                i16le(0)? as f32 * s,
+                i16le(2)? as f32 * s,
+                i16le(4)? as f32 * s,
+                i16le(6)? as f32 * s,
+            ])
+        }
+        16 => {
+            let f = |o: usize| read_f32(b, o);
+            normalize([f(0)?, f(4)?, f(8)?, f(12)?])
+        }
+        // 3/4-byte packings are rare for bipeds; fall back to identity.
+        _ => [0.0, 0.0, 0.0, 1.0],
+    })
+}
+
+/// Euler XYZ (radians) to quaternion `[x,y,z,w]`, matching `MUrXYZrEulerToQuat`
+/// (q = qx * qy * qz).
+fn euler_xyz_to_quat(x: f32, y: f32, z: f32) -> [f32; 4] {
+    let (sx, cx) = (x * 0.5).sin_cos();
+    let (sy, cy) = (y * 0.5).sin_cos();
+    let (sz, cz) = (z * 0.5).sin_cos();
+    let qx = [sx, 0.0, 0.0, cx];
+    let qy = [0.0, sy, 0.0, cy];
+    let qz = [0.0, 0.0, sz, cz];
+    quat_mul(quat_mul(qx, qy), qz)
+}
+
+fn quat_mul(a: [f32; 4], b: [f32; 4]) -> [f32; 4] {
+    let [ax, ay, az, aw] = a;
+    let [bx, by, bz, bw] = b;
+    [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ]
+}
+
+fn normalize(q: [f32; 4]) -> [f32; 4] {
+    let n = (q[0] * q[0] + q[1] * q[1] + q[2] * q[2] + q[3] * q[3]).sqrt();
+    if n > 0.0 {
+        [q[0] / n, q[1] / n, q[2] / n, q[3] / n]
+    } else {
+        [0.0, 0.0, 0.0, 1.0]
+    }
+}
+
+/// Finds a named animation (`TRAM`) in `dat` by name.
+pub fn find_animation<'a>(dat: &'a Dat<'a>, name: &str) -> Option<&'a Instance> {
+    dat.instances
+        .iter()
+        .find(|i| i.tag == TAG_TRAM && i.name.as_deref() == Some(name))
+}
+
+/// Iterates every `TRBS` body in `dat` (at the given LOD) that resolves.
+pub fn bodies<'a>(dat: &'a Dat<'a>, lod: usize) -> impl Iterator<Item = (usize, Body)> + 'a {
+    dat.instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.tag == TAG_TRBS)
+        .filter_map(move |(idx, i)| extract_body(dat, i, lod).map(|b| (idx, b)))
+}

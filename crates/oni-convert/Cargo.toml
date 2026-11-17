@@ -1,0 +1,19 @@
+[package]
+name = "oni-convert"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "One-time converter: Oni GameDataFolder (.dat/.raw) -> modern asset tree (glTF/PNG/WAV + JSON)"
+
+[dependencies]
+oni-dat = { workspace = true }
+oni-texture = { path = "../oni-texture" }
+oni-sound = { path = "../oni-sound" }
+oni-geom = { path = "../oni-geom" }
+oni-template = { path = "../oni-template" }
+png = "0.17"
+serde_json = "1.0"
+sha2 = "0.10"
+
+[lints.rust]
+unsafe_code = "forbid"

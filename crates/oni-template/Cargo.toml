@@ -1,0 +1,18 @@
+[package]
+name = "oni-template"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Generic swap-code-driven decoder for Oni template instance layouts"
+
+[dependencies]
+oni-bytes = { workspace = true }
+oni-fourcc = { workspace = true }
+oni-dat = { workspace = true }
+
+[dev-dependencies]
+oni-texture = { path = "../oni-texture" }
+oni-sound = { path = "../oni-sound" }
+
+[lints.rust]
+unsafe_code = "forbid"

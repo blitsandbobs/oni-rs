@@ -1,0 +1,12 @@
+[package]
+name = "oni-geom"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oni M3GM geometry decoding to triangle meshes and glTF (.glb)"
+
+[dependencies]
+oni-dat = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

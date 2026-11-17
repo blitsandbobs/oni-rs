@@ -1,0 +1,5 @@
+/target
+# Cargo.lock IS committed — this workspace ships the oni-convert binary and we
+# want reproducible builds for a preservation tool.
+# Original game data, source, tools and converter output live in ../original and
+# ../generated (gitignored at the repo root).

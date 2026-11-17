@@ -1,0 +1,13 @@
+[package]
+name = "oni-dat"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Parser for Oni template-instance .dat container files"
+
+[dependencies]
+oni-fourcc = { workspace = true }
+oni-bytes = { workspace = true }
+
+[lints.rust]
+unsafe_code = "forbid"

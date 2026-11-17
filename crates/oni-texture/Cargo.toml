@@ -1,0 +1,15 @@
+[package]
+name = "oni-texture"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Oni TXMP texture parsing and pixel-format decoding to RGBA8888"
+
+[dependencies]
+oni-dat = { workspace = true }
+
+[dev-dependencies]
+png = "0.17"
+
+[lints.rust]
+unsafe_code = "forbid"
