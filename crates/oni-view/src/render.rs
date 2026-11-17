@@ -373,6 +373,8 @@ fn make_texture_bg(
     h: u32,
     rgba: &[u8],
 ) -> wgpu::BindGroup {
+    // Full mip chain (CPU box-filter) — kills distant-texture shimmer.
+    let mips = generate_mips(w, h, rgba.to_vec());
     let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
         label: Some("tex"),
         size: wgpu::Extent3d {
@@ -380,32 +382,34 @@ fn make_texture_bg(
             height: h,
             depth_or_array_layers: 1,
         },
-        mip_level_count: 1,
+        mip_level_count: mips.len() as u32,
         sample_count: 1,
         dimension: wgpu::TextureDimension::D2,
         format: wgpu::TextureFormat::Rgba8UnormSrgb,
         usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
         view_formats: &[],
     });
-    gpu.queue.write_texture(
-        wgpu::TexelCopyTextureInfo {
-            texture: &tex,
-            mip_level: 0,
-            origin: wgpu::Origin3d::ZERO,
-            aspect: wgpu::TextureAspect::All,
-        },
-        rgba,
-        wgpu::TexelCopyBufferLayout {
-            offset: 0,
-            bytes_per_row: Some(4 * w),
-            rows_per_image: Some(h),
-        },
-        wgpu::Extent3d {
-            width: w,
-            height: h,
-            depth_or_array_layers: 1,
-        },
-    );
+    for (level, (lw, lh, data)) in mips.iter().enumerate() {
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &tex,
+                mip_level: level as u32,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            data,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * lw),
+                rows_per_image: Some(*lh),
+            },
+            wgpu::Extent3d {
+                width: *lw,
+                height: *lh,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
     let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
     gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
         label: Some("tex"),
@@ -421,6 +425,63 @@ fn make_texture_bg(
             },
         ],
     })
+}
+
+/// Builds a full mip chain by 2×2 box filtering, averaging RGB in **linear**
+/// space (sRGB-correct) and alpha directly, down to 1×1.
+fn generate_mips(w: u32, h: u32, base: Vec<u8>) -> Vec<(u32, u32, Vec<u8>)> {
+    let lut: [f32; 256] = std::array::from_fn(|i| {
+        let x = i as f32 / 255.0;
+        if x <= 0.04045 {
+            x / 12.92
+        } else {
+            ((x + 0.055) / 1.055).powf(2.4)
+        }
+    });
+    let to_srgb = |x: f32| -> u8 {
+        let v = if x <= 0.0031308 {
+            x * 12.92
+        } else {
+            1.055 * x.powf(1.0 / 2.4) - 0.055
+        };
+        (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8
+    };
+
+    let mut chain = vec![(w, h, base)];
+    loop {
+        let (pw, ph, prev) = {
+            let last = chain.last().unwrap();
+            if last.0 == 1 && last.1 == 1 {
+                break;
+            }
+            (last.0, last.1, last.2.clone())
+        };
+        let (nw, nh) = ((pw / 2).max(1), (ph / 2).max(1));
+        let mut out = vec![0u8; (nw * nh * 4) as usize];
+        for y in 0..nh {
+            for x in 0..nw {
+                let mut acc = [0f32; 4];
+                for dy in 0..2 {
+                    for dx in 0..2 {
+                        let sx = (x * 2 + dx).min(pw - 1);
+                        let sy = (y * 2 + dy).min(ph - 1);
+                        let o = ((sy * pw + sx) * 4) as usize;
+                        acc[0] += lut[prev[o] as usize];
+                        acc[1] += lut[prev[o + 1] as usize];
+                        acc[2] += lut[prev[o + 2] as usize];
+                        acc[3] += prev[o + 3] as f32 / 255.0;
+                    }
+                }
+                let o = ((y * nw + x) * 4) as usize;
+                out[o] = to_srgb(acc[0] / 4.0);
+                out[o + 1] = to_srgb(acc[1] / 4.0);
+                out[o + 2] = to_srgb(acc[2] / 4.0);
+                out[o + 3] = (acc[3] / 4.0 * 255.0 + 0.5) as u8;
+            }
+        }
+        chain.push((nw, nh, out));
+    }
+    chain
 }
 
 /// Loads a PNG as RGBA8.
