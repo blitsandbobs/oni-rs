@@ -926,7 +926,7 @@ fn convert_animations(
             })
             .collect();
         let name = asset_name(dat, inst);
-        let glb = animation_to_glb(&joints, &name, &channels);
+        let glb = animation_to_glb(&joints, &name, &channels, &clip.root_motion);
         std::fs::write(dir.join(format!("{name}.glb")), &glb)?;
         emitted.push(name);
         stats.animations += 1;

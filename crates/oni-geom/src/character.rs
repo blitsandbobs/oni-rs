@@ -172,7 +172,8 @@ pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
 // pointers), *before* the variable-size `extentInfo`, so its offset is fixed.
 // `numParts` and `compressionSize` sit past `extentInfo` where the released
 // source drifted from the data, so we derive them from the frame data itself.
-const TRAM_DATA: usize = 44; // tm_raw -> byte offset into .raw
+const TRAM_DATA: usize = 44; // tm_raw `data` -> byte offset into .raw
+const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .raw
 
 fn read_u16(b: &[u8], o: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]]))
@@ -259,6 +260,10 @@ pub struct Clip {
     pub num_frames: u32,
     /// One channel per bone.
     pub channels: Vec<BoneChannel>,
+    /// Root motion: per-frame character-local `[x, z]` displacement (the
+    /// animation's `positions` track; `y` is always 0 — vertical is gravity).
+    /// Empty if the animation has no position track (e.g. a static idle).
+    pub root_motion: Vec<[f32; 2]>,
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -325,10 +330,26 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         });
     }
 
+    // Root motion: the `positions` track = `numFrames` pairs of local (x, z).
+    let total_frames = (num_frames + 1) as usize;
+    let root_motion = match read_u32(d, TRAM_POSITIONS) {
+        Some(pos_off) if pos_off != 0 => (0..total_frames)
+            .map(|f| {
+                let o = pos_off as usize + f * 8;
+                [
+                    read_f32(raw, o).unwrap_or(0.0),
+                    read_f32(raw, o + 4).unwrap_or(0.0),
+                ]
+            })
+            .collect(),
+        _ => Vec::new(),
+    };
+
     Some(Clip {
         fps: ANIM_FPS,
         num_frames: num_frames + 1,
         channels,
+        root_motion,
     })
 }
 

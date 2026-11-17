@@ -111,8 +111,19 @@ fn animation_decodes_all_frames() {
             assert!((n - 1.0).abs() < 1e-3, "unit quaternion");
         }
     }
+    // Root motion: one local [x,z] per frame; a run accumulates forward (z).
+    assert_eq!(
+        clip.root_motion.len(),
+        clip.num_frames as usize,
+        "root motion has one sample per frame"
+    );
+    let forward: f32 = clip.root_motion.iter().map(|p| p[1]).sum();
+    assert!(
+        forward > 1.0,
+        "run accumulates forward z motion, got {forward}"
+    );
     eprintln!(
-        "decoded {}-frame clip, {} channels",
+        "decoded {}-frame clip, {} channels, forward root motion {forward:.1}",
         clip.num_frames,
         clip.channels.len()
     );

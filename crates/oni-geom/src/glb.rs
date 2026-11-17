@@ -582,7 +582,12 @@ pub struct AnimChannel<'a> {
 /// Serializes a bone skeleton plus one rotation animation to a `.glb`. The
 /// skeleton has named joints (no mesh), so the clip retargets to any character
 /// with the same bone names.
-pub fn animation_to_glb(joints: &[Joint], anim_name: &str, channels: &[AnimChannel]) -> Vec<u8> {
+pub fn animation_to_glb(
+    joints: &[Joint],
+    anim_name: &str,
+    channels: &[AnimChannel],
+    root_motion: &[[f32; 2]],
+) -> Vec<u8> {
     let mut bin: Vec<u8> = Vec::new();
     let mut views: Vec<(usize, usize)> = Vec::new();
     let mut accessors = String::new();
@@ -690,11 +695,23 @@ pub fn animation_to_glb(joints: &[Joint], anim_name: &str, channels: &[AnimChann
         ));
     }
 
+    // Root motion (per-frame local [x,z] displacement) rides in the animation's
+    // `extras` — it drives the character's world position, not the skeleton.
+    let extras = if root_motion.is_empty() {
+        String::new()
+    } else {
+        let pts: Vec<String> = root_motion
+            .iter()
+            .map(|p| format!("[{},{}]", f(p[0]), f(p[1])))
+            .collect();
+        format!(",\"extras\":{{\"rootMotion\":[{}]}}", pts.join(","))
+    };
+
     let json = format!(
         "{{\"asset\":{{\"version\":\"2.0\",\"generator\":\"oni-geom\"}},\
 \"scene\":0,\"scenes\":[{{\"nodes\":[{}]}}],\
 \"nodes\":[{node_json}],\
-\"animations\":[{{\"name\":{},\"samplers\":[{samplers}],\"channels\":[{chans_json}]}}],\
+\"animations\":[{{\"name\":{},\"samplers\":[{samplers}],\"channels\":[{chans_json}]{extras}}}],\
 \"accessors\":[{accessors}],\
 \"bufferViews\":[{bv}],\
 \"buffers\":[{{\"byteLength\":{}}}]}}",
