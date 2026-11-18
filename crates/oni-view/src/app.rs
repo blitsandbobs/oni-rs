@@ -31,6 +31,15 @@ struct PlayState {
     mouse_dy: f32,
     height: f32,
     accum: f32,
+    /// Airborne state: while in the air, horizontal motion is the momentum
+    /// captured at takeoff (not root motion), and gravity shapes the arc.
+    airborne: bool,
+    air_vel: Vec3,
+    air_ticks: u32,
+    /// The last grounded horizontal world-move (captured as takeoff momentum).
+    last_horiz: Vec3,
+    /// Jump key state last frame (for a press edge).
+    jump_down_prev: bool,
 }
 
 const TICK: f32 = 1.0 / 60.0;
@@ -38,6 +47,7 @@ use crate::control::{MED_TURN, SLOW_TURN, TURN_DEADZONE};
 /// Mouse sensitivity: radians of desired-facing per pixel of motion (tuned to
 /// feel like Oni's `/64` base; rebindable scale lives in `oni_config`).
 const MOUSE_SENS: f32 = 0.0022;
+use crate::control::JUMP_SPEED;
 
 struct State {
     gpu: Gpu,
@@ -169,6 +179,11 @@ impl ApplicationHandler for App {
                     mouse_dy: 0.0,
                     height,
                     accum: 0.0,
+                    airborne: false,
+                    air_vel: Vec3::ZERO,
+                    air_ticks: 0,
+                    last_horiz: Vec3::ZERO,
+                    jump_down_prev: false,
                 })
             }
             _ => None,
@@ -352,6 +367,7 @@ impl State {
                 .any(|k| self.bindings.key_action(k) == Some(a))
         };
         let walk = held(Action::Walk);
+        let jump_held = held(Action::Jump);
         let mut input = crate::anim_state::Input {
             forward: held(Action::Forward),
             backward: held(Action::Backward),
@@ -360,6 +376,7 @@ impl State {
             walk,
             turn_left: false,
             turn_right: false,
+            airborne: false,
         };
         let moving = input.forward || input.backward || input.step_left || input.step_right;
         let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
@@ -397,20 +414,59 @@ impl State {
             play.aiming_ud = (play.aiming_ud + dy * sens)
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
 
+            // One-shot jump on the key's press edge (consumed on the first
+            // grounded tick this frame).
+            let mut jump_edge = jump_held && !play.jump_down_prev;
+            play.jump_down_prev = jump_held;
+
             play.accum += dt;
             while play.accum >= TICK {
                 play.accum -= TICK;
+
+                // Takeoff: launch the physics arc and force the jump clip; the
+                // horizontal velocity carries the run momentum captured on the
+                // ground (Oni's inAirControl.velocity).
+                if jump_edge && !play.airborne && play.physics.grounded {
+                    if play.physics.jump(JUMP_SPEED) {
+                        play.loco.start_jump(Some(&cv.character));
+                        play.airborne = true;
+                        play.air_ticks = 0;
+                        play.air_vel = play.last_horiz;
+                    }
+                    jump_edge = false;
+                }
+
                 // Turn-in-place intent: a large pending body turn while standing
                 // (Oni's HandleStandingTurn, evaluated before the slew).
                 let offset = play.facing.desired_offset();
                 input.turn_left = !moving && offset > TURN_DEADZONE;
                 input.turn_right = !moving && offset < -TURN_DEADZONE;
-                // The animation state machine chooses the clip and yields this
-                // frame's character-local root motion; facing rotates it to world.
+                input.airborne = play.airborne;
+
+                // The state machine chooses the clip + root motion; while airborne
+                // the root motion is ignored in favour of the jump momentum.
                 let local = play.loco.tick(input, Some(&cv.character));
-                let world_move = Quat::from_rotation_y(play.facing.facing + diag)
-                    * Vec3::new(local.x, 0.0, local.y);
+                let world_move = if play.airborne {
+                    play.air_vel
+                } else {
+                    let m = Quat::from_rotation_y(play.facing.facing + diag)
+                        * Vec3::new(local.x, 0.0, local.y);
+                    play.last_horiz = Vec3::new(m.x, 0.0, m.z);
+                    m
+                };
                 play.physics.step(world_move);
+
+                // Landing: back on the ground after a couple airborne ticks →
+                // play the land clip and resume ground locomotion.
+                if play.airborne {
+                    play.air_ticks += 1;
+                    if play.air_ticks > 2 && play.physics.grounded {
+                        play.airborne = false;
+                        play.air_vel = Vec3::ZERO;
+                        play.loco.land(Some(&cv.character));
+                    }
+                }
+
                 // Then slew the body yaw toward the mouse target (Oni runs
                 // HandleTurning at the end of the heartbeat).
                 play.facing.turn_toward(turn_cap);

@@ -92,6 +92,19 @@ impl Physics {
         }
     }
 
+    /// Launches a jump: if currently grounded, sets an upward velocity (gravity
+    /// then shapes the arc in `step`) and leaves the ground. Returns whether the
+    /// jump fired (ignored mid-air — no double jump).
+    pub fn jump(&mut self, speed: f32) -> bool {
+        if self.grounded {
+            self.vel_y = speed;
+            self.grounded = false;
+            true
+        } else {
+            false
+        }
+    }
+
     /// The capsule centre (feet + half the capsule span) as an isometry.
     fn capsule_iso(&self) -> Isometry3<f32> {
         let c = self.feet + Vec3::new(0.0, self.half_height + self.capsule.radius, 0.0);
@@ -196,6 +209,29 @@ mod tests {
         }
         assert!(p.feet.x - x0 > 5.0, "moved freely, dx = {}", p.feet.x - x0);
         assert!(p.feet.y.abs() < 0.3, "stays on the floor while moving");
+    }
+
+    #[test]
+    fn jump_rises_then_lands_grounded() {
+        let (v, i) = floor();
+        let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
+        for _ in 0..10 {
+            p.step(Vec3::ZERO); // settle on the floor
+        }
+        assert!(p.grounded, "grounded before the jump");
+        assert!(p.jump(6.0), "jump fires from the ground");
+        assert!(!p.grounded, "left the ground");
+        // Rises above the floor at the arc's peak.
+        let mut peak = p.feet.y;
+        for _ in 0..40 {
+            p.step(Vec3::ZERO);
+            peak = peak.max(p.feet.y);
+        }
+        assert!(peak > 3.0, "the jump gains height, peak = {peak}");
+        // A second jump mid-air is ignored (no double jump) while airborne.
+        // Eventually lands back on the floor.
+        assert!(p.grounded, "lands back on the ground, feet.y = {}", p.feet.y);
+        assert!(p.feet.y.abs() < 0.3, "rests at floor level after landing");
     }
 
     #[test]

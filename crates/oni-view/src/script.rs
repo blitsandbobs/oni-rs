@@ -14,6 +14,7 @@
 //! - `input(forward, backward)` — set the move keys (W/S)
 //! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
 //! - `walk(on)` — the hold-to-walk modifier
+//! - `jump()` / `airborne()` — queue a jump / read airborne state
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -50,6 +51,11 @@ struct ScriptHost {
     foot_offset: f32,
     facing: crate::control::Facing,
     input: Input,
+    airborne: bool,
+    air_vel: Vec3,
+    air_ticks: u32,
+    last_horiz: Vec3,
+    jump_pending: bool,
     eye: Option<Vec3>,
     target: Option<Vec3>,
 }
@@ -88,6 +94,11 @@ impl ScriptHost {
             foot_offset,
             facing: crate::control::Facing::new(0.0),
             input: Input::default(),
+            airborne: false,
+            air_vel: Vec3::ZERO,
+            air_ticks: 0,
+            last_horiz: Vec3::ZERO,
+            jump_pending: false,
             eye: None,
             target: None,
         }
@@ -111,12 +122,28 @@ impl ScriptHost {
             self.input.step_left,
             self.input.step_right,
         );
+        let mut jump_edge = self.jump_pending;
+        self.jump_pending = false;
         for _ in 0..n {
+            // Takeoff: launch the arc + force the jump clip (see app.rs).
+            if jump_edge && !self.airborne && self.physics.grounded {
+                if self.physics.jump(crate::control::JUMP_SPEED) {
+                    if let Some(l) = &mut self.loco {
+                        l.start_jump(Some(&self.charview.character));
+                    }
+                    self.airborne = true;
+                    self.air_ticks = 0;
+                    self.air_vel = self.last_horiz;
+                }
+                jump_edge = false;
+            }
             // Turn-in-place intent, then tick the state machine, then slew the
             // body toward the desired facing (Oni's heartbeat order).
             let offset = self.facing.desired_offset();
-            self.input.turn_left = !moving && offset > crate::control::TURN_DEADZONE;
-            self.input.turn_right = !moving && offset < -crate::control::TURN_DEADZONE;
+            self.input.turn_left = !self.airborne && !moving && offset > crate::control::TURN_DEADZONE;
+            self.input.turn_right =
+                !self.airborne && !moving && offset < -crate::control::TURN_DEADZONE;
+            self.input.airborne = self.airborne;
             let local = match &mut self.loco {
                 Some(l) => {
                     let d = l.tick(self.input, Some(&self.charview.character));
@@ -124,8 +151,24 @@ impl ScriptHost {
                 }
                 None => Vec3::ZERO,
             };
-            let world = Quat::from_rotation_y(self.facing.facing + diag) * local;
+            let world = if self.airborne {
+                self.air_vel
+            } else {
+                let m = Quat::from_rotation_y(self.facing.facing + diag) * local;
+                self.last_horiz = Vec3::new(m.x, 0.0, m.z);
+                m
+            };
             self.physics.step(world);
+            if self.airborne {
+                self.air_ticks += 1;
+                if self.air_ticks > 2 && self.physics.grounded {
+                    self.airborne = false;
+                    self.air_vel = Vec3::ZERO;
+                    if let Some(l) = &mut self.loco {
+                        l.land(Some(&self.charview.character));
+                    }
+                }
+            }
             self.facing.turn_toward(turn_cap);
         }
         let feet = self.physics.feet;
@@ -232,6 +275,22 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             h.borrow_mut().input.walk = on;
             Ok(())
         })?,
+    )?;
+
+    // Queue a jump (fires on the next grounded tick); `airborne()` reads state.
+    let h = host.clone();
+    g.set(
+        "jump",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().jump_pending = true;
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "airborne",
+        lua.create_function(move |_, ()| Ok(h.borrow().airborne))?,
     )?;
 
     // `facing(deg)` snaps the body (and its target); `turn(delta)` nudges the

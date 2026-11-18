@@ -17,6 +17,10 @@ pub const SLOW_TURN: f32 = PI * 1.5 / 120.0;
 /// Pending-turn threshold past which a turn-in-place clip plays
 /// (Oni `ONgAimingWidth` = 70°); smaller turns just slew.
 pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
+/// Upward launch velocity for a jump (units/tick) — placeholder; the faithful
+/// value is the character's `ONCC` air-constant `jumpAmount` (decode TODO). The
+/// arc also depends on physics `GRAVITY`; tune by feel.
+pub const JUMP_SPEED: f32 = 6.0;
 
 /// The world-movement yaw offset for a diagonal strafe: forward/back combined
 /// with exactly one step key moves at ±45° toward the step side (Oni applies a

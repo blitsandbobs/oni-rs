@@ -32,6 +32,7 @@ with `--anim-prefix`).
 | `strafe.lua` | A/D sidestep: lateral motion with the body still facing forward. |
 | `turn.lua` | Facing slew: a requested turn moves the body a few degrees/tick (not a snap); a big turn plays a turn-in-place clip. |
 | `walk.lua` | Walk modifier: holding walk covers far less ground than run over the same window. |
+| `jump.lua` | Jump: rises off the ground (start→air→land clips), lands grounded; a running jump carries forward momentum. |
 
 ## Lua API
 
@@ -40,6 +41,7 @@ with `--anim-prefix`).
 | `input(forward, backward)` | Set the move keys (W/S). |
 | `strafe(left, right)` | Set the strafe keys (A/D sidestep). |
 | `walk(on)` | The hold-to-walk modifier. |
+| `jump()` / `airborne()` | Queue a jump / read whether the character is in the air. |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |

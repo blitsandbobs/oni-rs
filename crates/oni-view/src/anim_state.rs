@@ -41,6 +41,7 @@ pub mod anim_type {
     pub const NONE: u16 = 0;
     pub const WALK: u16 = 2;
     pub const RUN: u16 = 3;
+    pub const JUMP: u16 = 5; // jump_start (takeoff)
     pub const STAND: u16 = 6;
     pub const STANDING_TURN_LEFT: u16 = 7;
     pub const STANDING_TURN_RIGHT: u16 = 8;
@@ -60,6 +61,8 @@ pub mod anim_type {
     pub const ONE_STEP_STOP: u16 = 216;
     pub const RUN_SIDESTEP_LEFT_START: u16 = 217;
     pub const RUN_SIDESTEP_RIGHT_START: u16 = 218;
+    pub const JUMP_LAND: u16 = 24; // jump_land (touchdown)
+    pub const JUMP_AIR: u16 = 25; // jump_idle (airborne hold / falling)
 }
 
 /// `TRtAnimState` values.
@@ -124,6 +127,14 @@ impl AnimCollection {
                 && (e.clip.varient & !varient) == 0
         })
     }
+
+    /// First clip of `anim_type` with a compatible variant, ignoring `from_state`
+    /// — used to force a jump/land clip regardless of the current body state.
+    fn lookup_any(&self, anim_type: u16, varient: u16) -> Option<usize> {
+        self.entries
+            .iter()
+            .position(|e| e.clip.anim_type == anim_type && (e.clip.varient & !varient) == 0)
+    }
 }
 
 /// Per-tick locomotion input (from the keyboard in play mode).
@@ -141,6 +152,10 @@ pub struct Input {
     /// caller sets at most one, from the facing offset's sign.
     pub turn_left: bool,
     pub turn_right: bool,
+    /// The character is off the ground: hold the airborne (jump-idle) clip until
+    /// the caller lands it. Takeoff/landing are driven by the physics via
+    /// [`Locomotion::start_jump`] / [`Locomotion::land`].
+    pub airborne: bool,
 }
 
 /// The locomotion state machine driving one character.
@@ -201,6 +216,25 @@ impl Locomotion {
                 s.saved_height * (1.0 - to) + h * to
             }
             None => h,
+        }
+    }
+
+    /// Forces the takeoff clip (`jump_start`), blending out of the current pose.
+    /// Called by the physics when a jump launches, so it works from any state
+    /// (idle/run/walk). The airborne hold then chains via `choose`.
+    pub fn start_jump(&mut self, character: Option<&Character>) {
+        if let Some(i) = self.coll.lookup_any(anim_type::JUMP, self.varient) {
+            let count = STITCH_FRAMES.min(self.coll.entries[i].clip.max_interpolation as f32);
+            self.switch_to(i, count, character);
+        }
+    }
+
+    /// Forces the landing clip (`jump_land`) on touchdown; after it ends the
+    /// machine falls back to ground locomotion via `choose`.
+    pub fn land(&mut self, character: Option<&Character>) {
+        if let Some(i) = self.coll.lookup_any(anim_type::JUMP_LAND, self.varient) {
+            let count = STITCH_FRAMES.min(self.coll.entries[i].clip.max_interpolation as f32);
+            self.switch_to(i, count, character);
         }
     }
 
@@ -311,6 +345,13 @@ impl Locomotion {
         use anim_type::*;
         let st = self.next_state;
         let v = self.varient;
+
+        // Airborne: hold the jump-idle (air) clip. Takeoff plays jump_start
+        // (forced by `start_jump`), which chains here once it ends; the air clip
+        // then loops until `land` is called. None keeps the current clip.
+        if input.airborne {
+            return self.coll.lookup(JUMP_AIR, st, v);
+        }
 
         // HandleStartRunning: forward/backward → run (start then loop), then
         // walk. The Walk modifier (Caps Lock) tries the walk clips first; the
