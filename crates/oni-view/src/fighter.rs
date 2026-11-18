@@ -104,6 +104,10 @@ pub struct Fighter {
     pub alarmed: bool,
     /// The alarm groups it answers (bits).
     pub alarm_groups: u32,
+    /// Its class removes its body this long after death (0: never), and the
+    /// countdown once dead.
+    pub death_delete: u32,
+    pub death_timer: Option<u32>,
     /// A passive fighter (training dummy): stands and takes hits, never deals
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
@@ -195,6 +199,8 @@ impl Fighter {
             console: None,
             alarmed: false,
             alarm_groups: 0,
+            death_delete: 0,
+            death_timer: None,
             passive,
             knockback: Vec3::ZERO,
             hit_set: Vec::new(),

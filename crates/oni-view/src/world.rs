@@ -78,6 +78,8 @@ pub struct CharKind {
     pub perception: crate::ai::perception::Tuning,
     /// Its combat timings (for goals).
     pub class_combat: crate::ai::goals::ClassCombat,
+    /// A non-player body is removed this long after death (0: it stays).
+    pub death_delete: u32,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -167,6 +169,7 @@ impl World {
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
+        f.death_delete = kind.death_delete;
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,
@@ -1003,6 +1006,18 @@ impl World {
         self.start_throws();
         for f in &mut self.fighters {
             f.apply_reaction();
+        }
+        // Bodies of classes that delete their dead go after the delay.
+        for i in 1..self.fighters.len() {
+            let f = &mut self.fighters[i];
+            if f.gone || f.death_delete == 0 || !(f.motion.dying || f.hp <= 0) {
+                continue;
+            }
+            match f.death_timer {
+                None => f.death_timer = Some(f.death_delete),
+                Some(t) if t <= 1 => self.remove(i),
+                Some(t) => f.death_timer = Some(t - 1),
+            }
         }
         // Noises made this tick.
         for i in 0..self.fighters.len() {

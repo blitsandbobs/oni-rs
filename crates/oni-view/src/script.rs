@@ -375,6 +375,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Per-fighter inspection (any id) and a test hook to set health.
+    // Whether fighter `id` is still in the level (not removed).
+    let h = host.clone();
+    g.set(
+        "present",
+        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).is_some_and(|f| !f.gone)))?,
+    )?;
+
     // Deals damage to fighter `id` (no reaction unless it dies).
     let h = host.clone();
     g.set(
