@@ -45,13 +45,15 @@ fn fighter(host: &mut dyn Host, v: Option<&Value>) -> Option<usize> {
     if let Some(i) = int(Some(v)) {
         return (i == 0 && !host.world().fighters.is_empty()).then_some(0);
     }
+    // (By name: every living character, the player by its placement's name.)
     let name = text(v)?;
     let world = host.world();
-    world.fighters.iter().position(|f| {
+    let player = world.player_name.clone();
+    world.fighters.iter().enumerate().position(|(i, f)| {
         !f.gone
             && match &f.brain {
                 Some(crate::ai::Brain::Agent(a)) => a.name == name,
-                _ => false,
+                _ => i == 0 && !player.is_empty() && player == name,
             }
     })
 }
@@ -481,6 +483,43 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+
+        "chr_unstoppable" => {
+            if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
+                f.unstoppable = int(a(1)).unwrap_or(0) > 0;
+            }
+            nil()
+        }
+        "chr_poison" => {
+            let (Some(id), Some(amount), Some(every)) = (fighter(host, a(0)), int(a(1)), int(a(2))) else { return nil() };
+            let initial = int(a(3)).unwrap_or(every);
+            host.world().poison(id, amount as i32, every as i32, initial as i32);
+            nil()
+        }
+        // Kills every AI, every AI "except" one, or one.
+        "ai2_kill" => {
+            let spare = a(0).and_then(text).is_some_and(|t| t == "except");
+            let chosen = if spare { fighter(host, a(1)) } else { a(0).and_then(|_| fighter(host, a(0))) };
+            if a(0).is_some() && !spare && chosen.is_none() {
+                return nil(); // (already gone)
+            }
+            for (i, f) in host.world().fighters.iter_mut().enumerate() {
+                let picked = match (chosen, spare) {
+                    (Some(c), false) => i == c,
+                    (Some(c), true) => i != c,
+                    (None, _) => true,
+                };
+                if picked && !f.player && f.alive() && !f.gone {
+                    let (was, all) = (f.invincible, f.hp);
+                    f.invincible = false;
+                    f.take_damage(all, Vec3::ZERO);
+                    f.invincible = was;
+                }
+            }
+            nil()
+        }
+        // (Every character here is always active.)
+        "chr_lock_active" | "chr_unlock_active" => nil(),
 
         // --- laser triggers --------------------------------------------------
         "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show" | "trig_speed" => {

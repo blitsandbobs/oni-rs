@@ -598,6 +598,14 @@ impl World {
         }
     }
 
+    /// Poisons fighter `i` once (`chr_poison`, called each tick).
+    pub fn poison(&mut self, i: usize, amount: i32, every: i32, initial: i32) {
+        let now = self.now as u64;
+        if let Some(f) = self.fighters.get_mut(i) {
+            f.poison(now, amount, every, initial);
+        }
+    }
+
     /// Script / event orders to laser trigger `id` (`-1`: every one, except
     /// for activate / deactivate, as in the original): "activate",
     /// "deactivate", "reset", "hide", "show", "speed" (by `factor`).
@@ -1496,7 +1504,10 @@ impl World {
             fb.facing.facing = to_attacker.rem_euclid(TAU);
             if attack.flags & strike::SPECIAL == 0 {
                 fb.take_damage(0, attack_dir);
-                if attack.stagger > 0 {
+                if fb.unstoppable {
+                    // (Blocks without block stun.)
+                    fb.please_block = true;
+                } else if attack.stagger > 0 {
                     fb.pending_reaction = ty::STAGGER;
                     fb.motion.stagger_stun = attack.stagger;
                 } else {
@@ -1522,6 +1533,11 @@ impl World {
         } else if heavy {
             kind = ty::STAGGER;
             as_stagger = true;
+        }
+        if fb.unstoppable {
+            // No reaction, no stun.
+            kind = ty::NONE;
+            stun = 0;
         }
         if kind != ty::NONE {
             let victim = Victim {

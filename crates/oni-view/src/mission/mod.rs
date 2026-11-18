@@ -198,6 +198,13 @@ impl Mission {
         }
     }
 
+    /// Runs a chunk of Lua in the scripts' state (in the translator's form:
+    /// `F.name = function() C.command(…) SLEEP(n) end`) — for tests that
+    /// define their own script functions.
+    pub fn exec(&self, code: &str) -> Result<(), String> {
+        self.lua.load(code).set_name("exec").exec().map_err(|e| e.to_string())
+    }
+
     fn function(&self, name: &str) -> Option<Function> {
         let f: mlua::Table = self.lua.globals().get("F").ok()?;
         f.raw_get::<Option<Function>>(name).ok().flatten()

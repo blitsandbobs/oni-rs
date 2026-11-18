@@ -108,6 +108,13 @@ pub struct Fighter {
     /// countdown once dead.
     pub death_delete: u32,
     pub death_timer: Option<u32>,
+    /// Unstoppable (a script's order): blows don't stun it, knock it about
+    /// or make it react, and it blocks without block stun.
+    pub unstoppable: bool,
+    /// Poison (a script calling `chr_poison` each tick): when it was last
+    /// poisoned and its count toward the next dose.
+    poison_last: u64,
+    poison_count: i32,
     /// A passive fighter (training dummy): stands and takes hits, never deals
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
@@ -201,6 +208,9 @@ impl Fighter {
             alarm_groups: 0,
             death_delete: 0,
             death_timer: None,
+            unstoppable: false,
+            poison_last: 0,
+            poison_count: 0,
             passive,
             knockback: Vec3::ZERO,
             hit_set: Vec::new(),
@@ -649,6 +659,24 @@ impl Fighter {
         }
     }
 
+    /// One poisoning at tick `now` (behaviour per `docs/COMBAT.md`, *Poison*):
+    /// every call counts; at `initial` it takes `amount` and counts again
+    /// from `initial - every`; 30 ticks without one and the count restarts.
+    pub fn poison(&mut self, now: u64, amount: i32, every: i32, initial: i32) {
+        const FORGET: u64 = 30;
+        if self.poison_last + FORGET < now {
+            self.poison_count = 0;
+        }
+        self.poison_last = now;
+        self.poison_count += 1;
+        if self.poison_count >= initial {
+            if !self.invincible {
+                self.take_damage(amount, Vec3::ZERO);
+            }
+            self.poison_count = initial - every;
+        }
+    }
+
     /// Takes damage and a shove. Stuns end (a new hit sets its own); at zero
     /// health the character dies: its death reaction plays (a knockdown that
     /// was already chosen, else a frontal knockdown) and it stops acting.
@@ -662,7 +690,9 @@ impl Fighter {
             return;
         }
         self.hp = (self.hp - damage).max(0);
-        self.knockback += knockback;
+        if !self.unstoppable {
+            self.knockback += knockback;
+        }
         if self.hp == 0 {
             self.motion.dying = true;
             // Killed mid-throw on the way to the floor: the throw plays out.

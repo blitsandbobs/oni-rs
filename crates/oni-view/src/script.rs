@@ -881,6 +881,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Defines script functions of the scenario's own (translated-Lua form)
+    // in the running mission, to call with mission_call.
+    let h = host.clone();
+    g.set(
+        "mission_exec",
+        lua.create_function(move |_, code: String| {
+            let host = h.borrow();
+            match host.mission.as_ref() {
+                Some(m) => m.exec(&code).map_err(mlua::Error::external),
+                None => Err(mlua::Error::external("no mission (call mission_begin first)")),
+            }
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "mission_call",

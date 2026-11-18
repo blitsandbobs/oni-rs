@@ -282,6 +282,10 @@ alarm script), door lock / unlock. `console_activate` / `_deactivate` /
 `_reset`; `lock_keys` with no argument locks every key, `lock_keys keys_X`
 *enables* a group again; `input 0` drops all the player's input.
 
+**Character arguments** name a living character by its placement name — the
+player included, by its own placement's name — or give a script id (0: the
+player). `chr_poison`, `chr_unstoppable` and `ai2_kill`: `docs/COMBAT.md` §8.
+
 **Not reproduced** (no shipped script relies on them): operator precedence
 slips (each operator reduces at most one pending one), no short-circuit,
 assignments taking effect in a skipped branch after a local `var`, `return`
