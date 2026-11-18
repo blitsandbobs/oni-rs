@@ -48,6 +48,9 @@ struct State {
     window: Arc<Window>,
     keys: HashSet<KeyCode>,
     looking: bool,
+    /// Play mode: whether the mouse is captured (locked + hidden, turning the
+    /// character). Toggled with Esc so the cursor can be freed without quitting.
+    captured: bool,
     /// Player key/mouse bindings (Oni defaults; rebindable later).
     bindings: oni_config::Bindings,
     tuning: oni_config::InputTuning,
@@ -155,11 +158,8 @@ impl ApplicationHandler for App {
                 let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
                 let feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
                 // Capture the cursor so mouse motion turns the character
-                // continuously (Oni grabs the mouse in gameplay).
-                let _ = window
-                    .set_cursor_grab(winit::window::CursorGrabMode::Locked)
-                    .or_else(|_| window.set_cursor_grab(winit::window::CursorGrabMode::Confined));
-                window.set_cursor_visible(false);
+                // continuously (Oni grabs the mouse in gameplay); Esc releases it.
+                apply_capture(&window, true);
                 Some(PlayState {
                     physics: crate::physics::Physics::new(&verts, &idx, feet, height, radius),
                     loco,
@@ -196,6 +196,7 @@ impl ApplicationHandler for App {
             window,
             keys: HashSet::new(),
             looking: false,
+            captured: self.play,
             bindings: oni_config::Bindings::oni_defaults(),
             tuning: oni_config::InputTuning::default(),
             move_speed,
@@ -220,8 +221,15 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if code == KeyCode::Escape {
-                        event_loop.exit();
+                    if code == KeyCode::Escape && event.state == ElementState::Pressed {
+                        if st.play.is_some() {
+                            // Play mode: Esc releases/recaptures the mouse (close
+                            // the window to quit); otherwise Esc quits.
+                            st.captured = !st.captured;
+                            apply_capture(&st.window, st.captured);
+                        } else {
+                            event_loop.exit();
+                        }
                     }
                     match event.state {
                         ElementState::Pressed => {
@@ -233,12 +241,28 @@ impl ApplicationHandler for App {
                     }
                 }
             }
+            WindowEvent::Focused(false) => {
+                // Lost focus (e.g. alt-tab): free the cursor so it isn't trapped.
+                if st.play.is_some() {
+                    apply_capture(&st.window, false);
+                }
+            }
+            WindowEvent::Focused(true) => {
+                if st.play.is_some() && st.captured {
+                    apply_capture(&st.window, true);
+                }
+            }
             WindowEvent::MouseInput {
                 state,
                 button: MouseButton::Left,
                 ..
             } => {
                 st.looking = state == ElementState::Pressed;
+                // Click back into the window to re-capture in play mode.
+                if st.play.is_some() && state == ElementState::Pressed && !st.captured {
+                    st.captured = true;
+                    apply_capture(&st.window, true);
+                }
             }
             WindowEvent::RedrawRequested => {
                 st.update();
@@ -250,11 +274,15 @@ impl ApplicationHandler for App {
 
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
         if let (Some(st), DeviceEvent::MouseMotion { delta }) = (self.state.as_mut(), event) {
-            if let Some(play) = st.play.as_mut() {
+            if st.play.is_some() {
                 // Play mode: the mouse turns the character (accumulated, applied
-                // per tick) — no button to hold.
-                play.mouse_dx += delta.0 as f32;
-                play.mouse_dy += delta.1 as f32;
+                // per tick) — only while the cursor is captured.
+                if st.captured {
+                    if let Some(play) = st.play.as_mut() {
+                        play.mouse_dx += delta.0 as f32;
+                        play.mouse_dy += delta.1 as f32;
+                    }
+                }
             } else if st.looking {
                 let s = 0.0025;
                 st.cam.yaw += delta.0 as f32 * s;
@@ -434,6 +462,22 @@ impl State {
             cam_up,
         );
         frame.present();
+    }
+}
+
+/// Grabs or releases the mouse cursor for play mode. Tries OS cursor-lock
+/// first (continuous turning), falling back to confine-to-window; hides the
+/// cursor while captured.
+fn apply_capture(window: &Window, on: bool) {
+    use winit::window::CursorGrabMode;
+    if on {
+        let _ = window
+            .set_cursor_grab(CursorGrabMode::Locked)
+            .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined));
+        window.set_cursor_visible(false);
+    } else {
+        let _ = window.set_cursor_grab(CursorGrabMode::None);
+        window.set_cursor_visible(true);
     }
 }
 
