@@ -47,6 +47,8 @@ struct State {
     cam: Camera,
     window: Arc<Window>,
     keys: HashSet<KeyCode>,
+    /// Mouse buttons held while the cursor is captured (play mode).
+    mouse_held: HashSet<oni_config::MouseButton>,
     looking: bool,
     /// Play mode: whether the mouse is captured (locked + hidden, turning the
     /// character). Toggled with Esc so the cursor can be freed without quitting.
@@ -244,6 +246,7 @@ impl ApplicationHandler for App {
             cam,
             window,
             keys: HashSet::new(),
+            mouse_held: HashSet::new(),
             looking: false,
             captured: self.play,
             bindings: oni_config::Bindings::oni_defaults(),
@@ -276,6 +279,7 @@ impl ApplicationHandler for App {
                             // Play mode: Esc releases/recaptures the mouse (close
                             // the window to quit); otherwise Esc quits.
                             st.captured = !st.captured;
+                            st.mouse_held.clear();
                             apply_capture(&st.window, st.captured);
                         } else {
                             event_loop.exit();
@@ -292,7 +296,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::Focused(false) => {
-                // Lost focus (e.g. alt-tab): free the cursor so it isn't trapped.
+                // Lost focus (e.g. alt-tab): free the cursor so it isn't trapped,
+                // and drop any held buttons so none stays stuck down.
+                st.mouse_held.clear();
+                st.keys.clear();
                 if st.play.is_some() {
                     apply_capture(&st.window, false);
                 }
@@ -302,16 +309,25 @@ impl ApplicationHandler for App {
                     apply_capture(&st.window, true);
                 }
             }
-            WindowEvent::MouseInput {
-                state,
-                button: MouseButton::Left,
-                ..
-            } => {
-                st.looking = state == ElementState::Pressed;
-                // Click back into the window to re-capture in play mode.
-                if st.play.is_some() && state == ElementState::Pressed && !st.captured {
-                    st.captured = true;
-                    apply_capture(&st.window, true);
+            WindowEvent::MouseInput { state, button, .. } => {
+                let pressed = state == ElementState::Pressed;
+                if button == MouseButton::Left {
+                    st.looking = pressed;
+                }
+                if st.play.is_some() && !st.captured {
+                    // Click back into the window to re-capture (not a fire press).
+                    if pressed && button == MouseButton::Left {
+                        st.captured = true;
+                        apply_capture(&st.window, true);
+                    }
+                } else if let Some(b) = to_config_mouse(button) {
+                    // Captured: the buttons act through the bindings (fire 1/2/3
+                    // by default — punch / kick / crouch while unarmed).
+                    if pressed {
+                        st.mouse_held.insert(b);
+                    } else {
+                        st.mouse_held.remove(&b);
+                    }
                 }
             }
             WindowEvent::RedrawRequested => {
@@ -401,6 +417,7 @@ impl State {
                 .iter()
                 .filter_map(|&k| to_config_key(k))
                 .any(|k| self.bindings.key_action(k) == Some(a))
+                || self.mouse_held.iter().any(|&b| self.bindings.mouse_action(b) == Some(a))
         };
         use crate::anim::input::key;
         let mut controls = 0u32;
@@ -414,6 +431,9 @@ impl State {
             (Action::Jump, key::JUMP),
             (Action::Punch, key::PUNCH),
             (Action::Kick, key::KICK),
+            (Action::Fire1, key::FIRE1),
+            (Action::Fire2, key::FIRE2),
+            (Action::Fire3, key::FIRE3),
         ] {
             if held(action) {
                 controls |= bit;
@@ -537,6 +557,16 @@ fn apply_capture(window: &Window, on: bool) {
 
 /// Maps a `winit` physical key to the portable `oni_config::Key` the bindings
 /// are keyed on (variant names mirror `winit`'s). Unmapped keys return `None`.
+/// Maps a winit mouse button to the portable config identifier.
+fn to_config_mouse(b: MouseButton) -> Option<oni_config::MouseButton> {
+    match b {
+        MouseButton::Left => Some(oni_config::MouseButton::Left),
+        MouseButton::Right => Some(oni_config::MouseButton::Right),
+        MouseButton::Middle => Some(oni_config::MouseButton::Middle),
+        _ => None,
+    }
+}
+
 fn to_config_key(code: KeyCode) -> Option<oni_config::Key> {
     use oni_config::Key as K;
     Some(match code {
@@ -568,6 +598,12 @@ fn to_config_key(code: KeyCode) -> Option<oni_config::Key> {
         KeyCode::KeyZ => K::KeyZ,
         KeyCode::Space => K::Space,
         KeyCode::Enter => K::Enter,
+        KeyCode::Semicolon => K::Semicolon,
+        KeyCode::Quote => K::Quote,
+        KeyCode::BracketLeft => K::BracketLeft,
+        KeyCode::Comma => K::Comma,
+        KeyCode::Backslash => K::Backslash,
+        KeyCode::F13 => K::F13,
         KeyCode::Escape => K::Escape,
         KeyCode::Tab => K::Tab,
         KeyCode::CapsLock => K::CapsLock,

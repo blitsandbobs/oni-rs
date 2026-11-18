@@ -17,6 +17,7 @@
 //! - `walk(on)` / `crouch(on)` — hold the walk / crouch modifier
 //! - `jump()` / `airborne()` — tap jump (one tick) / read airborne state
 //! - `punch()` / `kick()` / `crouch_tap()` — tap a button for one tick
+//! - `fire(n)` — tap fire 1/2/3 (mouse left/right/middle; unarmed: punch/kick/crouch)
 //! - `state()` / `anim_type()` — the body state / current animation type
 //! - `faithful(on)` — reproduce the original's known bugs (`docs/QUIRKS.md`)
 //! - `seed(n)` — reseed the weighted animation pick (repeatable runs)
@@ -258,6 +259,23 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "crouch",
         lua.create_function(move |_, on: bool| {
             h.borrow_mut().hold(key::CROUCH, on);
+            Ok(())
+        })?,
+    )?;
+
+    // Tap a fire button (1 = left mouse, 2 = right, 3 = middle by default):
+    // unarmed, these are punch / kick / crouch.
+    let h = host.clone();
+    g.set(
+        "fire",
+        lua.create_function(move |_, n: u8| {
+            let bit = match n {
+                1 => key::FIRE1,
+                2 => key::FIRE2,
+                3 => key::FIRE3,
+                _ => 0,
+            };
+            h.borrow_mut().taps |= bit;
             Ok(())
         })?,
     )?;

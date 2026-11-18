@@ -42,6 +42,8 @@ pub enum Action {
     Pause,
     Screenshot,
     Escape,
+    /// Debug profiling toggle (bound in the shipped config; no effect here).
+    ProfileToggle,
 }
 
 /// A portable keyboard key identifier. Variant names follow `winit`'s
@@ -64,7 +66,12 @@ pub enum Key {
     ControlRight,
     AltLeft,
     AltRight,
-    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12,
+    Semicolon,
+    Quote,
+    BracketLeft,
+    Comma,
+    Backslash,
+    F1, F2, F3, F4, F5, F6, F7, F8, F9, F10, F11, F12, F13,
 }
 
 /// A portable mouse-button identifier.
@@ -100,30 +107,48 @@ pub struct Bindings {
 }
 
 impl Bindings {
-    /// Oni's stock bindings (`LIrInitialize`): WASD = forward/back + strafe,
-    /// Caps Lock = walk, mouse = aim/fire. `turnleft`/`turnright`/`block` are
-    /// intentionally unbound, as in the original (turning is the mouse).
+    /// Oni's stock bindings as the game shipped them: the `key_config.txt`
+    /// installed with it, which clears the engine's built-in table and binds
+    /// WASD (forward/back + strafe), mouse buttons = fire 1/2/3 (unarmed: punch
+    /// / kick / crouch, see `oni-view`'s input), F/C = punch/kick, Shift =
+    /// crouch, Caps Lock / Enter = walk, Ctrl = action, plus a second movement
+    /// cluster (P / L / ; / ' with K, comma, O, [). `turnleft`/`turnright`/
+    /// `block` are unbound, as in the original (turning is the mouse). Escape is
+    /// kept for releasing the mouse.
     pub fn oni_defaults() -> Self {
         use Action::*;
         use Key::*;
         let keys = [
             (KeyW, Forward),
-            (KeyS, Backward),
             (KeyA, StepLeft),
+            (KeyS, Backward),
             (KeyD, StepRight),
-            (Space, Jump),
-            (ShiftLeft, Crouch),
-            (CapsLock, Walk),
-            (KeyF, Punch),
-            (KeyC, Kick),
-            (ControlLeft, Use),
-            (KeyV, LookMode),
-            (Tab, Hypo),
-            (KeyR, Reload),
             (KeyQ, Swap),
             (KeyE, Drop),
+            (KeyF, Punch),
+            (KeyC, Kick),
+            (Space, Jump),
             (Key::F1, Action::Pause),
-            (KeyP, Screenshot),
+            (KeyV, LookMode),
+            (ShiftLeft, Crouch),
+            (ShiftRight, Crouch),
+            (CapsLock, Walk),
+            (ControlLeft, Use),
+            (ControlRight, Use),
+            (Tab, Hypo),
+            (KeyR, Reload),
+            (Backslash, ProfileToggle),
+            (Key::F13, Screenshot),
+            // The alternate cluster.
+            (KeyP, Forward),
+            (KeyL, StepLeft),
+            (Quote, StepRight),
+            (Semicolon, Backward),
+            (KeyO, Swap),
+            (BracketLeft, Drop),
+            (KeyK, Punch),
+            (Comma, Kick),
+            (Enter, Walk),
             (Key::Escape, Action::Escape),
         ]
         .into_iter()
@@ -173,6 +198,13 @@ mod tests {
         assert_eq!(b.key_action(Key::KeyD), Some(Action::StepRight));
         assert_eq!(b.key_action(Key::CapsLock), Some(Action::Walk));
         assert_eq!(b.mouse_action(MouseButton::Left), Some(Action::Fire1));
+        assert_eq!(b.mouse_action(MouseButton::Right), Some(Action::Fire2));
+        assert_eq!(b.mouse_action(MouseButton::Middle), Some(Action::Fire3));
+        // The shipped config's alternates.
+        assert_eq!(b.key_action(Key::ShiftRight), Some(Action::Crouch));
+        assert_eq!(b.key_action(Key::KeyK), Some(Action::Punch));
+        assert_eq!(b.key_action(Key::Comma), Some(Action::Kick));
+        assert_eq!(b.key_action(Key::KeyP), Some(Action::Forward));
         // Turn keys are unbound by default (mouse turns).
         assert_eq!(b.key_action(Key::Digit0), None);
     }

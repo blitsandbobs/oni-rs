@@ -116,7 +116,13 @@ impl World {
                 .and_then(|b| b.opponent())
                 .and_then(|t| feet.iter().find(|(j, _)| *j == t && *j != i))
                 .map(|(_, p)| *p);
-            let held = if i == 0 { controls } else { f.npc_controls(target) };
+            // The player's fire buttons become melee while unarmed (weapons
+            // aren't modelled yet, #10).
+            let held = if i == 0 {
+                crate::anim::input::fire_as_melee(controls, false, false)
+            } else {
+                f.npc_controls(target)
+            };
             moves.push(f.plan(held, &others));
         }
         self.collide(&mut moves);
