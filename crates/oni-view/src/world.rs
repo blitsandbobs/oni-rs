@@ -25,6 +25,8 @@ const MELEE_REACH: f32 = 4.0;
 /// The victim must be within this cosine of the attacker's facing to be hit
 /// (`0.2` ≈ a ±78° frontal arc), so attacks only connect in front.
 const FRONT_DOT: f32 = 0.2;
+/// Characters further apart than this are never tested for touching.
+const CONTACT_RANGE: f32 = 25.0;
 /// A defensive character blocks attackers within this angle of where it faces.
 const BLOCK_ANGLE: f32 = 20.0 * std::f32::consts::PI / 180.0;
 /// Scales an attack's data `knockback` (total shove distance). `1.0` is the
@@ -111,14 +113,70 @@ impl World {
             .filter(|(_, f)| f.alive())
             .map(|(i, f)| (i, f.feet()))
             .collect();
+        let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
             let others: Vec<Vec3> = feet.iter().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
-            let held = if i == 0 { controls } else { f.npc_controls() };
-            f.tick(held, &others);
+            let target = f
+                .brain
+                .as_ref()
+                .and_then(|b| b.opponent())
+                .and_then(|t| feet.iter().find(|(j, _)| *j == t && *j != i))
+                .map(|(_, p)| *p);
+            let held = if i == 0 { controls } else { f.npc_controls(target) };
+            moves.push(f.plan(held, &others));
+        }
+        self.block_contact(&mut moves);
+        for (f, m) in self.fighters.iter_mut().zip(moves) {
+            if let Some(m) = m {
+                f.commit(m);
+            }
         }
         self.resolve_hits();
         for f in &mut self.fighters {
             f.apply_reaction();
+        }
+    }
+
+    /// Characters can't walk into each other (the original's behaviour): when
+    /// two bodies touch, each one's planned move loses whatever part of it
+    /// heads toward the other — moving away or sideways is unaffected, and
+    /// neither is pushed. Bodies lying in death, characters further apart than
+    /// `CONTACT_RANGE`, and pairs almost on top of each other are skipped.
+    /// Touching is tested body part against body part with bounding spheres
+    /// (an approximation of the original's per-part geometry test, #7).
+    fn block_contact(&self, moves: &mut [Option<Vec3>]) {
+        let n = self.fighters.len();
+        let spheres: Vec<Vec<(Vec3, f32)>> = self.fighters.iter().map(|f| f.body_spheres()).collect();
+        for i in 0..n {
+            for j in i + 1..n {
+                let (a, b) = (&self.fighters[i], &self.fighters[j]);
+                if a.motion.corpse || b.motion.corpse {
+                    continue;
+                }
+                if a.feet().distance_squared(b.feet()) > CONTACT_RANGE * CONTACT_RANGE {
+                    continue;
+                }
+                let touching = spheres[i].iter().any(|&(ca, ra)| {
+                    spheres[j].iter().any(|&(cb, rb)| ca.distance_squared(cb) < (ra + rb) * (ra + rb))
+                });
+                if !touching {
+                    continue;
+                }
+                for (me, other) in [(i, j), (j, i)] {
+                    let mut away = self.fighters[me].feet() - self.fighters[other].feet();
+                    away.y = 0.0;
+                    if away.length_squared() < 1.0 {
+                        continue;
+                    }
+                    let away = away.normalize();
+                    if let Some(m) = moves[me].as_mut() {
+                        let into = m.dot(away);
+                        if into < 0.0 {
+                            *m -= away * into;
+                        }
+                    }
+                }
+            }
         }
     }
 

@@ -100,12 +100,14 @@ fn main() {
     let mut class_name = String::from("konoko_generic");
     let mut level_number: Option<u16> = None;
     let mut faithful = false;
+    let mut spar = false;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--play" => play = true,
             "--class" => class_name = args.next().unwrap_or(class_name),
             "--faithful" => faithful = true,
+            "--spar" => spar = true,
             "--level" => level_number = args.next().and_then(|s| s.parse().ok()),
             "--script" => script_path = args.next().map(PathBuf::from),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
@@ -245,6 +247,7 @@ fn main() {
                 anims,
                 class_tuning,
                 faithful,
+                spar,
             },
         ),
     }

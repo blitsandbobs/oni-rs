@@ -24,6 +24,7 @@
 //! - `knock(id, anim_type)` / `set_facing(id, deg)` — test hooks on any fighter
 //! - `patrol(id, {{x,z},…} [, pace, loop])` / `route_done(id)` — walk an AI route
 //! - `ai_order(id, dir [, pace, face_deg])` — hold fixed AI orders (forward/backpedal/left/right/stop)
+//! - `spar(id, target)` — make a fighter fight another (sparring AI)
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -354,6 +355,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 Ok(())
             },
         )?,
+    )?;
+
+    // AI: make fighter `id` fight fighter `target` (a sparring partner).
+    let h = host.clone();
+    g.set(
+        "spar",
+        lua.create_function(move |_, (id, target): (usize, usize)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.passive = false;
+                f.brain = Some(crate::ai::Brain::Spar(crate::ai::Spar::new(target, id as u32 + 1)));
+            }
+            Ok(())
+        })?,
     )?;
 
     let h = host.clone();

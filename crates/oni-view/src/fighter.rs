@@ -87,6 +87,9 @@ pub struct Fighter {
     pub placement: Mat4,
     /// Capsule radius (for melee reach tests).
     pub radius: f32,
+    /// Each body part's bounding sphere in its bone's space (bone index,
+    /// centre, radius) — for detecting characters touching each other.
+    part_spheres: Vec<(usize, Vec3, f32)>,
     // --- combat (see docs/COMBAT.md) ---
     pub hp: i32,
     /// A passive fighter (training dummy): stands and takes hits, never deals
@@ -130,6 +133,7 @@ impl Fighter {
         quirks: Quirks,
     ) -> Fighter {
         let (foot_offset, height, radius) = capsule_dims(&character);
+        let part_spheres = part_spheres(&character);
         let feet = Vec3::new(spawn_pos.x, spawn_pos.y + foot_offset, spawn_pos.z);
         let physics = Physics::new(level_positions, level_indices, feet, height, radius);
         let mut motion = Motion::new(anims, tuning);
@@ -149,6 +153,7 @@ impl Fighter {
             player,
             placement,
             radius,
+            part_spheres,
             hp: tuning.max_hit_points,
             passive,
             knockback: Vec3::ZERO,
@@ -168,12 +173,23 @@ impl Fighter {
     /// bits) currently down; `opponents` are the feet of the other living
     /// fighters (for auto-facing). Nudge `self.facing` (mouse / `turn`) before
     /// calling to turn.
+    #[cfg(test)]
     pub fn tick(&mut self, held: u32, opponents: &[Vec3]) {
+        if let Some(world) = self.plan(held, opponents) {
+            self.commit(world);
+        }
+    }
+
+    /// The first half of a tick: decide, animate, and work out this tick's
+    /// world-space move — without applying it, so the world can stop
+    /// characters walking into each other first. Returns None for a corpse
+    /// (which moves itself).
+    pub fn plan(&mut self, held: u32, opponents: &[Vec3]) -> Option<Vec3> {
         let ch = self.character.clone();
         self.motion.now += 1;
         if self.motion.corpse {
             self.drift_as_corpse();
-            return;
+            return None;
         }
         let held = if self.motion.dying { 0 } else { held };
         self.buttons.advance(held);
@@ -223,7 +239,12 @@ impl Fighter {
 
         self.motion.advance(&ch);
         self.facing.rotate(self.motion.take_facing_change());
+        Some(world)
+    }
 
+    /// The second half of a tick: apply the (possibly adjusted) move against
+    /// the level, detect landing / ledges, and update the placement.
+    pub fn commit(&mut self, world: Vec3) {
         let grounded = self.physics.slide(world);
         if world.y < 0.0 {
             self.touch_ground(grounded);
@@ -485,13 +506,24 @@ impl Fighter {
 
     /// This tick's controls for a non-player character: its AI's, if it has
     /// one (which also turns the body); otherwise a training dummy's.
-    pub fn npc_controls(&mut self) -> u32 {
+    /// `target` is where its opponent stands, if it has a living one.
+    pub fn npc_controls(&mut self, target: Option<Vec3>) -> u32 {
+        use crate::anim::types::st;
         if self.motion.dying {
             return 0;
         }
-        let feet = self.physics.feet;
+        let m = &self.motion;
+        let senses = crate::ai::Senses {
+            feet: self.physics.feet,
+            lying: matches!(m.state, st::FALLEN_BACK | st::FALLEN_FRONT)
+                && !reaction::is_victim(m.kind),
+            reeling: reaction::is_victim(m.kind),
+            attacking: !m.current().attacks.is_empty(),
+            attacks_started: m.attacks_started,
+            target,
+        };
         match self.brain.as_mut() {
-            Some(brain) => brain.think(feet, &mut self.facing),
+            Some(brain) => brain.think(&senses, &mut self.facing),
             None if self.passive => self.dummy_controls(),
             None => 0,
         }
@@ -515,6 +547,18 @@ impl Fighter {
         } else {
             0
         }
+    }
+
+    /// World-space bounding spheres of the body parts in the current pose.
+    pub fn body_spheres(&self) -> Vec<(Vec3, f32)> {
+        let bones = self.bones();
+        self.part_spheres
+            .iter()
+            .map(|&(bone, c, r)| {
+                let m = bones.get(bone).copied().unwrap_or(Mat4::IDENTITY);
+                (m.transform_point3(c), r)
+            })
+            .collect()
     }
 
     /// Whether the fighter is in the air.
@@ -574,6 +618,29 @@ impl Fighter {
     pub fn alive(&self) -> bool {
         self.hp > 0 && !self.motion.dying
     }
+}
+
+/// Each body part's bounding sphere in its bone's own space.
+fn part_spheres(ch: &Character) -> Vec<(usize, Vec3, f32)> {
+    ch.parts
+        .iter()
+        .filter(|p| !p.vertices.is_empty())
+        .map(|p| {
+            let (mut mn, mut mx) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+            for v in &p.vertices {
+                let q = Vec3::from_array(v.pos);
+                mn = mn.min(q);
+                mx = mx.max(q);
+            }
+            let c = (mn + mx) * 0.5;
+            let r = p
+                .vertices
+                .iter()
+                .map(|v| Vec3::from_array(v.pos).distance(c))
+                .fold(0.0, f32::max);
+            (p.bone, c, r)
+        })
+        .collect()
 }
 
 /// Capsule dimensions from a character's rest pose: `(foot_offset, height,

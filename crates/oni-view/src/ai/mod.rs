@@ -182,6 +182,22 @@ impl Route {
     }
 }
 
+/// What a character's AI knows this tick.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Senses {
+    pub feet: Vec3,
+    /// Lying on the ground, the knockdown itself over.
+    pub lying: bool,
+    /// In a hit reaction (no control anyway).
+    pub reeling: bool,
+    /// In an attack clip.
+    pub attacking: bool,
+    /// Attack clips started so far (combo progress).
+    pub attacks_started: u32,
+    /// Where its opponent stands, if it has a living one.
+    pub target: Option<Vec3>,
+}
+
 /// What drives a non-player character.
 #[derive(Clone, Debug)]
 pub enum Brain {
@@ -189,16 +205,188 @@ pub enum Brain {
     Route(Route),
     /// Keep following fixed orders (scripted / test control).
     Hold(Orders),
+    /// Fight an opponent.
+    Spar(Spar),
 }
 
 impl Brain {
     /// This tick's control bits; turns `facing` as ordered.
-    pub fn think(&mut self, feet: Vec3, facing: &mut Facing) -> u32 {
-        let orders = match self {
-            Brain::Route(r) => r.orders(feet, facing.facing),
-            Brain::Hold(o) => *o,
+    pub fn think(&mut self, senses: &Senses, facing: &mut Facing) -> u32 {
+        match self {
+            Brain::Route(r) => execute(r.orders(senses.feet, facing.facing), facing),
+            Brain::Hold(o) => execute(*o, facing),
+            Brain::Spar(s) => s.think(senses, facing),
+        }
+    }
+
+    /// The fighter this brain is fighting, if any.
+    pub fn opponent(&self) -> Option<usize> {
+        match self {
+            Brain::Spar(s) => Some(s.target),
+            _ => None,
+        }
+    }
+}
+
+// --- sparring ------------------------------------------------------------------
+
+use crate::anim::input::key::{FORWARD, KICK, PUNCH};
+
+/// Closer than this, the sparring partner stops approaching (bodies touch at
+/// roughly 6 units, and walking into the opponent is blocked anyway)…
+const ENGAGE_DISTANCE: f32 = 7.0;
+/// …and within this it may start a combo (well inside melee reach).
+const STRIKE_DISTANCE: f32 = 8.5;
+/// Beyond this it runs in; nearer, it walks.
+const RUN_DISTANCE: f32 = 14.0;
+/// Ticks between combos (a guard stance in between), min..max.
+const PAUSE: (u32, u32) = (30, 90);
+/// Ticks lying dazed after a knockdown before getting up, min..max.
+const DAZE: (u32, u32) = (30, 90);
+/// A combo whose next attack hasn't started this long after the last is over.
+const COMBO_STALL: u32 = 45;
+
+/// Button sequences the sparring partner strikes with (each a combo the
+/// move rules chain: P, PP, PPP, K, KK, KKK, PPK, PK, KP).
+const PATTERNS: &[&[u32]] = &[
+    &[PUNCH],
+    &[KICK],
+    &[PUNCH, PUNCH],
+    &[KICK, KICK],
+    &[PUNCH, PUNCH, PUNCH],
+    &[KICK, KICK, KICK],
+    &[PUNCH, PUNCH, KICK],
+    &[PUNCH, KICK],
+    &[KICK, PUNCH],
+];
+
+/// A stand-in melee AI (issue #5 will replace its choices with the class's
+/// melee profile): it closes in on its opponent, strikes with combo patterns
+/// using the same move rules as the player, stands guard between combos
+/// (blocking is automatic for a character standing still facing its
+/// attacker), and after a knockdown lies dazed for a moment, then gets up.
+#[derive(Clone, Debug)]
+pub struct Spar {
+    /// The fighter index it fights.
+    pub target: usize,
+    combo: Option<Combo>,
+    /// Ticks left before the next combo may start.
+    pause: u32,
+    /// Ticks left lying down before getting up (None = not counting).
+    daze: Option<u32>,
+    tick: u32,
+    rng: u32,
+}
+
+#[derive(Clone, Debug)]
+struct Combo {
+    buttons: &'static [u32],
+    /// `attacks_started` when the combo began.
+    base: u32,
+    /// Attacks of this combo started so far, as of last tick.
+    seen: usize,
+    /// Ticks since the last attack started (or the combo began).
+    idle: u32,
+}
+
+impl Spar {
+    pub fn new(target: usize, seed: u32) -> Spar {
+        Spar {
+            target,
+            combo: None,
+            pause: PAUSE.0,
+            daze: None,
+            tick: 0,
+            rng: seed.wrapping_mul(2_654_435_761).max(1),
+        }
+    }
+
+    fn random(&mut self, lo: u32, hi: u32) -> u32 {
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.rng = x;
+        lo + x % (hi - lo + 1)
+    }
+
+    fn think(&mut self, s: &Senses, facing: &mut Facing) -> u32 {
+        self.tick = self.tick.wrapping_add(1);
+        if s.reeling {
+            self.combo = None;
+            return execute(Orders::default(), facing);
+        }
+        // Knocked down: lie dazed, then press forward to get up.
+        if s.lying {
+            self.combo = None;
+            let left = match self.daze {
+                Some(n) => n,
+                None => self.random(DAZE.0, DAZE.1),
+            };
+            if left == 0 {
+                self.daze = None;
+                return FORWARD;
+            }
+            self.daze = Some(left - 1);
+            return 0;
+        }
+        self.daze = None;
+
+        let Some(target) = s.target else {
+            self.combo = None;
+            return execute(Orders::default(), facing); // nobody left to fight
         };
-        execute(orders, facing)
+        let face = yaw_toward(s.feet, target);
+        let flat = Vec3::new(target.x - s.feet.x, 0.0, target.z - s.feet.z);
+        let dist = flat.length();
+        let off = relative(face - facing.facing).abs();
+
+        // Mid-combo: keep pressing the next button (on alternate ticks, so
+        // each press registers) until its attack starts; then the next.
+        if let Some(c) = &mut self.combo {
+            let done = s.attacks_started.wrapping_sub(c.base) as usize;
+            let mut keys = execute(Orders { face: Some(face), ..Orders::default() }, facing);
+            if done != c.seen {
+                c.seen = done;
+                c.idle = 0;
+            }
+            if done < c.buttons.len() {
+                c.idle += 1;
+                if c.idle > COMBO_STALL {
+                    self.combo = None; // the chain broke (blocked, out of reach…)
+                    self.pause = PAUSE.0;
+                } else if self.tick.is_multiple_of(2) {
+                    keys |= c.buttons[done];
+                }
+                return keys;
+            }
+            if !s.attacking {
+                self.combo = None;
+                self.pause = self.random(PAUSE.0, PAUSE.1);
+            }
+            return keys;
+        }
+
+        // Close in.
+        if dist > ENGAGE_DISTANCE {
+            let direction = if off > TURN_FIRST { Direction::Stopped } else { Direction::Forward };
+            let pace = if dist > RUN_DISTANCE { Pace::Run } else { Pace::Walk };
+            return execute(Orders { direction, pace, face: Some(face) }, facing);
+        }
+
+        // In range: guard (stand facing the opponent) until it's time to strike.
+        self.pause = self.pause.saturating_sub(1);
+        let guard = execute(Orders { face: Some(face), ..Orders::default() }, facing);
+        if self.pause == 0 && dist <= STRIKE_DISTANCE && off < 0.35 {
+            let pick = self.random(0, PATTERNS.len() as u32 - 1) as usize;
+            self.combo = Some(Combo {
+                buttons: PATTERNS[pick],
+                base: s.attacks_started,
+                seen: 0,
+                idle: 0,
+            });
+        }
+        guard
     }
 }
 

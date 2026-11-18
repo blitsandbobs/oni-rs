@@ -174,6 +174,8 @@ pub struct Motion {
     pub new_clip: bool,
     /// An attack clip started since the owner last checked (auto-facing).
     pub attack_began: bool,
+    /// How many attack clips have started (an AI watches its combo progress).
+    pub attacks_started: u32,
     /// Killed: plays out its death reaction, makes no voluntary moves.
     pub dying: bool,
     /// The death reaction has finished: the body lies still.
@@ -274,6 +276,7 @@ impl Motion {
             last_active: 0,
             new_clip: false,
             attack_began: false,
+            attacks_started: 0,
             dying: false,
             corpse: false,
             rng: 0x2545_f491,
@@ -546,6 +549,7 @@ impl Motion {
             self.last_attack = self.kind;
             self.attack_ended = None;
             self.attack_began = true;
+            self.attacks_started += 1;
         }
         if self.dying && !reaction::is_victim(self.kind) {
             self.corpse = true; // the death reaction is over: lie still

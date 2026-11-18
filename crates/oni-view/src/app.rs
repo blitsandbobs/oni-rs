@@ -73,6 +73,7 @@ pub struct App {
     anims: Option<std::rc::Rc<crate::anim::collection::AnimCollection>>,
     class_tuning: crate::anim::motion::ClassTuning,
     faithful: bool,
+    spar: bool,
     state: Option<State>,
 }
 
@@ -85,6 +86,9 @@ pub struct PlaySetup {
     pub class_tuning: crate::anim::motion::ClassTuning,
     /// Reproduce the original's known bugs (`docs/QUIRKS.md`).
     pub faithful: bool,
+    /// The character in front of the player fights back (sparring AI)
+    /// instead of standing as a passive training dummy.
+    pub spar: bool,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -101,6 +105,7 @@ pub fn run(
         anims,
         class_tuning,
         faithful,
+        spar,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -114,6 +119,7 @@ pub fn run(
         anims,
         class_tuning,
         faithful,
+        spar,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -187,7 +193,11 @@ impl ApplicationHandler for App {
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
-                    world.spawn(&kind, dummy_pos, std::f32::consts::PI, true);
+                    let opponent = world.spawn(&kind, dummy_pos, std::f32::consts::PI, !self.spar);
+                    if self.spar {
+                        world.fighters[opponent].brain =
+                            Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
+                    }
                     // Capture the cursor so mouse motion turns the character
                     // continuously (Oni grabs the mouse in gameplay); Esc releases it.
                     apply_capture(&window, true);
