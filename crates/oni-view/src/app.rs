@@ -23,13 +23,24 @@ use crate::render::{Gpu, Renderer};
 struct PlayState {
     physics: crate::physics::Physics,
     loco: crate::anim_state::Locomotion,
-    yaw: f32,
+    facing: crate::control::Facing,
+    /// Aim pitch (radians), accumulated from mouse-Y; clamped to ±π/2.
+    aiming_ud: f32,
+    /// Mouse delta accumulated since the last tick (applied once per frame).
+    mouse_dx: f32,
+    mouse_dy: f32,
     height: f32,
     accum: f32,
 }
 
 const TICK: f32 = 1.0 / 60.0;
-const TURN_SPEED: f32 = 0.05; // radians per tick
+/// Body turn cap per tick (Oni `iGetTurnPerFrame`): `medTurn = 1.5π/60` when
+/// running, `slowTurn = 1.5π/120` when walking.
+const MED_TURN: f32 = std::f32::consts::PI * 1.5 / 60.0;
+const SLOW_TURN: f32 = std::f32::consts::PI * 1.5 / 120.0;
+/// Mouse sensitivity: radians of desired-facing per pixel of motion (tuned to
+/// feel like Oni's `/64` base; rebindable scale lives in `oni_config`).
+const MOUSE_SENS: f32 = 0.0022;
 
 struct State {
     gpu: Gpu,
@@ -143,10 +154,19 @@ impl ApplicationHandler for App {
                 let height = (mx.y - mn.y).max(2.0);
                 let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
                 let feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
+                // Capture the cursor so mouse motion turns the character
+                // continuously (Oni grabs the mouse in gameplay).
+                let _ = window
+                    .set_cursor_grab(winit::window::CursorGrabMode::Locked)
+                    .or_else(|_| window.set_cursor_grab(winit::window::CursorGrabMode::Confined));
+                window.set_cursor_visible(false);
                 Some(PlayState {
                     physics: crate::physics::Physics::new(&verts, &idx, feet, height, radius),
                     loco,
-                    yaw: 0.0,
+                    facing: crate::control::Facing::new(0.0),
+                    aiming_ud: 0.0,
+                    mouse_dx: 0.0,
+                    mouse_dy: 0.0,
                     height,
                     accum: 0.0,
                 })
@@ -228,7 +248,12 @@ impl ApplicationHandler for App {
 
     fn device_event(&mut self, _el: &ActiveEventLoop, _id: DeviceId, event: DeviceEvent) {
         if let (Some(st), DeviceEvent::MouseMotion { delta }) = (self.state.as_mut(), event) {
-            if st.looking {
+            if let Some(play) = st.play.as_mut() {
+                // Play mode: the mouse turns the character (accumulated, applied
+                // per tick) — no button to hold.
+                play.mouse_dx += delta.0 as f32;
+                play.mouse_dy += delta.1 as f32;
+            } else if st.looking {
                 let s = 0.0025;
                 st.cam.yaw += delta.0 as f32 * s;
                 st.cam.pitch = (st.cam.pitch - delta.1 as f32 * s).clamp(-1.54, 1.54);
@@ -291,8 +316,9 @@ impl State {
             forward: self.keys.contains(&KeyCode::KeyW),
             backward: self.keys.contains(&KeyCode::KeyS),
         };
-        let turn = (self.keys.contains(&KeyCode::KeyD) as i32
-            - self.keys.contains(&KeyCode::KeyA) as i32) as f32;
+        // Walk modifier (Oni: Caps Lock) → slower turn cap.
+        let walk = self.keys.contains(&KeyCode::CapsLock);
+        let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
 
         // Step the simulation (character immutably borrowed for stitch capture,
         // play state mutably — disjoint fields).
@@ -303,14 +329,26 @@ impl State {
             let Some(play) = self.play.as_mut() else {
                 return;
             };
+            // Apply this frame's accumulated mouse motion to the facing target
+            // (Oni: mouse-X → desiredFacing, negated; clamped ±π) and aim pitch
+            // (mouse-Y → aimingUD, clamped ±π/2).
+            let dx = std::mem::take(&mut play.mouse_dx);
+            let dy = std::mem::take(&mut play.mouse_dy);
+            play.facing
+                .adjust_desired((-dx * MOUSE_SENS).clamp(-std::f32::consts::PI, std::f32::consts::PI));
+            play.aiming_ud = (play.aiming_ud + dy * MOUSE_SENS)
+                .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+
             play.accum += dt;
             while play.accum >= TICK {
                 play.accum -= TICK;
-                play.yaw += turn * TURN_SPEED;
+                // Body yaw chases the mouse target at the capped rate.
+                play.facing.turn_toward(turn_cap);
                 // The animation state machine chooses the clip and yields this
                 // frame's character-local root motion; facing rotates it to world.
                 let local = play.loco.tick(input, Some(&cv.character));
-                let world_move = Quat::from_rotation_y(play.yaw) * Vec3::new(local.x, 0.0, local.y);
+                let world_move = Quat::from_rotation_y(play.facing.facing)
+                    * Vec3::new(local.x, 0.0, local.y);
                 play.physics.step(world_move);
             }
         }
@@ -319,7 +357,7 @@ impl State {
             return;
         };
         let (feet, yaw, height, pelvis) =
-            (play.physics.feet, play.yaw, play.height, play.loco.height());
+            (play.physics.feet, play.facing.facing, play.height, play.loco.height());
         if let Some(cv) = self.charview.as_mut() {
             // Oni places the character base matrix at `location` (the ground
             // point) then lifts it by `heightThisFrame`; the model origin is the

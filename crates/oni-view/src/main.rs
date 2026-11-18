@@ -16,6 +16,7 @@
 mod anim_state;
 mod app;
 mod camera;
+mod control;
 mod gltf;
 mod particles;
 mod physics;
