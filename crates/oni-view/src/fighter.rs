@@ -111,6 +111,9 @@ pub struct Fighter {
     /// Unstoppable (a script's order): blows don't stun it, knock it about
     /// or make it react, and it blocks without block stun.
     pub unstoppable: bool,
+    /// Death-locked (a script's order): it can die, but its body is never
+    /// removed.
+    pub death_lock: bool,
     /// Poison (a script calling `chr_poison` each tick): when it was last
     /// poisoned and its count toward the next dose.
     poison_last: u64,
@@ -209,6 +212,7 @@ impl Fighter {
             death_delete: 0,
             death_timer: None,
             unstoppable: false,
+            death_lock: false,
             poison_last: 0,
             poison_count: 0,
             passive,

@@ -1298,7 +1298,8 @@ impl World {
         // Bodies of classes that delete their dead go after the delay.
         for i in 1..self.fighters.len() {
             let f = &mut self.fighters[i];
-            if f.gone || f.death_delete == 0 || !(f.motion.dying || f.hp <= 0) {
+            // (Death-locked: it dies, but its body stays — `chr_death_lock`.)
+            if f.gone || f.death_lock || f.death_delete == 0 || !(f.motion.dying || f.hp <= 0) {
                 continue;
             }
             match f.death_timer {

@@ -506,6 +506,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        "chr_death_lock" => {
+            if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
+                f.death_lock = int(a(1)).unwrap_or(0) != 0;
+            }
+            nil()
+        }
         "chr_unstoppable" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.unstoppable = int(a(1)).unwrap_or(0) > 0;

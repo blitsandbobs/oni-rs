@@ -90,8 +90,8 @@ assert(took, "the dash is recognised")
 -- the finish within the time — a great run.
 took = wait_for(function() return showing("xgotrack") end, 900)
 assert(took, "on to the course")
-local function visit(x, z)
-    teleport(0, x, -338, z)
+local function visit(x, z, y)
+    teleport(0, x, y or -338, z)
     step(4)
 end
 visit(-1090, -290) -- the start
@@ -221,6 +221,61 @@ kick()
 took = wait_for(function() return not showing("xkick") end, 300)
 print("punched and kicked; the fighting lessons go on")
 assert(took, "a kick")
+
+-- Combos: two punches; then punch, punch, kick.
+took = wait_for(function() return showing("punch") end, 400)
+assert(took, "asked for two punches")
+punch() step(10) punch() step(40)
+took = wait_for(function() return showing("c01_50_29") end, 600)
+assert(took, "asked for punch-punch-kick")
+step(30)
+punch() step(10) punch() step(22) kick() step(60)
+took = wait_for(function() return showing("xspar2") end, 900)
+print("combos done after", took)
+assert(took, "on to sparring")
+
+-- The hit-flash room: hitting its dummy (it can't be killed for good —
+-- death-locked) runs its hurt script and the lesson.
+visit(-855, -482, -296)
+took = wait_for(function() return showing("start_hit") end, 400)
+assert(took, "the hit lesson")
+local dummy = named("dum_hit_flash")
+assert(dummy, "its dummy is there")
+local function hit(target)
+    local x, y, z = pos_of(target)
+    teleport(0, x, y + 2, z - 9)
+    facing(0)
+    step(5)
+    punch()
+    step(40)
+end
+for _ = 1, 4 do
+    if showing("c01_50_35") then break end
+    hit(dummy)
+end
+took = wait_for(function() return showing("c01_50_35") end, 200)
+print("hit the dummy; lesson after", took)
+assert(took, "hurting the dummy moves the lesson on")
+
+-- The throw room: a forward punch close to its dummy throws it.
+took = wait_for(function() return showing("goto_throw") end, 2400)
+assert(took, "on to throwing")
+visit(-746, -575, -296)
+took = wait_for(function() return showing("c01_50_41") end, 400)
+assert(took, "asked to throw")
+local thrown
+local d2 = named("dum_train_throw")
+assert(d2, "the throw dummy is there")
+for _ = 1, 6 do
+    local x, y, z = pos_of(d2)
+    teleport(0, x, y + 2, z - 6)
+    facing(0)
+    step(5)
+    input(true, false) step(2) punch() step(30) input(false, false) step(30)
+    if showing("xthrow1") or not showing("c01_50_41") then thrown = true break end
+end
+print("throw:", thrown)
+assert(thrown, "a throw moves the lesson on")
 
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
