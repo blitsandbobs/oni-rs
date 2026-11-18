@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Instant;
 
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 use winit::application::ApplicationHandler;
 use winit::event::{DeviceEvent, DeviceId, ElementState, MouseButton, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
@@ -18,39 +18,30 @@ use crate::camera::Camera;
 use crate::gltf::Scene;
 use crate::render::{Gpu, Renderer};
 
-/// Play-mode character controller state (E3.1): the character is driven by the
-/// 60 Hz physics + its animation root motion, with a third-person follow camera.
-struct PlayState {
-    physics: crate::physics::Physics,
-    loco: crate::anim_state::Locomotion,
-    facing: crate::control::Facing,
+/// Play-mode controller: the [`World`](crate::world::World) (player = fighter 0,
+/// plus any spawned dummies) driven at a fixed 60 Hz, with a third-person follow
+/// camera. The per-tick driving now lives in [`Fighter`](crate::fighter::Fighter);
+/// this holds the mouse/aim accumulators and the key press-edges.
+struct PlayWorld {
+    world: crate::world::World,
     /// Aim pitch (radians), accumulated from mouse-Y; clamped to ±π/2.
     aiming_ud: f32,
     /// Mouse delta accumulated since the last tick (applied once per frame).
     mouse_dx: f32,
     mouse_dy: f32,
-    height: f32,
+    /// Player capsule height (for the follow camera framing).
+    player_height: f32,
     accum: f32,
-    /// Airborne state: while in the air, horizontal motion is the momentum
-    /// captured at takeoff (not root motion), and gravity shapes the arc.
-    airborne: bool,
-    air_vel: Vec3,
-    air_ticks: u32,
-    /// The last grounded horizontal world-move (captured as takeoff momentum).
-    last_horiz: Vec3,
-    /// Jump key state last frame (for a press edge).
+    /// Jump/punch/kick key state last frame (for press edges).
     jump_down_prev: bool,
-    /// Punch/kick key state last frame (for press edges).
     punch_down_prev: bool,
     kick_down_prev: bool,
 }
 
 const TICK: f32 = 1.0 / 60.0;
-use crate::control::{MED_TURN, SLOW_TURN, TURN_DEADZONE};
 /// Mouse sensitivity: radians of desired-facing per pixel of motion (tuned to
 /// feel like Oni's `/64` base; rebindable scale lives in `oni_config`).
 const MOUSE_SENS: f32 = 0.0022;
-use crate::control::JUMP_SPEED;
 
 struct State {
     gpu: Gpu,
@@ -71,9 +62,9 @@ struct State {
     last: Instant,
     start: Instant,
     charview: Option<crate::CharView>,
-    /// Uploaded render model index for `charview` (if any).
+    /// Uploaded render model index for `charview` (non-play static viewer).
     char_model: Option<usize>,
-    play: Option<PlayState>,
+    play: Option<PlayWorld>,
 }
 
 pub struct App {
@@ -83,7 +74,7 @@ pub struct App {
     eye: Option<Vec3>,
     target: Option<Vec3>,
     play: bool,
-    loco: Option<crate::anim_state::Locomotion>,
+    anims: Option<std::rc::Rc<crate::anim_state::AnimCollection>>,
     state: Option<State>,
 }
 
@@ -96,7 +87,7 @@ pub fn run(
     eye: Option<Vec3>,
     target: Option<Vec3>,
     play: bool,
-    loco: Option<crate::anim_state::Locomotion>,
+    anims: Option<std::rc::Rc<crate::anim_state::AnimCollection>>,
 ) {
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -107,7 +98,7 @@ pub fn run(
         eye,
         target,
         play,
-        loco,
+        anims,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -152,45 +143,58 @@ impl ApplicationHandler for App {
         };
         surface.configure(&gpu.device, &config);
 
-        let charview = self.charview.take();
+        let mut charview = self.charview.take();
         let mut renderer = Renderer::new(&gpu, &scene, &self.particles, format);
-        let char_model = charview
-            .as_ref()
-            .map(|c| renderer.add_character(&gpu, &c.character));
 
-        // Build the play-mode controller (level trimesh + character capsule +
-        // the locomotion state machine).
-        let play = match (self.play, charview.as_ref(), self.loco.take()) {
-            (true, Some(cv), Some(loco)) => {
-                let (verts, idx) = crate::level_collision_mesh(&scene);
-                let (mn, mx) = cv.aabb(0.0);
-                let origin = cv.placement.transform_point3(Vec3::ZERO);
-                let foot_offset = mn.y - origin.y;
-                let height = (mx.y - mn.y).max(2.0);
-                let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
-                let feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
-                // Capture the cursor so mouse motion turns the character
-                // continuously (Oni grabs the mouse in gameplay); Esc releases it.
-                apply_capture(&window, true);
-                Some(PlayState {
-                    physics: crate::physics::Physics::new(&verts, &idx, feet, height, radius),
-                    loco,
-                    facing: crate::control::Facing::new(0.0),
-                    aiming_ud: 0.0,
-                    mouse_dx: 0.0,
-                    mouse_dy: 0.0,
-                    height,
-                    accum: 0.0,
-                    airborne: false,
-                    air_vel: Vec3::ZERO,
-                    air_ticks: 0,
-                    last_horiz: Vec3::ZERO,
-                    jump_down_prev: false,
-                    punch_down_prev: false,
-                    kick_down_prev: false,
-                })
+        // Play mode consumes the character into a `World` of fighters (player =
+        // fighter 0, plus a training dummy in front); the static viewer keeps the
+        // single `CharView` for direct posing.
+        let (char_model, play) = if self.play {
+            match (charview.take(), self.anims.take()) {
+                (Some(cv), Some(anims)) => {
+                    let model = renderer.add_character(&gpu, &cv.character);
+                    let spawn_pos = cv.placement.transform_point3(Vec3::ZERO);
+                    let (mn, mx) = cv.aabb(0.0);
+                    let player_height = (mx.y - mn.y).max(2.0);
+                    let crate::CharView { character, .. } = cv;
+                    let kind = crate::world::CharKind {
+                        model,
+                        character: std::rc::Rc::new(character),
+                        anims,
+                    };
+                    let (verts, idx) = crate::level_collision_mesh(&scene);
+                    let mut world = crate::world::World::new(verts, idx);
+                    // Player faces +Z (yaw 0); a passive training dummy 14 units
+                    // ahead faces back toward the player, within easy reach.
+                    world.spawn(&kind, spawn_pos, 0.0, false);
+                    let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
+                    world.spawn(&kind, dummy_pos, std::f32::consts::PI, true);
+                    // Capture the cursor so mouse motion turns the character
+                    // continuously (Oni grabs the mouse in gameplay); Esc releases it.
+                    apply_capture(&window, true);
+                    (
+                        None,
+                        Some(PlayWorld {
+                            world,
+                            aiming_ud: 0.0,
+                            mouse_dx: 0.0,
+                            mouse_dy: 0.0,
+                            player_height,
+                            accum: 0.0,
+                            jump_down_prev: false,
+                            punch_down_prev: false,
+                            kick_down_prev: false,
+                        }),
+                    )
+                }
+                _ => (None, None),
             }
-            _ => None,
+        } else {
+            // Static viewer: keep the single character for direct posing.
+            let model = charview
+                .as_ref()
+                .map(|c| renderer.add_character(&gpu, &c.character));
+            (model, None)
         };
 
         let move_speed = scene.extent() * 0.4;
@@ -359,156 +363,91 @@ impl State {
         }
     }
 
-    /// Play-mode character controller: W/S move (root motion), A/D turn; the
-    /// camera follows third-person. Stepped at a fixed 60 Hz.
+    /// Play-mode character controller: W/S move, A/D strafe, mouse turn; the
+    /// camera follows the player third-person. Stepped at a fixed 60 Hz, driving
+    /// every fighter in the world (player from keys, dummies idle for now).
     fn update_play(&mut self, dt: f32) {
+        use oni_config::Action;
         // Resolve held keys → actions through the bindings (Oni defaults: WASD =
         // forward/back + strafe, Caps Lock = walk; rebindable later).
-        use oni_config::Action;
         let held = |a: Action| {
             self.keys
                 .iter()
                 .filter_map(|&k| to_config_key(k))
                 .any(|k| self.bindings.key_action(k) == Some(a))
         };
-        let walk = held(Action::Walk);
         let jump_held = held(Action::Jump);
         let punch_held = held(Action::Punch);
         let kick_held = held(Action::Kick);
-        let mut input = crate::anim_state::Input {
+        let mv = crate::anim_state::Input {
             forward: held(Action::Forward),
             backward: held(Action::Backward),
             step_left: held(Action::StepLeft),
             step_right: held(Action::StepRight),
-            walk,
-            turn_left: false,
-            turn_right: false,
-            airborne: false,
-            punch: false,
-            kick: false,
+            walk: held(Action::Walk),
+            ..Default::default()
         };
-        let moving = input.forward || input.backward || input.step_left || input.step_right;
-        let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
         let tuning = self.tuning;
+        let sens = MOUSE_SENS * tuning.mouse_sensitivity;
 
-        // Diagonal strafe: forward/back + one step plays the forward/back run clip
-        // (the running probe wins), with the movement rotated ±45° toward the step
-        // side (Oni's ±π/4 facingModifier). Approximation: the body keeps facing
-        // forward rather than turning into the diagonal.
-        let diag = crate::control::diagonal_strafe_offset(
-            input.forward,
-            input.backward,
-            input.step_left,
-            input.step_right,
-        );
-
-        // Step the simulation (character immutably borrowed for stitch capture,
-        // play state mutably — disjoint fields).
-        {
-            let Some(cv) = self.charview.as_ref() else {
-                return;
-            };
-            let Some(play) = self.play.as_mut() else {
-                return;
-            };
-            // Apply this frame's accumulated mouse motion to the facing target
-            // (Oni: mouse-X → desiredFacing, negated; clamped ±π) and aim pitch
-            // (mouse-Y → aimingUD, clamped ±π/2).
-            let sens = MOUSE_SENS * tuning.mouse_sensitivity;
-            let dx = std::mem::take(&mut play.mouse_dx);
-            let dy = std::mem::take(&mut play.mouse_dy);
-            let dy = if tuning.invert_y { -dy } else { dy };
-            play.facing
-                .adjust_desired((-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI));
-            play.aiming_ud = (play.aiming_ud + dy * sens)
-                .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-
-            // One-shot jump/punch/kick on each key's press edge (consumed on the
-            // first tick this frame).
-            let mut jump_edge = jump_held && !play.jump_down_prev;
-            let mut punch_edge = punch_held && !play.punch_down_prev;
-            let mut kick_edge = kick_held && !play.kick_down_prev;
-            play.jump_down_prev = jump_held;
-            play.punch_down_prev = punch_held;
-            play.kick_down_prev = kick_held;
-
-            play.accum += dt;
-            while play.accum >= TICK {
-                play.accum -= TICK;
-
-                // Takeoff: launch the physics arc and force the jump clip; the
-                // horizontal velocity carries the run momentum captured on the
-                // ground (Oni's inAirControl.velocity).
-                if jump_edge && !play.airborne && play.physics.grounded {
-                    if play.physics.jump(JUMP_SPEED) {
-                        play.loco.start_jump(Some(&cv.character));
-                        play.airborne = true;
-                        play.air_ticks = 0;
-                        play.air_vel = play.last_horiz;
-                    }
-                    jump_edge = false;
-                }
-
-                // Turn-in-place intent: a large pending body turn while standing
-                // (Oni's HandleStandingTurn, evaluated before the slew).
-                let offset = play.facing.desired_offset();
-                input.turn_left = !moving && offset > TURN_DEADZONE;
-                input.turn_right = !moving && offset < -TURN_DEADZONE;
-                input.airborne = play.airborne;
-                // Attack triggers fire once (first tick of the frame).
-                input.punch = punch_edge;
-                input.kick = kick_edge;
-                punch_edge = false;
-                kick_edge = false;
-
-                // The state machine chooses the clip + root motion; while airborne
-                // the root motion is ignored in favour of the jump momentum.
-                let local = play.loco.tick(input, Some(&cv.character));
-                let world_move = if play.airborne {
-                    play.air_vel
-                } else {
-                    let m = Quat::from_rotation_y(play.facing.facing + diag)
-                        * Vec3::new(local.x, 0.0, local.y);
-                    play.last_horiz = Vec3::new(m.x, 0.0, m.z);
-                    m
-                };
-                play.physics.step(world_move);
-
-                // Landing: back on the ground after a couple airborne ticks →
-                // play the land clip and resume ground locomotion.
-                if play.airborne {
-                    play.air_ticks += 1;
-                    if play.air_ticks > 2 && play.physics.grounded {
-                        play.airborne = false;
-                        play.air_vel = Vec3::ZERO;
-                        play.loco.land(Some(&cv.character));
-                    }
-                }
-
-                // Then slew the body yaw toward the mouse target (Oni runs
-                // HandleTurning at the end of the heartbeat).
-                play.facing.turn_toward(turn_cap);
-            }
-        }
-
-        let Some(play) = self.play.as_ref() else {
+        let Some(pw) = self.play.as_mut() else {
             return;
         };
-        let (feet, yaw, height, pelvis) =
-            (play.physics.feet, play.facing.facing, play.height, play.loco.height());
-        if let Some(cv) = self.charview.as_mut() {
-            // Oni places the character base matrix at `location` (the ground
-            // point) then lifts it by `heightThisFrame`; the model origin is the
-            // pelvis, so pelvis world Y = feet + height-this-frame. This carries
-            // the body's vertical bob (and the per-clip resting elevation).
-            let origin = Vec3::new(feet.x, feet.y + pelvis, feet.z);
-            cv.placement = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), origin);
+
+        // Apply this frame's accumulated mouse motion to the player's facing
+        // target (Oni: mouse-X → desiredFacing, negated; clamped ±π) and aim
+        // pitch (mouse-Y → aimingUD, clamped ±π/2).
+        let dx = std::mem::take(&mut pw.mouse_dx);
+        let dy = std::mem::take(&mut pw.mouse_dy);
+        let dy = if tuning.invert_y { -dy } else { dy };
+        if let Some(player) = pw.world.fighters.first_mut() {
+            player
+                .facing
+                .adjust_desired((-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI));
         }
-        // Third-person follow camera (behind + above, looking at the torso).
-        let center = feet + Vec3::new(0.0, height * 0.55, 0.0);
-        let fwd = Vec3::new(yaw.sin(), 0.0, yaw.cos());
-        let eye = center - fwd * (height * 2.2) + Vec3::new(0.0, height * 0.4, 0.0);
-        self.cam.look_at(eye, center);
+        pw.aiming_ud = (pw.aiming_ud + dy * sens)
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+
+        // One-shot jump/punch/kick on each key's press edge.
+        let mut jump_edge = jump_held && !pw.jump_down_prev;
+        let mut punch_edge = punch_held && !pw.punch_down_prev;
+        let mut kick_edge = kick_held && !pw.kick_down_prev;
+        pw.jump_down_prev = jump_held;
+        pw.punch_down_prev = punch_held;
+        pw.kick_down_prev = kick_held;
+
+        pw.accum += dt;
+        while pw.accum >= TICK {
+            pw.accum -= TICK;
+            let mut player_mv = mv;
+            player_mv.punch = punch_edge;
+            player_mv.kick = kick_edge;
+            let jmp = jump_edge;
+            punch_edge = false;
+            kick_edge = false;
+            jump_edge = false;
+
+            // Drive the player (fighter 0), then the dummies (idle; AI later).
+            if let Some(player) = pw.world.fighters.first_mut() {
+                player.tick(player_mv, jmp);
+            }
+            for f in pw.world.fighters.iter_mut().skip(1) {
+                f.tick(crate::anim_state::Input::default(), false);
+            }
+            // Melee connects between fighters.
+            pw.world.resolve_hits();
+        }
+
+        // Third-person follow camera (behind + above the player, at the torso).
+        if let Some(player) = pw.world.player() {
+            let feet = player.feet();
+            let yaw = player.facing.facing;
+            let height = pw.player_height;
+            let center = feet + Vec3::new(0.0, height * 0.55, 0.0);
+            let fwd = Vec3::new(yaw.sin(), 0.0, yaw.cos());
+            let eye = center - fwd * (height * 2.2) + Vec3::new(0.0, height * 0.4, 0.0);
+            self.cam.look_at(eye, center);
+        }
     }
 
     fn render(&mut self) {
@@ -522,25 +461,36 @@ impl State {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        // Pose the character: at the play-mode animation time, or looping over
-        // elapsed time in the free-fly viewer.
-        let bones = match (&self.charview, &self.play) {
-            (Some(cv), Some(play)) => {
-                cv.bones_with(play.loco.clip(), play.loco.frame_time(), play.loco.blend())
-            }
-            (Some(cv), None) => {
+        // Pose the characters. In play mode: every fighter in the world. In the
+        // static viewer: the single character, looping over elapsed time.
+        let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
+            (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),
+            (None, Some(cv)) => {
                 let dur = cv.clip.as_ref().map(|c| c.duration).unwrap_or(1.0);
                 let t = self.start.elapsed().as_secs_f32() % dur.max(0.001);
-                cv.bones(t)
+                vec![cv.bones(t)]
             }
-            _ => Vec::new(),
+            (None, None) => Vec::new(),
         };
-        let draws: Vec<crate::render::CharDraw> = match self.char_model {
-            Some(m) if !bones.is_empty() => vec![crate::render::CharDraw {
-                model: m,
-                bones: &bones,
-            }],
-            _ => Vec::new(),
+        let draws: Vec<crate::render::CharDraw> = match (&self.play, self.char_model) {
+            (Some(pw), _) => pw
+                .world
+                .fighters
+                .iter()
+                .zip(&bones)
+                .map(|(f, b)| f.draw(b))
+                .collect(),
+            (None, Some(m)) => bones
+                .first()
+                .filter(|b| !b.is_empty())
+                .map(|b| {
+                    vec![crate::render::CharDraw {
+                        model: m,
+                        bones: b,
+                    }]
+                })
+                .unwrap_or_default(),
+            (None, None) => Vec::new(),
         };
         let (cam_right, cam_up) = self.cam.billboard_basis();
         self.renderer.render(

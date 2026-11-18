@@ -16,6 +16,7 @@
 //! caller, so the varient is always 0 (unarmed).
 
 use std::path::Path;
+use std::rc::Rc;
 
 use glam::{Quat, Vec2};
 
@@ -208,9 +209,11 @@ pub struct Input {
     pub kick: bool,
 }
 
-/// The locomotion state machine driving one character.
+/// The locomotion state machine driving one character. The animation set is
+/// shared (`Rc`) so several fighters using the same character each run their own
+/// state machine over one loaded collection.
 pub struct Locomotion {
-    coll: AnimCollection,
+    coll: Rc<AnimCollection>,
     cur: usize,
     /// Current frame within the clip (fractional; advanced at 60 Hz).
     frame: f32,
@@ -231,7 +234,7 @@ pub struct Locomotion {
 
 impl Locomotion {
     /// Starts the machine on a standing/idle clip.
-    pub fn new(coll: AnimCollection) -> Self {
+    pub fn new(coll: Rc<AnimCollection>) -> Self {
         let varient = 0;
         // Prefer a Stand clip from Standing, else Idle, else clip 0.
         let start = coll
@@ -317,6 +320,18 @@ impl Locomotion {
     /// The clip currently playing.
     pub fn clip(&self) -> &Clip {
         &self.coll.entries[self.cur].clip
+    }
+
+    /// The attack (if any) whose damage window contains the current frame — i.e.
+    /// the current clip is an attack and we are within `[firstDamageFrame,
+    /// lastDamageFrame]`. Drives hit detection (`docs/COMBAT.md` §3).
+    pub fn active_attack(&self) -> Option<skel::Attack> {
+        let f = self.frame;
+        self.clip()
+            .attacks
+            .iter()
+            .find(|a| (a.first_damage_frame as f32) <= f && f <= (a.last_damage_frame as f32))
+            .copied()
     }
 
     /// Name of the clip currently playing (used by tests / debug output).
@@ -598,7 +613,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    fn konoko_collection() -> Option<AnimCollection> {
+    fn konoko_collection() -> Option<Rc<AnimCollection>> {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../generated/oni/common/animations");
         if !dir.exists() {
@@ -606,7 +621,7 @@ mod tests {
             return None;
         }
         let coll = AnimCollection::load_sets(&dir, &["KONOKO", "KONCOM"]).ok()?;
-        (!coll.is_empty()).then_some(coll)
+        (!coll.is_empty()).then(|| Rc::new(coll))
     }
 
     /// The locomotion machine goes stand → run (via a start) → stop → stand,

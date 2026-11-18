@@ -17,14 +17,17 @@ mod anim_state;
 mod app;
 mod camera;
 mod control;
+mod fighter;
 mod gltf;
 mod particles;
 mod physics;
 mod render;
 mod script;
 mod skel;
+mod world;
 
 use std::path::PathBuf;
+use std::rc::Rc;
 
 use glam::{Mat4, Vec3};
 
@@ -169,9 +172,10 @@ fn main() {
         }
     });
 
-    // Play mode: build the character's locomotion state machine from its whole
-    // animation set (all `{PREFIX}*.glb` beside the given --anim).
-    let loco = if play || script_path.is_some() {
+    // Play / script mode: load the character's whole animation set (all
+    // `{PREFIX}*.glb` beside the given --anim) once, shared (`Rc`) across every
+    // fighter spawned from this character (player + dummies).
+    let anims = if play || script_path.is_some() {
         anim_path.as_ref().and_then(|ap| {
             let dir = ap.parent()?;
             let prefix = anim_prefix.clone().unwrap_or_else(|| {
@@ -186,13 +190,8 @@ fn main() {
             // keeps the fight-stance clips out of plain locomotion lookups.
             let combat = format!("{}COM", prefix.chars().take(3).collect::<String>());
             let coll = anim_state::AnimCollection::load_sets(dir, &[&prefix, &combat]).ok()?;
-            eprintln!(
-                "play: loaded {} '{}'+'{}' clips",
-                coll.len(),
-                prefix,
-                combat
-            );
-            (!coll.is_empty()).then(|| anim_state::Locomotion::new(coll))
+            eprintln!("play: loaded {} '{}'+'{}' clips", coll.len(), prefix, combat);
+            (!coll.is_empty()).then(|| Rc::new(coll))
         })
     } else {
         None
@@ -203,7 +202,7 @@ fn main() {
     // `--sim`/`--walk`/`--facing` test flags.
     if let Some(sp) = script_path {
         match charview {
-            Some(cv) => script::run_script(&sp, scene, cv, particles, loco),
+            Some(cv) => script::run_script(&sp, scene, cv, particles, anims),
             None => eprintln!("--script requires --character"),
         }
         return;
@@ -220,7 +219,7 @@ fn main() {
             target,
             time,
         ),
-        None => app::run(scene, charview, particles, eye, target, play, loco),
+        None => app::run(scene, charview, particles, eye, target, play, anims),
     }
 }
 

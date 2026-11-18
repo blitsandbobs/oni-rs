@@ -2,15 +2,16 @@
 //!
 //! This exists so scenario validation — "spawn Konoko, run forward 1s, put the
 //! camera here, screenshot" — lives in `.lua` files instead of accreting bespoke
-//! CLI flags and throwaway Rust test binaries. It is deliberately scoped to the
-//! systems that already exist (level + character + physics + locomotion state
-//! machine + offscreen render); the binding surface grows as the engine does,
-//! and later becomes the substrate for the gameplay-script layer (E4).
+//! CLI flags and throwaway Rust test binaries. It drives the real engine (the
+//! [`World`] of fighters + physics + the locomotion/combat state machine +
+//! offscreen render); the binding surface grows as the engine does, and later
+//! becomes the substrate for the gameplay-script layer (E4).
 //!
 //! Lua is confined to `oni-view` (the app/harness crate); the portable
 //! preservation crates (`oni-geom`, `oni-convert`) stay dependency-light.
 //!
 //! ## Lua API (all headless)
+//! Movement/combat below act on the **player** (fighter 0):
 //! - `input(forward, backward)` — set the move keys (W/S)
 //! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
 //! - `walk(on)` — the hold-to-walk modifier
@@ -19,45 +20,48 @@
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
-//! - `step(n)` — advance `n` 60 Hz ticks (state machine + physics)
-//! - `cam(ex,ey,ez, tx,ty,tz)` — place the camera (eye, look-at target)
-//! - `pos()` — returns the character's feet `x, y, z`
-//! - `grounded()` — whether the character is currently on the ground
+//! - `pos()` — the player's feet `x, y, z`
+//! - `grounded()` — whether the player is on the ground
 //! - `stitch()` — the current clip-blend weight (0 = not blending)
-//! - `anim()` — returns the current clip name
+//! - `anim()` — the current clip name
+//!
+//! World / multi-character:
+//! - `spawn(x, y, z [, facing_deg])` — spawn a training dummy, returns its id
+//! - `count()` — number of fighters (player + dummies)
+//! - `hp(id)` — a fighter's hit points (0 = player)
+//! - `pos_of(id)` — a fighter's feet `x, y, z`
+//! - `anim_of(id)` — a fighter's current clip name
+//!
+//! Driver:
+//! - `step(n)` — advance `n` 60 Hz ticks (every fighter + hit resolution)
+//! - `cam(ex,ey,ez, tx,ty,tz)` — place the camera (eye, look-at target)
 //! - `screenshot(path [, w, h])` — render one frame to a PNG
 
 use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use glam::{Mat4, Quat, Vec3};
+use glam::{Mat4, Vec3};
 use mlua::Lua;
 
-use crate::anim_state::{Input, Locomotion};
-use crate::physics::Physics;
-use crate::render::{Gpu, Renderer};
+use crate::anim_state::{AnimCollection, Input};
+use crate::camera::Camera;
+use crate::render::{CharDraw, Gpu, Renderer};
+use crate::world::{CharKind, World};
 use crate::CharView;
 
-/// Everything a script drives: one level, one character, its physics + state
-/// machine, a camera, and a reusable offscreen renderer.
+/// Everything a script drives: one level, a world of fighters, a camera, and a
+/// reusable offscreen renderer.
 struct ScriptHost {
     gpu: Gpu,
     renderer: Renderer,
     format: wgpu::TextureFormat,
     scene: crate::gltf::Scene,
-    charview: CharView,
-    /// Uploaded render model index for `charview`.
-    model: usize,
-    physics: Physics,
-    loco: Option<Locomotion>,
-    foot_offset: f32,
-    facing: crate::control::Facing,
+    world: World,
+    /// The character kind new `spawn`s use (the loaded character).
+    kind: CharKind,
+    /// Persistent held movement keys for the player (edges fire via `*_pending`).
     input: Input,
-    airborne: bool,
-    air_vel: Vec3,
-    air_ticks: u32,
-    last_horiz: Vec3,
     jump_pending: bool,
     punch_pending: bool,
     kick_pending: bool,
@@ -70,7 +74,7 @@ impl ScriptHost {
         scene: crate::gltf::Scene,
         charview: CharView,
         particles: &[crate::particles::Particle],
-        loco: Option<Locomotion>,
+        anims: Rc<AnimCollection>,
     ) -> Self {
         let gpu = pollster::block_on(Gpu::new(None));
         eprintln!("  GPU: {}", gpu.adapter.get_info().name);
@@ -78,33 +82,27 @@ impl ScriptHost {
         let mut renderer = Renderer::new(&gpu, &scene, particles, format);
         let model = renderer.add_character(&gpu, &charview.character);
 
-        // Capsule + physics from the level mesh and the character's bounds
-        // (same setup as play mode).
+        let spawn_pos = charview.placement.transform_point3(Vec3::ZERO);
+        let CharView { character, .. } = charview;
+        let kind = CharKind {
+            model,
+            character: Rc::new(character),
+            anims,
+        };
+
         let (verts, idx) = crate::level_collision_mesh(&scene);
-        let (mn, mx) = charview.aabb(0.0);
-        let origin = charview.placement.transform_point3(Vec3::ZERO);
-        let foot_offset = mn.y - origin.y;
-        let height = (mx.y - mn.y).max(2.0);
-        let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
-        let feet = Vec3::new(origin.x, origin.y + foot_offset, origin.z);
-        let physics = Physics::new(&verts, &idx, feet, height, radius);
+        let mut world = World::new(verts, idx);
+        // Player = fighter 0, facing +Z.
+        world.spawn(&kind, spawn_pos, 0.0, false);
 
         ScriptHost {
             gpu,
             renderer,
             format,
             scene,
-            charview,
-            model,
-            physics,
-            loco,
-            foot_offset,
-            facing: crate::control::Facing::new(0.0),
+            world,
+            kind,
             input: Input::default(),
-            airborne: false,
-            air_vel: Vec3::ZERO,
-            air_ticks: 0,
-            last_horiz: Vec3::ZERO,
             jump_pending: false,
             punch_pending: false,
             kick_pending: false,
@@ -113,114 +111,55 @@ impl ScriptHost {
         }
     }
 
-    /// Advances `n` ticks: locomotion state machine (if any) → root motion →
-    /// physics, then re-places the character at its settled feet + facing.
+    /// Advances `n` ticks: drive the player from the held input (+ one-shot
+    /// jump/punch/kick edges on the first tick), the dummies idle, then resolve
+    /// melee hits — exactly as play mode does.
     fn step(&mut self, n: u32) {
-        let moving = self.input.forward
-            || self.input.backward
-            || self.input.step_left
-            || self.input.step_right;
-        let turn_cap = if self.input.walk {
-            crate::control::SLOW_TURN
-        } else {
-            crate::control::MED_TURN
-        };
-        let diag = crate::control::diagonal_strafe_offset(
-            self.input.forward,
-            self.input.backward,
-            self.input.step_left,
-            self.input.step_right,
-        );
-        let mut jump_edge = self.jump_pending;
-        let mut punch_edge = self.punch_pending;
-        let mut kick_edge = self.kick_pending;
-        self.jump_pending = false;
-        self.punch_pending = false;
-        self.kick_pending = false;
+        let mut jump_edge = std::mem::take(&mut self.jump_pending);
+        let mut punch_edge = std::mem::take(&mut self.punch_pending);
+        let mut kick_edge = std::mem::take(&mut self.kick_pending);
         for _ in 0..n {
-            // Attack triggers fire once (first tick of this step call).
-            self.input.punch = punch_edge;
-            self.input.kick = kick_edge;
+            let mut mv = self.input;
+            mv.punch = punch_edge;
+            mv.kick = kick_edge;
+            let jmp = jump_edge;
             punch_edge = false;
             kick_edge = false;
-            // Takeoff: launch the arc + force the jump clip (see app.rs).
-            if jump_edge && !self.airborne && self.physics.grounded {
-                if self.physics.jump(crate::control::JUMP_SPEED) {
-                    if let Some(l) = &mut self.loco {
-                        l.start_jump(Some(&self.charview.character));
-                    }
-                    self.airborne = true;
-                    self.air_ticks = 0;
-                    self.air_vel = self.last_horiz;
-                }
-                jump_edge = false;
+            jump_edge = false;
+
+            if let Some(p) = self.world.fighters.first_mut() {
+                p.tick(mv, jmp);
             }
-            // Turn-in-place intent, then tick the state machine, then slew the
-            // body toward the desired facing (Oni's heartbeat order).
-            let offset = self.facing.desired_offset();
-            self.input.turn_left = !self.airborne && !moving && offset > crate::control::TURN_DEADZONE;
-            self.input.turn_right =
-                !self.airborne && !moving && offset < -crate::control::TURN_DEADZONE;
-            self.input.airborne = self.airborne;
-            let local = match &mut self.loco {
-                Some(l) => {
-                    let d = l.tick(self.input, Some(&self.charview.character));
-                    Vec3::new(d.x, 0.0, d.y)
-                }
-                None => Vec3::ZERO,
-            };
-            let world = if self.airborne {
-                self.air_vel
-            } else {
-                let m = Quat::from_rotation_y(self.facing.facing + diag) * local;
-                self.last_horiz = Vec3::new(m.x, 0.0, m.z);
-                m
-            };
-            self.physics.step(world);
-            if self.airborne {
-                self.air_ticks += 1;
-                if self.air_ticks > 2 && self.physics.grounded {
-                    self.airborne = false;
-                    self.air_vel = Vec3::ZERO;
-                    if let Some(l) = &mut self.loco {
-                        l.land(Some(&self.charview.character));
-                    }
-                }
+            for f in self.world.fighters.iter_mut().skip(1) {
+                f.tick(Input::default(), false);
             }
-            self.facing.turn_toward(turn_cap);
+            self.world.resolve_hits();
         }
-        let feet = self.physics.feet;
-        // Pelvis elevation: the locomotion's per-frame `heightThisFrame` (Oni's
-        // `location + height`), falling back to the fixed bind offset when no
-        // state machine is driving (a static clip).
-        let pelvis_y = match &self.loco {
-            Some(l) => feet.y + l.height(),
-            None => feet.y - self.foot_offset,
-        };
-        let origin = Vec3::new(feet.x, pelvis_y, feet.z);
-        self.charview.placement =
-            Mat4::from_rotation_translation(Quat::from_rotation_y(self.facing.facing), origin);
     }
 
     fn screenshot(&mut self, path: &Path, w: u32, h: u32) {
         let aspect = w as f32 / h as f32;
-        let t = self.loco.as_ref().map(|l| l.frame_time()).unwrap_or(0.0);
-        let mut cam = crate::frame_character(&self.charview, aspect, t);
+        let mut cam = Camera::new(aspect);
+        match self.world.player() {
+            Some(p) => {
+                let c = p.feet() + Vec3::new(0.0, 6.0, 0.0);
+                cam.look_at(c + Vec3::new(14.0, 8.0, -22.0), c);
+            }
+            None => cam = crate::default_camera(&self.scene, aspect),
+        }
         match (self.eye, self.target) {
             (Some(e), Some(tg)) => cam.look_at(e, tg),
             (Some(e), None) => cam.look_at(e, self.scene.center()),
             _ => {}
         }
-        let bones = match &self.loco {
-            Some(l) => self
-                .charview
-                .bones_with(l.clip(), l.frame_time(), l.blend()),
-            None => self.charview.bones(t),
-        };
-        let draws = [crate::render::CharDraw {
-            model: self.model,
-            bones: &bones,
-        }];
+        let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
+        let draws: Vec<CharDraw> = self
+            .world
+            .fighters
+            .iter()
+            .zip(&bones)
+            .map(|(f, b)| f.draw(b))
+            .collect();
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
             &self.gpu,
@@ -242,10 +181,14 @@ pub fn run_script(
     scene: crate::gltf::Scene,
     charview: CharView,
     particles: Vec<crate::particles::Particle>,
-    loco: Option<Locomotion>,
+    anims: Option<Rc<AnimCollection>>,
 ) {
+    let Some(anims) = anims else {
+        eprintln!("--script requires an animation set (none loaded)");
+        return;
+    };
     let host = Rc::new(RefCell::new(ScriptHost::new(
-        scene, charview, &particles, loco,
+        scene, charview, &particles, anims,
     )));
     let lua = Lua::new();
     if let Err(e) = register(&lua, &host) {
@@ -312,7 +255,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "airborne",
-        lua.create_function(move |_, ()| Ok(h.borrow().airborne))?,
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow().world.player().map(|p| p.airborne).unwrap_or(false))
+        })?,
     )?;
 
     // Melee: queue a punch / kick (fires on the next step's first tick).
@@ -334,13 +279,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // `facing(deg)` snaps the body (and its target); `turn(delta)` nudges the
-    // target so the body slews toward it over subsequent ticks (mouse turn).
+    // `facing(deg)` snaps the player body (and its target); `turn(delta)` nudges
+    // the target so the body slews toward it over subsequent ticks (mouse turn).
     let h = host.clone();
     g.set(
         "facing",
         lua.create_function(move |_, deg: f32| {
-            h.borrow_mut().facing = crate::control::Facing::new(deg.to_radians());
+            if let Some(p) = h.borrow_mut().world.fighters.first_mut() {
+                p.facing = crate::control::Facing::new(deg.to_radians());
+            }
             Ok(())
         })?,
     )?;
@@ -349,22 +296,96 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "turn",
         lua.create_function(move |_, delta: f32| {
-            h.borrow_mut().facing.adjust_desired(delta.to_radians());
+            if let Some(p) = h.borrow_mut().world.fighters.first_mut() {
+                p.facing.adjust_desired(delta.to_radians());
+            }
             Ok(())
         })?,
     )?;
 
-    // Read-back of the body yaw and the (mouse) target, in degrees.
+    // Read-back of the player body yaw and the (mouse) target, in degrees.
     let h = host.clone();
     g.set(
         "facing_deg",
-        lua.create_function(move |_, ()| Ok(h.borrow().facing.facing.to_degrees()))?,
+        lua.create_function(move |_, ()| {
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.facing.facing.to_degrees())
+                .unwrap_or(0.0))
+        })?,
     )?;
 
     let h = host.clone();
     g.set(
         "desired_deg",
-        lua.create_function(move |_, ()| Ok(h.borrow().facing.desired_facing.to_degrees()))?,
+        lua.create_function(move |_, ()| {
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.facing.desired_facing.to_degrees())
+                .unwrap_or(0.0))
+        })?,
+    )?;
+
+    // Spawn a training dummy; returns its fighter id.
+    let h = host.clone();
+    g.set(
+        "spawn",
+        lua.create_function(
+            move |_, (x, y, z, facing_deg): (f32, f32, f32, Option<f32>)| {
+                let mut host = h.borrow_mut();
+                let kind = host.kind.clone();
+                let yaw = facing_deg.unwrap_or(180.0).to_radians();
+                let id = host.world.spawn(&kind, Vec3::new(x, y, z), yaw, true);
+                Ok(id as u32)
+            },
+        )?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "count",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.fighters.len() as u32))?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "hp",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).map(|f| f.hp).unwrap_or(0))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "pos_of",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let f = host
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.feet())
+                .unwrap_or(Vec3::ZERO);
+            Ok((f.x, f.y, f.z))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "anim_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h
+                .borrow()
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.loco.clip_name().to_string())
+                .unwrap_or_default())
+        })?,
     )?;
 
     let h = host.clone();
@@ -393,7 +414,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "pos",
         lua.create_function(move |_, ()| {
-            let f = h.borrow().physics.feet;
+            let f = h.borrow().world.player().map(|p| p.feet()).unwrap_or(Vec3::ZERO);
             Ok((f.x, f.y, f.z))
         })?,
     )?;
@@ -401,7 +422,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "grounded",
-        lua.create_function(move |_, ()| Ok(h.borrow().physics.grounded))?,
+        lua.create_function(move |_, ()| {
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.physics.grounded)
+                .unwrap_or(false))
+        })?,
     )?;
 
     // The current clip-to-clip stitch blend weight (0 = not blending).
@@ -409,10 +437,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "stitch",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow()
-                .loco
-                .as_ref()
-                .and_then(|l| l.blend())
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .and_then(|p| p.loco.blend())
                 .map(|(_, t)| t)
                 .unwrap_or(0.0))
         })?,
@@ -422,10 +451,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "anim",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow()
-                .loco
-                .as_ref()
-                .map(|l| l.clip_name().to_string())
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.loco.clip_name().to_string())
                 .unwrap_or_default())
         })?,
     )?;

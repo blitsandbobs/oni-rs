@@ -46,6 +46,24 @@ pub struct Channel {
     pub rotations: Vec<Quat>,
 }
 
+/// One attack's hit window + effects (`TRtAttack`, from the clip's `extras`,
+/// decoded by `oni-convert`). The attack connects on frames
+/// `[first_damage_frame, last_damage_frame]`.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Attack {
+    pub damage: u16,
+    pub knockback: f32,
+    pub first_damage_frame: u16,
+    pub last_damage_frame: u16,
+    pub hit_stun: u16,
+    pub block_stun: u16,
+    pub stagger: u16,
+    /// Attacker body-part bits that are "live weapons" this move (`damageBits`).
+    pub damage_bits: u32,
+    /// `ONcAttackFlag` bits (Unblockable/AttackHigh/AttackLow/SpecialMove).
+    pub flags: u32,
+}
+
 /// An animation clip.
 #[derive(Clone)]
 pub struct Clip {
@@ -77,6 +95,8 @@ pub struct Clip {
     pub end_interpolation: u16,
     /// Max frames another clip may blend into this one (`maxInterpolation`).
     pub max_interpolation: u16,
+    /// Attack hit windows + effects (empty for non-attack clips).
+    pub attacks: Vec<Attack>,
 }
 
 /// Animation playback rate (Oni animations run at 60 fps).
@@ -341,6 +361,30 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
     let ex = &anim["extras"];
     let u16_field = |k: &str| ex[k].as_u64().unwrap_or(0) as u16;
 
+    // Attack hit windows (from `extras.attacks`, emitted by oni-convert).
+    let attacks: Vec<Attack> = ex["attacks"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|a| {
+                    let u16k = |k: &str| a[k].as_u64().unwrap_or(0) as u16;
+                    let u32k = |k: &str| a[k].as_u64().unwrap_or(0) as u32;
+                    Attack {
+                        damage: u16k("damage"),
+                        knockback: a["knockback"].as_f64().unwrap_or(0.0) as f32,
+                        first_damage_frame: u16k("firstDamageFrame"),
+                        last_damage_frame: u16k("lastDamageFrame"),
+                        hit_stun: u16k("hitStun"),
+                        block_stun: u16k("blockStun"),
+                        stagger: u16k("stagger"),
+                        damage_bits: u32k("damageBits"),
+                        flags: u32k("attackFlags"),
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
     Ok(Clip {
         duration: duration.max(0.001),
         channels,
@@ -354,6 +398,7 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         move_direction: u16_field("moveDirection"),
         end_interpolation: u16_field("endInterp"),
         max_interpolation: u16_field("maxInterp"),
+        attacks,
     })
 }
 
