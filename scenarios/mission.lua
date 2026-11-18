@@ -74,6 +74,42 @@ assert(took, "Action at the console uses it")
 took = wait_for(function() return showing("xactivate2") end, 200)
 assert(took, "its script moves the training on")
 
+-- The dash lesson: a double-tapped forward dashes (the training waits for
+-- the dash animation).
+took = wait_for(function() return showing("xdash1") end, 600)
+assert(took, "the dash lesson")
+facing(0)
+input(true, false) step(4) input(false, false) step(4) input(true, false)
+step(40)
+print("dashing:", anim())
+input(false, false)
+took = wait_for(function() return showing("xdash2") end, 120)
+assert(took, "the dash is recognised")
+
+-- The course: into its start, then past the 17 markers in order and into
+-- the finish within the time — a great run.
+took = wait_for(function() return showing("xgotrack") end, 900)
+assert(took, "on to the course")
+local function visit(x, z)
+    teleport(0, x, -338, z)
+    step(4)
+end
+visit(-1090, -290) -- the start
+took = wait_for(function() return showing("xrun") end, 200)
+assert(took, "the course is on")
+for _, c in ipairs({
+    {-1040, -201}, {-1040, -172}, {-1040, -142}, {-1040, -111}, {-1044, -84},
+    {-1079, -67}, {-1126, -67}, {-1153, -78}, {-1163, -113}, {-1163, -143},
+    {-1163, -173}, {-1163, -202}, {-1163, -232}, {-1163, -260}, {-1150, -282},
+    {-1118, -290}, {-1091, -291},
+}) do
+    visit(c[1], c[2])
+end
+visit(-1039, -236) -- the finish
+took = wait_for(function() return showing("xgreat") end, 300)
+print("course run; verdict after", took)
+assert(took, "a clean, quick run is great")
+
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
 for _, e in ipairs(info.errors) do print("  " .. e) end
