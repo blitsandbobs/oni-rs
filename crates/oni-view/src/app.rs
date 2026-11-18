@@ -54,6 +54,9 @@ struct State {
     window: Arc<Window>,
     keys: HashSet<KeyCode>,
     looking: bool,
+    /// Player key/mouse bindings (Oni defaults; rebindable later).
+    bindings: oni_config::Bindings,
+    tuning: oni_config::InputTuning,
     move_speed: f32,
     last: Instant,
     start: Instant,
@@ -199,6 +202,8 @@ impl ApplicationHandler for App {
             window,
             keys: HashSet::new(),
             looking: false,
+            bindings: oni_config::Bindings::oni_defaults(),
+            tuning: oni_config::InputTuning::default(),
             move_speed,
             last: now,
             start: now,
@@ -315,20 +320,28 @@ impl State {
     /// Play-mode character controller: W/S move (root motion), A/D turn; the
     /// camera follows third-person. Stepped at a fixed 60 Hz.
     fn update_play(&mut self, dt: f32) {
-        // Walk modifier (Oni: Caps Lock) → walk clips + slower turn cap.
-        let walk = self.keys.contains(&KeyCode::CapsLock);
+        // Resolve held keys → actions through the bindings (Oni defaults: WASD =
+        // forward/back + strafe, Caps Lock = walk; rebindable later).
+        use oni_config::Action;
+        let held = |a: Action| {
+            self.keys
+                .iter()
+                .filter_map(|&k| to_config_key(k))
+                .any(|k| self.bindings.key_action(k) == Some(a))
+        };
+        let walk = held(Action::Walk);
         let mut input = crate::anim_state::Input {
-            forward: self.keys.contains(&KeyCode::KeyW),
-            backward: self.keys.contains(&KeyCode::KeyS),
-            // A/D are strafe in Oni's stock layout, not turn (turning is mouse).
-            step_left: self.keys.contains(&KeyCode::KeyA),
-            step_right: self.keys.contains(&KeyCode::KeyD),
+            forward: held(Action::Forward),
+            backward: held(Action::Backward),
+            step_left: held(Action::StepLeft),
+            step_right: held(Action::StepRight),
             walk,
             turn_left: false,
             turn_right: false,
         };
         let moving = input.forward || input.backward || input.step_left || input.step_right;
         let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
+        let tuning = self.tuning;
 
         // Step the simulation (character immutably borrowed for stitch capture,
         // play state mutably — disjoint fields).
@@ -342,11 +355,13 @@ impl State {
             // Apply this frame's accumulated mouse motion to the facing target
             // (Oni: mouse-X → desiredFacing, negated; clamped ±π) and aim pitch
             // (mouse-Y → aimingUD, clamped ±π/2).
+            let sens = MOUSE_SENS * tuning.mouse_sensitivity;
             let dx = std::mem::take(&mut play.mouse_dx);
             let dy = std::mem::take(&mut play.mouse_dy);
+            let dy = if tuning.invert_y { -dy } else { dy };
             play.facing
-                .adjust_desired((-dx * MOUSE_SENS).clamp(-std::f32::consts::PI, std::f32::consts::PI));
-            play.aiming_ud = (play.aiming_ud + dy * MOUSE_SENS)
+                .adjust_desired((-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI));
+            play.aiming_ud = (play.aiming_ud + dy * sens)
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
 
             play.accum += dt;
@@ -426,4 +441,51 @@ impl State {
         );
         frame.present();
     }
+}
+
+/// Maps a `winit` physical key to the portable `oni_config::Key` the bindings
+/// are keyed on (variant names mirror `winit`'s). Unmapped keys return `None`.
+fn to_config_key(code: KeyCode) -> Option<oni_config::Key> {
+    use oni_config::Key as K;
+    Some(match code {
+        KeyCode::KeyA => K::KeyA,
+        KeyCode::KeyB => K::KeyB,
+        KeyCode::KeyC => K::KeyC,
+        KeyCode::KeyD => K::KeyD,
+        KeyCode::KeyE => K::KeyE,
+        KeyCode::KeyF => K::KeyF,
+        KeyCode::KeyG => K::KeyG,
+        KeyCode::KeyH => K::KeyH,
+        KeyCode::KeyI => K::KeyI,
+        KeyCode::KeyJ => K::KeyJ,
+        KeyCode::KeyK => K::KeyK,
+        KeyCode::KeyL => K::KeyL,
+        KeyCode::KeyM => K::KeyM,
+        KeyCode::KeyN => K::KeyN,
+        KeyCode::KeyO => K::KeyO,
+        KeyCode::KeyP => K::KeyP,
+        KeyCode::KeyQ => K::KeyQ,
+        KeyCode::KeyR => K::KeyR,
+        KeyCode::KeyS => K::KeyS,
+        KeyCode::KeyT => K::KeyT,
+        KeyCode::KeyU => K::KeyU,
+        KeyCode::KeyV => K::KeyV,
+        KeyCode::KeyW => K::KeyW,
+        KeyCode::KeyX => K::KeyX,
+        KeyCode::KeyY => K::KeyY,
+        KeyCode::KeyZ => K::KeyZ,
+        KeyCode::Space => K::Space,
+        KeyCode::Enter => K::Enter,
+        KeyCode::Escape => K::Escape,
+        KeyCode::Tab => K::Tab,
+        KeyCode::CapsLock => K::CapsLock,
+        KeyCode::ShiftLeft => K::ShiftLeft,
+        KeyCode::ShiftRight => K::ShiftRight,
+        KeyCode::ControlLeft => K::ControlLeft,
+        KeyCode::ControlRight => K::ControlRight,
+        KeyCode::AltLeft => K::AltLeft,
+        KeyCode::AltRight => K::AltRight,
+        KeyCode::F1 => K::F1,
+        _ => return None,
+    })
 }
