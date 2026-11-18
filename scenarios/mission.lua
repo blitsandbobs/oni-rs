@@ -277,6 +277,18 @@ end
 print("throw:", thrown)
 assert(thrown, "a throw moves the lesson on")
 
+-- The block room: its drone comes at Konoko a while, then the training
+-- sends her on to shooting (which needs weapons — the walkthrough ends).
+took = wait_for(function() return showing("goto_block") end, 2400)
+assert(took, "on to blocking")
+visit(-700, -632, -296)
+took = wait_for(function() return showing("c01_50_33") end, 300)
+assert(took, "the block lesson")
+visit(-629, -610, -296)
+took = wait_for(function() return showing("goto_shoot") end, 2400)
+print("block lesson done after", took, "hp", hp(0))
+assert(took, "on to shooting")
+
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
 for _, e in ipairs(info.errors) do print("  " .. e) end
