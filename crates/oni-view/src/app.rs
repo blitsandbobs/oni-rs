@@ -24,7 +24,6 @@ struct PlayState {
     physics: crate::physics::Physics,
     loco: crate::anim_state::Locomotion,
     yaw: f32,
-    foot_offset: f32,
     height: f32,
     accum: f32,
 }
@@ -148,7 +147,6 @@ impl ApplicationHandler for App {
                     physics: crate::physics::Physics::new(&verts, &idx, feet, height, radius),
                     loco,
                     yaw: 0.0,
-                    foot_offset,
                     height,
                     accum: 0.0,
                 })
@@ -320,10 +318,14 @@ impl State {
         let Some(play) = self.play.as_ref() else {
             return;
         };
-        let (feet, yaw, foot_offset, height) =
-            (play.physics.feet, play.yaw, play.foot_offset, play.height);
+        let (feet, yaw, height, pelvis) =
+            (play.physics.feet, play.yaw, play.height, play.loco.height());
         if let Some(cv) = self.charview.as_mut() {
-            let origin = Vec3::new(feet.x, feet.y - foot_offset, feet.z);
+            // Oni places the character base matrix at `location` (the ground
+            // point) then lifts it by `heightThisFrame`; the model origin is the
+            // pelvis, so pelvis world Y = feet + height-this-frame. This carries
+            // the body's vertical bob (and the per-clip resting elevation).
+            let origin = Vec3::new(feet.x, feet.y + pelvis, feet.z);
             cv.placement = Mat4::from_rotation_translation(Quat::from_rotation_y(yaw), origin);
         }
         // Third-person follow camera (behind + above, looking at the torso).

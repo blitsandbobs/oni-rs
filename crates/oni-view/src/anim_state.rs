@@ -28,6 +28,9 @@ const STITCH_FRAMES: f32 = 8.0;
 /// switch, interpolated out over `count` frames.
 struct Stitch {
     saved: Vec<Quat>,
+    /// Pelvis height at the moment of the switch (blended out alongside the
+    /// pose, mirroring Oni's `stitch.height`).
+    saved_height: f32,
     itr: f32,
     count: f32,
 }
@@ -169,6 +172,20 @@ impl Locomotion {
             .map(|s| (s.saved.as_slice(), 1.0 - s.itr / s.count))
     }
 
+    /// Pelvis height above the ground point this frame (Oni's `heightThisFrame`):
+    /// the current clip's height, blended out of the saved height during a stitch
+    /// (matching `ONrCharacter_DoAnimation`'s height interpolation).
+    pub fn height(&self) -> f32 {
+        let h = self.clip().height_at(self.frame_time());
+        match &self.stitch {
+            Some(s) => {
+                let to = s.itr / s.count;
+                s.saved_height * (1.0 - to) + h * to
+            }
+            None => h,
+        }
+    }
+
     /// The clip currently playing.
     pub fn clip(&self) -> &Clip {
         &self.coll.entries[self.cur].clip
@@ -255,8 +272,10 @@ impl Locomotion {
         if count >= 1.0 {
             if let Some(ch) = character {
                 let saved = ch.local_rotations(Some(self.clip()), self.frame_time());
+                let saved_height = self.clip().height_at(self.frame_time());
                 self.stitch = Some(Stitch {
                     saved,
+                    saved_height,
                     itr: 0.0,
                     count,
                 });

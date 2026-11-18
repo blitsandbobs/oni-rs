@@ -54,6 +54,10 @@ pub struct Clip {
     /// Per-frame character-local `[x, z]` root-motion displacement (from the
     /// animation's `extras.rootMotion`). Empty if the clip has none.
     pub root_motion: Vec<[f32; 2]>,
+    /// Per-frame pelvis height above the ground point (`extras.rootHeight`,
+    /// Oni's `heightThisFrame`). The whole character is lifted by this each
+    /// frame — it carries the body's vertical bob. Empty if the clip has none.
+    pub heights: Vec<f32>,
     /// Action type (`TRtAnimType`): Run, Stand, Idle, Run_Start, … Drives the
     /// locomotion state machine (see [`crate::anim_state`]).
     pub anim_type: u16,
@@ -71,6 +75,29 @@ pub struct Clip {
 
 /// Animation playback rate (Oni animations run at 60 fps).
 pub const FPS: f32 = 60.0;
+
+/// Fallback pelvis height when a clip carries no height track (Oni's
+/// `TRrAnimation_GetHeight` returns 6.0 when `heights` is null).
+pub const DEFAULT_HEIGHT: f32 = 6.0;
+
+impl Clip {
+    /// Pelvis height at `time`, linearly interpolated between frames (Oni's
+    /// `TRrAnimation_GetHeight`). Returns [`DEFAULT_HEIGHT`] when the clip has
+    /// no height track.
+    pub fn height_at(&self, time: f32) -> f32 {
+        if self.heights.is_empty() {
+            return DEFAULT_HEIGHT;
+        }
+        let last = self.heights.len() - 1;
+        let f = (time * FPS).clamp(0.0, last as f32);
+        let i = f.floor() as usize;
+        if i >= last {
+            return self.heights[last];
+        }
+        let frac = f - i as f32;
+        self.heights[i] * (1.0 - frac) + self.heights[i + 1] * frac
+    }
+}
 
 impl Character {
     /// The local rotation `clip` applies to each bone at `time` (rest rotation
@@ -295,6 +322,16 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         })
         .unwrap_or_default();
 
+    // Per-frame pelvis height (Oni's `heights` track).
+    let heights: Vec<f32> = anim["extras"]["rootHeight"]
+        .as_array()
+        .map(|arr| {
+            arr.iter()
+                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
+                .collect()
+        })
+        .unwrap_or_default();
+
     let ex = &anim["extras"];
     let u16_field = |k: &str| ex[k].as_u64().unwrap_or(0) as u16;
 
@@ -302,6 +339,7 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         duration: duration.max(0.001),
         channels,
         root_motion,
+        heights,
         anim_type: u16_field("animType"),
         from_state: u16_field("fromState"),
         to_state: u16_field("toState"),

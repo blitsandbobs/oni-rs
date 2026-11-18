@@ -149,6 +149,30 @@ fn animation_decodes_all_frames() {
         "run accumulates forward z motion, got {forward}"
     );
 
+    // Height track: one pelvis height per frame, and a run bobs (the pelvis
+    // elevation varies, not a flat line). Values are plausible for a ~15-unit
+    // character (Oni asserts the height stays within +/-128).
+    assert_eq!(
+        clip.heights.len(),
+        clip.num_frames as usize,
+        "one pelvis height per frame"
+    );
+    let hmin = clip.heights.iter().cloned().fold(f32::INFINITY, f32::min);
+    let hmax = clip
+        .heights
+        .iter()
+        .cloned()
+        .fold(f32::NEG_INFINITY, f32::max);
+    assert!(
+        hmin > 0.0 && hmax < 20.0,
+        "pelvis heights are sane, got {hmin}..{hmax}"
+    );
+    assert!(
+        hmax - hmin > 0.1,
+        "a run bobs: pelvis height varies, got range {}",
+        hmax - hmin
+    );
+
     // An attack animation carries a hit window with damage.
     if let Some(kick) = oni_geom::character::find_animation(&dat, "NINCOMkick_heavy") {
         let a = oni_geom::character::decode_animation(&dat, kick, &raw).expect("decode kick");

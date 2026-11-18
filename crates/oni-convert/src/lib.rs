@@ -882,6 +882,9 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if !clip.root_motion.is_empty() {
         obj.insert("rootMotion".into(), serde_json::json!(clip.root_motion));
     }
+    if !clip.heights.is_empty() {
+        obj.insert("rootHeight".into(), serde_json::json!(clip.heights));
+    }
     if clip.flags != 0 {
         obj.insert("flags".into(), serde_json::json!(clip.flags));
     }

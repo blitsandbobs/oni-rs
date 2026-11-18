@@ -173,6 +173,7 @@ pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
 // `numParts` and `compressionSize` sit past `extentInfo` where the released
 // source drifted from the data, so we derive them from the frame data itself.
 const TRAM_DATA: usize = 44; // tm_raw `data` -> byte offset into .raw
+const TRAM_HEIGHTS: usize = 4; // tm_raw `heights` -> per-frame pelvis-height track
 const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .raw
 const TRAM_ATTACKS: usize = 3; // `attacks` is the 4th tm_raw pointer (index 3)
 const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
@@ -299,6 +300,11 @@ pub struct Clip {
     /// animation's `positions` track; `y` is always 0 — vertical is gravity).
     /// Empty if the animation has no position track (e.g. a static idle).
     pub root_motion: Vec<[f32; 2]>,
+    /// Per-frame pelvis height above the ground point (the animation's
+    /// `heights` track, used as `heightThisFrame` — the whole character is
+    /// lifted by this each frame, giving the body its vertical bob). Empty if
+    /// the animation has no height track (the engine then uses a flat 6.0).
+    pub heights: Vec<f32>,
     /// Animation flags (`TRtAnimation.flags`).
     pub flags: u32,
     /// Attacks: hit windows + effects (empty for non-attack animations).
@@ -399,6 +405,15 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         _ => Vec::new(),
     };
 
+    // Height track: the `heights` array = `numFrames` floats, the pelvis
+    // elevation above the ground point for each frame (`heightThisFrame`).
+    let heights = match read_u32(d, TRAM_HEIGHTS) {
+        Some(h_off) if h_off != 0 => (0..total_frames)
+            .map(|f| read_f32(raw, h_off as usize + f * 4).unwrap_or(0.0))
+            .collect(),
+        _ => Vec::new(),
+    };
+
     // Combat: flags (stable, right after the pointer block) + the attacks array
     // (bounded by the next-larger tm_raw pointer, so we never read the drifted
     // `numAttacks` scalar).
@@ -413,6 +428,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         num_frames: num_frames + 1,
         channels,
         root_motion,
+        heights,
         flags,
         attacks,
         anim_type: read_u16(d, TRAM_TYPE).unwrap_or(0),

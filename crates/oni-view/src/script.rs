@@ -104,7 +104,14 @@ impl ScriptHost {
             self.physics.step(world);
         }
         let feet = self.physics.feet;
-        let origin = Vec3::new(feet.x, feet.y - self.foot_offset, feet.z);
+        // Pelvis elevation: the locomotion's per-frame `heightThisFrame` (Oni's
+        // `location + height`), falling back to the fixed bind offset when no
+        // state machine is driving (a static clip).
+        let pelvis_y = match &self.loco {
+            Some(l) => feet.y + l.height(),
+            None => feet.y - self.foot_offset,
+        };
+        let origin = Vec3::new(feet.x, pelvis_y, feet.z);
         self.charview.placement =
             Mat4::from_rotation_translation(Quat::from_rotation_y(self.yaw), origin);
     }
