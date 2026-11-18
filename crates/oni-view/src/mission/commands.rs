@@ -387,7 +387,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let world = host.world();
             match world.level_ai.flags.get(&(flag as i16)).copied() {
                 Some(f) => world.teleport(id, f.at, None),
-                None => state.error(format!("chr_teleport: no flag {flag}")),
+                None => state.warn(format!("chr_teleport: no flag {flag}")),
             }
             nil()
         }
@@ -426,6 +426,25 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- scripted animation ------------------------------------------------
+        "chr_animate" | "chr_animate_block" => {
+            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let f = &mut host.world().fighters[id];
+            if name == "chr_animate_block" && f.motion.lock_frames > 1 {
+                return Ok((Value::Nil, true, None, None)); // wait for the earlier one
+            }
+            let frames = int(a(2)).unwrap_or(0);
+            let interp = int(a(3)).filter(|&n| n >= 0).map(|n| n as u16);
+            let ch = f.character.clone();
+            let own = f.motion.coll.entries.iter().any(|e| e.name.eq_ignore_ascii_case(&clip));
+            let elsewhere = if own { None } else { host.clip(&clip) };
+            let f = &mut host.world().fighters[id];
+            if !f.motion.animate(&ch, &clip, frames, interp, elsewhere) {
+                state.warn(format!("chr_animate: no animation {clip}"));
+            }
+            nil()
+        }
+
         // --- waiting on a character ---------------------------------------
         "chr_wait_animtype" | "chr_wait_animation" | "chr_wait_animstate" => {
             let Some(id) = fighter(host, a(0)) else { return nil() };
@@ -523,7 +542,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let kind = a(2).and_then(text);
             let found = state.triggers.by_name(a(0));
             if found.is_empty() {
-                state.error(format!("trigvolume_enable: no volume {:?}", a(0).and_then(text)));
+                state.warn(format!("trigvolume_enable: no volume {:?}", a(0).and_then(text)));
             }
             for i in found {
                 let bit = match kind.as_deref() {
@@ -647,7 +666,7 @@ pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) ->
     let kind = match host.kind(&placed.class) {
         Ok(k) => k,
         Err(e) => {
-            state.error(format!("ai2_spawn {name}: {e}"));
+            state.warn(format!("ai2_spawn {name}: {e}"));
             return None;
         }
     };

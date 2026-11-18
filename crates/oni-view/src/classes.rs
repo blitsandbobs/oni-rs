@@ -27,6 +27,8 @@ pub struct Classes {
     entries: Vec<serde_json::Value>,
     collections: HashMap<String, Rc<AnimCollection>>,
     kinds: HashMap<String, CharKind>,
+    /// Clips loaded on their own (`clip`).
+    singles: HashMap<String, Rc<AnimCollection>>,
     /// AI melee profiles by name.
     melee: HashMap<String, Rc<crate::ai::melee::profile::Profile>>,
     /// The game settings (`common/game_settings.json`).
@@ -48,6 +50,7 @@ impl Classes {
             entries: doc["classes"].as_array().cloned().unwrap_or_default(),
             collections: HashMap::new(),
             kinds: HashMap::new(),
+            singles: HashMap::new(),
             melee,
             settings: std::fs::read_to_string(oni_root.join("common/game_settings.json"))
                 .ok()
@@ -125,6 +128,16 @@ impl Classes {
 }
 
 impl Classes {
+    /// A single clip by name, from any class (loaded once).
+    pub fn clip(&mut self, name: &str) -> Option<Rc<AnimCollection>> {
+        if let Some(c) = self.singles.get(name) {
+            return Some(c.clone());
+        }
+        let c = Rc::new(AnimCollection::single(&self.anim_dir, name).ok()?);
+        self.singles.insert(name.to_string(), c.clone());
+        Some(c)
+    }
+
     /// A melee profile by id (what a placed character names).
     pub fn melee_by_id(&self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
         self.melee.values().find(|p| p.id == id).cloned()

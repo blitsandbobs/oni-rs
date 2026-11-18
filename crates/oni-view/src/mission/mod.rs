@@ -21,6 +21,11 @@ pub trait Host {
     fn kind(&mut self, class: &str) -> Result<CharKind, String>;
     /// A melee profile by id.
     fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>>;
+    /// A clip by name from any character's animations (as a one-clip
+    /// collection), for a script playing it on someone else.
+    fn clip(&mut self, _name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
+        None
+    }
 }
 
 /// A running script task.
@@ -45,8 +50,11 @@ pub struct State {
     pub messages: Vec<String>,
     /// `win` (true) / `lose` (false).
     pub outcome: Option<bool>,
-    /// Errors raised by scripts (logged once each).
+    /// Errors that stopped a script (logged once each).
     pub errors: Vec<String>,
+    /// Commands that reported a problem and carried on (the original logs
+    /// these to its console: a volume or flag that doesn't exist, …).
+    pub warnings: Vec<String>,
     /// Commands not carried out (stubs), with how often they were called.
     pub stubbed: HashMap<String, u32>,
     /// Tasks started this tick (forks, events): label, who waits for it,
@@ -72,6 +80,14 @@ impl State {
         if !self.errors.contains(&msg) {
             eprintln!("script error: {msg}");
             self.errors.push(msg);
+        }
+    }
+
+    /// Records a command's complaint (logged once; the script carries on).
+    pub fn warn(&mut self, msg: String) {
+        if !self.warnings.contains(&msg) {
+            eprintln!("script warning: {msg}");
+            self.warnings.push(msg);
         }
     }
 
@@ -286,6 +302,9 @@ mod tests {
         fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
             self.classes.melee_by_id(id)
         }
+        fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
+            self.classes.clip(name)
+        }
     }
 
     /// Every level's translated scripts load and begin — characters
@@ -326,5 +345,61 @@ mod tests {
             eprintln!("level {level}: {} spawned, {} tasks, {} errors", m.state.spawned.len(), m.tasks(), m.state.errors.len());
         }
         assert!(failures.is_empty(), "{failures:#?}");
+    }
+
+    /// The player walks into every trigger volume of every level in turn
+    /// (firing whatever scripts they run), then the scripts run on for 20 s:
+    /// a script error anywhere is reported. (Skipped without assets.)
+    #[test]
+    fn every_trigger_volume_runs_without_script_errors() {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni");
+        let Ok(levels) = std::fs::read_dir(root.join("levels")) else { return };
+        let mut dirs: Vec<PathBuf> = levels.flatten().map(|e| e.path()).filter(|p| p.join("scripts.lua").exists()).collect();
+        dirs.sort();
+        let mut report = Vec::new();
+        for dir in dirs {
+            let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
+            let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
+            let floor = vec![[-1e5, -5000.0, -1e5], [1e5, -5000.0, -1e5], [0.0, -5000.0, 1e5]];
+            let mut host = Headless { world: World::new(floor, vec![0, 1, 2]), classes };
+            host.world.level_dir = dir.clone();
+            host.world.level_ai = std::rc::Rc::new(crate::ai::level::LevelAi::load(&dir, &root.join("common")));
+            let Ok(player) = host.kind("konoko_generic") else { continue };
+            host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
+            let Ok(mut m) = Mission::load(&dir) else { continue };
+            m.begin(&mut host);
+            let centres: Vec<glam::Vec3> = m
+                .state
+                .triggers
+                .volumes
+                .iter()
+                .map(|v| v.corner + v.axes[0] * v.size.x * 0.5 + v.axes[2] * v.size.z * 0.5 + v.axes[1] * 1.0)
+                .collect();
+            for c in centres {
+                host.world.teleport(0, c, None);
+                for _ in 0..20 {
+                    host.world.step(0);
+                    m.tick(&mut host);
+                }
+            }
+            for _ in 0..1200 {
+                host.world.step(0);
+                m.tick(&mut host);
+            }
+            eprintln!(
+                "level {level}: {} spawned, {} tasks, {} errors, {} stubbed kinds",
+                m.state.spawned.len(),
+                m.tasks(),
+                m.state.errors.len(),
+                m.state.stubbed.len()
+            );
+            for w in &m.state.warnings {
+                eprintln!("  level {level} warning: {w}");
+            }
+            for e in &m.state.errors {
+                report.push(format!("level {level}: {e}"));
+            }
+        }
+        assert!(report.is_empty(), "{report:#?}");
     }
 }

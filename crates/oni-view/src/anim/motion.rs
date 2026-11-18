@@ -794,6 +794,45 @@ impl Motion {
 
     // --- fight stance / variants -------------------------------------------
 
+    /// Plays clip `name` now, from the current state (a script's
+    /// `chr_animate`): blending over `interp` frames (default: the usual),
+    /// then holding off other clips for `frames` ticks (−1: the clip's
+    /// length; 0: none). False if the collection has no such clip.
+    /// `elsewhere`: a collection holding the clip when ours doesn't.
+    pub fn animate(
+        &mut self,
+        ch: &Character,
+        name: &str,
+        frames: i64,
+        interp: Option<u16>,
+        elsewhere: Option<Rc<AnimCollection>>,
+    ) -> bool {
+        let find = |c: &AnimCollection| c.entries.iter().position(|e| e.name.eq_ignore_ascii_case(name));
+        let (coll, clip) = match find(&self.coll) {
+            Some(i) => (self.coll.clone(), i),
+            None => match elsewhere.and_then(|c| find(&c).map(|i| (c, i))) {
+                Some(x) => x,
+                None => return false,
+            },
+        };
+        let n = interp.unwrap_or_else(|| {
+            if Rc::ptr_eq(&coll, &self.coll) {
+                self.blend_into(clip)
+            } else {
+                crate::anim::collection::blend_between(self.current(), &coll.entries[clip].clip, false)
+            }
+        });
+        let turn = self.leave_clip(true);
+        let from = self.state;
+        self.enter_in(ch, coll, from, clip, n, turn);
+        self.lock_frames = match frames {
+            -1 => self.length() + 1,
+            f if f > 0 => (f as u16).saturating_add(1),
+            _ => 0,
+        };
+        true
+    }
+
     /// Enters (or refreshes) the fight stance (not while panicking).
     pub fn fight_mode(&mut self) {
         if self.varient & var::PANIC != 0 {

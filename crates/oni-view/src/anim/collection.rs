@@ -69,6 +69,18 @@ impl AnimCollection {
     /// Loads collection `name` from `<anim_dir>/collections/<name>.json`,
     /// following its `recursive` parents, and every clip it references from
     /// `<anim_dir>/<clip>.glb`.
+    /// A collection of just one clip (`anim_dir/<name>.glb`) — a clip a
+    /// script plays by name that no collection lists.
+    pub fn single(anim_dir: &Path, name: &str) -> std::io::Result<Self> {
+        let clip = skel::load_clip(&anim_dir.join(format!("{name}.glb"))).map_err(std::io::Error::other)?;
+        Ok(AnimCollection {
+            entries: vec![Entry { name: name.to_string(), clip, direct: Vec::new() }],
+            links: Vec::new(),
+            level: u16::MAX,
+            rng: Cell::new(0x1234_5678),
+        })
+    }
+
     pub fn load(anim_dir: &Path, name: &str, level: u16) -> std::io::Result<Self> {
         // Read the chain of collection documents, root first.
         let mut docs: Vec<Vec<(String, u32)>> = Vec::new();
