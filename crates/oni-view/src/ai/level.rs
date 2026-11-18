@@ -136,6 +136,17 @@ impl Placed {
     }
 }
 
+/// A recorded performance (`films.json`): where it starts, and the
+/// controls over time (keys from their tick on).
+#[derive(Clone, Debug)]
+pub struct Film {
+    pub start: Vec3,
+    pub facing: f32,
+    pub length: u32,
+    /// Tick, buttons (the original's button bits), turn left/right.
+    pub keys: Vec<(u32, u64, f32)>,
+}
+
 /// Everything AI about a level.
 #[derive(Clone, Debug, Default)]
 pub struct LevelAi {
@@ -143,6 +154,8 @@ pub struct LevelAi {
     pub patrols: HashMap<u16, Rc<PatrolPath>>,
     pub flags: HashMap<i16, Flag>,
     pub combat: HashMap<u16, Rc<CombatProfile>>,
+    /// The level's films, by name.
+    pub films: HashMap<String, Rc<Film>>,
 }
 
 fn read(path: &Path) -> Value {
@@ -227,6 +240,27 @@ impl LevelAi {
                 waypoints: p["waypoints"].as_array().into_iter().flatten().filter_map(waypoint).collect(),
             };
             out.patrols.insert(path.id, Rc::new(path));
+        }
+        for f in read(&level_dir.join("films.json"))["films"].as_array().into_iter().flatten() {
+            let keys = f["keys"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|k| {
+                    (
+                        k["time"].as_u64().unwrap_or(0) as u32,
+                        k["buttons"].as_u64().unwrap_or(0),
+                        k["turnLR"].as_f64().unwrap_or(0.0) as f32,
+                    )
+                })
+                .collect();
+            let film = Film {
+                start: v3(&f["initialLocation"]),
+                facing: f["initialFacing"].as_f64().unwrap_or(0.0) as f32,
+                length: f["length"].as_u64().unwrap_or(0) as u32,
+                keys,
+            };
+            out.films.insert(s(&f["name"]), Rc::new(film));
         }
         for c in read(&common_dir.join("combat_profiles.json"))["profiles"].as_array().into_iter().flatten() {
             let b = &c["behavior"];

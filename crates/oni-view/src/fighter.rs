@@ -96,6 +96,8 @@ pub struct Fighter {
     pub invincible: bool,
     /// Removed from the level (`chr_delete`): not simulated or drawn.
     pub gone: bool,
+    /// A film it is playing (its controls come from the recording).
+    pub film: Option<FilmPlay>,
     /// A passive fighter (training dummy): stands and takes hits, never deals
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
@@ -183,6 +185,7 @@ impl Fighter {
             max_hp: tuning.max_hit_points,
             invincible: false,
             gone: false,
+            film: None,
             passive,
             knockback: Vec3::ZERO,
             hit_set: Vec::new(),
@@ -850,6 +853,33 @@ impl Fighter {
 
     pub fn alive(&self) -> bool {
         self.hp > 0 && !self.motion.dying && !self.gone
+    }
+}
+
+/// A film being played on a fighter.
+#[derive(Clone, Debug)]
+pub struct FilmPlay {
+    pub film: std::rc::Rc<crate::ai::level::Film>,
+    pub frame: u32,
+    /// Easing into the film's start: a step per tick, ticks left.
+    pub interp: Option<(Vec3, u32)>,
+}
+
+impl FilmPlay {
+    /// This tick's controls and turn (the original's `ONrFilm_GetFrame`):
+    /// the buttons of the last key at or before this tick; its turn only on
+    /// the key's own tick. None once the film is over.
+    pub fn next(&mut self) -> Option<(u32, f32)> {
+        if self.frame >= self.film.length {
+            return None;
+        }
+        let keys = &self.film.keys;
+        let k = keys.iter().rposition(|k| k.0 <= self.frame).unwrap_or(0);
+        let out = keys.get(k).map(|&(t, b, turn)| {
+            (crate::anim::input::from_original_buttons(b), if t == self.frame { turn } else { 0.0 })
+        });
+        self.frame += 1;
+        Some(out.unwrap_or((0, 0.0)))
     }
 }
 

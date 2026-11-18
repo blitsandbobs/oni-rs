@@ -87,11 +87,16 @@ setmetatable(C, {
         local f = function(...)
             local r, wait, now, arg = __cmd(k, ...)
             if now then RUN(now, arg) end
-            -- Stalled: the same command is called again each tick until it
-            -- stops stalling.
-            while wait do
-                coroutine.yield(1)
-                r, wait = __cmd(k, ...)
+            if type(wait) == "number" then
+                -- Done in so many ticks: sleep that long.
+                if wait > 0 then coroutine.yield(wait) end
+            else
+                -- Stalled: the same command is called again each tick until
+                -- it stops stalling.
+                while wait do
+                    coroutine.yield(1)
+                    r, wait = __cmd(k, ...)
+                end
             end
             return r
         end

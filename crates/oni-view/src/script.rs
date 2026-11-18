@@ -755,6 +755,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             }))
         })?,
     )?;
+    // Plays a level film on fighter `id` (mode "", "fromhere", "interp");
+    // returns its length in ticks, or nil.
+    let h = host.clone();
+    g.set(
+        "play_film",
+        lua.create_function(move |_, (id, name, mode): (usize, String, Option<String>)| {
+            Ok(h.borrow_mut().world.play_film(id, &name, mode.as_deref().unwrap_or(""), 30))
+        })?,
+    )?;
+
     // Moves fighter `id` (feet) to a point.
     let h = host.clone();
     g.set(

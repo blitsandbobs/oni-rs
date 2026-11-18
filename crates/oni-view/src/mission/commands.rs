@@ -279,12 +279,13 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
 /// What a command gives back to the calling script: its value, whether the
 /// script must wait, and a script function to run right now (as part of the
 /// command, with a character's name).
-pub type Reply = (Value, bool, Option<String>, Option<String>);
+/// (`wait`: `true` — call me again next tick; a number — sleep that long.)
+pub type Reply = (Value, Value, Option<String>, Option<String>);
 
 /// Carries out one script command (or a prelude request, `@…`).
 pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, args: Variadic<Value>) -> mlua::Result<Reply> {
     let a = |k: usize| args.get(k);
-    let done = |v: Value| Ok((v, false, None, None));
+    let done = |v: Value| Ok((v, Value::Boolean(false), None, None));
     let nil = || done(Value::Nil);
     let _ = lua;
     match name {
@@ -372,7 +373,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let Some(who) = a(0).and_then(text) else { return nil() };
             let force = a(1).and_then(text).is_some_and(|f| f == "force");
             match spawn(state, host, &who, force) {
-                Some((script, arg)) => Ok((Value::Nil, false, Some(script), Some(arg))),
+                Some((script, arg)) => Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg))),
                 None => nil(),
             }
         }
@@ -431,7 +432,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
             let f = &mut host.world().fighters[id];
             if name == "chr_animate_block" && f.motion.lock_frames > 1 {
-                return Ok((Value::Nil, true, None, None)); // wait for the earlier one
+                return Ok((Value::Nil, Value::Boolean(true), None, None)); // wait for the earlier one
             }
             let frames = int(a(2)).unwrap_or(0);
             let interp = int(a(3)).filter(|&n| n >= 0).map(|n| n as u16);
@@ -443,6 +444,21 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 state.warn(format!("chr_animate: no animation {clip}"));
             }
             nil()
+        }
+
+        // --- films -------------------------------------------------------------
+        "playback" | "chr_playback" | "playback_block" | "chr_playback_block" => {
+            let (Some(id), Some(film)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let mode = a(2).and_then(text).unwrap_or_default();
+            let interp = int(a(3)).unwrap_or(30).max(0) as u32;
+            match host.world().play_film(id, &film, &mode, interp) {
+                Some(len) if name.ends_with("_block") => Ok((Value::Nil, Value::Integer(len as i64), None, None)),
+                Some(_) => nil(),
+                None => {
+                    state.warn(format!("{name}: can't play film {film}"));
+                    nil()
+                }
+            }
         }
 
         // --- waiting on a character ---------------------------------------
@@ -459,12 +475,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let key = |s: &str| s.chars().filter(|c| *c != '_').collect::<String>().to_ascii_lowercase();
             let now = key(&now);
             let hit = args.iter().skip(1).filter_map(text).any(|w| key(&w) == now);
-            Ok((Value::Nil, !hit, None, None))
+            Ok((Value::Nil, Value::Boolean(!hit), None, None))
         }
         "chr_wait_health" => {
             let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
             let above = host.world().fighters[id].hp as i64 > hp;
-            Ok((Value::Nil, above, None, None))
+            Ok((Value::Nil, Value::Boolean(above), None, None))
         }
         "chr_is_player" => done(Value::Integer((fighter(host, a(0)) == Some(0)) as i64)),
         "chr_has_lsi" | "chr_has_empty_weapon" | "did_kill_griffen" => done(Value::Integer(0)),

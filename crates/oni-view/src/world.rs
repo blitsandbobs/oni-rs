@@ -29,6 +29,9 @@ const BLOCK_ANGLE: f32 = 20.0 * std::f32::consts::PI / 180.0;
 /// per tick (see `Fighter::tick`). A feel knob to revisit at playtest.
 const KNOCKBACK_SCALE: f32 = 1.0;
 
+/// A film eased into ("interp") must start within this of the character.
+const FILM_MAX_EASE: f32 = 80.0;
+
 /// A noise (behaviour per `docs/PERCEPTION.md`, *Hearing*): its kind, where,
 /// how far it carries for a hearer of acuity 1, who made it and whom it
 /// concerns.
@@ -423,7 +426,7 @@ impl World {
             if !matches!(f.brain, Some(crate::ai::Brain::Agent(_))) || !f.alive() || f.motion.dying || f.passive {
                 continue;
             }
-            if f.startling.is_some() {
+            if f.startling.is_some() || f.film.is_some() {
                 continue;
             }
             self.with_agent(i, |a, cx| a.update(cx));
@@ -486,6 +489,31 @@ impl World {
         f.passive = false;
         agent.goal = crate::ai::goals::Goal::None;
         f.brain = Some(crate::ai::Brain::Agent(Box::new(agent)));
+    }
+
+    /// Plays film `name` on fighter `id` (`mode`: "" from the film's start,
+    /// "fromhere" where it stands, "interp" easing there over `interp`
+    /// ticks). Returns the film's length, or None if it can't play.
+    pub fn play_film(&mut self, id: usize, name: &str, mode: &str, interp: u32) -> Option<u32> {
+        let film = self.level_ai.films.get(name).cloned()?;
+        let f = self.fighters.get_mut(id)?;
+        let mut play = crate::fighter::FilmPlay { film: film.clone(), frame: 0, interp: None };
+        f.facing.facing = film.facing;
+        f.facing.desired_facing = film.facing;
+        match mode {
+            "fromhere" => {}
+            "interp" => {
+                let delta = film.start - f.feet();
+                if delta.length() > FILM_MAX_EASE {
+                    return None; // too far to ease into
+                }
+                let n = interp.max(1);
+                play.interp = Some((delta / n as f32, n));
+            }
+            _ => f.physics.feet = film.start,
+        }
+        f.film = Some(play);
+        Some(film.length)
     }
 
     /// Removes fighter `id` from the level (it stays in the list, gone).
@@ -694,7 +722,26 @@ impl World {
                 .and_then(|t| feet.iter().find(|(j, _)| *j == t && *j != i))
                 .map(|(_, p)| *p);
             // The player's fire buttons become melee while unarmed (weapons
-            // aren't modelled yet, #10).
+            // aren't modelled yet, #10). A film plays its recorded controls.
+            let film = f.film.as_mut().map(|p| (p.next(), p.interp.take()));
+            if let Some((frame, interp)) = film {
+                if let Some((step, n)) = interp {
+                    f.physics.feet += step;
+                    if n > 1 {
+                        if let Some(p) = f.film.as_mut() {
+                            p.interp = Some((step, n - 1));
+                        }
+                    }
+                }
+                match frame {
+                    Some((keys, turn)) => {
+                        f.facing.adjust_desired(-turn / 64.0);
+                        moves.push(f.plan(crate::anim::input::fire_as_melee(keys, false, false), 0, &others));
+                        continue;
+                    }
+                    None => f.film = None,
+                }
+            }
             let (held, pressed) = if i == 0 {
                 (crate::anim::input::fire_as_melee(controls, false, false), 0)
             } else if let Some(d) = decisions[i] {

@@ -24,6 +24,28 @@ pub mod key {
     pub const TURN_RIGHT: u32 = 1 << 14;
 }
 
+/// The original's button bits (`LIc_Bit_*`, as films record them) as ours.
+pub fn from_original_buttons(b: u64) -> u32 {
+    const MAP: [(u32, u32); 15] = [
+        (21, key::FORWARD),
+        (22, key::BACKWARD),
+        (23, key::TURN_LEFT),
+        (24, key::TURN_RIGHT),
+        (25, key::STEP_LEFT),
+        (26, key::STEP_RIGHT),
+        (27, key::JUMP),
+        (28, key::CROUCH),
+        (29, key::PUNCH),
+        (30, key::KICK),
+        (32, key::WALK),
+        (33, key::ACTION),
+        (38, key::FIRE1),
+        (39, key::FIRE2),
+        (40, key::FIRE3),
+    ];
+    MAP.iter().filter(|(bit, _)| b & (1u64 << bit) != 0).fold(0, |k, (_, ours)| k | ours)
+}
+
 /// What the fire buttons do without a usable weapon, as in the original:
 /// fire 1 also counts as punch when the character holds no weapon (or it is
 /// empty); fire 2 also counts as kick unless the weapon has a working
