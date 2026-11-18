@@ -134,6 +134,8 @@ impl ScriptHost {
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         world.attach_doors(crate::door_meshes(&scene));
+        let (solid, opaque) = crate::env_parts(&scene);
+        world.attach_env(solid, opaque);
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }
@@ -205,6 +207,7 @@ impl ScriptHost {
         }
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         self.renderer.beams = self.world.beams.clone();
+        self.renderer.hidden_refs = self.world.env_hidden.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let draws: Vec<CharDraw> = self
             .world

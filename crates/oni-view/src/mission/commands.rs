@@ -521,6 +521,13 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // (Every character here is always active.)
         "chr_lock_active" | "chr_unlock_active" => nil(),
 
+        "env_show" => {
+            if let Some(r) = int(a(0)) {
+                host.world().env_show(r as u32, truthy(a(1)));
+            }
+            nil()
+        }
+
         // --- laser triggers --------------------------------------------------
         "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show" | "trig_speed" => {
             let id = int(a(0)).unwrap_or(crate::lasers::ALL);

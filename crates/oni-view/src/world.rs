@@ -110,6 +110,12 @@ pub struct World {
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
     door_links: Vec<Vec<(usize, usize)>>,
+    /// Level parts scripts show and hide (`env_show`): the solid ones (each
+    /// fighter's physics holds them after the doors), the opaque ones (sight
+    /// holds them after the doors), and the references hidden now.
+    env_solid: Vec<(u32, crate::Mesh)>,
+    env_opaque: Vec<u32>,
+    pub env_hidden: std::collections::HashSet<u32>,
     /// Whether each door's leaf is solid in the colliders now.
     door_applied: Vec<bool>,
     /// Script functions the world asks to run (consoles' events), with
@@ -151,6 +157,9 @@ impl World {
             beams: Vec::new(),
             door_meshes: Vec::new(),
             door_links: Vec::new(),
+            env_solid: Vec::new(),
+            env_opaque: Vec::new(),
+            env_hidden: Default::default(),
             door_applied: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
@@ -184,6 +193,10 @@ impl World {
         for (k, (v, i)) in self.door_meshes.iter().enumerate() {
             let n = f.physics.add_door(v, i);
             f.physics.set_door(n, self.doors[k].solid());
+        }
+        for (r, (v, i)) in &self.env_solid {
+            let n = f.physics.add_door(v, i);
+            f.physics.set_door(n, !self.env_hidden.contains(r));
         }
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
@@ -639,6 +652,49 @@ impl World {
             for (k, (v, i)) in self.door_meshes.iter().enumerate() {
                 let n = f.physics.add_door(v, i);
                 f.physics.set_door(n, self.doors[k].solid());
+            }
+        }
+    }
+
+    /// Gives the world the level parts scripts can hide (after the doors):
+    /// solid and sight-blocking until hidden.
+    pub fn attach_env(&mut self, solid: crate::Parts, opaque: crate::Parts) {
+        self.env_solid = solid.into_iter().collect();
+        for f in &mut self.fighters {
+            for (_, (v, i)) in &self.env_solid {
+                f.physics.add_door(v, i);
+            }
+        }
+        self.env_opaque = opaque.keys().copied().collect();
+        if let Some(sight) = self.sight.as_mut() {
+            for (v, i) in opaque.values() {
+                sight.add_door(v, i);
+            }
+        }
+    }
+
+    /// `env_show ref on`: shows or hides a level part — drawn, solid and
+    /// blocking sight only while shown (the original flags its quads as
+    /// broken glass).
+    pub fn env_show(&mut self, r: u32, on: bool) {
+        if on {
+            self.env_hidden.remove(&r);
+        } else {
+            self.env_hidden.insert(r);
+        }
+        let doors = self.doors.len();
+        for (j, (pr, _)) in self.env_solid.iter().enumerate() {
+            if *pr == r {
+                for f in &mut self.fighters {
+                    f.physics.set_door(doors + j, on);
+                }
+            }
+        }
+        if let Some(sight) = self.sight.as_mut() {
+            for (j, pr) in self.env_opaque.iter().enumerate() {
+                if *pr == r {
+                    sight.set_door(doors + j, on);
+                }
             }
         }
     }

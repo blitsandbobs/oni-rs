@@ -876,8 +876,9 @@ fn convert_environment(
                 .unwrap_or((false, false));
             specs.push(NodeSpec {
                 name: format!(
-                    "env_{}{}",
+                    "env_{}{}{}",
                     sanitize(g.texture.as_deref().unwrap_or(&format!("mat{i}"))),
+                    g.env_ref.map(|r| format!("__ref{r}")).unwrap_or_default(),
                     surface_suffix(g)
                 ),
                 translation: [0.0; 3],
@@ -915,9 +916,10 @@ fn convert_environment(
                     .unwrap_or((false, false));
                 specs.push(NodeSpec {
                     name: format!(
-                        "{}_{}{}",
+                        "{}_{}{}{}",
                         node_name,
                         sanitize(g.texture.as_deref().unwrap_or("mat")),
+                        g.env_ref.map(|r| format!("__ref{r}")).unwrap_or_default(),
                         surface_suffix(g)
                     ),
                     translation: [0.0; 3],

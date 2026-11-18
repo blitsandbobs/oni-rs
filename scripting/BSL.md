@@ -284,7 +284,10 @@ alarm script), door lock / unlock. `console_activate` / `_deactivate` /
 
 **Character arguments** name a living character by its placement name — the
 player included, by its own placement's name — or give a script id (0: the
-player). `chr_poison`, `chr_unstoppable` and `ai2_kill`: `docs/COMBAT.md` §8.
+player). `env_show ref 0/1` hides / shows the level's quads tagged with that
+reference (the original flags them as broken glass: not drawn, not collided
+with, seen through) — barriers, props, glass targets. (The original's lookup
+reads one entry past the table — harmless.) `chr_poison`, `chr_unstoppable` and `ai2_kill`: `docs/COMBAT.md` §8.
 
 **Not reproduced** (no shipped script relies on them): operator precedence
 slips (each operator reduces at most one pending one), no short-circuit,

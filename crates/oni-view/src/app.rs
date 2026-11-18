@@ -238,6 +238,8 @@ impl ApplicationHandler for App {
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
                     world.attach_doors(crate::door_meshes(&scene));
+                    let (solid, opaque) = crate::env_parts(&scene);
+                    world.attach_env(solid, opaque);
                     if self.mission {
                         // The level's own scripts populate it.
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
@@ -579,6 +581,7 @@ impl State {
         if let Some(pw) = &self.play {
             self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
             self.renderer.beams = pw.world.beams.clone();
+            self.renderer.hidden_refs = pw.world.env_hidden.clone();
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

@@ -31,6 +31,12 @@ const OFF_TEXCOORD_ARRAY: usize = 8;
 const OFF_GQ_GENERAL: usize = 12;
 const OFF_GQ_RENDER: usize = 16;
 const OFF_TEXMAP_ARRAY: usize = 28;
+/// The quads scripts show and hide (`env_show`): parallel index arrays of
+/// quads and the reference each belongs to.
+const OFF_REMAP_INDICES: usize = 40;
+const OFF_REMAPS: usize = 44;
+const IDXA_NUM: usize = 20;
+const IDXA_DATA: usize = 24;
 
 // Array element offsets.
 const PNTA_NUM: usize = 52;
@@ -96,6 +102,8 @@ pub struct TextureGroup {
     pub visible: bool,
     /// Characters collide with them.
     pub collide: bool,
+    /// The reference scripts show and hide them by (`env_show`), if any.
+    pub env_ref: Option<u32>,
     /// Vertex positions (per quad corner).
     pub positions: Vec<[f32; 3]>,
     /// Vertex texture coordinates.
@@ -199,8 +207,22 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
     };
 
     // Bucket quads by object_tag; within each bucket, by (texture, blend mode).
-    // (Groups: texture, blend, visible, collide.)
-    type Groups = BTreeMap<(u16, bool, bool, bool), TextureGroup>;
+    // Which quads scripts can show and hide, and by what reference.
+    let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
+    if let (Some(ri), Some(rr)) = (
+        read_u32(d, OFF_REMAP_INDICES).and_then(|v| resolve(dat, v)),
+        read_u32(d, OFF_REMAPS).and_then(|v| resolve(dat, v)),
+    ) {
+        let n = read_u32(ri, IDXA_NUM).unwrap_or(0).min(read_u32(rr, IDXA_NUM).unwrap_or(0)) as usize;
+        for i in 0..n {
+            if let (Some(q), Some(r)) = (read_u32(ri, IDXA_DATA + i * 4), read_u32(rr, IDXA_DATA + i * 4)) {
+                remap.entry(q as usize).or_insert(r);
+            }
+        }
+    }
+
+    // (Groups: texture, blend, visible, collide, script reference.)
+    type Groups = BTreeMap<(u16, bool, bool, bool, Option<u32>), TextureGroup>;
     let mut buckets: BTreeMap<u32, Groups> = BTreeMap::new();
 
     for q in 0..num_gq {
@@ -241,7 +263,7 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
         let grp = buckets
             .entry(object_tag)
             .or_default()
-            .entry((tex_index, blend, visible, collide))
+            .entry((tex_index, blend, visible, collide, remap.get(&q).copied()))
             .or_default();
         if grp.tex_instance.is_none() {
             let (idx, name) = tex_lookup(tex_index as usize);
@@ -250,6 +272,7 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
             grp.blend = blend;
             grp.visible = visible;
             grp.collide = collide;
+            grp.env_ref = remap.get(&q).copied();
         }
         let base = grp.positions.len() as u32;
         // A triangle quad uses only its first 3 corners.

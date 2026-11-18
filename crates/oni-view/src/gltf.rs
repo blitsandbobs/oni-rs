@@ -40,6 +40,8 @@ pub struct Prim {
     /// Characters collide with it (not a static-world node named
     /// `…__nocollide`; placed objects always do).
     pub collide: bool,
+    /// The reference scripts show and hide it by (`…__ref<N>…`).
+    pub env_ref: Option<u32>,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -212,6 +214,9 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
         // as level geometry because the object itself collides: they do.)
         let object = parent[node].is_some();
         let (visible, collide) = (!name.ends_with("__invisible"), object || !name.ends_with("__nocollide"));
+        let env_ref = name.split("__ref").nth(1).and_then(|r| {
+            r.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
+        });
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
         for prim in json["meshes"][mesh_idx]["primitives"].as_array().unwrap() {
             let attrs = &prim["attributes"];
@@ -275,6 +280,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 door,
                 visible,
                 collide,
+                env_ref,
             });
         }
     }
