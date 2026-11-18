@@ -367,6 +367,22 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        "target_set" => {
+            // The HUD's target locator (no HUD yet: said in the terminal).
+            let (Some(flag), d) = (int(a(0)), a(1).and_then(|v| match v {
+                Value::Number(n) => Some(*n),
+                Value::Integer(i) => Some(*i as f64),
+                _ => None,
+            })) else {
+                return nil();
+            };
+            if d.is_some_and(|d| d == 0.0) {
+                eprintln!("TARGET off");
+            } else if let Some(f) = host.world().level_ai.flags.get(&(flag as i16)) {
+                eprintln!("TARGET flag {flag} at ({:.0}, {:.0}, {:.0})", f.at.x, f.at.y, f.at.z);
+            }
+            nil()
+        }
         "objective_set" => {
             state.objective = int(a(0));
             eprintln!("script: objective {:?}", state.objective);
