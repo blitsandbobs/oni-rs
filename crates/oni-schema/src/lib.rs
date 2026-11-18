@@ -292,6 +292,20 @@ pub const MELEE_WHEN: [&str; 6] =
 /// What an unarmed character does, by value.
 pub const NO_GUN: [&str; 3] = ["melee", "retreat", "alarm"];
 
+// --- Trigger volumes (`levels/NN/triggers.json`) --------------------------------
+
+/// Trigger-volume flag bits (`OT_TriggerVolume`; bit index → name).
+pub const TRIGGER_FLAGS: [&str; 8] = [
+    "entryOnce",
+    "insideOnce",
+    "exitOnce",
+    "entryDisabled",
+    "insideDisabled",
+    "exitDisabled",
+    "disabled",
+    "playerOnly",
+];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())

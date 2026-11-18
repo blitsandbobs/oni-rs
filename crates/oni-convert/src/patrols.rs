@@ -168,6 +168,10 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
     std::fs::write(root.join("patrols.json"), serde_json::to_string_pretty(&json!({ "patrols": p }))?)?;
     std::fs::write(root.join("flags.json"), serde_json::to_string_pretty(&json!({ "flags": f }))?)?;
+    let t = triggers(dat, raw);
+    if !t.is_empty() {
+        std::fs::write(root.join("triggers.json"), serde_json::to_string_pretty(&json!({ "triggers": t }))?)?;
+    }
     Ok(())
 }
 
@@ -213,6 +217,73 @@ pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
                     "attackIfKnockedDown": flags & 1 != 0,
                 },
             })
+        })
+        .collect()
+}
+
+/// The rotation matrix (columns) of an object's Euler angles (degrees,
+/// static X, Y, Z order): `R = Rz · Ry · Rx`.
+fn euler_axes(rotation: [f32; 3]) -> [[f32; 3]; 3] {
+    let [a, b, c] = rotation.map(f32::to_radians);
+    let (sa, ca, sb, cb, sc, cc) = (a.sin(), a.cos(), b.sin(), b.cos(), c.sin(), c.cos());
+    [
+        [cb * cc, cb * sc, -sb],
+        [sa * sb * cc - ca * sc, sa * sb * sc + ca * cc, sa * cb],
+        [ca * sb * cc + sa * sc, ca * sb * sc - sa * cc, ca * cb],
+    ]
+}
+
+/// A level's trigger volumes (`OT_TriggerVolume`): boxes from their
+/// position (a corner) to `size` along their rotated axes.
+pub fn triggers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+    let (version, objects) = crate::objects::read(dat, raw, "Trigger Volume");
+    objects
+        .iter()
+        .filter(|o| o.data.len() >= 63 + 96 + 4 + 12 + 4)
+        .map(|o| {
+            let d = o.data;
+            let name = cstr(d, 0, 63);
+            let script = |at: usize| cstr(d, at, 32);
+            let mut at = 63 + 96;
+            let teams = le_u32(d, at);
+            at += 4;
+            let size = [le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)];
+            at += 12;
+            let id = le_u32(d, at) as i32;
+            at += 4;
+            let parent = if version >= 22 {
+                at += 4;
+                le_u32(d, at - 4) as i32
+            } else {
+                0
+            };
+            let note = cstr(d, at, 128);
+            let flags = le_u32(d, at + 128);
+            let mut t = json!({
+                "id": id,
+                "name": name,
+                "position": o.position,
+                "axes": euler_axes(o.rotation),
+                "size": size,
+                "teams": sc::bit_names(&sc::TEAMS, teams & 0xFF),
+            });
+            for (k, at) in [("entry", 63), ("inside", 95), ("exit", 127)] {
+                let s = script(at);
+                if !s.is_empty() {
+                    t[k] = json!(s);
+                }
+            }
+            if parent != 0 {
+                t["parent"] = json!(parent);
+            }
+            let f = sc::bit_names(&sc::TRIGGER_FLAGS, flags);
+            if !f.is_empty() {
+                t["flags"] = json!(f);
+            }
+            if !note.is_empty() {
+                t["note"] = json!(note);
+            }
+            t
         })
         .collect()
 }

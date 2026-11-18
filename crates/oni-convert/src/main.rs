@@ -1,7 +1,11 @@
 //! `oni-convert` — convert an Oni GameDataFolder to the modern asset tree.
 //!
 //! Usage:
-//!   cargo run -p oni-convert -- <input GameDataFolder> <output dir>
+//!   cargo run -p oni-convert -- <input GameDataFolder> <output dir> [--scripts <dir>]
+//!
+//! `--scripts` names the folder holding the levels' original scripts
+//! (`<Level>/*.bsl`); by default the extracted Anniversary Edition's
+//! vanilla scripts next to the game data are used when present.
 
 use std::path::Path;
 use std::process::ExitCode;
@@ -13,7 +17,13 @@ fn main() -> ExitCode {
         return ExitCode::from(2);
     };
 
-    match oni_convert::convert(Path::new(&input), Path::new(&output)) {
+    let rest: Vec<String> = args.collect();
+    let scripts = rest.iter().position(|a| a == "--scripts").and_then(|i| rest.get(i + 1));
+    let result = match scripts {
+        Some(dir) => oni_convert::convert_with(Path::new(&input), Path::new(&output), Some(Path::new(dir))),
+        None => oni_convert::convert(Path::new(&input), Path::new(&output)),
+    };
+    match result {
         Ok(report) => {
             let (mut t, mut s, mut m, mut c, mut a, mut p) = (0, 0, 0, 0, 0, 0);
             for (root, st) in &report.levels {

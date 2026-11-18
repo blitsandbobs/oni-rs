@@ -25,6 +25,7 @@
 mod level_json;
 mod characters;
 mod melee;
+mod bsl;
 mod objects;
 mod patrols;
 mod particles;
@@ -93,6 +94,62 @@ struct FileCtx {
 
 /// Converts every `*.dat` in `input_dir` into the modern tree at `output_dir`.
 pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
+    let scripts = default_scripts_dir(input_dir);
+    convert_with(input_dir, output_dir, scripts.as_deref())
+}
+
+/// Where the original level scripts (`<Level>/*.bsl`) are by default: the
+/// Anniversary Edition's vanilla-script package extracted next to the game
+/// data (`../bsl/…`), if present.
+fn default_scripts_dir(input_dir: &Path) -> Option<PathBuf> {
+    let p = input_dir
+        .parent()?
+        .join("bsl/Oni - Anniversary Edition/AEInstaller/packages/05100Vanilla_BSL/bsl/common");
+    p.is_dir().then_some(p)
+}
+
+/// The level's name (its `ONLV` descriptor), which names its script folder.
+fn level_name(dat: &Dat<'_>) -> Option<String> {
+    dat.instances.iter().find(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONLV")))?.name.clone()
+}
+
+/// Translates the level's scripts (`scripts_dir/<level name>/*.bsl`, any
+/// case) to `scripts.lua` (`scripting/PORT.md`). Returns the number of
+/// lines that couldn't be translated.
+fn convert_scripts(dat: &Dat<'_>, scripts_dir: &Path, root: &Path) -> std::io::Result<usize> {
+    let Some(name) = level_name(dat) else { return Ok(0) };
+    let Some(folder) = std::fs::read_dir(scripts_dir)?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.eq_ignore_ascii_case(&name)))
+    else {
+        return Ok(0);
+    };
+    let mut files: Vec<PathBuf> = std::fs::read_dir(&folder)?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("bsl")))
+        .collect();
+    files.sort();
+    let mut texts = Vec::new();
+    for f in &files {
+        let bytes = std::fs::read(f)?;
+        let name = f.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+        texts.push((name, String::from_utf8_lossy(&bytes).into_owned()));
+    }
+    let t = bsl::translate(&texts);
+    println!("  scripts: {} files, {} functions from {}", texts.len(), t.functions, folder.display());
+    for e in &t.errors {
+        eprintln!("  script: {e}");
+    }
+    std::fs::create_dir_all(root)?;
+    std::fs::write(root.join("scripts.lua"), t.lua)?;
+    Ok(t.errors.len())
+}
+
+/// [`convert`], with the level scripts taken from `scripts_dir` (none: no
+/// scripts).
+pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Path>) -> std::io::Result<Report> {
     std::fs::create_dir_all(output_dir)?;
     let mut dats: Vec<PathBuf> = std::fs::read_dir(input_dir)?
         .flatten()
@@ -220,6 +277,12 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
             if f.level != 0 {
                 characters::write(&dat, raw, &root)?;
                 patrols::write(&dat, raw, &root)?;
+                if let Some(dir) = scripts_dir {
+                    let bad = convert_scripts(&dat, dir, &root)?;
+                    if bad > 0 {
+                        stats.warnings.push(format!("{bad} script lines not translated"));
+                    }
+                }
             } else {
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
