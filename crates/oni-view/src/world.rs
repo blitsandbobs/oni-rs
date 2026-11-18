@@ -382,6 +382,7 @@ impl World {
         let f = &mut self.fighters[i];
         let (feet, eye, facing) = (f.feet(), f.sight_points()[1], f.facing.facing);
         let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
+        let crouching = f.motion.crouching();
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
         if let Some(perception) = f.perception.as_mut() {
             let mut cx = Ctx {
@@ -392,6 +393,7 @@ impl World {
                 facing,
                 fallen,
                 standing: !fallen,
+                crouching,
                 perception,
                 level: &level,
                 sight: &sight_fn,
@@ -419,6 +421,14 @@ impl World {
                 continue;
             }
             self.with_agent(i, |a, cx| a.update(cx));
+            // A panicking character cowers.
+            let f = &mut self.fighters[i];
+            if let Some(crate::ai::Brain::Agent(a)) = &f.brain {
+                let panic = a.panicking();
+                if panic != (f.motion.varient & crate::anim::types::var::PANIC != 0) {
+                    f.motion.set_panic(panic);
+                }
+            }
         }
     }
 

@@ -40,7 +40,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
-| `goals.lua` | Goals (#4): a level's thug patrols its path (guarding two flags in turn), sees an enemy (glance → startle → combat), beats it, checks the body and resumes its patrol; a noise sends it to investigate and look around; a patroller too calm for its job stands idle. |
+| `goals.lua` | Goals (#4): a level's thug patrols its path (guarding two flags in turn), sees an enemy (glance → startle → combat), beats it, checks the body and resumes its patrol; a noise sends it to investigate and look around; a patroller too calm for its job stands idle; a non-combatant panics at an enemy (cowering) and calms down once it is dead. |
 | `perception.lua` | An AI doesn't see behind it, hears a noise, glances round, sees Konoko (definite → combat, startled) and fights; out of its cones it sees nothing. |
 | `pathfinding.lua` | Walking through the level: round a pillar, across the warehouse, and failing cleanly for a point no room contains. |
 | `melee_walls.lua` | The melee AI looks before it moves: told to retreat with its back to a wall, it gives up instead of backpedalling into it. |
@@ -76,6 +76,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `probe(id, deg, dist)` → `free, ledge` | Look along the floor from a fighter: distance before a wall, distance to a drop (or nil). |
 | `difficulty(level)` → `notice, dodge, block` | Set the AI's difficulty ("easy" / "normal" / "hard"); returns its multipliers. |
 | `go_to(id, x, y, z [, pace])` / `nav_state(id)` / `nav_path(id)` | Walk a fighter to a point through the level (planned path); its state ("following", "arrived", "failed: …"); its waypoints `{x, z, radius, next}`. |
+| `damage(id, n)` | Deals `n` damage to a fighter (it dies at 0 health). |
 | `place(name)` / `goals(id)` / `goal_of(id)` | Goals: place one of the level's characters by name (class, position, job, alerts, profiles; returns its id); give a spawned character default goals (idle); what an agent is doing (`job patrol <path> @<waypoint>`, `pursuit goTo`, `combat Melee → 2`, `idle`, …). `nav_state(id)` also reads an agent's current walk. |
 | `watch(id)` / `alert_of(id)` / `contact_of(id, other)` / `team(id, name)` / `noise(x, y, z, kind, volume [, maker])` | Perception: make a placed character watch and listen; its alert level; how sure it is of another (`definite` … `forgotten`, nil); set its team; make a noise (`interesting`, `danger`, `melee`, `gunshot`, `ignore`). |
 | `technique(id, name)` | Make melee AI `id` use its profile's technique `name` next (once it can). |

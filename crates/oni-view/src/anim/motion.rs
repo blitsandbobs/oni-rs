@@ -794,10 +794,41 @@ impl Motion {
 
     // --- fight stance / variants -------------------------------------------
 
-    /// Enters (or refreshes) the fight stance.
+    /// Enters (or refreshes) the fight stance (not while panicking).
     pub fn fight_mode(&mut self) {
+        if self.varient & var::PANIC != 0 {
+            return;
+        }
         self.fight_frames = self.tuning.fight_mode_duration;
         self.varient |= var::FIGHT;
+    }
+
+    /// Whether it is crouched, or crouching down (where the current clip
+    /// ends).
+    pub fn crouching(&self) -> bool {
+        matches!(
+            oni_schema::name(&oni_schema::ANIM_STATES, self.current().to_state),
+            Some(
+                "crouch"
+                    | "crouchWalk"
+                    | "crouchStart"
+                    | "crouchRunLeft"
+                    | "crouchRunRight"
+                    | "crouchRunBackLeft"
+                    | "crouchRunBackRight"
+                    | "crouchBlocking1"
+            )
+        )
+    }
+
+    /// Cowers (panic variants, no fight stance) or stops cowering.
+    pub fn set_panic(&mut self, on: bool) {
+        if on {
+            self.varient = (self.varient | var::PANIC) & !var::FIGHT;
+            self.fight_frames = 0;
+        } else {
+            self.varient &= !var::PANIC;
+        }
     }
 
     /// If a better-matching variant of the current clip exists now (e.g. the

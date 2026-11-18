@@ -499,7 +499,10 @@ impl Perception {
         }
         let contact = c.clone();
         self.rank();
-        self.notify(&contact, upgraded, first_sighting, now);
+        if !self.non_combatant {
+            // (Non-combatants don't get alerted: their goals judge danger.)
+            self.notify(&contact, upgraded, first_sighting, now);
+        }
         self.notices.push(Notice::Knowledge { id: contact.id, degrade: false });
     }
 

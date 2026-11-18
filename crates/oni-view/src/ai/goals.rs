@@ -77,6 +77,15 @@ const ADVANCE_MIN: f32 = 6.0;
 const STANDING_LOOK_RANGE: f32 = 40.0 * PI / 180.0;
 const STANDING_GLANCE_RANGE: f32 = 115.0 * PI / 180.0;
 const PURSUIT_AIM_RANGE: f32 = 85.0 * PI / 180.0;
+const PANIC_AIM_RANGE: f32 = 25.0 * PI / 180.0;
+
+/// Panic: dangers further than this don't scare it (the neutral-interaction
+/// abort range; the default without a neutral profile).
+const PANIC_ENEMY_RANGE: f32 = 100.0;
+/// It kneels when the danger is this close.
+const PANIC_KNEEL: f32 = 20.0;
+/// The danger gone, it calms down this long after last perceiving it.
+const PANIC_AFTER_CAUSE_GONE: u64 = 180;
 
 // --- class combat settings ----------------------------------------------------
 
@@ -285,6 +294,8 @@ pub struct Ctx<'a> {
     /// Lying on the ground.
     pub fallen: bool,
     pub standing: bool,
+    /// Crouched (or going to be).
+    pub crouching: bool,
     pub perception: &'a mut Perception,
     pub level: &'a LevelAi,
     /// A clear line between two points.
@@ -347,6 +358,21 @@ pub enum Goal {
     Idle,
     Pursuit(Box<Pursuit>),
     Combat(Box<Combat>),
+    /// Cowering in fear (a non-combatant).
+    Panic(Box<Panic>),
+}
+
+/// A non-combatant's panic.
+#[derive(Clone, Debug, Default)]
+pub struct Panic {
+    /// What scares it most (a contact serial).
+    cause: Option<u32>,
+    /// It calms down at this tick.
+    pub until: u64,
+    kneeling: bool,
+    dazed: Option<u32>,
+    done_daze: bool,
+    by_hostile: bool,
 }
 
 impl Goal {
@@ -357,6 +383,7 @@ impl Goal {
             Goal::Idle => "idle",
             Goal::Pursuit(_) => "pursuit",
             Goal::Combat(_) => "combat",
+            Goal::Panic(_) => "panic",
         }
     }
 }
@@ -608,6 +635,7 @@ impl Agent {
             },
             Goal::Pursuit(p) => format!("pursuit {}", p.mode.name()),
             Goal::Combat(c) => format!("combat {:?} → {}", c.primary, c.target),
+            Goal::Panic(p) => format!("panic{}", if p.kneeling { " kneeling" } else { "" }),
             g => g.name().to_string(),
         }
     }
@@ -618,6 +646,11 @@ impl Agent {
             Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
             _ => false,
         }
+    }
+
+    /// Whether it is cowering (the panic animation variants).
+    pub fn panicking(&self) -> bool {
+        matches!(self.goal, Goal::Panic(_))
     }
 
     /// Whether its alert may ease (idle or patrolling, not locked in).
@@ -682,6 +715,7 @@ impl Agent {
                     p.prev_point = cx.feet;
                 }
             }
+            Goal::Panic(_) => self.mode = MoveMode::ByAlert,
             Goal::Combat(c) => {
                 cx.fights.leave(cx.me);
                 // The alert drops to high on leaving combat.
@@ -754,6 +788,9 @@ impl Agent {
                     self.glance_at(at, ticks, cx);
                 }
             }
+            Notice::Knowledge { id, degrade } if cx.perception.non_combatant => {
+                self.noncombatant_knowledge(id, degrade, cx)
+            }
             Notice::Knowledge { id, degrade } => match self.goal {
                 Goal::Pursuit(_) => self.pursuit_knowledge(id, degrade, cx),
                 Goal::Combat(_) => self.combat_knowledge(id, degrade, cx),
@@ -791,6 +828,7 @@ impl Agent {
             }
             Goal::Pursuit(_) => self.pursuit_update(cx),
             Goal::Combat(_) => self.combat_update(cx),
+            Goal::Panic(_) => self.panic_update(cx),
             Goal::Idle | Goal::None => {}
         }
         let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
@@ -808,7 +846,9 @@ impl Agent {
             Some(n) => n.orders(feet, facing, now),
             None => Orders::default(),
         };
-        if o.direction == Direction::Stopped {
+        // (Turning on the spot to set off belongs to the walk.)
+        let walking = self.nav.as_ref().is_some_and(|n| matches!(n.state, NavState::Following | NavState::Planning));
+        if o.direction == Direction::Stopped && !walking {
             let arrived_facing = self.dest.and_then(|d| d.face).filter(|_| {
                 matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Arrived))
                     || self.dest.is_some_and(|d| (d.at - feet).with_y_zero().length() <= d.within.max(3.0))
@@ -849,6 +889,7 @@ impl Agent {
         match &self.goal {
             Goal::Pursuit(_) => PURSUIT_AIM_RANGE,
             Goal::Combat(_) => 10.0 * PI / 180.0,
+            Goal::Panic(_) => PANIC_AIM_RANGE,
             _ => STANDING_LOOK_RANGE,
         }
     }
@@ -1983,6 +2024,155 @@ impl Agent {
             eprintln!("ai: {name}: combat {:?} → {pick:?} (at {dist:.0})", k.primary);
             k.primary = pick;
             k.advance_goal = None;
+        }
+    }
+}
+
+impl Agent {
+    // --- panic (`docs/GOALS.md`, *Alarm, panic*) ----------------------------
+
+    /// A non-combatant's reaction to news: a danger panics it; anything
+    /// else it glances at.
+    fn noncombatant_knowledge(&mut self, id: u32, degrade: bool, cx: &mut Ctx) {
+        let Some(c) = cx.perception.contact(id).cloned() else { return };
+        if degrade {
+            let Goal::Panic(p) = &self.goal else { return };
+            if p.cause == Some(id) && (c.strength <= Strength::Forgotten || c.priority < Priority::HostileThreat) {
+                let by_hostile = p.by_hostile;
+                let other = cx.perception.contacts.iter().find(|o| self.dangerous(o, by_hostile, cx)).map(|o| o.id);
+                let Goal::Panic(p) = &mut self.goal else { return };
+                match other {
+                    Some(o) => p.cause = Some(o),
+                    None => {
+                        p.cause = None;
+                        p.until = c.time + PANIC_AFTER_CAUSE_GONE;
+                    }
+                }
+            }
+            return;
+        }
+        if c.priority == Priority::HostileThreat || c.stimulus.combat_sound() {
+            let only_hostiles = matches!(&self.goal, Goal::Panic(p) if p.by_hostile);
+            if self.dangerous(&c, only_hostiles, cx) {
+                self.panic(&c, cx);
+            }
+        }
+        if !self.panicking() {
+            self.glance_at(c.location, c.stimulus.glance(), cx);
+        }
+    }
+
+    /// Whether a contact is a danger to it.
+    fn dangerous(&self, c: &super::perception::Contact, only_hostiles: bool, cx: &Ctx) -> bool {
+        if c.strength <= Strength::Forgotten {
+            return false;
+        }
+        if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
+            return true;
+        }
+        if !matches!(c.stimulus, Stimulus::SoundMelee | Stimulus::SoundGunshot | Stimulus::SightDefinite) {
+            return false;
+        }
+        if c.who.is_none_or(|w| w == cx.me) {
+            return false;
+        }
+        let hostile = c.priority >= Priority::HostileThreat || (!only_hostiles && c.stimulus.combat_sound());
+        hostile && cx.feet.distance(c.location) <= PANIC_ENEMY_RANGE
+    }
+
+    /// Panics (or panics longer) because of `c`.
+    fn panic(&mut self, c: &super::perception::Contact, cx: &mut Ctx) {
+        let [melee, gunfire, sight, hurt] = self.profile.panic;
+        let time = match c.stimulus {
+            Stimulus::SoundMelee => melee,
+            Stimulus::SoundGunshot => gunfire,
+            Stimulus::SightDefinite => sight,
+            Stimulus::HitWeapon | Stimulus::HitMelee => hurt,
+            _ => return,
+        };
+        if !self.panicking() {
+            self.exit(cx);
+            self.halt();
+            self.mode = MoveMode::RunNoAim;
+            self.goal = Goal::Panic(Box::default());
+            eprintln!("ai: {} → panic", self.name);
+        }
+        let extra = self.rng.range((0, time / 2));
+        let now = cx.now;
+        let cause = match &self.goal {
+            Goal::Panic(p) => p.cause.and_then(|id| cx.perception.contact(id)).cloned(),
+            _ => None,
+        };
+        let Goal::Panic(p) = &mut self.goal else { return };
+        if c.priority >= Priority::HostileNoThreat {
+            p.by_hostile = true;
+        }
+        p.until = p.until.max(now + u64::from(time + extra));
+        if c.who.is_some() && cause.as_ref().is_none_or(|k| c.strength > k.strength) {
+            if cause.as_ref().is_some_and(|k| k.priority > c.priority) {
+                return; // a more important cause
+            }
+            p.cause = Some(c.id);
+        }
+    }
+
+    fn panic_update(&mut self, cx: &mut Ctx) {
+        let until = match &self.goal {
+            Goal::Panic(p) => p.until,
+            _ => return,
+        };
+        if cx.now > until {
+            eprintln!("ai: {}: calms down", self.name);
+            self.return_to_job(true, true, cx);
+            return;
+        }
+        let cause = match &self.goal {
+            Goal::Panic(p) => p.cause.and_then(|id| cx.perception.contact(id)).cloned(),
+            _ => None,
+        };
+        let enemy = cause.as_ref().and_then(|c| c.who).and_then(|w| cx.others.get(w)).map(|o| o.feet);
+        let daze_roll = {
+            let (lo, hi) = cx.daze;
+            lo + self.rng.next() % hi.saturating_sub(lo).max(1)
+        };
+        let Goal::Panic(p) = &mut self.goal else { return };
+        let mut stop_looking = false;
+        if !p.kneeling {
+            let close = cause.as_ref().is_some_and(|c| cx.feet.distance(c.location) < PANIC_KNEEL);
+            if cx.crouching || close {
+                p.kneeling = true;
+                stop_looking = true;
+            }
+        } else if cx.fallen {
+            if let Some(n) = p.dazed {
+                p.dazed = (n > 0).then(|| n - 1);
+            } else if p.done_daze {
+                // Get up: away from the enemy if it is in front, crouched.
+                let behind = enemy.is_some_and(|e| relative(yaw_toward(cx.feet, e) - cx.facing).abs() > PI / 2.0);
+                self.press |= if behind { key::FORWARD } else { key::BACKWARD } | key::CROUCH;
+            } else {
+                p.dazed = Some(daze_roll);
+                p.done_daze = true;
+                p.kneeling = true;
+                stop_looking = true;
+            }
+        }
+        // A knockdown (before it kneels) also makes it kneel when it is up.
+        if cx.fallen && !p.done_daze && p.dazed.is_none() {
+            p.dazed = Some(daze_roll);
+            p.done_daze = true;
+            p.kneeling = true;
+            stop_looking = true;
+        }
+        let (kneeling, dazed) = (p.kneeling, p.dazed.is_some());
+        if kneeling {
+            self.mode = MoveMode::Creep;
+        }
+        self.halt();
+        if stop_looking || dazed || kneeling {
+            self.look = Look::None;
+        } else if let Some(e) = enemy {
+            self.look = Look::At(e);
         }
     }
 }

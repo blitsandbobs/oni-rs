@@ -353,6 +353,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Per-fighter inspection (any id) and a test hook to set health.
+    // Deals damage to fighter `id` (no reaction unless it dies).
+    let h = host.clone();
+    g.set(
+        "damage",
+        lua.create_function(move |_, (id, n): (usize, i32)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.take_damage(n, Vec3::ZERO);
+            }
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "set_hp",

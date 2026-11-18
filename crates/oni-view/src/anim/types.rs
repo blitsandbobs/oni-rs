@@ -174,6 +174,8 @@ pub mod st {
 pub mod var {
     pub const SPRINT: u16 = 0x0100;
     pub const FIGHT: u16 = 0x0200;
+    /// Cowering (a panicking non-combatant).
+    pub const PANIC: u16 = 0x8000;
 }
 
 /// Per-clip flag bit indices (`ONcAnimFlag_*`; mask = `1 << index`).

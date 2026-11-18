@@ -1,7 +1,7 @@
 -- Goals and jobs (issue #4, docs/GOALS.md): a level's character patrols its
 -- path (guarding two flags in turn), fights an enemy it sees, checks the
 -- body and goes back to its patrol; a noise sends it to investigate; a
--- character too calm for its job stands idle.
+-- character too calm for its job stands idle; a non-combatant panics.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -91,5 +91,24 @@ local idle = place("dum_train_block")
 step(2)
 print("dum_train_block:", goal_of(idle), alert_of(idle))
 assert(goal_of(idle) == "idle", "below its job alert it stands idle")
+
+-- A non-combatant panics at the sight of an enemy (cowering — the panic
+-- animations — not fighting), and calms down once the danger is gone.
+local n = place("Bay6_Neutral_1")
+took = wait_for(function() return goal_of(n):find("@6") ~= nil end, 600)
+assert(took, "the non-combatant takes its post")
+step(120)
+local nx2, _, nz2 = pos_of(n)
+local e = spawn(nx2 + 28, 58, nz2 - 28, 315, "thug_wh_1") -- 40 in front of it
+team(e, "syndicate")
+took = wait_for(function() return goal_of(n):find("panic") ~= nil end, 120)
+print("sees the enemy:", goal_of(n), anim_of(n))
+assert(took, "it panics")
+step(30)
+assert(anim_of(n):find("PAN"), "and cowers")
+damage(e, 1000)
+took = wait_for(function() return goal_of(n):find("job patrol") ~= nil end, 600)
+print("danger gone, calmed down after", took)
+assert(took and took > 100, "it calms down a while after the danger is gone")
 
 print("goals OK")

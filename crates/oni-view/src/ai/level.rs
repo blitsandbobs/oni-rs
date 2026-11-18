@@ -67,6 +67,9 @@ pub struct CombatProfile {
     pub melee_when: String,
     pub no_gun: String,
     pub pursuit_distance: f32,
+    /// How long a non-combatant panics (ticks) at a fight noise, gunfire,
+    /// the sight of an enemy, being hurt.
+    pub panic: [u32; 4],
 }
 
 impl Default for CombatProfile {
@@ -79,6 +82,7 @@ impl Default for CombatProfile {
             melee_when: "ifShortRange".into(),
             no_gun: "melee".into(),
             pursuit_distance: 200.0,
+            panic: [600, 900, 600, 1200],
         }
     }
 }
@@ -215,6 +219,10 @@ impl LevelAi {
                 melee_when: s(&c["meleeWhen"]),
                 no_gun: s(&c["noGun"]),
                 pursuit_distance: f(&c["pursuitDistance"], 200.0),
+                panic: {
+                    let u = |k: &str, d: u32| c["panic"][k].as_u64().map_or(d, |v| v as u32);
+                    [u("melee", 600), u("gunfire", 900), u("sight", 600), u("hurt", 1200)]
+                },
             };
             out.combat.insert(c["id"].as_u64().unwrap_or(0) as u16, Rc::new(profile));
         }
