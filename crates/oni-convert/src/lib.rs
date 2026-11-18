@@ -216,6 +216,7 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = convert_fonts(&dat, &root)?;
         collect_character_classes(&dat, &f.root, fi, &global_named, &mut character_classes);
+        write_animation_collections(&dat, &f.root, fi, &global_named, output_dir)?;
 
         // level.json for playable levels.
         if f.level != 0 {
@@ -293,6 +294,19 @@ fn collect_character_classes(
                 "knockdownResistant": s.knockdown_resistant,
             })
         });
+        let air = cc.air.map(|a| {
+            serde_json::json!({
+                "fallGravity": a.fall_gravity,
+                "jumpGravity": a.jump_gravity,
+                "jumpAmount": a.jump_amount,
+                "maxVelocity": a.max_velocity,
+                "jumpAccelAmount": a.jump_accel_amount,
+                "framesFallGravity": a.frames_fall_gravity,
+                "numJumpAccelFrames": a.num_jump_accel_frames,
+                "damageStart": a.damage_start,
+                "damageEnd": a.damage_end,
+            })
+        });
         out.push(serde_json::json!({
             "name": cc.name,
             "variant": cc.variant,
@@ -304,8 +318,49 @@ fn collect_character_classes(
             "animationCount": cc.animations.len(),
             "animations": cc.animations,
             "stats": stats,
+            "air": air,
         }));
     }
+}
+
+/// Writes each canonical `TRAC` animation collection to
+/// `common/animations/collections/<name>.json`: its entries in on-disk order
+/// (animation name + authored weight) and the parent it recursively falls back
+/// to. The runtime rebuilds Oni's sorted/weighted/shortcut lookup from this.
+fn write_animation_collections(
+    dat: &Dat<'_>,
+    this_root: &str,
+    fi: usize,
+    global_named: &BTreeMap<(FourCc, String), usize>,
+    output_dir: &Path,
+) -> std::io::Result<()> {
+    use oni_geom::charclass::decode_animation_collection;
+    let tag_trac = FourCc(0x5452_4143);
+    let dir = output_dir.join("common/animations/collections");
+    for inst in dat.instances.iter().filter(|i| i.tag == tag_trac) {
+        if export_root(inst, dat, this_root, fi, global_named) != Some("common") {
+            continue;
+        }
+        let Some(c) = decode_animation_collection(dat, inst) else {
+            continue;
+        };
+        std::fs::create_dir_all(&dir)?;
+        let entries: Vec<serde_json::Value> = c
+            .entries
+            .iter()
+            .map(|e| serde_json::json!({ "anim": e.animation, "weight": e.weight }))
+            .collect();
+        let doc = serde_json::json!({
+            "name": c.name,
+            "recursive": c.recursive,
+            "entries": entries,
+        });
+        std::fs::write(
+            dir.join(format!("{}.json", sanitize(&c.name))),
+            serde_json::to_string_pretty(&doc)?,
+        )?;
+    }
+    Ok(())
 }
 
 /// Is this instance exported by file `fi` (either its canonical name lives here,
@@ -904,6 +959,30 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     }
     if clip.aiming_type != 0 {
         obj.insert("aimingType".into(), serde_json::json!(clip.aiming_type));
+    }
+    // Movement state-machine metadata: alternate entry states (shortcuts),
+    // direct follow-ups, atomic (uninterruptible) range, variant on exit, and
+    // the first level the clip is available on.
+    if !clip.shortcuts.is_empty() {
+        let s: Vec<serde_json::Value> = clip
+            .shortcuts
+            .iter()
+            .map(|s| serde_json::json!({ "state": s.state, "length": s.length, "flags": s.flags }))
+            .collect();
+        obj.insert("shortcuts".into(), serde_json::json!(s));
+    }
+    if !clip.direct.is_empty() {
+        obj.insert("direct".into(), serde_json::json!(clip.direct));
+    }
+    // Always emitted: start > end means "never atomic", so omitting would
+    // silently read as atomic over [0, 0].
+    obj.insert("atomicStart".into(), serde_json::json!(clip.atomic_start));
+    obj.insert("atomicEnd".into(), serde_json::json!(clip.atomic_end));
+    if clip.varient_end != 0 {
+        obj.insert("varientEnd".into(), serde_json::json!(clip.varient_end));
+    }
+    if clip.first_level != 0 {
+        obj.insert("firstLevel".into(), serde_json::json!(clip.first_level));
     }
     // `vocalizationType` and `actionFrame` default to a "none" sentinel in the
     // original importer (`(UUtUns16)-1` and `-1`); omit those, emit real values.

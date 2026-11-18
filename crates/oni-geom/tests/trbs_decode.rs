@@ -71,6 +71,81 @@ fn level0_characters_decode() {
     );
 }
 
+/// Movement metadata the state machine needs: shortcuts (a jump attack is
+/// reachable from flying states only through them), atomic ranges, direct
+/// follow-ups, and the TRAC chain with per-entry weights.
+#[test]
+fn movement_metadata_decodes() {
+    let Some(path) = level0() else {
+        eprintln!("SKIP: level0 fixture not found");
+        return;
+    };
+    let Ok(raw) = std::fs::read(path.with_extension("raw")) else {
+        eprintln!("SKIP: level0 .raw not found");
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("read");
+    let dat = Dat::parse(&bytes).expect("parse");
+    use oni_geom::character::{decode_animation, find_animation};
+
+    // A jump punch's own fromState is None (0); its shortcuts make it
+    // selectable from the airborne states. Importer invariants: a shortcut
+    // state is never None, never the clip's own fromState, and length > 0.
+    let jp = find_animation(&dat, "KONOKOjump_punch").expect("KONOKOjump_punch");
+    let clip = decode_animation(&dat, jp, &raw).expect("decode jump punch");
+    eprintln!(
+        "jump_punch: from {} to {} shortcuts {:?} atomic [{},{}] direct {:?}",
+        clip.from_state,
+        clip.to_state,
+        clip.shortcuts,
+        clip.atomic_start,
+        clip.atomic_end,
+        clip.direct
+    );
+    assert!(!clip.shortcuts.is_empty(), "jump punch has shortcut entry states");
+    for s in &clip.shortcuts {
+        assert_ne!(s.state, 0, "shortcut state is never None");
+        assert_ne!(s.state, clip.from_state, "shortcut state differs from fromState");
+        assert!(s.length > 0, "shortcut has a blend length");
+    }
+
+    // Across the whole set, some clips carry direct follow-ups and atomic ranges.
+    let mut with_direct = 0;
+    let mut atomic = 0;
+    for inst in dat.instances.iter().filter(|i| i.tag == oni_geom::character::TAG_TRAM) {
+        if let Some(c) = decode_animation(&dat, inst, &raw) {
+            with_direct += usize::from(!c.direct.is_empty());
+            atomic += usize::from(c.atomic_start <= c.atomic_end);
+        }
+    }
+    eprintln!("clips with direct follow-ups: {with_direct}, with atomic ranges: {atomic}");
+    assert!(with_direct > 0, "some clips name direct follow-ups");
+    assert!(atomic > 0, "some clips have atomic ranges");
+
+    // TRAC collections decode with entries, weights and a recursive chain.
+    let colls: Vec<_> = oni_geom::charclass::animation_collections(&dat).collect();
+    assert!(!colls.is_empty(), "level0 has animation collections");
+    let total: usize = colls.iter().map(|c| c.entries.len()).sum();
+    let chained = colls.iter().filter(|c| c.recursive.is_some()).count();
+    let weighted = colls
+        .iter()
+        .flat_map(|c| &c.entries)
+        .filter(|e| e.weight > 0)
+        .count();
+    eprintln!(
+        "{} collections, {total} entries, {chained} chained, {weighted} weighted entries",
+        colls.len()
+    );
+    assert!(chained > 0, "some collections inherit via recursiveLookup");
+    let konoko = oni_geom::charclass::character_classes(&dat)
+        .find(|c| c.name.as_deref() == Some("konoko_generic"))
+        .expect("konoko_generic class");
+    let air = konoko.air.expect("air constants");
+    eprintln!("konoko air: {air:?}, trac {:?}", konoko.animation_collection);
+    assert!(air.num_jump_accel_frames > 0 && air.jump_accel_amount > 0.0);
+    assert!(air.damage_end > air.damage_start && air.damage_start > 0.0);
+}
+
 #[test]
 fn animation_decodes_all_frames() {
     let Some(path) = level0() else {

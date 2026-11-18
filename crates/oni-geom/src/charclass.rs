@@ -90,14 +90,48 @@ pub struct CharacterStats {
 /// speed and per-tick gravity.
 #[derive(Clone, Copy, Debug)]
 pub struct AirConstants {
-    /// Per-tick downward acceleration while falling.
+    /// Downward acceleration used by the snap-to-floor ray and melee prediction
+    /// (the character itself always integrates with `jump_gravity`).
     pub fall_gravity: f32,
-    /// Per-tick downward acceleration while in a jump.
+    /// Per-tick downward acceleration while airborne.
     pub jump_gravity: f32,
     /// Upward launch velocity added on takeoff (`jumpAmount`).
     pub jump_amount: f32,
     /// Terminal (most-negative) vertical velocity.
     pub max_velocity: f32,
+    /// Extra upward velocity per tick while Jump is held early in the jump.
+    pub jump_accel_amount: f32,
+    /// Frames before `fall_gravity` applies (prediction only).
+    pub frames_fall_gravity: u16,
+    /// How many airborne frames the jump-hold acceleration may apply for.
+    pub num_jump_accel_frames: u16,
+    /// Fall height at which landing starts to hurt.
+    pub damage_start: f32,
+    /// Fall height at which landing is lethal.
+    pub damage_end: f32,
+}
+
+/// One `TRtAnimationCollectionPart`: an animation and its authored selection
+/// weight (`weight` @0; `virtualFromState`/`lookupValue` are rebuilt at load
+/// time by the engine, so they are not read here).
+#[derive(Clone, Debug)]
+pub struct CollectionEntry {
+    /// Animation (`TRAM`) instance name.
+    pub animation: String,
+    /// Authored weight among clips sharing (type, from-state, varient).
+    pub weight: u16,
+}
+
+/// One `TRAC` animation collection, its entries in on-disk order, and the
+/// parent collection it falls back to (`recursiveLookup`).
+#[derive(Clone, Debug)]
+pub struct AnimationCollection {
+    /// Collection instance name.
+    pub name: String,
+    /// Parent collection searched when this one has no exact match.
+    pub recursive: Option<String>,
+    /// Entries in on-disk order.
+    pub entries: Vec<CollectionEntry>,
 }
 
 /// A decoded character class.
@@ -197,6 +231,11 @@ pub fn decode_character_class(dat: &Dat<'_>, inst: &Instance) -> Option<Characte
         jump_gravity: read_f32(d, 4)?,
         jump_amount: read_f32(d, 8)?,
         max_velocity: read_f32(d, 12)?,
+        jump_accel_amount: read_f32(d, 16)?,
+        frames_fall_gravity: read_u16(d, 20)?,
+        num_jump_accel_frames: read_u16(d, 22)?,
+        damage_start: read_f32(d, 24)?,
+        damage_end: read_f32(d, 28)?,
     });
 
     Some(CharacterClass {
@@ -274,6 +313,44 @@ fn collect_animations(dat: &Dat<'_>, trac_idx: usize) -> Vec<String> {
         cur = read_u32(d, TRAC_RECURSIVE).and_then(ref_index);
     }
     out
+}
+
+/// Decodes one `TRAC` instance: its entries (animation + weight) and the name
+/// of the collection it recursively falls back to.
+pub fn decode_animation_collection(dat: &Dat<'_>, inst: &Instance) -> Option<AnimationCollection> {
+    if inst.tag != TAG_TRAC {
+        return None;
+    }
+    let d = dat.instance_data(inst)?;
+    let num = read_u16(d, TRAC_NUM)? as usize;
+    let entries = (0..num)
+        .filter_map(|e| {
+            let base = TRAC_ENTRY + e * TRAC_ENTRY_SIZE;
+            let weight = read_u16(d, base)?;
+            let ai = read_u32(d, base + TRAC_ENTRY_ANIM).and_then(ref_index)?;
+            let animation = dat.instances.get(ai)?.name.clone()?;
+            Some(CollectionEntry { animation, weight })
+        })
+        .collect();
+    let recursive = read_u32(d, TRAC_RECURSIVE)
+        .and_then(ref_index)
+        .and_then(|i| dat.instances.get(i))
+        .and_then(|x| x.name.clone());
+    Some(AnimationCollection {
+        name: inst.name.clone()?,
+        recursive,
+        entries,
+    })
+}
+
+/// Iterates every `TRAC` animation collection in `dat`.
+pub fn animation_collections<'a>(
+    dat: &'a Dat<'a>,
+) -> impl Iterator<Item = AnimationCollection> + 'a {
+    dat.instances
+        .iter()
+        .filter(|i| i.tag == TAG_TRAC)
+        .filter_map(move |i| decode_animation_collection(dat, i))
 }
 
 /// Iterates every `ONCC` character class in `dat`.

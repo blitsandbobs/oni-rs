@@ -168,41 +168,58 @@ pub fn extract_body(dat: &Dat<'_>, trbs: &Instance, lod: usize) -> Option<Body> 
 /// The `TRAM` (animation) template tag.
 pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
 
-// The only reliable TRAM struct offset: `data` is field 12 (twelve `tm_raw`
-// pointers), *before* the variable-size `extentInfo`, so its offset is fixed.
-// `numParts` and `compressionSize` sit past `extentInfo` where the released
-// source drifted from the data, so we derive them from the frame data itself.
-const TRAM_DATA: usize = 44; // tm_raw `data` -> byte offset into .raw
-const TRAM_HEIGHTS: usize = 4; // tm_raw `heights` -> per-frame pelvis-height track
-const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .raw
-const TRAM_ATTACKS: usize = 3; // `attacks` is the 4th tm_raw pointer (index 3)
-const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
-const TRAM_FLAGS: usize = 52; // `flags` u32, right after the pointer block
+// `TRtAnimation` instance layout (`BFW_Totoro_Private.h`). It opens with 13
+// `tm_raw` pointers (4 bytes each) whose values are byte offsets into the
+// companion `.raw`; the scalars after them are all at fixed offsets (verified
+// against the data — `numFrames` @356 is checked by the trbs_decode test).
+//
+// Pointer block, by index (`ptrs[i]` = the u32 at byte `i * 4`):
+const PTR_HEIGHTS: usize = 1; // per-frame pelvis-height track
+const PTR_POSITIONS: usize = 2; // root-motion track
+const PTR_ATTACKS: usize = 3; // TRtAttack[]
+const PTR_SHORTCUTS: usize = 6; // TRtShortcut[]
+const PTR_DATA: usize = 11; // keyframe data
+const TRAM_NUM_PTRS: usize = 13;
+// Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
+// usedParts(4), replaceParts(4), finalRotation(4), moveDirection +
+// vocalizationType(4), extentInfo(232), attackName[16], hardPause + softPause,
+// numNewSounds + soundName, soundFrame + fps, compressionSize, then a u16 run.
+const TRAM_FLAGS: usize = 52; // `flags` u32
+const TRAM_DIRECT_ANIM: usize = 56; // `directAnimation[2]`: two instance references
 const TRAM_FINAL_ROTATION: usize = 72; // `finalRotation` f32 (radians): net yaw the clip imparts
-const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection): which way the clip moves
-const TRAM_VOCALIZATION: usize = 78; // `vocalizationType` u16: voice/grunt sound this clip triggers
-                              // Scalar state-machine fields. Offsets: 52-byte pointer block, then flags(4),
-                              // directAnimation[2](8), usedParts(4), replaceParts(4), finalRotation(4),
-                              // moveDirection+vocalizationType(4), extentInfo(232), attackName[16],
-                              // hardPause+softPause(4), numNewSounds+soundName(8), soundFrame+fps(4),
-                              // compressionSize(2), then the contiguous u16 run below.
-const TRAM_HARD_PAUSE: usize = 328; // `hardPause` u16: frames of unblockable pause (stun) after this clip
-const TRAM_SOFT_PAUSE: usize = 330; // `softPause` u16: frames of blockable pause after this clip
+const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection)
+const TRAM_VOCALIZATION: usize = 78; // `vocalizationType` u16
+const TRAM_HARD_PAUSE: usize = 328; // `hardPause` u16: unblockable pause after this clip
+const TRAM_SOFT_PAUSE: usize = 330; // `softPause` u16: blockable pause after this clip
 const TRAM_TYPE: usize = 346; // `type` (TRtAnimType)
 const TRAM_AIMING: usize = 348; // `aimingType`
 const TRAM_FROM_STATE: usize = 350; // `fromState` (TRtAnimState)
 const TRAM_TO_STATE: usize = 352; // `toState`
-                                  // (`numFrames` sits at 356 — the trbs_decode test reads it to validate this math.)
 const TRAM_VARIENT: usize = 360; // `varient` (variant bits)
-                                 // ...varientEnd(362), atomicStart(364), atomicEnd(366), then:
+const TRAM_VARIENT_END: usize = 362; // `varientEnd`
+const TRAM_ATOMIC_START: usize = 364; // `atomicStart`: first non-interruptible frame
+const TRAM_ATOMIC_END: usize = 366; // `atomicEnd`
 const TRAM_END_INTERP: usize = 368; // `endInterpolation` (frames to blend when leaving)
 const TRAM_MAX_INTERP: usize = 370; // `maxInterpolation` (cap on blend into this clip)
-const TRAM_ACTION_FRAME: usize = 372; // `actionFrame` i16: frame an action fires (weapon swap, pickup, …)
-                                      // ...firstLevel(374), then two u8s:
-const TRAM_INVULN_START: usize = 376; // `invulnerableStart` u8: first i-frame
-const TRAM_INVULN_LENGTH: usize = 377; // `invulnerableLength` u8: i-frame count (0 = none)
+const TRAM_ACTION_FRAME: usize = 372; // `actionFrame` i16 (weapon swap, pickup, …)
+const TRAM_FIRST_LEVEL: usize = 374; // `firstLevel`: clip unavailable before this level
+const TRAM_INVULN_START: usize = 376; // `invulnerableStart` u8
+const TRAM_INVULN_LENGTH: usize = 377; // `invulnerableLength` u8 (0 = none)
+const TRAM_NUM_SHORTCUTS: usize = 381; // `numShortcuts` u8
 const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
+const SHORTCUT_SIZE: usize = 8; // sizeof(TRtShortcut)
+const MAX_SHORTCUTS: usize = 8; // TRcMaxShortcuts
+
+/// A clip's alternate entry state (`TRtShortcut`): the clip may also be
+/// selected from `state` (not just its own `fromState`), blending in over
+/// `length` frames. Flag bit 0 is `Nuke` (may interrupt an atomic clip).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub state: u16,
+    pub length: u16,
+    pub flags: u32,
+}
 
 /// One attack's hit window + effects (`TRtAttack`, `BFW_Totoro.h`). Frames are
 /// animation frames; the attack connects during `[first_damage_frame,
@@ -247,7 +264,7 @@ pub fn frame0_pose(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Vec<[f3
         return None;
     }
     let d = dat.instance_data(anim)?;
-    let data_off = read_u32(d, TRAM_DATA)? as usize;
+    let data_off = read_u32(d, PTR_DATA * 4)? as usize;
 
     // numParts = size of the u16 offset table = offsets[0] / 2.
     let off0 = read_u16(raw, data_off)? as usize;
@@ -364,6 +381,56 @@ pub struct Clip {
     pub invulnerable_start: u8,
     /// Number of invulnerable frames (`invulnerableLength`); 0 = never invulnerable.
     pub invulnerable_length: u8,
+    /// Alternate entry states (`shortcuts`): the clip is also selectable from
+    /// each shortcut's `state`, blending in over its `length`.
+    pub shortcuts: Vec<Shortcut>,
+    /// Up to two follow-up clips (`directAnimation[2]`, by instance name) that
+    /// chain from this one with no pause and no end interpolation.
+    pub direct: Vec<String>,
+    /// `varientEnd` (variant bits on exit).
+    pub varient_end: u16,
+    /// Frames `[atomic_start, atomic_end]` during which the clip cannot be
+    /// interrupted by an ordinary request (start > end = never atomic).
+    pub atomic_start: u16,
+    pub atomic_end: u16,
+    /// The clip is unavailable on levels before this one (`firstLevel`).
+    pub first_level: u16,
+}
+
+/// Resolves a reference-form word (`v & 1`, index `v >> 8`) to an instance name.
+fn ref_name(dat: &Dat<'_>, v: u32) -> Option<String> {
+    if v & 1 == 0 {
+        return None;
+    }
+    dat.instances.get((v >> 8) as usize)?.name.clone()
+}
+
+/// Decodes the `shortcuts` array: `numShortcuts` entries (capped at
+/// `TRcMaxShortcuts`), also bounded by the gap to the next `tm_raw` pointer.
+fn decode_shortcuts(raw: &[u8], ptrs: &[u32], count: usize) -> Vec<Shortcut> {
+    let off = ptrs[PTR_SHORTCUTS] as usize;
+    if off == 0 || count == 0 {
+        return Vec::new();
+    }
+    let bound = ptrs
+        .iter()
+        .map(|&p| p as usize)
+        .filter(|&p| p > off)
+        .min()
+        .unwrap_or(off + count * SHORTCUT_SIZE);
+    let n = count
+        .min(MAX_SHORTCUTS)
+        .min((bound - off) / SHORTCUT_SIZE);
+    (0..n)
+        .filter_map(|s| {
+            let o = off + s * SHORTCUT_SIZE;
+            Some(Shortcut {
+                state: read_u16(raw, o)?,
+                length: read_u16(raw, o + 2)?,
+                flags: read_u32(raw, o + 4)?,
+            })
+        })
+        .collect()
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -377,7 +444,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         return None;
     }
     let d = dat.instance_data(anim)?;
-    let data_off = read_u32(d, TRAM_DATA)? as usize;
+    let data_off = read_u32(d, PTR_DATA * 4)? as usize;
     let off0 = read_u16(raw, data_off)? as usize;
     if off0 < 2 || !off0.is_multiple_of(2) {
         return None;
@@ -432,7 +499,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
 
     // Root motion: the `positions` track = `numFrames` pairs of local (x, z).
     let total_frames = (num_frames + 1) as usize;
-    let root_motion = match read_u32(d, TRAM_POSITIONS) {
+    let root_motion = match read_u32(d, PTR_POSITIONS * 4) {
         Some(pos_off) if pos_off != 0 => (0..total_frames)
             .map(|f| {
                 let o = pos_off as usize + f * 8;
@@ -447,7 +514,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
 
     // Height track: the `heights` array = `numFrames` floats, the pelvis
     // elevation above the ground point for each frame (`heightThisFrame`).
-    let heights = match read_u32(d, TRAM_HEIGHTS) {
+    let heights = match read_u32(d, PTR_HEIGHTS * 4) {
         Some(h_off) if h_off != 0 => (0..total_frames)
             .map(|f| read_f32(raw, h_off as usize + f * 4).unwrap_or(0.0))
             .collect(),
@@ -462,6 +529,12 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         .filter_map(|k| read_u32(d, k * 4))
         .collect();
     let attacks = decode_attacks(raw, &ptrs);
+    let num_shortcuts = read_u8(d, TRAM_NUM_SHORTCUTS).unwrap_or(0) as usize;
+    let shortcuts = decode_shortcuts(raw, &ptrs, num_shortcuts);
+    let direct = (0..2)
+        .filter_map(|k| read_u32(d, TRAM_DIRECT_ANIM + k * 4))
+        .filter_map(|v| ref_name(dat, v))
+        .collect();
 
     Some(Clip {
         fps: ANIM_FPS,
@@ -486,13 +559,19 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         action_frame: read_i16(d, TRAM_ACTION_FRAME).unwrap_or(0),
         invulnerable_start: read_u8(d, TRAM_INVULN_START).unwrap_or(0),
         invulnerable_length: read_u8(d, TRAM_INVULN_LENGTH).unwrap_or(0),
+        shortcuts,
+        direct,
+        varient_end: read_u16(d, TRAM_VARIENT_END).unwrap_or(0),
+        atomic_start: read_u16(d, TRAM_ATOMIC_START).unwrap_or(1),
+        atomic_end: read_u16(d, TRAM_ATOMIC_END).unwrap_or(0),
+        first_level: read_u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
     })
 }
 
 /// Decodes the `attacks` array, bounding its length by the gap to the next
 /// `tm_raw` pointer in `.raw` (avoids the drifted `numAttacks` count).
 fn decode_attacks(raw: &[u8], ptrs: &[u32]) -> Vec<Attack> {
-    let off = ptrs[TRAM_ATTACKS] as usize;
+    let off = ptrs[PTR_ATTACKS] as usize;
     if off == 0 {
         return Vec::new();
     }
