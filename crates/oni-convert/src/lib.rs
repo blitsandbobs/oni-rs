@@ -27,6 +27,7 @@ mod characters;
 mod melee;
 mod bsl;
 mod consoles;
+mod doors;
 mod objects;
 mod patrols;
 mod particles;
@@ -281,6 +282,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 characters::write(&dat, raw, &root)?;
                 patrols::write(&dat, raw, &root)?;
                 consoles::write(&dat, raw, &root, &console_classes)?;
+                doors::write(&dat, raw, &root)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {

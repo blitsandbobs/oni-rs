@@ -472,6 +472,30 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
+        // --- doors ------------------------------------------------------------
+        "door_lock" | "door_unlock" | "door_jam" | "door_unjam" => {
+            let id = int(a(0)).unwrap_or(-1);
+            let world = host.world();
+            match name {
+                "door_lock" => world.door_set(id, Some(true), None),
+                "door_unlock" => world.door_set(id, Some(false), None),
+                "door_jam" => world.door_set(id, None, Some(true)),
+                _ => world.door_set(id, None, Some(false)),
+            }
+            nil()
+        }
+        "door_open" | "door_close" => {
+            let id = int(a(0)).unwrap_or(-1);
+            for d in host.world().doors.iter_mut().filter(|d| id < 0 || i64::from(d.id) == id) {
+                if name == "door_open" {
+                    d.open();
+                } else {
+                    d.close();
+                }
+            }
+            nil()
+        }
+
         // --- consoles, input, alarms ----------------------------------------
         "console_activate" | "console_deactivate" | "console_reset" => {
             let id = int(a(0));

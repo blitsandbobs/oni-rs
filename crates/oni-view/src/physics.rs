@@ -34,6 +34,8 @@ pub struct Physics {
     pub feet: Vec3,
     /// Whether the last `slide` ended standing on something.
     pub grounded: bool,
+    /// The level's doors' closed leaves (solid only while closed).
+    doors: Vec<Option<rapier3d::geometry::ColliderHandle>>,
 }
 
 impl Physics {
@@ -88,6 +90,28 @@ impl Physics {
             half_height,
             feet,
             grounded: false,
+            doors: Vec::new(),
+        }
+    }
+
+    /// Adds a door's closed leaf (solid to begin with); its index.
+    pub fn add_door(&mut self, positions: &[[f32; 3]], indices: &[u32]) -> usize {
+        let verts: Vec<Point3<f32>> = positions.iter().map(|v| Point3::new(v[0], v[1], v[2])).collect();
+        let idx: Vec<[u32; 3]> = indices.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+        // (A door without geometry of its own blocks nothing.)
+        let h = (!idx.is_empty()).then(|| self.colliders.insert(ColliderBuilder::trimesh(verts, idx).build()));
+        self.query.update(&self.colliders);
+        self.doors.push(h);
+        self.doors.len() - 1
+    }
+
+    /// Makes door `k` solid (closed) or not.
+    pub fn set_door(&mut self, k: usize, solid: bool) {
+        if let Some(c) = self.doors.get(k).copied().flatten().and_then(|h| self.colliders.get_mut(h)) {
+            if c.is_enabled() != solid {
+                c.set_enabled(solid);
+                self.query.update(&self.colliders);
+            }
         }
     }
 

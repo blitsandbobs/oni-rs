@@ -32,6 +32,9 @@ pub struct Prim {
     pub blend: bool,
     /// Additive-blended (glowing) material — from Oni texture flags (`extras`).
     pub additive: bool,
+    /// The door (its object id) this is the closed leaf of — a node named
+    /// `door_0x<id>`, or under one.
+    pub door: Option<u32>,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -184,7 +187,21 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
         }
     }
 
-    for (wm, mesh_idx, _node) in jobs {
+    // The door a node belongs to (itself or an ancestor named `door_0x…`).
+    let door_of = |i: usize| -> Option<u32> {
+        let mut cur = Some(i);
+        while let Some(j) = cur {
+            let name = nodes[j]["name"].as_str().unwrap_or("");
+            if let Some(hex) = name.strip_prefix("door_0x") {
+                let digits: String = hex.chars().take_while(|c| c.is_ascii_hexdigit()).collect();
+                return u32::from_str_radix(&digits, 16).ok();
+            }
+            cur = parent[j];
+        }
+        None
+    };
+    for (wm, mesh_idx, node) in jobs {
+        let door = door_of(node);
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
         for prim in json["meshes"][mesh_idx]["primitives"].as_array().unwrap() {
             let attrs = &prim["attributes"];
@@ -245,6 +262,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 texture,
                 blend,
                 additive,
+                door,
             });
         }
     }

@@ -16,8 +16,24 @@ pub enum Event {
     ActivateConsole(u16),
     DeactivateConsole(u16),
     ActivateAlarm(u16),
-    /// Turrets, triggers, doors: not modelled yet.
+    LockDoor(u16),
+    UnlockDoor(u16),
+    /// Turrets and laser triggers: not modelled yet.
     Other(String, u16),
+}
+
+/// An event from its JSON form.
+pub fn event(e: &serde_json::Value) -> Event {
+    let id = e["id"].as_u64().unwrap_or(0) as u16;
+    match e["type"].as_str().unwrap_or("") {
+        "script" => Event::Script(e["script"].as_str().unwrap_or("").to_string()),
+        "activateConsole" => Event::ActivateConsole(id),
+        "deactivateConsole" => Event::DeactivateConsole(id),
+        "activateAlarm" => Event::ActivateAlarm(id),
+        "lockDoor" => Event::LockDoor(id),
+        "unlockDoor" => Event::UnlockDoor(id),
+        other => Event::Other(other.to_string(), id),
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -66,21 +82,7 @@ pub fn load(level_dir: &Path) -> Vec<Console> {
         .flatten()
         .map(|c| {
             let has = |f: &str| c["flags"].as_array().is_some_and(|a| a.iter().any(|x| x == f));
-            let events = c["events"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|e| {
-                    let id = e["id"].as_u64().unwrap_or(0) as u16;
-                    match e["type"].as_str().unwrap_or("") {
-                        "script" => Event::Script(e["script"].as_str().unwrap_or("").to_string()),
-                        "activateConsole" => Event::ActivateConsole(id),
-                        "deactivateConsole" => Event::DeactivateConsole(id),
-                        "activateAlarm" => Event::ActivateAlarm(id),
-                        other => Event::Other(other.to_string(), id),
-                    }
-                })
-                .collect();
+            let events = c["events"].as_array().into_iter().flatten().map(event).collect();
             let initial_active = has("initialActive");
             Console {
                 id: c["id"].as_u64().unwrap_or(0) as u16,

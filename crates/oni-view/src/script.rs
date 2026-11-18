@@ -131,6 +131,7 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
+        world.attach_doors(crate::door_meshes(&scene));
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         if world.nav.is_none() {
@@ -202,6 +203,7 @@ impl ScriptHost {
             (Some(e), None) => cam.look_at(e, self.scene.center()),
             _ => {}
         }
+        self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let draws: Vec<CharDraw> = self
             .world
@@ -793,6 +795,44 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Orders door `id`: "open", "close", "lock", "unlock", "jam", "unjam".
+    let h = host.clone();
+    g.set(
+        "door",
+        lua.create_function(move |_, (id, what): (u16, String)| {
+            let mut host = h.borrow_mut();
+            let w = &mut host.world;
+            match what.as_str() {
+                "lock" => w.door_set(i64::from(id), Some(true), None),
+                "unlock" => w.door_set(i64::from(id), Some(false), None),
+                "jam" => w.door_set(i64::from(id), None, Some(true)),
+                "unjam" => w.door_set(i64::from(id), None, Some(false)),
+                _ => {
+                    for d in w.doors.iter_mut().filter(|d| d.id == id) {
+                        if what == "open" {
+                            d.open();
+                        } else {
+                            d.close();
+                        }
+                    }
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // A door's state ("closed" / "opening" / "open" / "closing") and
+    // whether it is locked (nil: no such door).
+    let h = host.clone();
+    g.set(
+        "door_state",
+        lua.create_function(move |_, id: u16| {
+            let host = h.borrow();
+            let d = host.world.doors.iter().find(|d| d.id == id);
+            Ok((d.map(|d| d.state_name()), d.map(|d| d.locked)))
+        })?,
+    )?;
+
     // A console's state: "inactive", "active" or "triggered" (nil: none).
     let h = host.clone();
     g.set(
@@ -826,6 +866,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: usize| {
             h.borrow_mut().world.give_goals(id, None, None);
             Ok(())
+        })?,
+    )?;
+    // Where an agent's eyes look (degrees; nil: along its body).
+    let h = host.clone();
+    g.set(
+        "eye_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::Agent(a)) => a.eye.map(|e| e.to_degrees().rem_euclid(360.0)),
+                _ => None,
+            })
         })?,
     )?;
     let h = host.clone();

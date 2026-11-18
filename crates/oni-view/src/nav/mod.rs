@@ -302,6 +302,11 @@ impl Navigation {
     /// room beats another, then the nearer, then the smaller room. Rooms
     /// whose floor is more than 5 above the point don't count.
     pub fn room_at(&self, p: Vec3) -> Option<usize> {
+        // (A body pressed a little into the floor is still in its room.)
+        self.room_at_exactly(p).or_else(|| self.room_at_exactly(p + Vec3::Y * 4.0))
+    }
+
+    fn room_at_exactly(&self, p: Vec3) -> Option<usize> {
         let mut best: Option<(bool, bool, f32, f32, usize)> = None;
         for (i, r) in self.rooms.iter().enumerate() {
             if r.flags & NON_AI != 0 || r.min.y > p.y + OUTSIDE_ACCEPT {

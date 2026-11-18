@@ -312,6 +312,24 @@ pub const TRIGGER_FLAGS: [&str; 8] = [
 /// authored ones are kept).
 pub const CONSOLE_FLAGS: [&str; 7] = ["", "", "", "initialActive", "", "punch", "isAlarm"];
 
+/// Door flag bits (`OBJcDoorFlag_*`; bit index → name; only the authored
+/// ones are kept).
+pub const DOOR_FLAGS: [&str; 13] = [
+    "initialLocked",
+    "",
+    "inDoorFrame",
+    "",
+    "manual",
+    "",
+    "",
+    "doubleDoors",
+    "mirror",
+    "oneWay",
+    "reverse",
+    "",
+    "initialOpen",
+];
+
 /// Event types (`Oni_Event`), by value.
 pub const EVENT_TYPES: [&str; 12] = [
     "none",

@@ -104,6 +104,8 @@ struct GpuPrim {
     count: u32,
     texture: usize,
     bucket: Bucket,
+    /// The door (object id) whose closed leaf this is: hidden while it is open.
+    door: Option<u32>,
     /// Bone index for a character part (world matrix comes from the pose), or
     /// `None` for pre-baked world-space environment geometry (identity model).
     bone: Option<usize>,
@@ -135,6 +137,8 @@ pub struct Renderer {
     tex_bgs: Vec<wgpu::BindGroup>,
     default_tex: wgpu::BindGroup,
     prims: Vec<GpuPrim>,
+    /// Doors (object ids) open now: their closed leaves aren't drawn.
+    pub open_doors: std::collections::HashSet<u32>,
     char_models: Vec<CharModel>,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
@@ -412,6 +416,7 @@ impl Renderer {
             tex_bgs,
             default_tex,
             prims,
+            open_doors: Default::default(),
             char_models: Vec::new(),
             particles: particle_groups,
             depth: None,
@@ -460,6 +465,7 @@ impl Renderer {
                 count: part.indices.len() as u32,
                 texture: texture.unwrap_or(usize::MAX),
                 bucket,
+                door: None,
                 bone: Some(part.bone),
             });
         }
@@ -571,7 +577,7 @@ impl Renderer {
                 (Bucket::Additive, &self.additive_pipeline),
             ] {
                 pass.set_pipeline(pipeline);
-                for p in self.prims.iter().filter(|p| p.bucket == bucket) {
+                for p in self.prims.iter().filter(|p| p.bucket == bucket && p.door.is_none_or(|d| !self.open_doors.contains(&d))) {
                     draw_prim(&mut pass, p, Mat4::IDENTITY);
                 }
                 for d in characters {
@@ -636,6 +642,7 @@ fn upload_prim(device: &wgpu::Device, p: &Prim) -> GpuPrim {
         count: p.indices.len() as u32,
         texture: p.texture.unwrap_or(usize::MAX),
         bucket,
+        door: p.door,
         bone: None,
     }
 }

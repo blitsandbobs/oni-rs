@@ -236,9 +236,10 @@ impl ApplicationHandler for App {
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let mut mission = None;
+                    world.load_level(&self.cast.level_dir);
+                    world.attach_doors(crate::door_meshes(&scene));
                     if self.mission {
                         // The level's own scripts populate it.
-                        world.load_level(&self.cast.level_dir);
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
                             (Ok(mut m), Some(mut classes)) => {
                                 let mut host = PlayHost {
@@ -575,6 +576,9 @@ impl State {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // Pose the characters. In play mode: every fighter in the world. In the
         // static viewer: the single character, looping over elapsed time.
+        if let Some(pw) = &self.play {
+            self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
+        }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),
             (None, Some(cv)) => {

@@ -102,6 +102,9 @@ pub struct World {
     pub level_dir: std::path::PathBuf,
     /// The level's consoles.
     pub consoles: Vec<crate::consoles::Console>,
+    /// The level's doors, and each one's closed leaf (for collision).
+    pub doors: Vec<crate::doors::Door>,
+    door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
@@ -136,6 +139,8 @@ impl World {
             player_name: "player".into(),
             level_dir: Default::default(),
             consoles: Vec::new(),
+            doors: Vec::new(),
+            door_meshes: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
             input_enabled: true,
@@ -152,7 +157,7 @@ impl World {
     /// The first fighter spawned is the player. Returns the new fighter's index.
     pub fn spawn(&mut self, kind: &CharKind, pos: Vec3, facing_yaw: f32, passive: bool) -> usize {
         let player = self.fighters.is_empty();
-        let f = Fighter::new(
+        let mut f = Fighter::new(
             kind.model,
             kind.character.clone(),
             kind.anims.clone(),
@@ -165,7 +170,10 @@ impl World {
             player,
             self.quirks,
         );
-        let mut f = f;
+        for (k, (v, i)) in self.door_meshes.iter().enumerate() {
+            let n = f.physics.add_door(v, i);
+            f.physics.set_door(n, self.doors[k].solid());
+        }
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
@@ -533,6 +541,95 @@ impl World {
         self.level_dir = level_dir.to_path_buf();
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
+        self.doors = crate::doors::load(level_dir);
+    }
+
+    /// Gives the doors their closed leaves (by object id, from the level's
+    /// geometry): each fighter collides with them while closed.
+    pub fn attach_doors(&mut self, mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>) {
+        self.door_meshes = self.doors.iter().map(|d| meshes.remove(&d.object_id).unwrap_or_default()).collect();
+        for f in &mut self.fighters {
+            for (k, (v, i)) in self.door_meshes.iter().enumerate() {
+                let n = f.physics.add_door(v, i);
+                f.physics.set_door(n, self.doors[k].solid());
+            }
+        }
+    }
+
+    /// One tick of every door (behaviour per `docs/DOORS.md`): it opens for
+    /// anyone allowed through within its radius (an AI walking somewhere
+    /// opens a manual one too) and runs its events; its leaf blocks only
+    /// while closed.
+    fn doors_tick(&mut self) {
+        for k in 0..self.doors.len() {
+            let d = &self.doors[k];
+            let closed_manual = d.manual && d.state == crate::doors::State::Closed;
+            let opener = self.fighters.iter().position(|f| {
+                let near = f.alive() && !f.gone && f.feet().distance(d.position) < d.radius && d.may_open(f.feet(), false);
+                let walking = matches!(&f.brain, Some(crate::ai::Brain::Agent(a))
+                    if a.nav.as_ref().is_some_and(|n| n.state == crate::ai::navigate::State::Following));
+                near && (!closed_manual || walking)
+            });
+            let was = self.doors[k].solid();
+            let d = &mut self.doors[k];
+            let started = if closed_manual && opener.is_some() {
+                d.open();
+                true
+            } else {
+                d.tick(opener.is_some())
+            };
+            if started {
+                eprintln!("door {} ({}): opens", d.id, d.class);
+                let events = d.events.clone();
+                self.run_events(&events, opener);
+            }
+            let solid = self.doors[k].solid();
+            if solid != was {
+                for f in &mut self.fighters {
+                    f.physics.set_door(k, solid);
+                }
+            }
+        }
+    }
+
+    /// The player's Action at a manual door: the closed one in reach it
+    /// faces most (preferring one it may open). True if there was one.
+    fn door_action(&mut self, i: usize) -> bool {
+        let Some(f) = self.fighters.get(i) else { return false };
+        let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
+        let pick = self
+            .doors
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| d.manual && d.state == crate::doors::State::Closed && feet.distance(d.position) < d.radius)
+            .filter_map(|(k, d)| {
+                let to = d.position - pelvis;
+                let off = crate::ai::relative(to.x.atan2(to.z) - facing).abs();
+                (off <= crate::doors::MANUAL_FACING).then_some((k, off, d.may_open(feet, false)))
+            })
+            .min_by(|a, b| b.2.cmp(&a.2).then(a.1.total_cmp(&b.1)));
+        let Some((k, _, may)) = pick else { return false };
+        if may {
+            self.doors[k].open();
+            eprintln!("door {}: opened (Action)", self.doors[k].id);
+            let events = self.doors[k].events.clone();
+            self.run_events(&events, Some(i));
+        } else {
+            eprintln!("door {}: locked", self.doors[k].id);
+        }
+        true
+    }
+
+    /// Locks / unlocks / jams / unjams door `id` (`ALL` / -1: every door).
+    pub fn door_set(&mut self, id: i64, lock: Option<bool>, jam: Option<bool>) {
+        for d in self.doors.iter_mut().filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id) {
+            if let Some(l) = lock {
+                d.locked = l;
+            }
+            if let Some(j) = jam {
+                d.jammed = j;
+            }
+        }
     }
 
     /// The name scripts know fighter `i` by.
@@ -573,6 +670,8 @@ impl World {
                     }
                 }
                 Event::ActivateAlarm(id) => self.trip_alarm(u32::from(*id), user.unwrap_or(0)),
+                Event::LockDoor(id) => self.door_set(i64::from(*id), Some(true), None),
+                Event::UnlockDoor(id) => self.door_set(i64::from(*id), Some(false), None),
                 Event::Other(kind, id) => eprintln!("event {kind} {id} (not carried out yet)"),
             }
         }
@@ -906,8 +1005,11 @@ impl World {
             if let Some(c) = self.console_in_reach(0, false) {
                 self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
                 controls &= !crate::anim::input::key::ACTION;
+            } else if self.door_action(0) {
+                controls &= !crate::anim::input::key::ACTION;
             }
         }
+        self.doors_tick();
         for i in 0..self.fighters.len() {
             self.console_tick(i);
         }

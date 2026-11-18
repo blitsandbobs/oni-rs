@@ -76,14 +76,16 @@ took = wait_for(function() return goal_of(t) == "pursuit look" end, 600)
 -- the shipped game, Q10.)
 print(string.format("looking around %.0f from the noise", near(t, nx, nz)))
 assert(took and near(t, nx, nz) < 60, "it gets there and looks around")
+-- (Its eyes sweep about; the body turns only past what the head covers.)
 local seen = {}
 for _ = 1, 20 do
     step(30)
-    seen[math.floor(facing_of(t) / 30)] = true
+    local e = eye_of(t) or facing_of(t)
+    seen[math.floor(e / 30)] = true
 end
 local turns = 0
 for _ in pairs(seen) do turns = turns + 1 end
-print("faced", turns, "different ways while looking")
+print("looked", turns, "different ways while looking")
 assert(turns >= 3, "it looks about")
 
 -- Too calm for its job: a patroller below its job alert stands idle.

@@ -20,6 +20,7 @@ mod camera;
 mod classes;
 mod consoles;
 mod control;
+mod doors;
 mod fighter;
 mod gltf;
 mod mission;
@@ -267,12 +268,26 @@ fn main() {
 fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     let mut verts: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
-    for p in &scene.prims {
+    // (Doors' closed leaves collide on their own, while closed.)
+    for p in scene.prims.iter().filter(|p| p.door.is_none()) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));
     }
     (verts, indices)
+}
+
+/// Each door's closed-leaf triangles, by its object id.
+fn door_meshes(scene: &gltf::Scene) -> std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)> {
+    let mut out: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)> = Default::default();
+    for p in &scene.prims {
+        let Some(d) = p.door else { continue };
+        let (verts, indices) = out.entry(d).or_default();
+        let base = verts.len() as u32;
+        verts.extend(p.vertices.iter().map(|v| v.pos));
+        indices.extend(p.indices.iter().map(|i| base + i));
+    }
+    out
 }
 
 /// The scene's opaque triangles (what blocks sight: not glass).
