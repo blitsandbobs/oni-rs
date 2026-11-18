@@ -102,6 +102,58 @@ pub struct Clip {
     pub max_interpolation: u16,
     /// Attack hit windows + effects (empty for non-attack clips).
     pub attacks: Vec<Attack>,
+    /// Animation flag bits (`ONcAnimFlag_*`, test with `1 << flag`).
+    pub flags: u32,
+    /// Alternate entry states (Oni shortcuts): selectable from `state` too.
+    pub shortcuts: Vec<Shortcut>,
+    /// Names of up to two direct follow-up clips (no pause / end blend).
+    pub direct: Vec<String>,
+    /// Uninterruptible frame range; `atomic_start > atomic_end` = never.
+    pub atomic_start: u16,
+    pub atomic_end: u16,
+    /// Variant bits on exit (`varientEnd`).
+    pub varient_end: u16,
+    /// Unavailable on levels before this one (`firstLevel`).
+    pub first_level: u16,
+    /// Frames of unblockable / blockable pause after this clip.
+    pub hard_pause: u16,
+    pub soft_pause: u16,
+}
+
+/// A clip's alternate entry state (`TRtShortcut`, from `extras.shortcuts`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shortcut {
+    pub state: u16,
+    /// Blend-in length when entered through this shortcut.
+    pub length: u16,
+    /// Flag bits; bit 0 = `Nuke` (may interrupt an atomic clip).
+    pub flags: u32,
+}
+
+impl Clip {
+    /// Whether flag bit `flag` (an `ONcAnimFlag_*` index) is set.
+    pub fn has_flag(&self, flag: u32) -> bool {
+        self.flags & (1 << flag) != 0
+    }
+
+    /// Whether `frame` falls inside the atomic range (`TRrAnimation_IsAtomic`).
+    pub fn is_atomic(&self, frame: u16) -> bool {
+        self.atomic_start <= frame && frame <= self.atomic_end
+    }
+
+    /// The shortcut that lets this clip be entered from `from_state`: an exact
+    /// match first, then an `Anything` shortcut. None when `from_state` is the
+    /// clip's own `fromState` (that is a normal entry, not a shortcut).
+    pub fn shortcut_from(&self, from_state: u16) -> Option<Shortcut> {
+        if from_state == self.from_state {
+            return None;
+        }
+        self.shortcuts
+            .iter()
+            .find(|s| s.state == from_state)
+            .or_else(|| self.shortcuts.iter().find(|s| s.state == 1))
+            .copied()
+    }
 }
 
 /// Animation playback rate (Oni animations run at 60 fps).
@@ -406,6 +458,30 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         end_interpolation: u16_field("endInterp"),
         max_interpolation: u16_field("maxInterp"),
         attacks,
+        flags: ex["flags"].as_u64().unwrap_or(0) as u32,
+        shortcuts: ex["shortcuts"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|s| Shortcut {
+                        state: s["state"].as_u64().unwrap_or(0) as u16,
+                        length: s["length"].as_u64().unwrap_or(0) as u16,
+                        flags: s["flags"].as_u64().unwrap_or(0) as u32,
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
+        direct: ex["direct"]
+            .as_array()
+            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .unwrap_or_default(),
+        // Missing range = never atomic (start > end), matching the importer default.
+        atomic_start: ex["atomicStart"].as_u64().map_or(1, |v| v as u16),
+        atomic_end: ex["atomicEnd"].as_u64().map_or(0, |v| v as u16),
+        varient_end: u16_field("varientEnd"),
+        first_level: u16_field("firstLevel"),
+        hard_pause: u16_field("hardPause"),
+        soft_pause: u16_field("softPause"),
     })
 }
 

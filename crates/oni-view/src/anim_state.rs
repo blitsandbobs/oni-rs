@@ -15,7 +15,6 @@
 //! air and combat varients are future work. Turning is handled by yaw in the
 //! caller, so the varient is always 0 (unarmed).
 
-use std::path::Path;
 use std::rc::Rc;
 
 use glam::{Quat, Vec2};
@@ -82,7 +81,6 @@ pub mod anim_type {
 
 /// `TRtAnimState` values.
 pub mod state {
-    pub const ANYTHING: u16 = 1;
     pub const STANDING: u16 = 7;
 }
 
@@ -113,76 +111,7 @@ const COMBOS: &[Combo] = &[
     Combo { kick: true, old: NONE, result: KICK },
 ];
 
-/// A loaded clip plus its name (used by tests / debug output).
-struct Entry {
-    #[allow(dead_code)]
-    name: String,
-    clip: Clip,
-}
-
-/// A character's animation collection — the clips to look up by state machine.
-pub struct AnimCollection {
-    entries: Vec<Entry>,
-}
-
-impl AnimCollection {
-    /// Loads every clip under `dir` whose name starts with any of `prefixes` — a
-    /// character's locomotion set plus its combat (`*COM`) / weapon sets. The
-    /// variant bits keep them apart at lookup time (combat clips carry `Fight`,
-    /// weapon clips carry weapon bits, so neither is eligible for plain
-    /// `varient=0` locomotion).
-    pub fn load_sets(dir: &Path, prefixes: &[&str]) -> std::io::Result<Self> {
-        let mut entries = Vec::new();
-        for ent in std::fs::read_dir(dir)? {
-            let path = ent?.path();
-            let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if path.extension().and_then(|e| e.to_str()) != Some("glb")
-                || !prefixes.iter().any(|p| name.starts_with(p))
-            {
-                continue;
-            }
-            if let Ok(clip) = skel::load_clip(&path) {
-                entries.push(Entry {
-                    name: name.to_string(),
-                    clip,
-                });
-            }
-        }
-        Ok(AnimCollection { entries })
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
-    }
-
-    /// `TRrCollection_Lookup`: find a clip matching `(type, from_state, varient)`.
-    /// First tries the exact `from_state`, then `Anything` (1). A clip's variant
-    /// bits must be a subset of the character's (`clip.varient & !varient == 0`).
-    fn lookup(&self, anim_type: u16, from_state: u16, varient: u16) -> Option<usize> {
-        self.lookup_state(anim_type, from_state, varient)
-            .or_else(|| self.lookup_state(anim_type, state::ANYTHING, varient))
-    }
-
-    fn lookup_state(&self, anim_type: u16, from_state: u16, varient: u16) -> Option<usize> {
-        self.entries.iter().position(|e| {
-            e.clip.anim_type == anim_type
-                && e.clip.from_state == from_state
-                && (e.clip.varient & !varient) == 0
-        })
-    }
-
-    /// First clip of `anim_type` with a compatible variant, ignoring `from_state`
-    /// — used to force a jump/land clip regardless of the current body state.
-    fn lookup_any(&self, anim_type: u16, varient: u16) -> Option<usize> {
-        self.entries
-            .iter()
-            .position(|e| e.clip.anim_type == anim_type && (e.clip.varient & !varient) == 0)
-    }
-}
+pub use crate::anim::collection::AnimCollection;
 
 /// Per-tick locomotion input (from the keyboard in play mode).
 #[derive(Clone, Copy, Default)]
@@ -611,17 +540,9 @@ fn is_locomotion(t: u16) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::path::PathBuf;
 
     fn konoko_collection() -> Option<Rc<AnimCollection>> {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../generated/oni/common/animations");
-        if !dir.exists() {
-            eprintln!("SKIP: converted animations not found");
-            return None;
-        }
-        let coll = AnimCollection::load_sets(&dir, &["KONOKO", "KONCOM"]).ok()?;
-        (!coll.is_empty()).then(|| Rc::new(coll))
+        crate::anim::collection::tests::konoko()
     }
 
     /// The locomotion machine goes stand → run (via a start) → stop → stand,

@@ -13,6 +13,7 @@
 //!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
+mod anim;
 mod anim_state;
 mod app;
 mod camera;
@@ -95,12 +96,14 @@ fn main() {
     let (mut eye, mut target, mut char_path, mut anim_path, mut char_pos, mut time) =
         (None, None, None, None, None, None);
     let mut play = false;
-    let mut anim_prefix: Option<String> = None;
+    let mut class_name = String::from("konoko_generic");
+    let mut level_number: Option<u16> = None;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--play" => play = true,
-            "--anim-prefix" => anim_prefix = args.next(),
+            "--class" => class_name = args.next().unwrap_or(class_name),
+            "--level" => level_number = args.next().and_then(|s| s.parse().ok()),
             "--script" => script_path = args.next().map(PathBuf::from),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
             "--particles" => particles_path = args.next().map(PathBuf::from),
@@ -172,27 +175,32 @@ fn main() {
         }
     });
 
-    // Play / script mode: load the character's whole animation set (all
-    // `{PREFIX}*.glb` beside the given --anim) once, shared (`Rc`) across every
-    // fighter spawned from this character (player + dummies).
+    // Play / script mode: load the character class's animation collection — its
+    // real `TRAC` chain (`--class`, default Konoko) — once, shared (`Rc`) across
+    // every fighter spawned from this character (player + dummies).
     let anims = if play || script_path.is_some() {
-        anim_path.as_ref().and_then(|ap| {
-            let dir = ap.parent()?;
-            let prefix = anim_prefix.clone().unwrap_or_else(|| {
-                // Derive the prefix from the leading uppercase run of the name.
-                ap.file_stem()
-                    .and_then(|s| s.to_str())
-                    .map(|n| n.chars().take_while(|c| c.is_ascii_uppercase()).collect())
-                    .unwrap_or_default()
-            });
-            // Load the locomotion set plus the character's combat set (`<CHR>COM`,
-            // e.g. KONOKO → KONCOM) so melee combos are available; variant gating
-            // keeps the fight-stance clips out of plain locomotion lookups.
-            let combat = format!("{}COM", prefix.chars().take(3).collect::<String>());
-            let coll = anim_state::AnimCollection::load_sets(dir, &[&prefix, &combat]).ok()?;
-            eprintln!("play: loaded {} '{}'+'{}' clips", coll.len(), prefix, combat);
-            (!coll.is_empty()).then(|| Rc::new(coll))
-        })
+        let oni_root = oni_root_from(&scene_path);
+        let level = level_number.unwrap_or_else(|| level_from(&scene_path));
+        let anim_dir = oni_root.join("common/animations");
+        match class_collection(&oni_root, &class_name) {
+            Some(coll_name) => match anim::collection::AnimCollection::load(&anim_dir, &coll_name, level) {
+                Ok(coll) => {
+                    eprintln!(
+                        "play: class {class_name} → {coll_name}: {} clips (level {level})",
+                        coll.len()
+                    );
+                    (!coll.is_empty()).then(|| Rc::new(coll))
+                }
+                Err(e) => {
+                    eprintln!("play: cannot load collection {coll_name}: {e}");
+                    None
+                }
+            },
+            None => {
+                eprintln!("play: class {class_name:?} not found in classes.json");
+                None
+            }
+        }
     } else {
         None
     };
@@ -234,6 +242,39 @@ fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
         indices.extend(p.indices.iter().map(|i| base + i));
     }
     (verts, indices)
+}
+
+/// The converted-asset root (`…/oni`) for a scene at `…/oni/levels/NN/x.glb`.
+fn oni_root_from(scene: &std::path::Path) -> PathBuf {
+    scene
+        .parent()
+        .and_then(|lvl| lvl.parent())
+        .and_then(|levels| levels.parent())
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// The level number from a scene path's `levels/NN` folder (0 if absent).
+fn level_from(scene: &std::path::Path) -> u16 {
+    scene
+        .parent()
+        .and_then(|d| d.file_name())
+        .and_then(|n| n.to_str())
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(0)
+}
+
+/// The animation collection (`TRAC`) name of character class `class`, from
+/// the converter's `common/characters/classes.json`.
+fn class_collection(oni_root: &std::path::Path, class: &str) -> Option<String> {
+    let text = std::fs::read_to_string(oni_root.join("common/characters/classes.json")).ok()?;
+    let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
+    doc["classes"]
+        .as_array()?
+        .iter()
+        .find(|c| c["name"].as_str() == Some(class))?["animationCollection"]
+        .as_str()
+        .map(String::from)
 }
 
 fn parse_vec3(s: String) -> Option<Vec3> {
