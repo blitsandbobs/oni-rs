@@ -24,7 +24,9 @@ use std::rc::Rc;
 use glam::{Quat, Vec3};
 
 use crate::anim::collection::AnimCollection;
+use crate::anim::reaction::{self, Victim};
 use crate::anim::types::{flag, shortcut, st, ty, var};
+use crate::quirks::Quirks;
 use crate::skel::{self, Character, Clip};
 
 /// Default blend length when a request interrupts the current clip.
@@ -55,6 +57,8 @@ pub struct ClassTuning {
     /// Base ticks between repeated idle fidgets.
     pub idle_restart_delay: u32,
     pub max_hit_points: i32,
+    /// Shrugs off light hits and is only staggered by knockdowns.
+    pub knockdown_resistant: bool,
     /// Airborne integration (see `oni_geom::charclass::AirConstants`).
     pub jump_gravity: f32,
     pub jump_amount: f32,
@@ -73,6 +77,7 @@ impl Default for ClassTuning {
             idle_delay: 600,
             idle_restart_delay: 600,
             max_hit_points: 100,
+            knockdown_resistant: false,
             jump_gravity: 0.06,
             jump_amount: 1.1,
             max_velocity: -4.0,
@@ -167,6 +172,12 @@ pub struct Motion {
     last_active: u64,
     /// A clip started since the owner last checked (clears per-swing hit sets).
     pub new_clip: bool,
+    /// An attack clip started since the owner last checked (auto-facing).
+    pub attack_began: bool,
+    /// Killed: plays out its death reaction, makes no voluntary moves.
+    pub dying: bool,
+    /// The death reaction has finished: the body lies still.
+    pub corpse: bool,
     rng: u32,
 }
 
@@ -262,6 +273,9 @@ impl Motion {
             idle_delay: tuning.idle_delay,
             last_active: 0,
             new_clip: false,
+            attack_began: false,
+            dying: false,
+            corpse: false,
             rng: 0x2545_f491,
         }
     }
@@ -394,6 +408,9 @@ impl Motion {
         late_ok: bool,
         kind: u16,
     ) -> Option<usize> {
+        if self.dying {
+            return None; // the dead make no voluntary moves
+        }
         let mut found = self.coll.lookup(kind, self.state, self.varient);
         if found.is_none() && late_ok && self.frame < LATE_PRESS_FRAMES {
             found = self.coll.lookup(kind, self.entered_from, self.varient);
@@ -444,7 +461,11 @@ impl Motion {
         {
             return Urge::Queue; // same loop: let it run on
         }
-        if cur.has_flag(flag::THROW_TARGET) || cur.has_flag(flag::THROW_SOURCE) {
+        // A hit reaction or a throw plays out; nothing ordinary cuts it short.
+        if reaction::is_victim(self.kind)
+            || cur.has_flag(flag::THROW_TARGET)
+            || cur.has_flag(flag::THROW_SOURCE)
+        {
             return Urge::Queue;
         }
         if !cur.is_atomic(self.frame) {
@@ -524,6 +545,10 @@ impl Motion {
         if is_attack && !throws {
             self.last_attack = self.kind;
             self.attack_ended = None;
+            self.attack_began = true;
+        }
+        if self.dying && !reaction::is_victim(self.kind) {
+            self.corpse = true; // the death reaction is over: lie still
         }
         if !is_rest(self.kind) {
             self.last_active = self.now;
@@ -564,21 +589,101 @@ impl Motion {
     }
 
     /// Forces the airborne clip after walking off a ledge mid-stride.
-    pub fn fall_into_flight(&mut self, ch: &Character) {
+    pub fn fall_into_flight(&mut self, ch: &Character, q: Quirks) {
+        self.knock(ch, ty::FLY, q);
+    }
+
+    /// Forces reaction `kind` (a hit, knockdown or stagger — or the flight
+    /// clip after a ledge) regardless of what is playing: enters the fight
+    /// stance, drops the combo, adapts the reaction to the current situation,
+    /// and falls back to more generic clips (or the standing pose) when the
+    /// specific one is missing. Afterwards the character stands (or gets up).
+    /// Returns whether a clip was found.
+    pub fn knock(&mut self, ch: &Character, kind: u16, q: Quirks) -> bool {
         self.fight_mode();
         self.last_attack = ty::NONE;
         self.attack_ended = Some(0);
         self.lock_frames = 0;
-        let found = self
-            .coll
-            .lookup(ty::FLY, self.state, self.varient)
-            .or_else(|| self.coll.lookup(ty::FLY, st::STANDING, self.varient));
-        if let Some(clip) = found {
-            self.leave_clip(false);
-            let from = self.state;
-            self.enter(ch, from, clip, BLEND_FRAMES, 0.0);
-            self.queued = ty::STAND;
+        let victim = Victim {
+            airborne: self.air.frames > 0,
+            to_state: self.current().to_state,
+            resistant: false,
+        };
+        let adapted = reaction::adapt(kind, victim, q);
+        let general = reaction::generic(kind);
+        let (state, v) = (self.state, self.varient);
+        let mut found = [
+            (adapted, state),
+            (adapted, st::STANDING),
+            (kind, state),
+            (general, state),
+            (kind, st::STANDING),
+            (general, st::STANDING),
+        ]
+        .iter()
+        .find_map(|&(t, s)| self.coll.lookup(t, s, v));
+        if found.is_none() && st::is_flying(state) && state % 2 == 1 {
+            // A flying state's falling counterpart is the next state up.
+            found = self.coll.lookup(kind, state + 1, v);
         }
+        let Some(clip) = found else {
+            return false;
+        };
+        self.leave_clip(false);
+        self.enter(ch, state, clip, BLEND_FRAMES, 0.0);
+        self.queued = ty::STAND;
+        true
+    }
+
+    /// Forces the block clip (a hit was just blocked).
+    pub fn block(&mut self, ch: &Character) {
+        self.fight_mode();
+        self.lock_frames = 0;
+        if self.kind != ty::BLOCK {
+            self.request(ch, Urge::Force, false, ty::BLOCK);
+        }
+    }
+
+    /// Whether frame `frame` of the current clip is immune to hits.
+    pub fn invulnerable(&self) -> bool {
+        let c = self.current();
+        let (start, len) = (u16::from(c.invulnerable_start), u16::from(c.invulnerable_length));
+        c.has_flag(flag::INVULNERABLE) || (len > 0 && self.frame >= start && self.frame < start + len)
+    }
+
+    /// Standing or crouching still, turning in place, blocking, or backing off:
+    /// a character in one of these blocks attacks automatically.
+    pub fn defensive(&self) -> bool {
+        // The shipped game checks the clip's start state where it seemingly
+        // meant to check its end state too; doing so would stop a character
+        // who is already blocking from blocking again (block clips end in a
+        // blocking state), so the start-state-only test is kept (Q3).
+        let still = matches!(self.current().from_state, st::CROUCH | st::CROUCH_START | st::STANDING)
+            && matches!(
+                self.kind,
+                ty::CROUCH_TURN_LEFT
+                    | ty::CROUCH_TURN_RIGHT
+                    | ty::STANDING_TURN_LEFT
+                    | ty::STANDING_TURN_RIGHT
+                    | ty::BLOCK
+                    | ty::STAND
+                    | ty::CROUCH
+            );
+        let backing = matches!(
+            self.kind,
+            ty::RUN_BACKWARDS_START
+                | ty::WALK_BACKWARDS_START
+                | ty::RUN_BACKWARDS
+                | ty::WALK_BACKWARDS
+                | ty::CROUCH_RUN_BACKWARDS
+                | ty::CROUCH_WALK_BACKWARDS
+        );
+        still || backing
+    }
+
+    /// The block clip this character would use now, if it has one.
+    pub fn block_clip(&self) -> Option<usize> {
+        self.coll.lookup(ty::BLOCK, self.state, self.varient | var::FIGHT)
     }
 
     /// Snaps to the standing clip when nothing else fits.
@@ -657,6 +762,9 @@ impl Motion {
 
     /// End-of-frame: advance one tick, finishing the clip when it runs out.
     pub fn advance(&mut self, ch: &Character) {
+        if self.corpse {
+            return; // a lying body is posed, not animated
+        }
         self.frame += 1;
         if let Some(b) = &mut self.blend {
             b.itr += 1;

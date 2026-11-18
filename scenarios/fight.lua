@@ -13,9 +13,10 @@
 step(20)
 local px, py, pz = pos()
 
--- Spawn a dummy a few units ahead (+Z), facing back at the player, and let it
+-- Spawn a dummy a few units ahead (+Z), its back to the player (a dummy facing
+-- the player blocks frontal strikes — see block.lua), and let it
 -- settle onto the floor. Fighter 0 is the player; spawn returns the new id.
-local dummy = spawn(px, py + 5, pz + 6, 180)
+local dummy = spawn(px, py + 5, pz + 6, 0) -- facing away: a facing dummy would block
 assert(count() == 2, "player + dummy")
 step(60)
 

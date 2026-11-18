@@ -312,6 +312,9 @@ fn class_info(
     if let Some(v) = u(&stats["maxHitPoints"]) {
         t.max_hit_points = v as i32;
     }
+    if let Some(v) = stats["knockdownResistant"].as_bool() {
+        t.knockdown_resistant = v;
+    }
     if let Some(v) = f(&air["jumpGravity"]) {
         t.jump_gravity = v;
     }

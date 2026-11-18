@@ -17,6 +17,7 @@ use crate::anim::collection::AnimCollection;
 use crate::anim::decide::{self, Controls};
 use crate::anim::input::{key, Buttons};
 use crate::anim::motion::{ClassTuning, Motion};
+use crate::anim::reaction;
 use crate::anim::types::{ty, var};
 use crate::control::{Facing, MED_TURN, SLOW_TURN};
 use crate::physics::Physics;
@@ -39,6 +40,16 @@ const KNOCKBACK_PER_TICK: f32 = 0.07;
 const KNOCKBACK_KEEP: f32 = 1.0 - KNOCKBACK_PER_TICK;
 /// A second forward press within this many ticks starts a sprint.
 const SPRINT_TAP_WINDOW: u64 = 15;
+/// Starting an attack turns the attacker toward an opponent this close…
+const AUTO_FACE_RANGE: f32 = 40.0;
+/// …within this angle of where the attack is aimed.
+const AUTO_FACE_ARC: f32 = std::f32::consts::FRAC_PI_2;
+/// A corpse slides at most this fast, and comes to rest after this many
+/// ticks on the ground.
+const CORPSE_MAX_SLIDE: f32 = 0.5;
+const CORPSE_SETTLE_TICKS: u16 = 120;
+/// A knocked-down training dummy lies this long before getting up.
+const DUMMY_DAZE_TICKS: u16 = 90;
 
 fn is_landing(t: u16) -> bool {
     matches!(
@@ -87,6 +98,15 @@ pub struct Fighter {
     hit_set: Vec<usize>,
     last_forward_tap: Option<u64>,
     sprinting: bool,
+    /// A reaction to force at the end of this tick's hit resolution.
+    pub pending_reaction: u16,
+    /// A hit was blocked this tick: force the block clip.
+    pub please_block: bool,
+    /// A corpse's drift, and how long it has rested on the ground.
+    corpse_velocity: Vec3,
+    corpse_rest: u16,
+    /// Ticks spent lying on the ground (for the dummy's get-up stand-in).
+    down_ticks: u16,
 }
 
 impl Fighter {
@@ -133,15 +153,26 @@ impl Fighter {
             hit_set: Vec::new(),
             last_forward_tap: None,
             sprinting: false,
+            pending_reaction: ty::NONE,
+            please_block: false,
+            corpse_velocity: Vec3::ZERO,
+            corpse_rest: 0,
+            down_ticks: 0,
         }
     }
 
     /// Advances one 60 Hz tick with `held` the controls (`anim::input::key`
-    /// bits) currently down. Nudge `self.facing` (mouse / `turn`) before
+    /// bits) currently down; `opponents` are the feet of the other living
+    /// fighters (for auto-facing). Nudge `self.facing` (mouse / `turn`) before
     /// calling to turn.
-    pub fn tick(&mut self, held: u32) {
+    pub fn tick(&mut self, held: u32, opponents: &[Vec3]) {
         let ch = self.character.clone();
         self.motion.now += 1;
+        if self.motion.corpse {
+            self.drift_as_corpse();
+            return;
+        }
+        let held = if self.motion.dying { 0 } else { held };
         self.buttons.advance(held);
         self.update_sprint();
         self.motion.feet_y = self.physics.feet.y;
@@ -160,6 +191,9 @@ impl Fighter {
         };
         decide::think(&mut self.motion, &ch, &mut self.facing, &controls);
         self.facing.rotate(self.motion.take_facing_change());
+        if std::mem::take(&mut self.motion.attack_began) && self.player && self.motion.air.frames == 0 {
+            self.face_opponent(opponents);
+        }
         self.motion.count_down(&ch);
 
         // This tick's character-local movement.
@@ -338,6 +372,134 @@ impl Fighter {
         self.motion.please_land_hard = damage > 0;
     }
 
+    /// Starting a ground attack turns the attacker so the attack points at
+    /// the nearest-in-angle opponent in range and in front.
+    fn face_opponent(&mut self, opponents: &[Vec3]) {
+        use std::f32::consts::{FRAC_PI_2, PI, TAU};
+        let offset = match self.motion.current().move_direction {
+            2 => PI,         // backwards attack
+            3 => FRAC_PI_2,  // to the left
+            4 => -FRAC_PI_2, // to the right
+            _ => 0.0,
+        };
+        let aim = self.facing.aim() + offset;
+        let me = self.physics.feet;
+        let best = opponents
+            .iter()
+            .filter(|p| p.distance(me) <= AUTO_FACE_RANGE)
+            .map(|p| {
+                let d = *p - me;
+                let toward = d.x.atan2(d.z);
+                (toward - aim + PI).rem_euclid(TAU) - PI
+            })
+            .filter(|a| a.abs() <= AUTO_FACE_ARC)
+            .min_by(|a, b| a.abs().total_cmp(&b.abs()));
+        if let Some(delta) = best {
+            self.facing.rotate(delta);
+            self.facing.adjust_desired(delta);
+        }
+    }
+
+    /// Takes damage and a shove. Stuns end (a new hit sets its own); at zero
+    /// health the character dies: its death reaction plays (a knockdown that
+    /// was already chosen, else a frontal knockdown) and it stops acting.
+    pub fn take_damage(&mut self, damage: i32, knockback: Vec3) {
+        let m = &mut self.motion;
+        m.hit_stun = 0;
+        m.block_stun = 0;
+        m.stagger_stun = 0;
+        m.dizzy_stun = 0;
+        if m.dying {
+            return;
+        }
+        self.hp = (self.hp - damage).max(0);
+        self.knockback += knockback;
+        if self.hp == 0 {
+            self.motion.dying = true;
+            let kind = if reaction::is_knockdown(self.pending_reaction) {
+                self.pending_reaction
+            } else {
+                ty::KNOCKDOWN_HEAD
+            };
+            self.pending_reaction = ty::NONE;
+            let ch = self.character.clone();
+            // Force it past the "dead make no moves" rule.
+            self.motion.dying = false;
+            self.motion.knock(&ch, kind, self.quirks);
+            self.motion.dying = true;
+            eprintln!("fighter died (reaction type {kind})");
+        }
+    }
+
+    /// Plays the reaction or block chosen for this tick's hits.
+    pub fn apply_reaction(&mut self) {
+        let ch = self.character.clone();
+        let pending = std::mem::replace(&mut self.pending_reaction, ty::NONE);
+        if pending != ty::NONE {
+            if !self.motion.dying {
+                self.motion.knock(&ch, pending, self.quirks);
+            }
+        } else if self.please_block {
+            self.motion.block(&ch);
+        }
+        self.please_block = false;
+    }
+
+    /// A finished death reaction: the body keeps its pose and slides to rest.
+    fn drift_as_corpse(&mut self) {
+        if self.corpse_rest >= CORPSE_SETTLE_TICKS {
+            return;
+        }
+        if self.corpse_rest == 0 && self.corpse_velocity == Vec3::ZERO {
+            // Start from the leftover motion: flight, or the last shove.
+            self.corpse_velocity = if self.motion.air.frames > 0 {
+                Quat::from_rotation_y(self.facing.facing) * self.motion.air.velocity
+            } else {
+                self.knockback
+            };
+        }
+        let mut v = self.corpse_velocity;
+        let flat = Vec3::new(v.x, 0.0, v.z);
+        if flat.length() > CORPSE_MAX_SLIDE {
+            let capped = flat.normalize() * CORPSE_MAX_SLIDE;
+            v.x = capped.x;
+            v.z = capped.z;
+        }
+        if self.physics.grounded {
+            v.x *= 0.5;
+            v.z *= 0.5;
+            v.y = -0.5;
+            self.corpse_rest += 1;
+        } else {
+            v.x *= 0.8;
+            v.z *= 0.8;
+            v.y = (v.y - 0.5).clamp(-10.0, 2.0);
+        }
+        self.corpse_velocity = v;
+        self.physics.slide(v);
+        self.replace();
+    }
+
+    /// Controls for a passive training dummy: none — except that after lying
+    /// on the ground for a while it presses forward once to get up. This
+    /// stands in for the AI's daze timer until AI drives characters.
+    pub fn dummy_controls(&mut self) -> u32 {
+        use crate::anim::types::st;
+        let lying = matches!(self.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT)
+            && !reaction::is_victim(self.motion.kind);
+        if !lying {
+            self.down_ticks = 0;
+            return 0;
+        }
+        self.down_ticks += 1;
+        if self.down_ticks >= DUMMY_DAZE_TICKS {
+            self.down_ticks = 0;
+            key::FORWARD
+        } else {
+            0
+        }
+    }
+
     /// Whether the fighter is in the air.
     pub fn airborne(&self) -> bool {
         self.motion.air.frames > 0
@@ -392,15 +554,8 @@ impl Fighter {
         self.physics.feet
     }
 
-    /// Applies a hit: subtract HP (floored at 0) and add knockback (spent over
-    /// the following ticks).
-    pub fn hurt(&mut self, damage: i32, knockback: Vec3) {
-        self.hp = (self.hp - damage).max(0);
-        self.knockback += knockback;
-    }
-
     pub fn alive(&self) -> bool {
-        self.hp > 0
+        self.hp > 0 && !self.motion.dying
     }
 }
 
@@ -464,11 +619,11 @@ mod tests {
     fn fall_and_land(f: &mut Fighter) -> Option<u16> {
         let mut was_airborne = false;
         for _ in 0..600 {
-            f.tick(0);
+            f.tick(0, &[]);
             if f.airborne() {
                 was_airborne = true;
             } else if was_airborne {
-                f.tick(0); // the landing request is taken on the next tick
+                f.tick(0, &[]); // the landing request is taken on the next tick
                 return Some(f.motion.kind);
             }
         }
@@ -498,10 +653,10 @@ mod tests {
             return;
         };
         for _ in 0..30 {
-            f.tick(0); // settle onto the floor
+            f.tick(0, &[]); // settle onto the floor
         }
         let hp0 = f.hp;
-        f.tick(key::JUMP); // press jump for one tick
+        f.tick(key::JUMP, &[]); // press jump for one tick
         let landed = fall_and_land(&mut f).expect("takes off and lands");
         assert_eq!(f.hp, hp0, "a jump on flat ground is harmless");
         assert!(

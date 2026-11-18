@@ -19,6 +19,7 @@ use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use crate::anim::input::{key, Buttons};
 use crate::anim::motion::{Motion, Urge};
+use crate::anim::reaction;
 use crate::anim::rules::{self, Rule};
 use crate::anim::types::{flag, st, ty, var};
 use crate::control::{Facing, TURN_DEADZONE};
@@ -45,7 +46,17 @@ pub struct Controls<'a> {
 
 /// Runs one tick of decisions for `m`.
 pub fn think(m: &mut Motion, ch: &Character, facing: &mut Facing, c: &Controls) {
-    if m.lock_frames > 0 {
+    if m.lock_frames > 0 || m.corpse {
+        return;
+    }
+    if m.dying {
+        // The dead ignore their controls: let the death reaction play out,
+        // then settle (lying down) on whatever the body is doing.
+        if !reaction::is_victim(m.kind) {
+            let none = Buttons::default();
+            let still = Controls { buttons: &none, ..*c };
+            settle(m, ch, &still);
+        }
         return;
     }
     m.expire_combo();
@@ -177,8 +188,11 @@ fn stunned(m: &mut Motion, ch: &Character) -> bool {
         held |= m.request(ch, Urge::Appropriate, false, ty::BLOCK).is_some();
     }
     if m.hit_stun > 0 {
-        // Hit reactions are not modelled yet, so nothing holds the character.
+        // Reeling from a hit: no control until the reaction clip ends.
         m.fight_mode();
+        if reaction::is_victim(m.kind) && m.frame + 1 < m.length() {
+            held = true;
+        }
     }
     if m.dizzy_stun > 0 {
         m.fight_mode();
@@ -555,7 +569,7 @@ fn settle(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
     };
 
     if m.air.frames > 0 && is_ground_gait(m.kind) {
-        m.fall_into_flight(ch);
+        m.fall_into_flight(ch, c.quirks);
         return false;
     }
     let jumping = matches!(
@@ -571,7 +585,7 @@ fn settle(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
         {
             return true;
         }
-        m.fall_into_flight(ch);
+        m.fall_into_flight(ch, c.quirks);
         return false;
     }
 
@@ -624,7 +638,7 @@ fn cannot_turn(m: &Motion, player: bool) -> bool {
                 )
         }
         ty::BLOCK | ty::PRONE => true,
-        _ => false,
+        k => reaction::is_victim(k),
     };
     let c = m.current();
     by_kind || c.has_flag(flag::THROW_SOURCE) || c.has_flag(flag::THROW_TARGET)

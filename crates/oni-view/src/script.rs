@@ -20,6 +20,8 @@
 //! - `state()` / `anim_type()` — the body state / current animation type
 //! - `faithful(on)` — reproduce the original's known bugs (`docs/QUIRKS.md`)
 //! - `seed(n)` — reseed the weighted animation pick (repeatable runs)
+//! - `type_of(id)` / `state_of(id)` / `facing_of(id)` / `dead(id)` / `set_hp(id, n)` — any fighter
+//! - `knock(id, anim_type)` / `set_facing(id, deg)` — test hooks on any fighter
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -128,13 +130,7 @@ impl ScriptHost {
         for _ in 0..n {
             let controls = self.held | taps;
             taps = 0;
-            if let Some(p) = self.world.fighters.first_mut() {
-                p.tick(controls);
-            }
-            for f in self.world.fighters.iter_mut().skip(1) {
-                f.tick(0);
-            }
-            self.world.resolve_hits();
+            self.world.step(controls);
         }
     }
 
@@ -288,6 +284,82 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, n: u32| {
             h.borrow().kind.anims.seed(n);
             Ok(())
+        })?,
+    )?;
+
+    // Per-fighter inspection (any id) and a test hook to set health.
+    let h = host.clone();
+    g.set(
+        "set_hp",
+        lua.create_function(move |_, (id, v): (usize, i32)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.hp = v;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Test hook: turn any fighter to an absolute yaw (body and target).
+    let h = host.clone();
+    g.set(
+        "set_facing",
+        lua.create_function(move |_, (id, deg): (usize, f32)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.facing = crate::control::Facing::new(deg.to_radians());
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // Test hook: force a reaction (e.g. a knockdown) on any fighter.
+    let h = host.clone();
+    g.set(
+        "knock",
+        lua.create_function(move |_, (id, kind): (usize, u16)| {
+            let mut host = h.borrow_mut();
+            if let Some(f) = host.world.fighters.get_mut(id) {
+                f.pending_reaction = kind;
+                f.apply_reaction();
+            }
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "type_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).map(|f| f.motion.kind).unwrap_or(0))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "state_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).map(|f| f.motion.state).unwrap_or(0))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "facing_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h
+                .borrow()
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.facing.facing.to_degrees())
+                .unwrap_or(0.0))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "dead",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).is_some_and(|f| f.motion.dying))
         })?,
     )?;
 

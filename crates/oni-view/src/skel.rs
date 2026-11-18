@@ -118,6 +118,9 @@ pub struct Clip {
     /// Frames of unblockable / blockable pause after this clip.
     pub hard_pause: u16,
     pub soft_pause: u16,
+    /// Frames `[invulnerable_start, +invulnerable_length)` are immune to hits.
+    pub invulnerable_start: u8,
+    pub invulnerable_length: u8,
 }
 
 /// A clip's alternate entry state (`TRtShortcut`, from `extras.shortcuts`).
@@ -482,6 +485,8 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         first_level: u16_field("firstLevel"),
         hard_pause: u16_field("hardPause"),
         soft_pause: u16_field("softPause"),
+        invulnerable_start: u16_field("invulnerableStart") as u8,
+        invulnerable_length: u16_field("invulnerableLength") as u8,
     })
 }
 

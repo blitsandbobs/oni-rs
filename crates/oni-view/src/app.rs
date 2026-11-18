@@ -433,16 +433,9 @@ impl State {
         pw.accum += dt;
         while pw.accum >= TICK {
             pw.accum -= TICK;
-            // The player from the controls; dummies stand idle (AI later).
-            // Press edges are derived per tick inside each fighter.
-            if let Some(player) = pw.world.fighters.first_mut() {
-                player.tick(controls);
-            }
-            for f in pw.world.fighters.iter_mut().skip(1) {
-                f.tick(0);
-            }
-            // Melee connects between fighters.
-            pw.world.resolve_hits();
+            // The player from the controls, dummies idle (AI later); then
+            // melee hits resolve and reactions play.
+            pw.world.step(controls);
         }
 
         // Third-person follow camera (behind + above the player, at the torso).

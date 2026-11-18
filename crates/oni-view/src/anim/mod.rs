@@ -7,5 +7,6 @@ pub mod collection;
 pub mod decide;
 pub mod input;
 pub mod motion;
+pub mod reaction;
 pub mod rules;
 pub mod types;

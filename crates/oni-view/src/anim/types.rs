@@ -56,6 +56,7 @@ pub mod ty {
     pub const KKP: u16 = 49;
     pub const PK: u16 = 50;
     pub const KP: u16 = 51;
+    pub const HIT_OVERLAY: u16 = 57;
     pub const CROUCH_RUN: u16 = 58;
     pub const CROUCH_WALK: u16 = 59;
     pub const CROUCH_RUN_BACKWARDS: u16 = 60;
@@ -74,9 +75,28 @@ pub mod ty {
     pub const SIDESTEP_RIGHT_PUNCH: u16 = 73;
     pub const PRONE: u16 = 74;
     pub const FLIP: u16 = 75;
+    pub const HIT_HEAD: u16 = 76;
+    pub const HIT_BODY: u16 = 77;
+    pub const HIT_FOOT: u16 = 78;
+    pub const KNOCKDOWN_HEAD: u16 = 79;
+    pub const KNOCKDOWN_BODY: u16 = 80;
+    pub const KNOCKDOWN_FOOT: u16 = 81;
+    pub const HIT_CROUCH: u16 = 82;
+    pub const KNOCKDOWN_CROUCH: u16 = 83;
+    pub const HIT_FALLEN: u16 = 84;
+    pub const HIT_HEAD_BEHIND: u16 = 85;
+    pub const HIT_BODY_BEHIND: u16 = 86;
+    pub const HIT_FOOT_BEHIND: u16 = 87;
+    pub const KNOCKDOWN_HEAD_BEHIND: u16 = 88;
+    pub const KNOCKDOWN_BODY_BEHIND: u16 = 89;
+    pub const KNOCKDOWN_FOOT_BEHIND: u16 = 90;
+    pub const HIT_CROUCH_BEHIND: u16 = 91;
+    pub const KNOCKDOWN_CROUCH_BEHIND: u16 = 92;
     pub const IDLE: u16 = 93;
     pub const TAUNT: u16 = 94;
     pub const KICK3_FORWARD: u16 = 125;
+    pub const HIT_FOOT_OUCH: u16 = 126;
+    pub const HIT_JEWELS: u16 = 127;
     pub const PPKK: u16 = 133;
     pub const PPKKK: u16 = 134;
     pub const PPKKKK: u16 = 135;
@@ -103,6 +123,8 @@ pub mod ty {
     pub const WALK_BACKWARDS_START: u16 = 211;
     pub const STUN: u16 = 212;
     pub const STAGGER_BEHIND: u16 = 213;
+    pub const BLOWNUP: u16 = 214;
+    pub const BLOWNUP_BEHIND: u16 = 215;
     pub const ONE_STEP_STOP: u16 = 216;
     pub const RUN_SIDESTEP_LEFT_START: u16 = 217;
     pub const RUN_SIDESTEP_RIGHT_START: u16 = 218;
@@ -141,6 +163,11 @@ pub mod var {
 
 /// Per-clip flag bit indices (`ONcAnimFlag_*`; mask = `1 << index`).
 pub mod flag {
+    /// The whole clip is immune to hits.
+    pub const INVULNERABLE: u32 = 1;
+    /// A block clip that stops high / low attacks.
+    pub const BLOCK_HIGH: u32 = 2;
+    pub const BLOCK_LOW: u32 = 3;
     pub const NO_INTERP_VELOCITY: u32 = 14;
     pub const THROW_SOURCE: u32 = 15;
     pub const THROW_TARGET: u32 = 16;
@@ -150,4 +177,16 @@ pub mod flag {
 pub mod shortcut {
     /// May force in over an atomic clip (`ONcShortcutFlag_Nuke`, bit 0).
     pub const NUKE: u32 = 1 << 0;
+}
+
+/// Attack flag masks (`skel::Attack::flags`).
+pub mod strike {
+    /// Cannot be blocked.
+    pub const UNBLOCKABLE: u32 = 1 << 0;
+    /// Only a block that covers high attacks stops it.
+    pub const HIGH: u32 = 1 << 1;
+    /// Only a block that covers low attacks stops it.
+    pub const LOW: u32 = 1 << 2;
+    /// Breaks through a block at half damage.
+    pub const SPECIAL: u32 = 1 << 3;
 }

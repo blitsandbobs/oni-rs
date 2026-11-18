@@ -36,6 +36,9 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `combo.lua` | Melee: punch/kick combos chain (P→PP→PPP) from the KONCOM combat set. |
 | `fight.lua` | Hit detection: spawn a training dummy, punch it — HP drops + knockback in reach, misses out of reach. |
 | `air_moves.lua` | The combat jump: punch / kick / crouch-tap in the air play the jump punch, jump kick and flip. |
+| `block.lua` | Automatic blocking: a dummy facing the player head-on blocks a punch (no damage); turned 60° away it can't. |
+| `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
+| `autoface.lua` | Starting a punch turns the player onto a dummy 35° off-aim. |
 | `ground_moves.lua` | Crouch, crouch-run, the roll (crouch tap mid-run), and a sideways jump out of a sidestep. |
 
 ## Lua API
@@ -51,6 +54,8 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `aim_deg()` | The aim direction (desired facing without the diagonal / sidestep body lean). |
 | `faithful(on)` | Reproduce the original's known bugs (`docs/QUIRKS.md`). |
 | `seed(n)` | Reseed the weighted animation pick for repeatable runs. |
+| `type_of(id)` / `state_of(id)` / `facing_of(id)` / `dead(id)` | Inspect any fighter. |
+| `set_hp(id, n)` / `set_facing(id, deg)` / `knock(id, anim_type)` | Test hooks: set health, turn, force a reaction. |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |
