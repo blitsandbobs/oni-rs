@@ -47,6 +47,8 @@ struct ScriptHost {
     format: wgpu::TextureFormat,
     scene: crate::gltf::Scene,
     charview: CharView,
+    /// Uploaded render model index for `charview`.
+    model: usize,
     physics: Physics,
     loco: Option<Locomotion>,
     foot_offset: f32,
@@ -73,7 +75,8 @@ impl ScriptHost {
         let gpu = pollster::block_on(Gpu::new(None));
         eprintln!("  GPU: {}", gpu.adapter.get_info().name);
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-        let renderer = Renderer::new(&gpu, &scene, Some(&charview.character), particles, format);
+        let mut renderer = Renderer::new(&gpu, &scene, particles, format);
+        let model = renderer.add_character(&gpu, &charview.character);
 
         // Capsule + physics from the level mesh and the character's bounds
         // (same setup as play mode).
@@ -92,6 +95,7 @@ impl ScriptHost {
             format,
             scene,
             charview,
+            model,
             physics,
             loco,
             foot_offset,
@@ -213,6 +217,10 @@ impl ScriptHost {
                 .bones_with(l.clip(), l.frame_time(), l.blend()),
             None => self.charview.bones(t),
         };
+        let draws = [crate::render::CharDraw {
+            model: self.model,
+            bones: &bones,
+        }];
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
             &self.gpu,
@@ -220,7 +228,7 @@ impl ScriptHost {
             self.format,
             (w, h),
             cam.view_proj(),
-            &bones,
+            &draws,
             basis,
         );
         crate::write_png(path, w, h, &rgba);

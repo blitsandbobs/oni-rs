@@ -71,6 +71,8 @@ struct State {
     last: Instant,
     start: Instant,
     charview: Option<crate::CharView>,
+    /// Uploaded render model index for `charview` (if any).
+    char_model: Option<usize>,
     play: Option<PlayState>,
 }
 
@@ -151,13 +153,10 @@ impl ApplicationHandler for App {
         surface.configure(&gpu.device, &config);
 
         let charview = self.charview.take();
-        let renderer = Renderer::new(
-            &gpu,
-            &scene,
-            charview.as_ref().map(|c| &c.character),
-            &self.particles,
-            format,
-        );
+        let mut renderer = Renderer::new(&gpu, &scene, &self.particles, format);
+        let char_model = charview
+            .as_ref()
+            .map(|c| renderer.add_character(&gpu, &c.character));
 
         // Build the play-mode controller (level trimesh + character capsule +
         // the locomotion state machine).
@@ -223,6 +222,7 @@ impl ApplicationHandler for App {
             last: now,
             start: now,
             charview,
+            char_model,
             play,
         });
     }
@@ -535,6 +535,13 @@ impl State {
             }
             _ => Vec::new(),
         };
+        let draws: Vec<crate::render::CharDraw> = match self.char_model {
+            Some(m) if !bones.is_empty() => vec![crate::render::CharDraw {
+                model: m,
+                bones: &bones,
+            }],
+            _ => Vec::new(),
+        };
         let (cam_right, cam_up) = self.cam.billboard_basis();
         self.renderer.render(
             &self.gpu,
@@ -542,7 +549,7 @@ impl State {
             self.config.width,
             self.config.height,
             self.cam.view_proj(),
-            &bones,
+            &draws,
             cam_right,
             cam_up,
         );

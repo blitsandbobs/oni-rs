@@ -109,6 +109,20 @@ struct GpuPrim {
     bone: Option<usize>,
 }
 
+/// One uploaded character model (its bone-local parts). Several world instances
+/// (fighters) can draw the same model with different per-instance poses, so the
+/// mesh is uploaded once here and referenced by index.
+struct CharModel {
+    prims: Vec<GpuPrim>,
+}
+
+/// One character instance to draw this frame: which uploaded [`CharModel`] and
+/// the posed bone world-matrices for it (from the instance's own pose).
+pub struct CharDraw<'a> {
+    pub model: usize,
+    pub bones: &'a [Mat4],
+}
+
 pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
@@ -116,9 +130,12 @@ pub struct Renderer {
     particle_pipeline: wgpu::RenderPipeline,
     uniform_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
+    tex_bgl: wgpu::BindGroupLayout,
+    sampler: wgpu::Sampler,
     tex_bgs: Vec<wgpu::BindGroup>,
     default_tex: wgpu::BindGroup,
     prims: Vec<GpuPrim>,
+    char_models: Vec<CharModel>,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -127,7 +144,6 @@ impl Renderer {
     pub fn new(
         gpu: &Gpu,
         scene: &Scene,
-        character: Option<&crate::skel::Character>,
         particles: &[crate::particles::Particle],
         format: wgpu::TextureFormat,
     ) -> Renderer {
@@ -328,48 +344,7 @@ impl Renderer {
         }
         let default_tex = make_texture_bg(gpu, &tex_bgl, &sampler, 1, 1, &[200, 200, 200, 255]);
 
-        let mut prims: Vec<GpuPrim> = scene.prims.iter().map(|p| upload_prim(device, p)).collect();
-
-        // Character parts (bone-local meshes, drawn via the pose).
-        if let Some(ch) = character {
-            let mut char_tex: std::collections::BTreeMap<std::path::PathBuf, usize> =
-                std::collections::BTreeMap::new();
-            for part in &ch.parts {
-                let texture = part.texture.as_ref().map(|path| {
-                    *char_tex.entry(path.clone()).or_insert_with(|| {
-                        let (w, h, rgba) =
-                            load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
-                        tex_bgs.push(make_texture_bg(gpu, &tex_bgl, &sampler, w, h, &rgba));
-                        tex_bgs.len() - 1
-                    })
-                });
-                let bucket = if part.additive {
-                    Bucket::Additive
-                } else if part.blend {
-                    Bucket::Alpha
-                } else {
-                    Bucket::Opaque
-                };
-                let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("char_vbuf"),
-                    contents: bytemuck::cast_slice(&part.vertices),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("char_ibuf"),
-                    contents: bytemuck::cast_slice(&part.indices),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
-                prims.push(GpuPrim {
-                    vbuf,
-                    ibuf,
-                    count: part.indices.len() as u32,
-                    texture: texture.unwrap_or(usize::MAX),
-                    bucket,
-                    bone: Some(part.bone),
-                });
-            }
-        }
+        let prims: Vec<GpuPrim> = scene.prims.iter().map(|p| upload_prim(device, p)).collect();
 
         // Billboard particles, batched by texture. Each particle contributes a
         // quad (4 verts / 6 indices); the quad is oriented in the vertex shader.
@@ -432,12 +407,64 @@ impl Renderer {
             particle_pipeline,
             uniform_buf,
             uniform_bg,
+            tex_bgl,
+            sampler,
             tex_bgs,
             default_tex,
             prims,
+            char_models: Vec::new(),
             particles: particle_groups,
             depth: None,
         }
+    }
+
+    /// Uploads a character model's bone-local parts and returns its model index
+    /// (for [`CharDraw::model`]). Several world instances can share one uploaded
+    /// model, each drawn with its own pose. Character textures are appended to
+    /// the shared texture table and de-duplicated within this model.
+    pub fn add_character(&mut self, gpu: &Gpu, ch: &crate::skel::Character) -> usize {
+        let device = &gpu.device;
+        let mut char_tex: std::collections::BTreeMap<std::path::PathBuf, usize> =
+            std::collections::BTreeMap::new();
+        let mut prims = Vec::with_capacity(ch.parts.len());
+        for part in &ch.parts {
+            let texture = part.texture.as_ref().map(|path| {
+                *char_tex.entry(path.clone()).or_insert_with(|| {
+                    let (w, h, rgba) =
+                        load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
+                    self.tex_bgs
+                        .push(make_texture_bg(gpu, &self.tex_bgl, &self.sampler, w, h, &rgba));
+                    self.tex_bgs.len() - 1
+                })
+            });
+            let bucket = if part.additive {
+                Bucket::Additive
+            } else if part.blend {
+                Bucket::Alpha
+            } else {
+                Bucket::Opaque
+            };
+            let vbuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("char_vbuf"),
+                contents: bytemuck::cast_slice(&part.vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+            let ibuf = device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("char_ibuf"),
+                contents: bytemuck::cast_slice(&part.indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+            prims.push(GpuPrim {
+                vbuf,
+                ibuf,
+                count: part.indices.len() as u32,
+                texture: texture.unwrap_or(usize::MAX),
+                bucket,
+                bone: Some(part.bone),
+            });
+        }
+        self.char_models.push(CharModel { prims });
+        self.char_models.len() - 1
     }
 
     fn ensure_depth(&mut self, device: &wgpu::Device, w: u32, h: u32) {
@@ -462,8 +489,10 @@ impl Renderer {
         self.depth = Some((view, w, h));
     }
 
-    /// Renders the scene into `target` (`w`×`h`) from `view_proj`. `bones` holds
-    /// the character's posed world matrices (empty for an environment-only view).
+    /// Renders the scene into `target` (`w`×`h`) from `view_proj`. `characters`
+    /// lists the character instances to draw this frame, each naming an uploaded
+    /// model and its posed bone world-matrices (empty for an environment-only
+    /// view).
     #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
@@ -472,7 +501,7 @@ impl Renderer {
         w: u32,
         h: u32,
         view_proj: Mat4,
-        bones: &[Mat4],
+        characters: &[CharDraw],
         cam_right: glam::Vec3,
         cam_up: glam::Vec3,
     ) {
@@ -521,7 +550,21 @@ impl Renderer {
             });
             pass.set_bind_group(0, &self.uniform_bg, &[]);
 
-            // Opaque (depth write), then alpha, then additive glow on top.
+            // Opaque (depth write), then alpha, then additive glow on top. Within
+            // each bucket: the baked world-space scene prims, then every character
+            // instance's parts posed by that instance's bones.
+            let draw_prim = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4| {
+                pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&model.to_cols_array()),
+                );
+                let bg = self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex);
+                pass.set_bind_group(1, bg, &[]);
+                pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..p.count, 0, 0..1);
+            };
             for (bucket, pipeline) in [
                 (Bucket::Opaque, &self.opaque_pipeline),
                 (Bucket::Alpha, &self.blend_pipeline),
@@ -529,20 +572,19 @@ impl Renderer {
             ] {
                 pass.set_pipeline(pipeline);
                 for p in self.prims.iter().filter(|p| p.bucket == bucket) {
-                    let model = match p.bone {
-                        Some(i) => bones.get(i).copied().unwrap_or(Mat4::IDENTITY),
-                        None => Mat4::IDENTITY,
+                    draw_prim(&mut pass, p, Mat4::IDENTITY);
+                }
+                for d in characters {
+                    let Some(cm) = self.char_models.get(d.model) else {
+                        continue;
                     };
-                    pass.set_push_constants(
-                        wgpu::ShaderStages::VERTEX,
-                        0,
-                        bytemuck::cast_slice(&model.to_cols_array()),
-                    );
-                    let bg = self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex);
-                    pass.set_bind_group(1, bg, &[]);
-                    pass.set_vertex_buffer(0, p.vbuf.slice(..));
-                    pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                    pass.draw_indexed(0..p.count, 0, 0..1);
+                    for p in cm.prims.iter().filter(|p| p.bucket == bucket) {
+                        let model = match p.bone {
+                            Some(i) => d.bones.get(i).copied().unwrap_or(Mat4::IDENTITY),
+                            None => Mat4::IDENTITY,
+                        };
+                        draw_prim(&mut pass, p, model);
+                    }
                 }
             }
 

@@ -29,7 +29,7 @@ use std::path::PathBuf;
 use glam::{Mat4, Vec3};
 
 use crate::camera::Camera;
-use crate::render::{Gpu, Renderer};
+use crate::render::{CharDraw, Gpu, Renderer};
 use crate::skel::{Character, Clip};
 
 /// A character placed in the world.
@@ -280,13 +280,8 @@ fn run_screenshot(
     let gpu = pollster::block_on(Gpu::new(None));
     eprintln!("  GPU: {}", gpu.adapter.get_info().name);
     let format = wgpu::TextureFormat::Rgba8UnormSrgb;
-    let mut renderer = Renderer::new(
-        &gpu,
-        scene,
-        charview.map(|c| &c.character),
-        particles,
-        format,
-    );
+    let mut renderer = Renderer::new(&gpu, scene, particles, format);
+    let model = charview.map(|c| renderer.add_character(&gpu, &c.character));
 
     let aspect = w as f32 / h as f32;
     let t = time.unwrap_or(0.0);
@@ -300,6 +295,13 @@ fn run_screenshot(
         _ => {}
     }
     let bones = charview.map(|c| c.bones(t)).unwrap_or_default();
+    let draws: Vec<CharDraw> = match model {
+        Some(m) => vec![CharDraw {
+            model: m,
+            bones: &bones,
+        }],
+        None => Vec::new(),
+    };
     let (cam_right, cam_up) = cam.billboard_basis();
 
     let rgba = render_to_rgba(
@@ -308,7 +310,7 @@ fn run_screenshot(
         format,
         (w, h),
         cam.view_proj(),
-        &bones,
+        &draws,
         (cam_right, cam_up),
     );
     write_png(out, w, h, &rgba);
@@ -324,7 +326,7 @@ pub fn render_to_rgba(
     format: wgpu::TextureFormat,
     (w, h): (u32, u32),
     view_proj: Mat4,
-    bones: &[Mat4],
+    characters: &[CharDraw],
     (cam_right, cam_up): (Vec3, Vec3),
 ) -> Vec<u8> {
     let color = gpu.device.create_texture(&wgpu::TextureDescriptor {
@@ -342,7 +344,7 @@ pub fn render_to_rgba(
         view_formats: &[],
     });
     let view = color.create_view(&wgpu::TextureViewDescriptor::default());
-    renderer.render(gpu, &view, w, h, view_proj, bones, cam_right, cam_up);
+    renderer.render(gpu, &view, w, h, view_proj, characters, cam_right, cam_up);
 
     // Copy to a readback buffer (bytes_per_row aligned to 256).
     let bpr = (4 * w).div_ceil(256) * 256;
