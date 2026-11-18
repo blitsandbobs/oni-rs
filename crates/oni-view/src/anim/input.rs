@@ -16,6 +16,12 @@ pub mod key {
     pub const FIRE1: u32 = 1 << 9;
     pub const FIRE2: u32 = 1 << 10;
     pub const FIRE3: u32 = 1 << 11;
+    /// The action key (doors, consoles; in a fight, a taunt).
+    pub const ACTION: u32 = 1 << 12;
+    /// Turning by key (unbound for the player, who turns with the mouse; the
+    /// AI uses them, e.g. to roll up from the ground).
+    pub const TURN_LEFT: u32 = 1 << 13;
+    pub const TURN_RIGHT: u32 = 1 << 14;
 }
 
 /// What the fire buttons do without a usable weapon, as in the original:

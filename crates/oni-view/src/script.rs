@@ -14,6 +14,8 @@
 //! Movement/combat below act on the **player** (fighter 0):
 //! - `input(forward, backward)` — set the move keys (W/S)
 //! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
+//! - `turn_keys(left, right)` — hold the turn keys (lying down: roll up)
+//! - `action()` — tap the action key (in a fight: taunt)
 //! - `walk(on)` / `crouch(on)` — hold the walk / crouch modifier
 //! - `jump()` / `airborne()` — tap jump (one tick) / read airborne state
 //! - `punch()` / `kick()` / `crouch_tap()` — tap a button for one tick
@@ -239,6 +241,26 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let mut host = h.borrow_mut();
             host.hold(key::FORWARD, f);
             host.hold(key::BACKWARD, b);
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "turn_keys",
+        lua.create_function(move |_, (l, r): (bool, bool)| {
+            let mut host = h.borrow_mut();
+            host.hold(key::TURN_LEFT, l);
+            host.hold(key::TURN_RIGHT, r);
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "action",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().taps |= key::ACTION;
             Ok(())
         })?,
     )?;

@@ -437,11 +437,9 @@ pub const MANEUVERS: [Maneuver; 14] = {
     ]
 };
 
-/// Controls our input model doesn't have yet (action, turning keys): a
-/// maneuver asking for them holds nothing.
-const ACTION: u32 = 0;
-const TURN_LEFT: u32 = 0;
-const TURN_RIGHT: u32 = 0;
+const ACTION: u32 = k::ACTION;
+const TURN_LEFT: u32 = k::TURN_LEFT;
+const TURN_RIGHT: u32 = k::TURN_RIGHT;
 
 /// An evasion: a jump, roll or slide out of the way.
 // Kept whole for fidelity to the original's table; not every field drives

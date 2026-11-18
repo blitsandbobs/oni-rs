@@ -250,7 +250,7 @@ fn act(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
         {
             return true;
         }
-        return jump(m, ch, c);
+        return jump(m, ch, c) || play(m, ch, c, &rules::taunt(), Urge::Appropriate, false).is_some();
     }
     false
 }
@@ -503,7 +503,18 @@ fn stance(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
 /// A big enough gap between where the body faces and where the player wants
 /// it plays a step-turn; once started, the turn is followed through.
 fn turn_in_place(m: &mut Motion, ch: &Character, facing: &Facing, c: &Controls) -> bool {
+    // A turn key turns the same way (lying down: rolling up).
     let want = facing.desired_offset();
+    let (key_left, key_right) = (c.buttons.holding(key::TURN_LEFT), c.buttons.holding(key::TURN_RIGHT));
+    if key_left || key_right {
+        let found = play(m, ch, c, &rules::turn_in_place(key_left), Urge::Appropriate, false).is_some();
+        if key_left {
+            m.turn_left = true;
+        } else {
+            m.turn_right = true;
+        }
+        return found;
+    }
     if want > TURN_DEADZONE || m.turn_left {
         let found = play(m, ch, c, &rules::turn_in_place(true), Urge::Appropriate, false).is_some();
         m.turn_left = true;

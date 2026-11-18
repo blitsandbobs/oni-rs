@@ -313,6 +313,11 @@ pub fn turn_in_place(left: bool) -> Vec<Rule> {
     vec![rule(crouch).hold(k::CROUCH), rule(stand), rule(crouch)]
 }
 
+/// The action key in a fight: a taunt.
+pub fn taunt() -> Vec<Rule> {
+    vec![rule(TAUNT).press(k::ACTION)]
+}
+
 /// Crouch pressed mid-run.
 pub fn slide() -> Vec<Rule> {
     vec![rule(SLIDE).press(k::CROUCH)]
