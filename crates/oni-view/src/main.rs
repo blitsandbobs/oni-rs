@@ -18,6 +18,7 @@ mod anim;
 mod app;
 mod camera;
 mod classes;
+mod consoles;
 mod control;
 mod fighter;
 mod gltf;

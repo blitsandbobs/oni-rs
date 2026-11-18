@@ -223,7 +223,7 @@ pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
 
 /// The rotation matrix (columns) of an object's Euler angles (degrees,
 /// static X, Y, Z order): `R = Rz · Ry · Rx`.
-fn euler_axes(rotation: [f32; 3]) -> [[f32; 3]; 3] {
+pub fn euler_axes(rotation: [f32; 3]) -> [[f32; 3]; 3] {
     let [a, b, c] = rotation.map(f32::to_radians);
     let (sa, ca, sb, cb, sc, cc) = (a.sin(), a.cos(), b.sin(), b.cos(), c.sin(), c.cos());
     [

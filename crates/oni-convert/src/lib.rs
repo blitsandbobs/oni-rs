@@ -26,6 +26,7 @@ mod level_json;
 mod characters;
 mod melee;
 mod bsl;
+mod consoles;
 mod objects;
 mod patrols;
 mod particles;
@@ -225,6 +226,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
     let mut game_settings: Option<serde_json::Value> = None;
+    let mut console_classes = std::collections::HashMap::new();
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -277,6 +279,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             if f.level != 0 {
                 characters::write(&dat, raw, &root)?;
                 patrols::write(&dat, raw, &root)?;
+                consoles::write(&dat, raw, &root, &console_classes)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
@@ -284,6 +287,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                     }
                 }
             } else {
+                console_classes = consoles::classes(&dat, &registry);
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");

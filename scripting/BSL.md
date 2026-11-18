@@ -197,8 +197,8 @@ in-engine dump is the `dump_docs` command → `script_commands.txt`
 - **`weapon_*` / `wp_*` / powerups** (`Oni_Weapon.c`): `weapon_spawn`/`weapon_reset`/
   `powerup_spawn`/`powerup_reset`; tuning `wp_*`.
 - **`turret_*`** (`OT_Turret.c`): `turret_activate`/`_deactivate`/`_reset`.
-- **`console_*`** (consoles/terminals): `console_activate`/`_deactivate`/`_locked`/
-  `_already_used`/`killed_griffen`.
+- **`console_*`** (consoles/terminals): `console_activate`/`_deactivate`/`_reset`
+  (`console_locked` / `console_already_used` are sound names, not commands).
 - **Mission flow / game-state** (`Oni_GameState.c`): `win`/`lose`, `save_game`/
   `restore_game`/`save_point`, `timer_start`/`_stop`, `slowmo`/`fast_mode`, `input`/
   `lock_keys`, player cheats (`invincible`/`omnipotent`), `gs_*` / `gs_show_*`.
@@ -267,6 +267,20 @@ being inside (each character tracks at most 4 volumes), inside every tick,
 exit on leaving; each type can be disabled, or fire once and then disable
 itself; a child also fires its parent's scripts. Disabling a volume forgets
 who was inside (no exit), so enabling it again fires entry anew.
+
+**Consoles.** A console (class template in level 0: where its action marker is)
+has an id, flags (initially active, punch animation, alarm console) and an event
+list. Action, by the player, picks the marker nearest the pelvis; a user must be
+within 8 of its height, from 2 ahead to 10 behind along its axis and 8 aside
+(twice that for an AI), facing it within 70° (×1.5 for an AI). It then stops,
+walks onto the marker (0.25 a tick, up to 3 s), plays the console (or console
+punch) animation and on its action frame uses the console: inactive → locked,
+used → already used, else it is marked used and runs its events — script (the
+user's name), console / turret / trigger on or off, alarm (every AI answering
+that alarm group, not ignoring the user, learns where the user is and runs its
+alarm script), door lock / unlock. `console_activate` / `_deactivate` /
+`_reset`; `lock_keys` with no argument locks every key, `lock_keys keys_X`
+*enables* a group again; `input 0` drops all the player's input.
 
 **Not reproduced** (no shipped script relies on them): operator precedence
 slips (each operator reduces at most one pending one), no short-circuit,

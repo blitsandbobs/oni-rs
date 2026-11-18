@@ -40,8 +40,9 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
+| `alarm.lua` | Consoles and alarms: an AI sent to raise the alarm runs to the alarm console, uses it and goes back to its job; Konoko tripping it sends the AIs answering it after her. |
 | `film.lua` | Films (`playback`): a recording puts Konoko at its start, walks her by its controls, and ends. |
-| `mission.lua` | The level's own scripts (#20): level 1 begins as in the game (player at its placement, `main` runs the training intro), the training waits for the player to turn and to run, and a trigger volume runs its entry script when the player stands in it. |
+| `mission.lua` | The level's own scripts (#20): level 1 begins as in the game (player at its placement, `main` runs the training intro), the training waits for the player to turn and to run, a trigger volume runs its entry script when the player stands in it, and Action at the lesson's console uses it. |
 | `goals.lua` | Goals (#4): a level's thug patrols its path (guarding two flags in turn), sees an enemy (glance → startle → combat), beats it, checks the body and resumes its patrol; a noise sends it to investigate and look around; a patroller too calm for its job stands idle; a non-combatant panics at an enemy (cowering) and calms down once it is dead. |
 | `perception.lua` | An AI doesn't see behind it, hears a noise, glances round, sees Konoko (definite → combat, startled) and fights; out of its cones it sees nothing. |
 | `pathfinding.lua` | Walking through the level: round a pillar, across the warehouse, and failing cleanly for a point no room contains. |
@@ -79,6 +80,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `difficulty(level)` → `notice, dodge, block` | Set the AI's difficulty ("easy" / "normal" / "hard"); returns its multipliers. |
 | `go_to(id, x, y, z [, pace])` / `nav_state(id)` / `nav_path(id)` | Walk a fighter to a point through the level (planned path); its state ("following", "arrived", "failed: …"); its waypoints `{x, z, radius, next}`. |
 | `mission_begin()` / `mission_info()` / `mission_call(name [, arg])` / `named(name)` / `teleport(id, x, y, z)` | The level's scripts: begin the level (player placed, characters present from the start spawned, `main` run); what they're doing (`tasks`, `errors`, `messages`, `objective`, `outcome`, `spawned`, `stubbed` commands); start a script function; a character's id by name; move a fighter. |
+| `alarm(id [, console])` / `console_state(id)` / `console_reset(id)` | Send an AI to raise the alarm (a console id, or the nearest alarm console); a console's state (`inactive` / `active` / `triggered`); reset one. |
 | `play_film(id, name [, mode])` | Plays one of the level's films on a fighter (`""` from its start, `"fromhere"`, `"interp"`); its length. |
 | `damage(id, n)` | Deals `n` damage to a fighter (it dies at 0 health). |
 | `place(name)` / `goals(id)` / `goal_of(id)` | Goals: place one of the level's characters by name (class, position, job, alerts, profiles; returns its id); give a spawned character default goals (idle); what an agent is doing (`job patrol <path> @<waypoint>`, `pursuit goTo`, `combat Melee → 2`, `idle`, …). `nav_state(id)` also reads an agent's current walk. |

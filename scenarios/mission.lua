@@ -60,6 +60,20 @@ took = wait_for(function() return not showing("xconsole1") end, 90)
 print("walked into the trigger volume:", took)
 assert(took, "the trigger volume's entry script ran")
 
+-- The lesson's console: Action in front of it walks Konoko onto it, plays
+-- the console animation, and the console runs its script — the training
+-- goes on.
+assert(console_state(10) == "active", "the lesson turned the console on")
+teleport(0, -1063.5, -338, -291)
+facing(180)
+step(10)
+action()
+took = wait_for(function() return console_state(10) == "triggered" end, 400)
+print("used the console after", took, anim())
+assert(took, "Action at the console uses it")
+took = wait_for(function() return showing("xactivate2") end, 200)
+assert(took, "its script moves the training on")
+
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
 for _, e in ipairs(info.errors) do print("  " .. e) end

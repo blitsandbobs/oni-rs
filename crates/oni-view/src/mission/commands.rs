@@ -220,8 +220,9 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         let (dying, hurt) = (f.motion.dying || f.hp <= 0, f.hp < f.max_hp && !f.invincible);
         let combat = matches!(a.goal, crate::ai::goals::Goal::Combat(_));
         let name = a.name.clone();
+        let alarmed = std::mem::take(&mut host.world().fighters[id].alarmed);
         let fired = state.fired.entry(id).or_default();
-        for (event, now) in [("hurt", hurt), ("combat", combat), ("defeated", dying), ("die", dying)] {
+        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("defeated", dying), ("die", dying)] {
             if now && fired.insert(event) {
                 if let Some(s) = scripts.get(event) {
                     out.push((s.clone(), vec![name.clone()]));
@@ -442,6 +443,66 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let f = &mut host.world().fighters[id];
             if !f.motion.animate(&ch, &clip, frames, interp, elsewhere) {
                 state.warn(format!("chr_animate: no animation {clip}"));
+            }
+            nil()
+        }
+
+        // --- consoles, input, alarms ----------------------------------------
+        "console_activate" | "console_deactivate" | "console_reset" => {
+            let id = int(a(0));
+            let world = host.world();
+            for k in world.consoles.iter_mut().filter(|k| id.is_none_or(|i| i64::from(k.id) == i)) {
+                match name {
+                    "console_activate" => k.active = true,
+                    "console_deactivate" => k.active = false,
+                    _ => {
+                        k.triggered = false;
+                        k.active = k.initial_active;
+                    }
+                }
+            }
+            nil()
+        }
+        "lock_keys" => {
+            use crate::anim::input::key as k;
+            let world = host.world();
+            match a(0).and_then(text) {
+                // Alone: every gameplay key locked.
+                None => world.key_mask = 0,
+                Some(group) => {
+                    world.key_mask |= match group.as_str() {
+                        "keys_movement" => k::FORWARD | k::BACKWARD | k::STEP_LEFT | k::STEP_RIGHT | k::TURN_LEFT | k::TURN_RIGHT,
+                        "keys_jump" => k::JUMP,
+                        "keys_crouch" => k::CROUCH | k::FIRE3,
+                        "keys_attack" => k::PUNCH | k::KICK | k::FIRE1 | k::FIRE2,
+                        "keys_action" => k::ACTION,
+                        "keys_walk" => k::WALK,
+                        "keys_all" => u32::MAX,
+                        _ => 0, // pause, inventory, hypo, reload: not modelled
+                    }
+                }
+            }
+            nil()
+        }
+        "input" => {
+            host.world().input_enabled = truthy(a(0));
+            nil()
+        }
+        "ai2_doalarm" => {
+            if let Some(id) = ai(host, a(0)) {
+                let console = int(a(1)).map(|c| c as u16);
+                host.world().order_alarm(id, console);
+            }
+            nil()
+        }
+        "ai2_tripalarm" => {
+            let Some(group) = int(a(0)) else { return nil() };
+            let cause = match a(1) {
+                Some(v) => fighter(host, Some(v)).unwrap_or(0),
+                None => 0,
+            };
+            if !state.all_passive {
+                host.world().trip_alarm(group as u32, cause);
             }
             nil()
         }

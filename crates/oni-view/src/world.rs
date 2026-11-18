@@ -98,6 +98,16 @@ pub struct World {
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
     pub level_dir: std::path::PathBuf,
+    /// The level's consoles.
+    pub consoles: Vec<crate::consoles::Console>,
+    /// Script functions the world asks to run (consoles' events), with
+    /// their argument.
+    pub script_events: Vec<(String, Vec<String>)>,
+    /// Which of the player's buttons work (`lock_keys`).
+    pub key_mask: u32,
+    /// Whether the player's input works at all (`input`).
+    pub input_enabled: bool,
+    last_controls: u32,
     /// The player's name (its level placement's).
     pub player_name: String,
     /// The level's AI data: placed characters, patrol paths, flags, combat
@@ -123,6 +133,11 @@ impl World {
             level_ai: Default::default(),
             player_name: "player".into(),
             level_dir: Default::default(),
+            consoles: Vec::new(),
+            script_events: Vec::new(),
+            key_mask: u32::MAX,
+            input_enabled: true,
+            last_controls: 0,
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -392,6 +407,8 @@ impl World {
         let (feet, eye, facing) = (f.feet(), f.sight_points()[1], f.facing.facing);
         let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
         let crouching = f.motion.crouching();
+        let f_state_standing = f.motion.state == st::STANDING;
+        let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
         if let Some(perception) = f.perception.as_mut() {
             let mut cx = Ctx {
@@ -401,8 +418,11 @@ impl World {
                 eye,
                 facing,
                 fallen,
-                standing: !fallen,
+                standing: !fallen && f_state_standing,
                 crouching,
+                pelvis,
+                consoles: &self.consoles,
+                using_console,
                 perception,
                 level: &level,
                 sight: &sight_fn,
@@ -426,10 +446,16 @@ impl World {
             if !matches!(f.brain, Some(crate::ai::Brain::Agent(_))) || !f.alive() || f.motion.dying || f.passive {
                 continue;
             }
-            if f.startling.is_some() || f.film.is_some() {
+            if f.startling.is_some() || f.film.is_some() || f.console.is_some() {
                 continue;
             }
             self.with_agent(i, |a, cx| a.update(cx));
+            // A console it wants to use.
+            if let Some(crate::ai::Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
+                if let Some(c) = a.use_console.take() {
+                    self.fighters[i].console = Some(crate::consoles::Use::Stopping(c));
+                }
+            }
             // A panicking character cowers.
             let f = &mut self.fighters[i];
             if let Some(crate::ai::Brain::Agent(a)) = &f.brain {
@@ -485,10 +511,167 @@ impl World {
         if let Some(pl) = placed {
             f.max_hp += pl.hp_offset;
             f.hp = f.max_hp;
+            f.alarm_groups = pl.alarm_groups;
         }
         f.passive = false;
         agent.goal = crate::ai::goals::Goal::None;
         f.brain = Some(crate::ai::Brain::Agent(Box::new(agent)));
+    }
+
+    /// Loads a level's data for its AI and scripts: placed characters,
+    /// paths, flags, films, combat profiles, consoles.
+    pub fn load_level(&mut self, level_dir: &std::path::Path) {
+        self.level_dir = level_dir.to_path_buf();
+        self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
+        self.consoles = crate::consoles::load(level_dir);
+    }
+
+    /// The name scripts know fighter `i` by.
+    pub fn name_of(&self, i: usize) -> String {
+        match self.fighters.get(i).and_then(|f| f.brain.as_ref()) {
+            Some(crate::ai::Brain::Agent(a)) => a.name.clone(),
+            _ if i == 0 => self.player_name.clone(),
+            _ => format!("fighter{i}"),
+        }
+    }
+
+    /// Fighter `user` uses console `c` (its action frame came): if it is
+    /// active and not yet used, it fires its events.
+    pub fn activate_console(&mut self, c: usize, user: Option<usize>) {
+        let Some(k) = self.consoles.get_mut(c) else { return };
+        if !k.active || k.triggered {
+            eprintln!("console {}: {}", k.id, if k.active { "already used" } else { "locked" });
+            return;
+        }
+        k.triggered = true;
+        eprintln!("console {} ({}): used", k.id, k.class);
+        let events = k.events.clone();
+        self.run_events(&events, user);
+    }
+
+    /// Carries out an event list (`Oni_Event`), with `user` as its
+    /// character.
+    pub fn run_events(&mut self, events: &[crate::consoles::Event], user: Option<usize>) {
+        use crate::consoles::{Event, ALL};
+        let who = user.map_or_else(|| "none".to_string(), |u| self.name_of(u));
+        for e in events {
+            match e {
+                Event::Script(s) => self.script_events.push((s.clone(), vec![who.clone()])),
+                Event::ActivateConsole(id) | Event::DeactivateConsole(id) => {
+                    let on = matches!(e, Event::ActivateConsole(_));
+                    for k in self.consoles.iter_mut().filter(|k| *id == ALL || k.id == *id) {
+                        k.active = on;
+                    }
+                }
+                Event::ActivateAlarm(id) => self.trip_alarm(u32::from(*id), user.unwrap_or(0)),
+                Event::Other(kind, id) => eprintln!("event {kind} {id} (not carried out yet)"),
+            }
+        }
+    }
+
+    /// An alarm of group `group` goes off, caused by fighter `cause`: every
+    /// AI answering that group (not passive, not ignoring the cause) learns
+    /// where the cause is, and its alarm script is due.
+    pub fn trip_alarm(&mut self, group: u32, cause: usize) {
+        if group >= 32 {
+            return;
+        }
+        let Some(c) = self.fighters.get(cause) else { return };
+        let (team, at, player, now) = (c.team(), c.feet(), c.player, self.now as u64);
+        for (i, f) in self.fighters.iter_mut().enumerate() {
+            if i == cause || f.player || f.passive || !f.alive() || f.alarm_groups & (1 << group) == 0 {
+                continue;
+            }
+            let Some(p) = f.perception.as_mut() else { continue };
+            if p.ignores(i, cause, team, player, false) {
+                continue;
+            }
+            p.perceive(Some(cause), Some(team), crate::ai::perception::Stimulus::Alarm, crate::ai::perception::Strength::Strong, at, 0, now);
+            f.alarmed = true;
+        }
+        eprintln!("alarm {group} tripped");
+    }
+
+    /// The console fighter `i` could use now (Action pressed): the one whose
+    /// marker is nearest its pelvis, if it is in reach.
+    fn console_in_reach(&self, i: usize, generous: bool) -> Option<usize> {
+        let f = self.fighters.get(i)?;
+        let pelvis = f.sight_points()[0];
+        let (c, k) = self
+            .consoles
+            .iter()
+            .enumerate()
+            .min_by(|a, b| a.1.marker.distance_squared(pelvis).total_cmp(&b.1.marker.distance_squared(pelvis)))?;
+        k.in_reach(pelvis, f.facing.facing, generous).then_some(c)
+    }
+
+    /// One tick of fighter `i` using a console (behaviour per
+    /// `scripting/BSL.md`, *Consoles*): come to a stop, walk onto the
+    /// marker, play the console animation, and use it on its action frame.
+    fn console_tick(&mut self, i: usize) {
+        use crate::anim::motion::Urge;
+        use crate::anim::types::st;
+        use crate::consoles::Use;
+        let Some(u) = self.fighters[i].console else { return };
+        let now = self.now as u64;
+        let ty = |n: &str| oni_schema::value(&oni_schema::ANIM_TYPES, n).unwrap_or(0);
+        let Some(k) = self.consoles.get(u.console()).cloned() else {
+            self.fighters[i].console = None;
+            return;
+        };
+        let f = &mut self.fighters[i];
+        let ch = f.character.clone();
+        let kind = oni_schema::name(&oni_schema::ANIM_TYPES, f.motion.kind).unwrap_or("");
+        if crate::anim::reaction::is_victim(f.motion.kind) || kind.starts_with("block") {
+            f.console = None; // knocked out of it
+            return;
+        }
+        match u {
+            Use::Stopping(c) => {
+                if f.motion.state == st::STANDING {
+                    f.console = Some(Use::Walking(c, now + crate::consoles::walk_in_ticks()));
+                }
+            }
+            Use::Walking(c, deadline) => {
+                if now > deadline {
+                    f.console = None;
+                    return;
+                }
+                f.facing.desired_facing = k.facing;
+                let (step, there) = crate::consoles::walk_in_step(f.feet(), k.stand());
+                if there {
+                    f.facing.facing = k.facing;
+                    f.facing.desired_facing = k.facing;
+                    f.physics.feet = k.stand();
+                    f.motion.force_stand(&ch);
+                    let anim = if k.punch { ty("consolePunch") } else { ty("console") };
+                    if f.motion.request(&ch, Urge::Force, false, anim).is_none() {
+                        f.motion.request(&ch, Urge::Force, false, ty("console"));
+                    }
+                    f.console = Some(Use::Using(c));
+                } else {
+                    f.physics.feet += step;
+                    if f.motion.kind != ty("consoleWalk") {
+                        f.motion.request(&ch, Urge::Force, false, ty("consoleWalk"));
+                    }
+                }
+            }
+            Use::Using(c) => {
+                if !matches!(kind, "console" | "consolePunch") {
+                    f.console = None;
+                    return;
+                }
+                let len = f.motion.length().saturating_sub(1);
+                let fire = f.motion.current().action_frame.unwrap_or(len).min(len);
+                if f.motion.frame >= fire {
+                    f.console = None;
+                    self.activate_console(c, Some(i));
+                    if matches!(self.fighters[i].brain, Some(crate::ai::Brain::Agent(_))) {
+                        self.with_agent(i, |a, cx| a.console_used(cx));
+                    }
+                }
+            }
+        }
     }
 
     /// Plays film `name` on fighter `id` (`mode`: "" from the film's start,
@@ -565,6 +748,28 @@ impl World {
         if on && matches!(self.fighters.get(id).and_then(|f| f.brain.as_ref()), Some(crate::ai::Brain::Agent(_))) {
             self.with_agent(id, |a, cx| a.stop(cx));
         }
+    }
+
+    /// Sends fighter `id` to raise the alarm at console `console_id` (None
+    /// or 0: the nearest alarm console). A given console only has to be
+    /// active and unused.
+    pub fn order_alarm(&mut self, id: usize, console_id: Option<u16>) {
+        if self.fighters.get(id).is_none_or(|f| f.passive) {
+            return;
+        }
+        let pick = match console_id.filter(|&c| c != 0) {
+            Some(cid) => match self.consoles.iter().position(|k| k.id == cid && k.active && !k.triggered) {
+                Some(c) => Some(c),
+                None => return,
+            },
+            None => None,
+        };
+        self.with_agent(id, |a, cx| {
+            let c = pick.or_else(|| a.nearest_alarm(cx));
+            if c.is_some() {
+                a.alarm_setup(c, cx);
+            }
+        });
     }
 
     /// Makes fighter `id` stand idle now (`ai2_idle`).
@@ -682,6 +887,24 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
+        // The player's input: unless disabled, what the locked keys allow;
+        // Action pressed by a console in reach starts using it.
+        let controls = if self.input_enabled { controls & self.key_mask } else { 0 };
+        let action = controls & crate::anim::input::key::ACTION != 0 && self.last_controls & crate::anim::input::key::ACTION == 0;
+        self.last_controls = controls;
+        let mut controls = controls;
+        if action && self.fighters.first().is_some_and(|p| p.console.is_none() && p.alive()) {
+            if let Some(c) = self.console_in_reach(0, false) {
+                self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
+                controls &= !crate::anim::input::key::ACTION;
+            }
+        }
+        for i in 0..self.fighters.len() {
+            self.console_tick(i);
+        }
+        if self.fighters.first().is_some_and(|p| p.console.is_some()) {
+            controls = 0;
+        }
         self.perceive();
         self.run_agents();
         self.plan_paths();
@@ -723,6 +946,11 @@ impl World {
                 .map(|(_, p)| *p);
             // The player's fire buttons become melee while unarmed (weapons
             // aren't modelled yet, #10). A film plays its recorded controls.
+            if f.console.is_some() {
+                // Using a console: the console's walk and animation only.
+                moves.push(f.plan(0, 0, &others));
+                continue;
+            }
             let film = f.film.as_mut().map(|p| (p.next(), p.interp.take()));
             if let Some((frame, interp)) = film {
                 if let Some((step, n)) = interp {

@@ -306,6 +306,28 @@ pub const TRIGGER_FLAGS: [&str; 8] = [
     "playerOnly",
 ];
 
+// --- Consoles and event lists (`levels/NN/consoles.json`) --------------------
+
+/// Console flag bits (`OBJcConsoleFlag_*`; bit index → name; only the
+/// authored ones are kept).
+pub const CONSOLE_FLAGS: [&str; 7] = ["", "", "", "initialActive", "", "punch", "isAlarm"];
+
+/// Event types (`Oni_Event`), by value.
+pub const EVENT_TYPES: [&str; 12] = [
+    "none",
+    "script",
+    "activateTurret",
+    "deactivateTurret",
+    "activateConsole",
+    "deactivateConsole",
+    "activateAlarm",
+    "deactivateAlarm",
+    "activateTrigger",
+    "deactivateTrigger",
+    "lockDoor",
+    "unlockDoor",
+];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())

@@ -98,6 +98,12 @@ pub struct Fighter {
     pub gone: bool,
     /// A film it is playing (its controls come from the recording).
     pub film: Option<FilmPlay>,
+    /// Using a console (its controls are the console's meanwhile).
+    pub console: Option<crate::consoles::Use>,
+    /// An alarm it answers went off (its alarm script is due).
+    pub alarmed: bool,
+    /// The alarm groups it answers (bits).
+    pub alarm_groups: u32,
     /// A passive fighter (training dummy): stands and takes hits, never deals
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
@@ -186,6 +192,9 @@ impl Fighter {
             invincible: false,
             gone: false,
             film: None,
+            console: None,
+            alarmed: false,
+            alarm_groups: 0,
             passive,
             knockback: Vec3::ZERO,
             hit_set: Vec::new(),

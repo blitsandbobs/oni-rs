@@ -306,6 +306,10 @@ pub struct Ctx<'a> {
     /// Lying on the ground.
     pub fallen: bool,
     pub standing: bool,
+    pub pelvis: Vec3,
+    /// The level's consoles, and whether this character is using one.
+    pub consoles: &'a [crate::consoles::Console],
+    pub using_console: bool,
     /// Crouched (or going to be).
     pub crouching: bool,
     pub perception: &'a mut Perception,
@@ -374,7 +378,25 @@ pub enum Goal {
     Panic(Box<Panic>),
     /// A patrol a script ordered (`ai2_dopath`): back to the job when done.
     Path(Box<Patrol>),
+    /// Running to an alarm console to raise the alarm.
+    Alarm(Box<AlarmRun>),
 }
+
+/// On the way to an alarm console.
+#[derive(Clone, Debug)]
+pub struct AlarmRun {
+    /// Where it heads: a little short of the console's marker.
+    dest: Vec3,
+    stand_wait: u32,
+}
+
+/// Alarm runs: aim a little short of the marker, at most this many tries
+/// to get there again, this long to wait to stand still at it.
+const ALARM_OFFSET: f32 = 5.0;
+const ALARM_REPATHS: u32 = 3;
+const ALARM_STAND_WAIT: u32 = 60;
+/// A marker is reached within this.
+const MARKER_REACH: f32 = 10.0;
 
 /// A non-combatant's panic.
 #[derive(Clone, Debug, Default)]
@@ -399,6 +421,7 @@ impl Goal {
             Goal::Combat(_) => "combat",
             Goal::Panic(_) => "panic",
             Goal::Path(_) => "path",
+            Goal::Alarm(_) => "alarm",
         }
     }
 }
@@ -528,6 +551,7 @@ pub enum Primary {
     Hold,
     Advance,
     Retreat,
+    FindAlarm,
     Melee,
     GetUp,
 }
@@ -594,6 +618,15 @@ pub struct Agent {
     pub eye: Option<f32>,
     /// Scripts its patrol asked to run (the mission takes them).
     pub scripts: Vec<String>,
+    /// The alarm console it is going for (kept while it breaks off to
+    /// fight), the last one it tried, how often it tried to get there.
+    pub alarm_console: Option<usize>,
+    last_alarm_console: Option<usize>,
+    alarm_repaths: u32,
+    /// Fighting on the way to an alarm: back to it when this runs out.
+    pub fight_timer: u32,
+    /// A console it wants to start using (the world takes it).
+    pub use_console: Option<usize>,
     /// Waiting for a patrol script to finish.
     waiting_script: bool,
     rng: Rng,
@@ -620,6 +653,11 @@ impl Agent {
             press: 0,
             eye: None,
             scripts: Vec::new(),
+            alarm_console: None,
+            last_alarm_console: None,
+            alarm_repaths: 0,
+            fight_timer: 0,
+            use_console: None,
             waiting_script: false,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
@@ -658,6 +696,7 @@ impl Agent {
             Goal::Combat(c) => format!("combat {:?} → {}", c.primary, c.target),
             Goal::Panic(p) => format!("panic{}", if p.kneeling { " kneeling" } else { "" }),
             Goal::Path(p) => format!("path {} @{}", p.path.name, p.current),
+            Goal::Alarm(_) => format!("alarm {}", self.alarm_console.map_or(-1, |c| c as i64)),
             g => g.name().to_string(),
         }
     }
@@ -783,6 +822,7 @@ impl Agent {
             }
             Goal::Panic(_) => self.mode = MoveMode::ByAlert,
             Goal::Path(_) => self.waiting_script = false,
+            Goal::Alarm(_) => self.mode = MoveMode::ByAlert,
             Goal::Combat(c) => {
                 cx.fights.leave(cx.me);
                 // The alert drops to high on leaving combat.
@@ -879,6 +919,13 @@ impl Agent {
         if matches!(self.goal, Goal::None) {
             self.return_to_job(true, false, cx);
         }
+        // Fighting on the way to an alarm: back to the alarm in time.
+        if self.alarm_console.is_some() && !matches!(self.goal, Goal::Alarm(_)) && self.fight_timer > 0 {
+            self.fight_timer -= 1;
+            if self.fight_timer == 0 {
+                self.alarm_setup(None, cx);
+            }
+        }
         // Where its patrol has it.
         if matches!(self.goal, Goal::Job) {
             if let Job::Patrol(p) = &self.job {
@@ -897,6 +944,7 @@ impl Agent {
             Goal::Combat(_) => self.combat_update(cx),
             Goal::Panic(_) => self.panic_update(cx),
             Goal::Path(_) => self.patrol_update(cx),
+            Goal::Alarm(_) => self.alarm_update(cx),
             Goal::Idle | Goal::None => {}
         }
         let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
@@ -1458,7 +1506,13 @@ impl Agent {
         let mode = self.pursuit().mode;
         match mode {
             PursuitMode::Forget => {
-                // (Raising the alarm needs consoles, #18: back to the job.)
+                // Told to raise the alarm when it loses someone it was sure of.
+                if self.pursue.lost == "alarm" && self.pursuit().certain {
+                    let console = self.alarm_console.or_else(|| self.find_alarm(cx));
+                    if console.is_some() && self.alarm_setup(console, cx) {
+                        return;
+                    }
+                }
                 eprintln!("ai: {}: pursuit over", self.name);
                 self.return_to_job(true, true, cx);
             }
@@ -1797,6 +1851,10 @@ impl Agent {
             return;
         }
         let now = cx.now;
+        // Hurt while fighting on the way to an alarm: the fight goes on.
+        if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) && self.fight_timer > 0 {
+            self.fight_timer = self.profile.alarm.fight_ticks;
+        }
         if c.who == Some(target) && matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
             let k = self.combat();
             k.last_hit = now;
@@ -1908,6 +1966,19 @@ impl Agent {
             }
         }
 
+        // Going for an alarm meanwhile: a target close enough keeps it
+        // fighting; one far enough off sends it back to the alarm.
+        if self.alarm_console.is_some() && !self.combat().target_dead {
+            let d = (target_feet - cx.feet).length();
+            let a = self.profile.alarm;
+            if d < a.chase_distance {
+                self.fight_timer = a.fight_ticks;
+            } else if d > a.ignore_distance {
+                self.alarm_setup(None, cx);
+                return;
+            }
+        }
+
         // Every 5 ticks: choose a primary movement.
         if (cx.me as u64 + cx.now).is_multiple_of(COMBAT_PERIOD) || self.combat().band == Band::None {
             self.choose_primary(target_feet, cx);
@@ -1949,6 +2020,7 @@ impl Agent {
                 }
             }
             Primary::Hold => self.halt(),
+            Primary::FindAlarm => self.halt(),
             Primary::GetUp => {
                 self.halt();
                 self.press |= key::FORWARD;
@@ -1974,15 +2046,17 @@ impl Agent {
         const HOLD: usize = 0;
         const ADVANCE: usize = 1;
         const RETREAT: usize = 2;
-        const MELEE: usize = 3;
-        const GETUP: usize = 4;
+        const FIND_ALARM: usize = 3;
+        const MELEE: usize = 4;
+        const GETUP: usize = 5;
         let profile = self.profile.clone();
+        let alarm = self.find_alarm(cx);
         let dist = (target_feet - cx.feet).with_y_zero().length();
         let now = cx.now;
         let has_melee = self.combat().melee.is_some();
         let k = self.combat();
         k.try_advance = k.try_advance.saturating_sub(COMBAT_PERIOD as u32);
-        let mut w = [0.0f32; 5];
+        let mut w = [0.0f32; 6];
 
         if k.target_dead {
             // Go and look at the body.
@@ -2031,7 +2105,7 @@ impl Agent {
                 "stare" => w[HOLD] = 1.0,
                 "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee" => w[MELEE] = 1.0,
                 "runForAlarm" => {
-                    // (No alarm consoles yet, #18.)
+                    w[FIND_ALARM] = 1.2;
                     w[RETREAT] = 0.8;
                 }
                 // Shooting behaviours, unarmed (no guns yet, #10): fight
@@ -2046,6 +2120,10 @@ impl Agent {
                                 w[RETREAT] = 0.8;
                                 k.retreat = (100.0, 1000.0);
                             }
+                            "alarm" => {
+                                w[FIND_ALARM] = 1.0;
+                                w[MELEE] = 0.8;
+                            }
                             _ => w[MELEE] = 0.8,
                         }
                     }
@@ -2057,7 +2135,7 @@ impl Agent {
         }
 
         // The highest viable one.
-        let mut checked = [false; 5];
+        let mut checked = [false; 6];
         let pick = loop {
             let (best, &bw) = w
                 .iter()
@@ -2067,7 +2145,14 @@ impl Agent {
                 break Primary::Hold;
             }
             if checked[best] {
-                break [Primary::Hold, Primary::Advance, Primary::Retreat, Primary::Melee, Primary::GetUp][best];
+                break [
+                    Primary::Hold,
+                    Primary::Advance,
+                    Primary::Retreat,
+                    Primary::FindAlarm,
+                    Primary::Melee,
+                    Primary::GetUp,
+                ][best];
             }
             checked[best] = true;
             let k = self.combat();
@@ -2091,6 +2176,11 @@ impl Agent {
                         w[RETREAT] *= urgency;
                     }
                 }
+                FIND_ALARM => {
+                    if alarm.is_none() {
+                        w[FIND_ALARM] = 0.0;
+                    }
+                }
                 MELEE => {
                     let clear = (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0);
                     if !has_melee || dist > MELEE_RANGE || k.try_advance > 0 || !clear {
@@ -2103,6 +2193,10 @@ impl Agent {
                 _ => {}
             }
         };
+        if pick == Primary::FindAlarm {
+            self.alarm_setup(alarm, cx);
+            return;
+        }
         let name = self.name.clone();
         let k = self.combat();
         if pick != k.primary {
@@ -2110,6 +2204,187 @@ impl Agent {
             k.primary = pick;
             k.advance_goal = None;
         }
+    }
+
+    // --- alarm (`docs/GOALS.md`, *Alarm*) --------------------------------------
+
+    /// The nearest alarm console it can use (for scripts' orders).
+    pub fn nearest_alarm(&self, cx: &Ctx) -> Option<usize> {
+        self.find_alarm(cx)
+    }
+
+    /// The nearest alarm console it can use (active, not yet used) within
+    /// its find distance by path.
+    fn find_alarm(&self, cx: &Ctx) -> Option<usize> {
+        let limit = self.profile.alarm.find_distance;
+        cx.consoles
+            .iter()
+            .enumerate()
+            .filter(|(_, k)| k.is_alarm && k.active && !k.triggered)
+            .filter_map(|(i, k)| (cx.path_length)(cx.feet, k.stand()).filter(|&d| d <= limit).map(|d| (i, d)))
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(i, _)| i)
+    }
+
+    /// Sets off for alarm console `console` (None: the one it was going
+    /// for). False if there is none.
+    pub fn alarm_setup(&mut self, console: Option<usize>, cx: &mut Ctx) -> bool {
+        let Some(c) = console.or(self.alarm_console) else { return false };
+        self.alarm_console = Some(c);
+        self.fight_timer = 0;
+        if self.last_alarm_console != Some(c) {
+            self.alarm_repaths = 0;
+            self.last_alarm_console = Some(c);
+        }
+        let Some(k) = cx.consoles.get(c) else { return false };
+        let dest = k.marker - Vec3::new(k.facing.sin(), 0.0, k.facing.cos()) * ALARM_OFFSET;
+        let dest = Vec3::new(dest.x, k.position.y, dest.z);
+        let facing = k.facing;
+        self.exit(cx);
+        // Everyone's harm to it so far is forgotten.
+        for c in &mut cx.perception.contacts {
+            c.damage = 0;
+        }
+        self.mode = MoveMode::RunNoAim;
+        self.goal = Goal::Alarm(Box::new(AlarmRun { dest, stand_wait: 0 }));
+        self.go_to(dest, MARKER_REACH - ALARM_OFFSET, true, Some(facing), cx);
+        eprintln!("ai: {} → alarm (console {})", self.name, k.id);
+        true
+    }
+
+    /// Gives up on the alarm (or it was raised): the nearest threat is
+    /// pursued, else back to the job; the console is forgotten.
+    pub fn alarm_stop(&mut self, cx: &mut Ctx) {
+        if matches!(self.goal, Goal::Alarm(_)) {
+            self.alarm_finish(None, cx);
+        }
+        self.alarm_console = None;
+        self.fight_timer = 0;
+    }
+
+    /// Leaves the alarm run: to attack `target` (back to the alarm after
+    /// the fight timer), or the nearest threat, or back to the job.
+    fn alarm_finish(&mut self, target: Option<u32>, cx: &mut Ctx) {
+        let target = match target {
+            Some(t) => {
+                self.fight_timer = self.profile.alarm.fight_ticks;
+                Some(t)
+            }
+            None => {
+                // The nearest of the strongest threats.
+                let mut best: Option<(u32, Strength, f32)> = None;
+                for c in &cx.perception.contacts {
+                    if c.priority < Priority::HostileThreat || c.strength <= Strength::Forgotten {
+                        continue;
+                    }
+                    let d = c.location.distance(cx.feet);
+                    match best {
+                        Some((_, s, _)) if c.strength < s => break,
+                        Some((_, _, bd)) if d >= bd => {}
+                        _ => best = Some((c.id, c.strength, d)),
+                    }
+                }
+                best.map(|b| b.0)
+            }
+        };
+        match target {
+            Some(id) => {
+                self.exit(cx);
+                self.enter_pursuit(id, cx);
+            }
+            None => self.return_to_job(true, true, cx),
+        }
+    }
+
+    /// Its console use finished: the alarm is raised.
+    pub fn console_used(&mut self, cx: &mut Ctx) {
+        if matches!(self.goal, Goal::Alarm(_)) {
+            eprintln!("ai: {}: alarm raised", self.name);
+            self.alarm_stop(cx);
+        }
+    }
+
+    fn alarm_update(&mut self, cx: &mut Ctx) {
+        if cx.using_console {
+            self.halt();
+            return;
+        }
+        let Some(c) = self.alarm_console.and_then(|c| cx.consoles.get(c)).cloned() else {
+            self.alarm_finish(None, cx);
+            return;
+        };
+        // Someone to deal with first? (Knocked down, some profiles hit back
+        // at the nearest enemy in sight.)
+        let a = self.profile.alarm;
+        if cx.fallen && a.attack_if_knocked_down {
+            let near = cx
+                .perception
+                .contacts
+                .iter()
+                .filter(|t| t.priority >= Priority::HostileThreat && t.strength >= Strength::Definite)
+                .map(|t| (t.id, t.location.distance(cx.feet)))
+                .filter(|&(_, d)| d <= a.ignore_distance)
+                .min_by(|x, y| x.1.total_cmp(&y.1));
+            if let Some((t, _)) = near {
+                self.alarm_finish(Some(t), cx);
+                return;
+            }
+        }
+        let threat = cx
+            .perception
+            .contacts
+            .iter()
+            .filter(|t| t.priority >= Priority::HostileThreat && t.strength >= Strength::Definite)
+            .find(|t| {
+                let d = t.location.distance(cx.feet);
+                d <= a.ignore_distance && (d <= a.chase_distance || t.damage >= a.damage_threshold)
+            })
+            .map(|t| t.id);
+        if let Some(t) = threat {
+            eprintln!("ai: {}: breaks off the alarm to fight", self.name);
+            self.alarm_finish(Some(t), cx);
+            return;
+        }
+        let at_point = self.arrived(cx) || self.distance_to_dest(cx) <= MARKER_REACH - ALARM_OFFSET;
+        if !at_point && !self.path_failed() {
+            if cx.fallen {
+                self.press |= key::FORWARD;
+            }
+            return;
+        }
+        if cx.standing && !cx.fallen {
+            if c.in_reach(cx.pelvis, cx.facing, true) {
+                self.use_console = self.alarm_console;
+                self.halt();
+                return;
+            }
+            if !self.arrived(cx) && !self.path_failed() {
+                return; // still turning to face it
+            }
+        } else {
+            self.halt();
+            let Goal::Alarm(run) = &mut self.goal else { return };
+            if run.stand_wait == 0 {
+                run.stand_wait = ALARM_STAND_WAIT;
+            }
+            run.stand_wait -= 1;
+            if run.stand_wait > 0 {
+                return;
+            }
+        }
+        if cx.fallen {
+            self.press |= key::BACKWARD; // up, away from the console
+            return;
+        }
+        if self.alarm_repaths >= ALARM_REPATHS {
+            eprintln!("ai: {}: can't reach the alarm", self.name);
+            self.alarm_stop(cx);
+            return;
+        }
+        self.alarm_repaths += 1;
+        let Goal::Alarm(run) = &self.goal else { return };
+        let dest = run.dest;
+        self.go_to(dest, MARKER_REACH - ALARM_OFFSET, true, Some(c.facing), cx);
     }
 }
 

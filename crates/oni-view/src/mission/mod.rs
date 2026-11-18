@@ -189,6 +189,7 @@ impl Mission {
     pub fn tick(&mut self, host: &mut dyn Host) {
         self.state.now += 1;
         let mut events = std::mem::take(&mut self.state.pending_events);
+        events.append(&mut host.world().script_events);
         events.extend(commands::events(&mut self.state, host));
         for (name, arg) in events {
             let args: Vec<&str> = arg.iter().map(String::as_str).collect();
@@ -323,8 +324,7 @@ mod tests {
             // (No level geometry: one huge floor far below.)
             let floor = vec![[-1e5, -5000.0, -1e5], [1e5, -5000.0, -1e5], [0.0, -5000.0, 1e5]];
             let mut host = Headless { world: World::new(floor, vec![0, 1, 2]), classes };
-            host.world.level_dir = dir.clone();
-            host.world.level_ai = std::rc::Rc::new(crate::ai::level::LevelAi::load(&dir, &root.join("common")));
+            host.world.load_level(&dir);
             let Ok(player) = host.kind("konoko_generic") else { continue };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
             let mut m = match Mission::load(&dir) {
@@ -362,8 +362,7 @@ mod tests {
             let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
             let floor = vec![[-1e5, -5000.0, -1e5], [1e5, -5000.0, -1e5], [0.0, -5000.0, 1e5]];
             let mut host = Headless { world: World::new(floor, vec![0, 1, 2]), classes };
-            host.world.level_dir = dir.clone();
-            host.world.level_ai = std::rc::Rc::new(crate::ai::level::LevelAi::load(&dir, &root.join("common")));
+            host.world.load_level(&dir);
             let Ok(player) = host.kind("konoko_generic") else { continue };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
             let Ok(mut m) = Mission::load(&dir) else { continue };

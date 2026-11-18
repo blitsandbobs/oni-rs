@@ -238,11 +238,7 @@ impl ApplicationHandler for App {
                     let mut mission = None;
                     if self.mission {
                         // The level's own scripts populate it.
-                        world.level_dir = self.cast.level_dir.clone();
-                        world.level_ai = std::rc::Rc::new(crate::ai::level::LevelAi::load(
-                            &self.cast.level_dir,
-                            &self.cast.level_dir.join("../../common"),
-                        ));
+                        world.load_level(&self.cast.level_dir);
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
                             (Ok(mut m), Some(mut classes)) => {
                                 let mut host = PlayHost {
@@ -508,6 +504,7 @@ impl State {
             (Action::Fire1, key::FIRE1),
             (Action::Fire2, key::FIRE2),
             (Action::Fire3, key::FIRE3),
+            (Action::Use, key::ACTION),
         ] {
             if held(action) {
                 controls |= bit;

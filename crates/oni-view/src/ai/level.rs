@@ -70,6 +70,35 @@ pub struct CombatProfile {
     /// How long a non-combatant panics (ticks) at a fight noise, gunfire,
     /// the sight of an enemy, being hurt.
     pub panic: [u32; 4],
+    pub alarm: AlarmSettings,
+}
+
+/// When an AI goes for an alarm, what draws it into a fight on the way.
+#[derive(Clone, Copy, Debug)]
+pub struct AlarmSettings {
+    /// Alarm consoles further than this (by path) aren't looked for.
+    pub find_distance: f32,
+    /// Enemies further than this are ignored…
+    pub ignore_distance: f32,
+    /// …nearer than this are attacked (or if they've done this much harm).
+    pub chase_distance: f32,
+    pub damage_threshold: i32,
+    /// After breaking off to fight, back to the alarm after this (0: never).
+    pub fight_ticks: u32,
+    pub attack_if_knocked_down: bool,
+}
+
+impl Default for AlarmSettings {
+    fn default() -> Self {
+        AlarmSettings {
+            find_distance: 300.0,
+            ignore_distance: 80.0,
+            chase_distance: 0.0,
+            damage_threshold: 30,
+            fight_ticks: 360,
+            attack_if_knocked_down: false,
+        }
+    }
 }
 
 impl Default for CombatProfile {
@@ -83,6 +112,7 @@ impl Default for CombatProfile {
             no_gun: "melee".into(),
             pursuit_distance: 200.0,
             panic: [600, 900, 600, 1200],
+            alarm: AlarmSettings::default(),
         }
     }
 }
@@ -124,6 +154,8 @@ pub struct Placed {
     pub melee_id: Option<u16>,
     /// Added to its class's hit points.
     pub hp_offset: i32,
+    /// The alarm groups it answers (bits).
+    pub alarm_groups: u32,
     pub alert: [Alert; 4],
     pub pursue: Pursue,
     /// Its event scripts (`spawn`, `die`, `combat`, `hurt`, `alarm`, …).
@@ -212,6 +244,12 @@ impl LevelAi {
                 combat_id: c["combatProfileId"].as_u64().unwrap_or(0) as u16,
                 melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
                 hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
+                alarm_groups: c["alarmGroups"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|b| b.as_u64().filter(|&b| b < 32))
+                    .fold(0, |m, b| m | 1 << b),
                 alert: [alert(&a["initial"]), alert(&a["minimum"]), alert(&a["job"]), alert(&a["investigate"])],
                 pursue: Pursue {
                     strong_unseen: s(&p["strongUnseen"]),
@@ -276,6 +314,18 @@ impl LevelAi {
                 panic: {
                     let u = |k: &str, d: u32| c["panic"][k].as_u64().map_or(d, |v| v as u32);
                     [u("melee", 600), u("gunfire", 900), u("sight", 600), u("hurt", 1200)]
+                },
+                alarm: {
+                    let a = &c["alarm"];
+                    let d = AlarmSettings::default();
+                    AlarmSettings {
+                        find_distance: f(&a["findDistance"], d.find_distance),
+                        ignore_distance: f(&a["ignoreEnemyDistance"], d.ignore_distance),
+                        chase_distance: f(&a["chaseEnemyDistance"], d.chase_distance),
+                        damage_threshold: a["damageThreshold"].as_i64().unwrap_or(30) as i32,
+                        fight_ticks: a["fightTicks"].as_u64().unwrap_or(360) as u32,
+                        attack_if_knocked_down: a["attackIfKnockedDown"].as_bool().unwrap_or(false),
+                    }
                 },
             };
             out.combat.insert(c["id"].as_u64().unwrap_or(0) as u16, Rc::new(profile));

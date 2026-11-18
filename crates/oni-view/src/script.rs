@@ -130,9 +130,7 @@ impl ScriptHost {
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
-        world.level_dir = cast.level_dir.clone();
-        let common = cast.level_dir.join("../../common");
-        world.level_ai = Rc::new(crate::ai::level::LevelAi::load(&cast.level_dir, &common));
+        world.load_level(&cast.level_dir);
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         if world.nav.is_none() {
@@ -765,6 +763,38 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Sends an AI to raise the alarm at console `console` (nil: the nearest).
+    let h = host.clone();
+    g.set(
+        "alarm",
+        lua.create_function(move |_, (id, console): (usize, Option<u16>)| {
+            h.borrow_mut().world.order_alarm(id, console);
+            Ok(())
+        })?,
+    )?;
+
+    // Resets a console (unused; active as authored).
+    let h = host.clone();
+    g.set(
+        "console_reset",
+        lua.create_function(move |_, id: u16| {
+            for k in h.borrow_mut().world.consoles.iter_mut().filter(|k| k.id == id) {
+                k.triggered = false;
+                k.active = k.initial_active;
+            }
+            Ok(())
+        })?,
+    )?;
+
+    // A console's state: "inactive", "active" or "triggered" (nil: none).
+    let h = host.clone();
+    g.set(
+        "console_state",
+        lua.create_function(move |_, id: u16| {
+            Ok(h.borrow().world.consoles.iter().find(|k| k.id == id).map(|k| k.screen()))
+        })?,
+    )?;
+
     // Moves fighter `id` (feet) to a point.
     let h = host.clone();
     g.set(
@@ -841,7 +871,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "nav_path",
         lua.create_function(move |lua, id: usize| {
             let t = lua.create_table()?;
-            if let Some(crate::ai::Brain::GoTo(n)) = h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+            let host = h.borrow();
+            let nav = match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::GoTo(n)) => Some(&**n),
+                Some(crate::ai::Brain::Agent(a)) => a.nav.as_ref(),
+                _ => None,
+            };
+            if let Some(n) = nav {
                 let (points, next) = n.waypoints();
                 for (i, (p, r)) in points.iter().enumerate() {
                     let w = lua.create_table()?;

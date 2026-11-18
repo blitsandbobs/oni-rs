@@ -112,6 +112,8 @@ pub struct Clip {
     pub shortcuts: Vec<Shortcut>,
     /// Names of up to two direct follow-up clips (no pause / end blend).
     pub direct: Vec<String>,
+    /// The frame its action happens on (a console used, a weapon swapped).
+    pub action_frame: Option<u16>,
     /// Uninterruptible frame range; `atomic_start > atomic_end` = never.
     pub atomic_start: u16,
     pub atomic_end: u16,
@@ -564,6 +566,7 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .as_array()
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default(),
+        action_frame: ex["actionFrame"].as_i64().filter(|&v| v >= 0).map(|v| v as u16),
         atomic_start,
         atomic_end,
         varient_end: named_bits(&ex["variantEnd"], &sc::VARIANTS) as u16,
