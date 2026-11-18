@@ -318,9 +318,13 @@ impl Melee {
             }
             fights.release(me.index);
             self.no_technique += 1;
-            // Nothing to do: walk straight at the target.
+            // Nothing to do: walk at the target, if there's a clear way (else
+            // wait — finding a way round is the pathfinder's job, #2).
             if distance(me, target) > 8.0 {
-                out.held = crate::anim::input::key::FORWARD;
+                if let Some(dev) = steer(me, bearing(me, target)) {
+                    out.face = Some(bearing(me, target) + dev);
+                    out.held = crate::anim::input::key::FORWARD;
+                }
             }
             return out;
         }

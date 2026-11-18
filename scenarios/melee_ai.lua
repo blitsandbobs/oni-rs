@@ -33,7 +33,7 @@ local function duel(class, x)
 end
 
 duel("konoko_generic", 40)
-local a = duel("striker_easy_1", -40)
+local a = duel("striker_easy_1", 15)
 
 -- Knocked down, the Striker lies dazed (its class: 96-138 ticks) then gets up.
 step(120)
@@ -49,8 +49,10 @@ assert(t_down and t_up, "the AI got back up by itself")
 assert(t_up - t_down >= 96, "it lay dazed for at least its class's minimum")
 -- A Ninja's flying kick: it runs in, jumps, and kicks in the air when the
 -- kick will land (Lua `technique` asks for a profile technique by name).
-local nd = spawn(px - 30, py + 5, pz + 30, 0, "ninja_med_1")
-local na = spawn(px - 30, py + 5, pz - 5, 0, "ninja_med_1")
+-- (Along the room's long side: a run-jump flies ~58 units, and the AI won't
+-- jump at a wall.)
+local nd = spawn(px + 15, py + 5, pz + 10, 90, "ninja_med_1")
+local na = spawn(px - 20, py + 5, pz + 10, 90, "ninja_med_1")
 step(20)
 spar(na, nd)
 technique(na, "Jump Kick/Circle Rt")
