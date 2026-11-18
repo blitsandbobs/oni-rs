@@ -288,6 +288,10 @@ player). `env_show ref 0/1` hides / shows the level's quads tagged with that
 reference (the original flags them as broken glass: not drawn, not collided
 with, seen through) — barriers, props, glass targets. (The original's lookup
 reads one entry past the table — harmless.) `chr_poison`, `chr_unstoppable` and `ai2_kill`: `docs/COMBAT.md` §8.
+`chr_changeteam who Team` takes the team's name exactly as the original
+lists it (`Konoko`, `TCTF`, `Syndicate`, `Neutral`, `SecurityGuard`,
+`RogueKonoko`, `Switzerland`, `SyndicateAccessory`); another name is
+reported and changes nothing.
 
 **Not reproduced** (no shipped script relies on them): operator precedence
 slips (each operator reduces at most one pending one), no short-circuit,

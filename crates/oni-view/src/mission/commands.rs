@@ -484,6 +484,28 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
+        // A team by its name in the original's list (exactly as written).
+        "chr_changeteam" => {
+            const NAMES: [(&str, &str); 8] = [
+                ("Konoko", "konoko"),
+                ("TCTF", "tctf"),
+                ("Syndicate", "syndicate"),
+                ("Neutral", "neutral"),
+                ("SecurityGuard", "securityGuard"),
+                ("RogueKonoko", "rogueKonoko"),
+                ("Switzerland", "switzerland"),
+                ("SyndicateAccessory", "syndicateAccessory"),
+            ];
+            let wanted = a(1).and_then(text).unwrap_or_default();
+            let Some(&(_, ours)) = NAMES.iter().find(|(n, _)| *n == wanted) else {
+                state.warn(format!("chr_changeteam: no team {wanted:?}"));
+                return nil();
+            };
+            if let Some(p) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)).and_then(|f| f.perception.as_mut()) {
+                p.team = crate::ai::perception::Team::from_name(ours);
+            }
+            nil()
+        }
         "chr_unstoppable" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.unstoppable = int(a(1)).unwrap_or(0) > 0;
