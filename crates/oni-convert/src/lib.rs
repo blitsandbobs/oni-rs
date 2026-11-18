@@ -26,6 +26,7 @@ mod level_json;
 mod characters;
 mod melee;
 mod objects;
+mod patrols;
 mod particles;
 
 use std::collections::BTreeMap;
@@ -218,6 +219,17 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
             convert_navigation(&dat, raw, &root)?;
             if f.level != 0 {
                 characters::write(&dat, raw, &root)?;
+                patrols::write(&dat, raw, &root)?;
+            } else {
+                let profiles = patrols::combat_profiles(&dat, raw);
+                if !profiles.is_empty() {
+                    let dir = output_dir.join("common");
+                    std::fs::create_dir_all(&dir)?;
+                    std::fs::write(
+                        dir.join("combat_profiles.json"),
+                        serde_json::to_string_pretty(&serde_json::json!({ "profiles": profiles }))?,
+                    )?;
+                }
             }
         }
         stats.object_animations = convert_object_animations(&dat, &root)?;

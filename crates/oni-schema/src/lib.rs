@@ -229,6 +229,69 @@ pub const INVENTORY: [&str; 5] = ["ammoBallistic", "ammoEnergy", "hypo", "shield
 /// AI behaviour flags (class), by bit.
 pub const AI_FLAGS: [&str; 5] = ["neverStartle", "dodge", "dodgeWhileFiring", "dodgeStopsFiring", "runningPickup"];
 
+// --- Patrol paths, combat profiles (`levels/NN/patrols.json`,
+// `common/combat_profiles.json`) ----------------------------------------------
+
+/// Patrol waypoint kinds, by value.
+pub const PATROL_WAYPOINTS: [&str; 24] = [
+    "moveToFlag",
+    "stop",
+    "pause",
+    "lookAtFlag",
+    "lookAtPoint",
+    "moveAndFaceFlag",
+    "loop",
+    "movementMode",
+    "moveToPoint",
+    "lookInDirection",
+    "moveThroughFlag",
+    "moveThroughPoint",
+    "stopLooking",
+    "freeFacing",
+    "glanceAtFlag",
+    "moveNearFlag",
+    "loopToWaypoint",
+    "scan",
+    "stopScanning",
+    "guard",
+    "triggerScript",
+    "playScript",
+    "lockIntoPatrol",
+    "shootAtFlag",
+];
+
+/// Movement modes (paces), by value ("stop" and "crouch" are obsolete).
+pub const MOVEMENT_MODES: [&str; 8] =
+    ["byAlertLevel", "stop", "crouch", "creep", "walkNoAim", "walk", "runNoAim", "run"];
+
+/// Which way a body faces relative to its movement, by value.
+pub const MOVE_DIRECTIONS: [&str; 5] = ["forward", "backpedal", "left", "right", "stopped"];
+
+/// Combat behaviours (per range band), by value.
+pub const COMBAT_BEHAVIORS: [&str; 14] = [
+    "none",
+    "stare",
+    "holdAndFire",
+    "firingCharge",
+    "melee",
+    "barabbasShoot",
+    "barabbasAdvance",
+    "barabbasMelee",
+    "superNinjaFireball",
+    "superNinjaAdvance",
+    "superNinjaMelee",
+    "runForAlarm",
+    "mutantMuroMelee",
+    "mutantMuroThunderbolt",
+];
+
+/// When a gunman fights hand to hand, by value.
+pub const MELEE_WHEN: [&str; 6] =
+    ["never", "ifPunched", "ifAttackOpportunity", "ifShortRange", "ifMediumRange", "always"];
+
+/// What an unarmed character does, by value.
+pub const NO_GUN: [&str; 3] = ["melee", "retreat", "alarm"];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())

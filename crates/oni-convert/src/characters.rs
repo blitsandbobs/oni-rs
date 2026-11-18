@@ -115,10 +115,12 @@ fn character(o: &crate::objects::Object<'_>, version: u32) -> Option<Value> {
     if hit_points != 0 {
         set(&mut c, "hitPointOffset", json!(hit_points));
     }
-    if job_id != 0 {
+    // (0 is a real patrol / combat profile id.)
+    if job_id != 0 || job == 3 {
         set(&mut c, "jobId", json!(job_id));
     }
-    for (k, v) in [("combatProfileId", combat_id), ("meleeProfileId", melee_id), ("neutralId", neutral_id)] {
+    set(&mut c, "combatProfileId", json!(combat_id));
+    for (k, v) in [("meleeProfileId", melee_id), ("neutralId", neutral_id)] {
         if v != 0 && v != 0xFFFF {
             set(&mut c, k, json!(v));
         }
