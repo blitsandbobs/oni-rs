@@ -224,7 +224,7 @@ impl Fighter {
     /// fighters (for auto-facing). Nudge `self.facing` (mouse / `turn`) before
     /// calling to turn.
     #[cfg(test)]
-    pub fn tick(&mut self, held: u32, opponents: &[Vec3]) {
+    pub fn tick(&mut self, held: u32, opponents: &[Opponent]) {
         if let Some(world) = self.plan(held, 0, opponents) {
             self.commit(world);
         }
@@ -234,7 +234,7 @@ impl Fighter {
     /// world-space move — without applying it, so the world can stop
     /// characters walking into each other first. Returns None for a corpse
     /// (which moves itself).
-    pub fn plan(&mut self, held: u32, pressed: u32, opponents: &[Vec3]) -> Option<Vec3> {
+    pub fn plan(&mut self, held: u32, pressed: u32, opponents: &[Opponent]) -> Option<Vec3> {
         let ch = self.character.clone();
         self.motion.now += 1;
         if self.motion.corpse {
@@ -612,8 +612,9 @@ impl Fighter {
     }
 
     /// Starting a ground attack turns the attacker so the attack points at
-    /// the nearest-in-angle opponent in range and in front.
-    fn face_opponent(&mut self, opponents: &[Vec3]) {
+    /// the nearest-in-angle non-friend in range and in front — if that one
+    /// is an enemy (a better-centred neutral stops it).
+    fn face_opponent(&mut self, opponents: &[Opponent]) {
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
         let offset = match self.motion.current().move_direction {
             2 => PI,         // backwards attack
@@ -625,15 +626,15 @@ impl Fighter {
         let me = self.physics.feet;
         let best = opponents
             .iter()
-            .filter(|p| p.distance(me) <= AUTO_FACE_RANGE)
-            .map(|p| {
-                let d = *p - me;
+            .filter(|o| o.feet.distance(me) <= AUTO_FACE_RANGE)
+            .map(|o| {
+                let d = o.feet - me;
                 let toward = d.x.atan2(d.z);
-                (toward - aim + PI).rem_euclid(TAU) - PI
+                ((toward - aim + PI).rem_euclid(TAU) - PI, o.hostile)
             })
-            .filter(|a| a.abs() <= AUTO_FACE_ARC)
-            .min_by(|a, b| a.abs().total_cmp(&b.abs()));
-        if let Some(delta) = best {
+            .filter(|(a, _)| a.abs() <= AUTO_FACE_ARC)
+            .min_by(|a, b| a.0.abs().total_cmp(&b.0.abs()));
+        if let Some((delta, true)) = best {
             self.facing.rotate(delta);
             self.facing.adjust_desired(delta);
         }
@@ -863,6 +864,14 @@ impl Fighter {
     pub fn alive(&self) -> bool {
         self.hp > 0 && !self.motion.dying && !self.gone
     }
+}
+
+/// Someone an attack may turn toward: not a friend (`hostile`: an enemy —
+/// only an enemy is turned to).
+#[derive(Clone, Copy, Debug)]
+pub struct Opponent {
+    pub feet: Vec3,
+    pub hostile: bool,
 }
 
 /// A film being played on a fighter.

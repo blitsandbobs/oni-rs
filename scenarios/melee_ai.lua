@@ -21,6 +21,7 @@ local function duel(class, x)
     local d = spawn(px + x, py + 5, pz + 4, 0, class)
     local a = spawn(px + x, py + 5, pz - 16, 0, class)
     step(30)
+    team(d, "konoko") -- an enemy of the (Syndicate) attacker: friends' blows pass through
     spar(a, d)
     local hp0 = hp(d)
     for _ = 1, 600 do
@@ -54,6 +55,7 @@ assert(t_up - t_down >= 96, "it lay dazed for at least its class's minimum")
 local nd = spawn(px + 15, py + 5, pz + 10, 90, "ninja_med_1")
 local na = spawn(px - 20, py + 5, pz + 10, 90, "ninja_med_1")
 step(20)
+team(nd, "konoko") -- an enemy of the (Syndicate) attacker: friends' blows pass through
 spar(na, nd)
 technique(na, "Jump Kick/Circle Rt")
 local hp1, flew = hp(nd), false

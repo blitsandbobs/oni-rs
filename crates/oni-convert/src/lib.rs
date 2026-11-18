@@ -393,6 +393,8 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
             "blockMultiplier": floats("blocking_multipliers"),
             "dodgeMultiplier": floats("dodge_multipliers"),
             "inaccuracyMultiplier": floats("inaccuracy_multipliers"),
+            "playerHpMultiplier": floats("player_hp_multipliers"),
+            "enemyHpMultiplier": floats("enemy_hp_multipliers"),
         }
     }))
 }

@@ -154,6 +154,8 @@ impl Classes {
             notice: pick("noticeMultiplier"),
             dodge: pick("dodgeMultiplier"),
             block: pick("blockMultiplier"),
+            player_hp: pick("playerHpMultiplier"),
+            enemy_hp: pick("enemyHpMultiplier"),
         }
     }
 }

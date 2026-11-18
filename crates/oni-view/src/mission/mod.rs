@@ -134,8 +134,9 @@ impl Mission {
             let world = host.world();
             world.player_name = p.name.clone();
             world.teleport(0, p.at + glam::Vec3::Y * 2.0, Some(p.facing));
+            let scale = world.difficulty.player_hp;
             if let Some(f) = world.fighters.first_mut() {
-                f.max_hp += p.hp_offset;
+                f.max_hp = ((f.max_hp + p.hp_offset) as f32 * scale) as i32;
                 f.hp = f.max_hp;
             }
         }

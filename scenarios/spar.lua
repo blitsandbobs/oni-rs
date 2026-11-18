@@ -23,6 +23,7 @@ local px, py, pz = pos()
 local d = spawn(px + 10, py + 5, pz + 4, 0)
 local a = spawn(px + 10, py + 5, pz - 16, 0)
 step(60)
+team(d, "konoko") -- an enemy of the (Syndicate) attacker: friends' blows pass through
 spar(a, d)
 
 -- It closes in, never walks through its opponent, and lands hits.

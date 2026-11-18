@@ -473,6 +473,8 @@ impl World {
     pub fn give_goals(&mut self, id: usize, placed: Option<&crate::ai::level::Placed>, melee: Option<Rc<crate::ai::melee::profile::Profile>>) {
         use crate::ai::goals::{Agent, Job, Patrol};
         let level = self.level_ai.clone();
+        let player_team = self.fighters.first().map_or(crate::ai::perception::Team::Konoko, |p| p.team());
+        let enemy_hp = self.difficulty.enemy_hp;
         let Some(f) = self.fighters.get_mut(id) else { return };
         let class = f.class_combat;
         let profile_of = |cid: u16| level.combat.get(&cid).cloned().unwrap_or_default();
@@ -510,6 +512,10 @@ impl World {
         }
         if let Some(pl) = placed {
             f.max_hp += pl.hp_offset;
+            // Enemies of the player are as tough as the difficulty says.
+            if pl.team.regards(player_team) == crate::ai::perception::Relation::Hostile {
+                f.max_hp = (f.max_hp as f32 * enemy_hp) as i32;
+            }
             f.hp = f.max_hp;
             f.alarm_groups = pl.alarm_groups;
         }
@@ -935,9 +941,17 @@ impl World {
         if let Some(p) = self.fighters.first_mut() {
             p.motion.throw_sense = sense;
         }
+        use crate::ai::perception::Relation;
+        let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
-            let others: Vec<Vec3> = feet.iter().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
+            // Who its attacks may turn toward: the living who aren't
+            // friends (`docs/COMBAT.md`, *Teams*).
+            let others: Vec<crate::fighter::Opponent> = feet
+                .iter()
+                .filter(|(j, _)| *j != i && teams[*j].regards(teams[i]) != Relation::Friend)
+                .map(|&(j, p)| crate::fighter::Opponent { feet: p, hostile: teams[i].regards(teams[j]) == Relation::Hostile })
+                .collect();
             let target = f
                 .brain
                 .as_ref()
@@ -1009,6 +1023,8 @@ impl World {
             .enumerate()
             .filter(|&(j, o)| {
                 j != me
+                    // (The player never throws a friend.)
+                    && !(f.player && o.team().regards(f.team()) == crate::ai::perception::Relation::Friend)
                     && o.alive()
                     && !o.motion.dying
                     && !o.motion.corpse
@@ -1145,6 +1161,11 @@ impl World {
             }
         }
         for (a, b, k, attack) in blows {
+            // Friends' blows pass through each other (not a thrown body's).
+            let friends = self.fighters[a].team().regards(self.fighters[b].team()) == crate::ai::perception::Relation::Friend;
+            if friends && !self.fighters[a].motion.current().has_flag(flag::THROW_TARGET) {
+                continue;
+            }
             self.fighters[a].mark_hit(k, b);
             self.land_hit(a, b, attack);
         }
