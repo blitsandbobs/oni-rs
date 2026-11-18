@@ -23,11 +23,18 @@ pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
 pub const JUMP_SPEED: f32 = 1.1;
 
 /// The world-movement yaw offset for a diagonal strafe: forward/back combined
-/// with exactly one step key moves at ±45° toward the step side (Oni applies a
-/// ±π/4 `facingModifier` here). 0 for non-diagonal input.
+/// with exactly one step key moves at ±45° toward the step side. 0 for
+/// non-diagonal input.
+///
+/// Sign is set by our camera/world basis, not Oni's: `camera.right()` is
+/// `forward × Y`, which is `-X` at yaw 0, so **+X is screen-left**. A left step
+/// must angle the forward move toward +X, i.e. a **positive** yaw offset
+/// (`Quat::from_rotation_y(+π/4)` sends forward `+Z` toward `+X`); a right step
+/// is negative. Moving backward flips the forward vector, so it reverses the
+/// lateral sense too.
 pub fn diagonal_strafe_offset(forward: bool, backward: bool, left: bool, right: bool) -> f32 {
     if (forward ^ backward) && (left ^ right) {
-        let s = if right { PI / 4.0 } else { -PI / 4.0 };
+        let s = if left { PI / 4.0 } else { -PI / 4.0 };
         if backward {
             -s
         } else {
@@ -167,11 +174,12 @@ mod tests {
         // Pure forward or pure strafe → no offset.
         assert_eq!(diagonal_strafe_offset(true, false, false, false), 0.0);
         assert_eq!(diagonal_strafe_offset(false, false, false, true), 0.0);
-        // Forward + a step → ±45°, opposite signs for left vs right.
-        assert!((diagonal_strafe_offset(true, false, false, true) - q).abs() < 1e-6);
-        assert!((diagonal_strafe_offset(true, false, true, false) + q).abs() < 1e-6);
-        // Backward negates.
-        assert!((diagonal_strafe_offset(false, true, false, true) + q).abs() < 1e-6);
+        // Forward + a step → ±45°, opposite signs for left vs right. +X is
+        // screen-left in our basis, so a left step is +q (toward +X), right −q.
+        assert!((diagonal_strafe_offset(true, false, true, false) - q).abs() < 1e-6);
+        assert!((diagonal_strafe_offset(true, false, false, true) + q).abs() < 1e-6);
+        // Backward negates the lateral sense.
+        assert!((diagonal_strafe_offset(false, true, false, true) - q).abs() < 1e-6);
         // Both steps cancel → no diagonal.
         assert_eq!(diagonal_strafe_offset(true, false, true, true), 0.0);
     }
