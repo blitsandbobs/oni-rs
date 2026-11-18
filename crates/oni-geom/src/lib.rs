@@ -27,6 +27,7 @@ pub mod character;
 pub mod charclass;
 pub mod glb;
 pub mod level;
+pub mod nav;
 pub mod objanim;
 
 use oni_dat::{Dat, FourCc, Instance};

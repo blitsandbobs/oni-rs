@@ -212,6 +212,9 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         convert_characters(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
+        if let Some(raw) = raw.as_deref() {
+            convert_navigation(&dat, raw, &root)?;
+        }
         stats.object_animations = convert_object_animations(&dat, &root)?;
         stats.particles =
             particles::convert_particles(&dat, &f.root, &root, &particle_classes, &texture_flags)?;
@@ -635,6 +638,60 @@ fn env_texture_flags(
 /// world (one material-bound node per texture) plus every placed object as its
 /// own pivot node (doors, consoles, furniture — separate, transformable). The
 /// object list is returned for cross-linking in `level.json`.
+/// Writes the level's navigation data (`docs/PATHFINDING.md`,
+/// `docs/ASSET_FORMAT.md`): `navigation.json` (rooms, their hulls, links and
+/// portals) and `navigation.bin` (every room's grid, one byte per square).
+fn convert_navigation(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
+    use oni_geom::nav;
+    use oni_schema as sc;
+    let Some(akev) = dat.instances.iter().find(|i| i.tag == oni_geom::level::TAG_AKEV) else {
+        return Ok(());
+    };
+    let Some(rooms) = nav::extract_navigation(dat, akev, raw) else {
+        return Ok(());
+    };
+    let mut bin: Vec<u8> = Vec::new();
+    let rooms_json: Vec<serde_json::Value> = rooms
+        .iter()
+        .map(|r| {
+            let mut o = serde_json::json!({
+                "flags": sc::bit_names(&sc::ROOM_FLAGS, r.flags),
+                "min": r.min,
+                "max": r.max,
+                "planes": r.planes,
+                "links": r.links.iter().map(|l| serde_json::json!({
+                    "to": l.to,
+                    "portal": sc::bit_names(&sc::PORTAL_FLAGS, l.quad_flags),
+                    "quad": l.quad,
+                })).collect::<Vec<_>>(),
+            });
+            if let Some((plane, height)) = r.stair {
+                o["stair"] = serde_json::json!({ "plane": plane, "height": height });
+            }
+            if let Some(g) = &r.grid {
+                o["grid"] = serde_json::json!({
+                    "origin": g.origin,
+                    "width": g.width,
+                    "height": g.height,
+                    "offset": bin.len(),
+                });
+                bin.extend_from_slice(&g.cells);
+            }
+            o
+        })
+        .collect();
+    let doc = serde_json::json!({
+        "squareSize": nav::SQUARE,
+        "squareTypes": sc::SQUARE_TYPES,
+        "grids": "navigation.bin",
+        "rooms": rooms_json,
+    });
+    std::fs::create_dir_all(root)?;
+    std::fs::write(root.join("navigation.json"), serde_json::to_string(&doc)?)?;
+    std::fs::write(root.join("navigation.bin"), bin)?;
+    Ok(())
+}
+
 fn convert_environment(
     dat: &Dat<'_>,
     this_root: &str,

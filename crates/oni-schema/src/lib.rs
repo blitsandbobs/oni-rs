@@ -157,6 +157,28 @@ pub const MELEE_THROWS: [&str; 25] = [
 /// Technique flags, by bit.
 pub const TECHNIQUE_FLAGS: [&str; 3] = ["interruptible", "generousDirection", "fearless"];
 
+// --- Level navigation (`levels/NN/navigation.json`) -------------------------
+
+/// Room flags, by bit.
+pub const ROOM_FLAGS: [&str; 5] = ["stairs", "spiralStairs", "room", "nonAi", "simplePathfinding"];
+
+/// Portal quad flags that matter to pathfinding, by bit.
+pub const PORTAL_FLAGS: [&str; 4] = ["door", "ghost", "stairsUp", "stairsDown"];
+
+/// Grid square types, by value (their path costs are the engine's).
+pub const SQUARE_TYPES: [&str; 10] = [
+    "clear",
+    "nearWall",
+    "border1",
+    "border2",
+    "semiPassable",
+    "border3",
+    "border4",
+    "stairs",
+    "danger",
+    "impassable",
+];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())
