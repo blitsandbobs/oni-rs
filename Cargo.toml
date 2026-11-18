@@ -10,6 +10,7 @@ members = [
     "crates/oni-template-gen",
     "crates/oni-geom",
     "crates/oni-config",
+    "crates/oni-schema",
     "crates/oni-convert",
     "crates/oni-view",
 ]

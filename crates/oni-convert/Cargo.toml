@@ -14,6 +14,7 @@ oni-template = { path = "../oni-template" }
 png = "0.17"
 serde_json = "1.0"
 sha2 = "0.10"
+oni-schema = { version = "0.0.1", path = "../oni-schema" }
 
 [lints.rust]
 unsafe_code = "forbid"

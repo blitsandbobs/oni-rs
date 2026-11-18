@@ -1528,6 +1528,7 @@ version = "0.0.1"
 dependencies = [
  "oni-dat",
  "oni-geom",
+ "oni-schema",
  "oni-sound",
  "oni-template",
  "oni-texture",
@@ -1554,6 +1555,10 @@ version = "0.0.1"
 dependencies = [
  "oni-dat",
 ]
+
+[[package]]
+name = "oni-schema"
+version = "0.0.1"
 
 [[package]]
 name = "oni-sound"
@@ -1593,6 +1598,7 @@ dependencies = [
  "glam",
  "mlua",
  "oni-config",
+ "oni-schema",
  "png",
  "pollster",
  "rapier3d",

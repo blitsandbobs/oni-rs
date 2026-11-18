@@ -8,6 +8,7 @@
 //! track). Clips bind to bones by name, so any clip retargets to any character
 //! with the same bone names.
 
+use oni_schema as sc;
 use std::path::{Path, PathBuf};
 
 use glam::{Mat4, Quat, Vec3};
@@ -446,56 +447,74 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
 
     let ex = &anim["extras"];
     let u16_field = |k: &str| ex[k].as_u64().unwrap_or(0) as u16;
+    // Enumerations are names (`docs/ASSET_FORMAT.md`, `oni-schema`).
+    let named = |v: &serde_json::Value, table: &[&str]| {
+        v.as_str().and_then(|n| sc::value(table, n)).unwrap_or(0)
+    };
+    let named_bits = |v: &serde_json::Value, table: &[&str]| {
+        v.as_array()
+            .map(|a| sc::bits(table, a.iter().filter_map(|n| n.as_str())))
+            .unwrap_or(0)
+    };
 
-    // Attack hit windows (from `extras.attacks`, emitted by oni-convert).
+    // Attack hit windows.
     let attacks: Vec<Attack> = ex["attacks"]
         .as_array()
         .map(|arr| {
             arr.iter()
                 .map(|a| {
                     let u16k = |k: &str| a[k].as_u64().unwrap_or(0) as u16;
-                    let u32k = |k: &str| a[k].as_u64().unwrap_or(0) as u32;
+                    let window = |k: &str| a["damageWindow"][k].as_u64().unwrap_or(0) as u16;
                     Attack {
                         damage: u16k("damage"),
                         knockback: a["knockback"].as_f64().unwrap_or(0.0) as f32,
-                        first_damage_frame: u16k("firstDamageFrame"),
-                        last_damage_frame: u16k("lastDamageFrame"),
-                        damage_animation: u16k("damageAnimation"),
+                        first_damage_frame: window("start"),
+                        last_damage_frame: window("end"),
+                        damage_animation: named(&a["reaction"], &sc::ANIM_TYPES),
                         hit_stun: u16k("hitStun"),
                         block_stun: u16k("blockStun"),
                         stagger: u16k("stagger"),
                         precedence: u16k("precedence"),
-                        damage_bits: u32k("damageBits"),
-                        flags: u32k("attackFlags"),
+                        damage_bits: named_bits(&a["strikingParts"], &sc::BODY_PARTS),
+                        flags: named_bits(&a["flags"], &sc::ATTACK_FLAGS),
                     }
                 })
                 .collect()
         })
         .unwrap_or_default();
 
+    // Absent: never atomic (start > end). Present without an end: to the end.
+    let (atomic_start, atomic_end) = match ex["atomic"].as_object() {
+        Some(r) => (
+            r.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
+            r.get("end").and_then(|v| v.as_u64()).map_or(u16::MAX, |v| v as u16),
+        ),
+        None => (1, 0),
+    };
+
     Ok(Clip {
         duration: duration.max(0.001),
         channels,
         root_motion,
         heights,
-        anim_type: u16_field("animType"),
-        from_state: u16_field("fromState"),
-        to_state: u16_field("toState"),
-        varient: u16_field("varient"),
+        anim_type: named(&ex["animType"], &sc::ANIM_TYPES),
+        from_state: named(&ex["fromState"], &sc::ANIM_STATES),
+        to_state: named(&ex["toState"], &sc::ANIM_STATES),
+        varient: named_bits(&ex["variant"], &sc::VARIANTS) as u16,
         final_rotation: ex["finalRotation"].as_f64().unwrap_or(0.0) as f32,
-        move_direction: u16_field("moveDirection"),
-        end_interpolation: u16_field("endInterp"),
-        max_interpolation: u16_field("maxInterp"),
+        move_direction: named(&ex["moveDirection"], &sc::DIRECTIONS),
+        end_interpolation: u16_field("endBlend"),
+        max_interpolation: ex["maxBlendIn"].as_u64().map_or(u16::MAX, |v| v as u16),
         attacks,
-        flags: ex["flags"].as_u64().unwrap_or(0) as u32,
+        flags: named_bits(&ex["flags"], &sc::ANIM_FLAGS),
         shortcuts: ex["shortcuts"]
             .as_array()
             .map(|arr| {
                 arr.iter()
                     .map(|s| Shortcut {
-                        state: s["state"].as_u64().unwrap_or(0) as u16,
-                        length: s["length"].as_u64().unwrap_or(0) as u16,
-                        flags: s["flags"].as_u64().unwrap_or(0) as u32,
+                        state: named(&s["fromState"], &sc::ANIM_STATES),
+                        length: s["blendLength"].as_u64().unwrap_or(0) as u16,
+                        flags: u32::from(s["interruptsAtomic"].as_bool().unwrap_or(false)),
                     })
                     .collect()
             })
@@ -504,15 +523,14 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .as_array()
             .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
             .unwrap_or_default(),
-        // Missing range = never atomic (start > end), matching the importer default.
-        atomic_start: ex["atomicStart"].as_u64().map_or(1, |v| v as u16),
-        atomic_end: ex["atomicEnd"].as_u64().map_or(0, |v| v as u16),
-        varient_end: u16_field("varientEnd"),
+        atomic_start,
+        atomic_end,
+        varient_end: named_bits(&ex["variantEnd"], &sc::VARIANTS) as u16,
         first_level: u16_field("firstLevel"),
         hard_pause: u16_field("hardPause"),
         soft_pause: u16_field("softPause"),
-        invulnerable_start: u16_field("invulnerableStart") as u8,
-        invulnerable_length: u16_field("invulnerableLength") as u8,
+        invulnerable_start: ex["invulnerable"]["start"].as_u64().unwrap_or(0) as u8,
+        invulnerable_length: ex["invulnerable"]["length"].as_u64().unwrap_or(0) as u8,
         throw: ex["throw"].is_object().then(|| {
             let t = &ex["throw"];
             let o = |i: usize| t["targetOffset"][i].as_f64().unwrap_or(0.0) as f32;
@@ -520,7 +538,7 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
                 target_offset: Vec3::new(o(0), o(1), o(2)),
                 target_facing: t["targetFacing"].as_f64().unwrap_or(0.0) as f32,
                 range: t["range"].as_f64().unwrap_or(0.0) as f32,
-                target_anim_type: t["targetAnimType"].as_u64().unwrap_or(0) as u16,
+                target_anim_type: named(&t["targetAnimType"], &sc::ANIM_TYPES),
             }
         }),
         self_damage: ex["selfDamage"]

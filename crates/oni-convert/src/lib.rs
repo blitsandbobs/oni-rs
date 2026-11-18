@@ -929,149 +929,152 @@ fn anim_set_prefix(name: &str) -> &str {
     &name[..end]
 }
 
-/// Emits shared animation clips as `common/animations/<name>.glb` — a named-bone
-/// reference skeleton plus the animation, retargetable by bone name.
-/// Builds an animation's glTF `extras` JSON from a decoded clip: root motion
-/// (per-frame local `[x,z]`) and combat data (flags + attack hit windows).
+/// Builds an animation's glTF `extras` JSON from a decoded clip, in the
+/// schema of `docs/ASSET_FORMAT.md`: enumerations as names (`oni-schema`),
+/// ranges as objects, defaults omitted.
 fn animation_extras(clip: &oni_geom::character::Clip) -> String {
+    use oni_schema as sc;
+    use serde_json::json;
+    let type_name = |t: u16| sc::name(&sc::ANIM_TYPES, t).unwrap_or("none");
+    let state_name = |t: u16| sc::name(&sc::ANIM_STATES, t).unwrap_or("none");
+
     let mut obj = serde_json::Map::new();
-    if !clip.root_motion.is_empty() {
-        obj.insert("rootMotion".into(), serde_json::json!(clip.root_motion));
+    let mut put = |k: &str, v: serde_json::Value| {
+        obj.insert(k.into(), v);
+    };
+    put("animType", json!(type_name(clip.anim_type)));
+    put("fromState", json!(state_name(clip.from_state)));
+    put("toState", json!(state_name(clip.to_state)));
+    if clip.varient != 0 {
+        put("variant", json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient))));
     }
-    if !clip.heights.is_empty() {
-        obj.insert("rootHeight".into(), serde_json::json!(clip.heights));
+    if clip.varient_end != 0 {
+        put("variantEnd", json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient_end))));
     }
     if clip.flags != 0 {
-        obj.insert("flags".into(), serde_json::json!(clip.flags));
+        put("flags", json!(sc::bit_names(&sc::ANIM_FLAGS, clip.flags)));
     }
-    // State-machine fields (TRtAnimType / TRtAnimState): type, from/to body
-    // state, and variant bits. Drives the locomotion animation state machine.
-    obj.insert("animType".into(), serde_json::json!(clip.anim_type));
-    obj.insert("fromState".into(), serde_json::json!(clip.from_state));
-    obj.insert("toState".into(), serde_json::json!(clip.to_state));
-    if clip.varient != 0 {
-        obj.insert("varient".into(), serde_json::json!(clip.varient));
+    if !clip.root_motion.is_empty() {
+        put("rootMotion", json!(clip.root_motion));
+    }
+    if !clip.heights.is_empty() {
+        put("rootHeight", json!(clip.heights));
     }
     if clip.final_rotation != 0.0 {
-        obj.insert("finalRotation".into(), serde_json::json!(clip.final_rotation));
+        put("finalRotation", json!(clip.final_rotation));
     }
     if clip.move_direction != 0 {
-        obj.insert("moveDirection".into(), serde_json::json!(clip.move_direction));
+        put("moveDirection", json!(sc::name(&sc::DIRECTIONS, clip.move_direction).unwrap_or("none")));
     }
     if clip.aiming_type != 0 {
-        obj.insert("aimingType".into(), serde_json::json!(clip.aiming_type));
+        put("aimingType", json!(type_name(clip.aiming_type)));
     }
-    // Movement state-machine metadata: alternate entry states (shortcuts),
-    // direct follow-ups, atomic (uninterruptible) range, variant on exit, and
-    // the first level the clip is available on.
     if !clip.shortcuts.is_empty() {
-        let s: Vec<serde_json::Value> = clip
+        let list: Vec<_> = clip
             .shortcuts
             .iter()
-            .map(|s| serde_json::json!({ "state": s.state, "length": s.length, "flags": s.flags }))
+            .map(|s| {
+                let mut o = json!({ "fromState": state_name(s.state), "blendLength": s.length });
+                if s.flags & 1 != 0 {
+                    o["interruptsAtomic"] = json!(true);
+                }
+                o
+            })
             .collect();
-        obj.insert("shortcuts".into(), serde_json::json!(s));
+        put("shortcuts", json!(list));
     }
     if !clip.direct.is_empty() {
-        obj.insert("direct".into(), serde_json::json!(clip.direct));
+        put("direct", json!(clip.direct));
     }
-    // Always emitted: start > end means "never atomic", so omitting would
-    // silently read as atomic over [0, 0].
-    obj.insert("atomicStart".into(), serde_json::json!(clip.atomic_start));
-    obj.insert("atomicEnd".into(), serde_json::json!(clip.atomic_end));
-    if clip.varient_end != 0 {
-        obj.insert("varientEnd".into(), serde_json::json!(clip.varient_end));
+    if clip.atomic_start <= clip.atomic_end {
+        // An end past the last tick (the importer writes 0xFFFF) means "to
+        // the end of the clip": omitted.
+        let mut range = json!({ "start": clip.atomic_start });
+        if u32::from(clip.atomic_end) + 1 < clip.num_frames {
+            range["end"] = json!(clip.atomic_end);
+        }
+        put("atomic", range);
+    }
+    if clip.invulnerable_length != 0 {
+        put(
+            "invulnerable",
+            json!({ "start": clip.invulnerable_start, "length": clip.invulnerable_length }),
+        );
     }
     if clip.first_level != 0 {
-        obj.insert("firstLevel".into(), serde_json::json!(clip.first_level));
+        put("firstLevel", json!(clip.first_level));
+    }
+    if clip.end_interpolation != 0 {
+        put("endBlend", json!(clip.end_interpolation));
+    }
+    if clip.max_interpolation != u16::MAX {
+        put("maxBlendIn", json!(clip.max_interpolation)); // absent = no cap
+    }
+    if clip.hard_pause != 0 {
+        put("hardPause", json!(clip.hard_pause));
+    }
+    if clip.soft_pause != 0 {
+        put("softPause", json!(clip.soft_pause));
+    }
+    // The importer's "none" sentinels are -1 / 0xFFFF: omit those.
+    if clip.action_frame >= 0 {
+        put("actionFrame", json!(clip.action_frame));
+    }
+    if let Some(v) = sc::name(&sc::VOCALIZATIONS, clip.vocalization_type) {
+        put("vocalization", json!(v));
+    }
+    if !clip.attacks.is_empty() {
+        let attacks: Vec<_> = clip
+            .attacks
+            .iter()
+            .map(|a| {
+                let mut o = json!({
+                    "damageWindow": { "start": a.first_damage_frame, "end": a.last_damage_frame },
+                    "damage": a.damage,
+                    "knockback": a.knockback,
+                    "strikingParts": sc::bit_names(&sc::BODY_PARTS, a.damage_bits),
+                    "precedence": a.precedence,
+                });
+                if a.damage_animation != 0 {
+                    o["reaction"] = json!(type_name(a.damage_animation));
+                }
+                if a.flags != 0 {
+                    o["flags"] = json!(sc::bit_names(&sc::ATTACK_FLAGS, a.flags));
+                }
+                for (k, v) in [("hitStun", a.hit_stun), ("blockStun", a.block_stun), ("stagger", a.stagger)] {
+                    if v != 0 {
+                        o[k] = json!(v);
+                    }
+                }
+                o
+            })
+            .collect();
+        put("attacks", json!(attacks));
+    }
+    if let Some(t) = &clip.throw {
+        put(
+            "throw",
+            json!({
+                "targetOffset": t.target_offset,
+                "targetFacing": t.target_facing,
+                "range": t.range,
+                "targetAnimType": type_name(t.target_anim_type),
+            }),
+        );
     }
     if !clip.self_damage.is_empty() {
         let list: Vec<_> = clip
             .self_damage
             .iter()
-            .map(|&(tick, damage)| serde_json::json!({ "tick": tick, "damage": damage }))
+            .map(|&(tick, damage)| json!({ "tick": tick, "damage": damage }))
             .collect();
-        obj.insert("selfDamage".into(), serde_json::json!(list));
+        put("selfDamage", json!(list));
     }
-    if let Some(t) = &clip.throw {
-        obj.insert(
-            "throw".into(),
-            serde_json::json!({
-                "targetOffset": t.target_offset,
-                "targetFacing": t.target_facing,
-                "range": t.range,
-                "targetAnimType": t.target_anim_type,
-            }),
-        );
-    }
-    // `vocalizationType` and `actionFrame` default to a "none" sentinel in the
-    // original importer (`(UUtUns16)-1` and `-1`); omit those, emit real values.
-    if clip.vocalization_type != u16::MAX {
-        obj.insert(
-            "vocalizationType".into(),
-            serde_json::json!(clip.vocalization_type),
-        );
-    }
-    if clip.hard_pause != 0 {
-        obj.insert("hardPause".into(), serde_json::json!(clip.hard_pause));
-    }
-    if clip.soft_pause != 0 {
-        obj.insert("softPause".into(), serde_json::json!(clip.soft_pause));
-    }
-    if clip.action_frame >= 0 {
-        obj.insert("actionFrame".into(), serde_json::json!(clip.action_frame));
-    }
-    if clip.invulnerable_length != 0 {
-        obj.insert(
-            "invulnerableStart".into(),
-            serde_json::json!(clip.invulnerable_start),
-        );
-        obj.insert(
-            "invulnerableLength".into(),
-            serde_json::json!(clip.invulnerable_length),
-        );
-    }
-    if clip.end_interpolation != 0 {
-        obj.insert(
-            "endInterp".into(),
-            serde_json::json!(clip.end_interpolation),
-        );
-    }
-    if clip.max_interpolation != 0 {
-        obj.insert(
-            "maxInterp".into(),
-            serde_json::json!(clip.max_interpolation),
-        );
-    }
-    if !clip.attacks.is_empty() {
-        let attacks: Vec<serde_json::Value> = clip
-            .attacks
-            .iter()
-            .map(|a| {
-                serde_json::json!({
-                    "damage": a.damage,
-                    "knockback": a.knockback,
-                    "firstDamageFrame": a.first_damage_frame,
-                    "lastDamageFrame": a.last_damage_frame,
-                    "damageAnimation": a.damage_animation,
-                    "hitStun": a.hit_stun,
-                    "blockStun": a.block_stun,
-                    "stagger": a.stagger,
-                    "precedence": a.precedence,
-                    "damageBits": a.damage_bits,
-                    "attackFlags": a.flags,
-                })
-            })
-            .collect();
-        obj.insert("attacks".into(), serde_json::json!(attacks));
-    }
-    if obj.is_empty() {
-        String::new()
-    } else {
-        serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
-    }
+    serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
 }
 
+/// Emits shared animation clips as `common/animations/<name>.glb` — a named-bone
+/// reference skeleton plus the animation, retargetable by bone name.
 fn convert_animations(
     dat: &Dat<'_>,
     raw: Option<&[u8]>,
