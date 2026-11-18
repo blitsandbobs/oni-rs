@@ -17,9 +17,9 @@ cargo run --release -p oni-view -- \
 ```
 
 `--char-pos x,y,z` sets the start position (e.g. `200,20,300` for `drop.lua`).
-`--anim` only needs to point at one clip in the set; the whole `KONOKO*` set is
-loaded for the state machine (the prefix is derived from the filename, override
-with `--anim-prefix`).
+The animation set is the character class's real collection chain (`--class`,
+default `konoko_generic`); `--anim` is only used by the static viewer.
+`--faithful` reproduces the original game's known bugs (`docs/QUIRKS.md`).
 
 ## Scenarios
 
@@ -35,6 +35,8 @@ with `--anim-prefix`).
 | `jump.lua` | Jump: rises off the ground (start→air→land clips), lands grounded; a running jump carries forward momentum. |
 | `combo.lua` | Melee: punch/kick combos chain (P→PP→PPP) from the KONCOM combat set. |
 | `fight.lua` | Hit detection: spawn a training dummy, punch it — HP drops + knockback in reach, misses out of reach. |
+| `air_moves.lua` | The combat jump: punch / kick / crouch-tap in the air play the jump punch, jump kick and flip. |
+| `ground_moves.lua` | Crouch, crouch-run, the roll (crouch tap mid-run), and a sideways jump out of a sidestep. |
 
 ## Lua API
 
@@ -42,9 +44,13 @@ with `--anim-prefix`).
 |------|--------|
 | `input(forward, backward)` | Set the move keys (W/S). |
 | `strafe(left, right)` | Set the strafe keys (A/D sidestep). |
-| `walk(on)` | The hold-to-walk modifier. |
-| `jump()` / `airborne()` | Queue a jump / read whether the character is in the air. |
-| `punch()` / `kick()` | Queue a melee attack (combos chain via the table). |
+| `walk(on)` / `crouch(on)` | Hold the walk / crouch modifier. |
+| `jump()` / `airborne()` | Tap jump / read whether the character is in the air. |
+| `punch()` / `kick()` / `crouch_tap()` | Tap a button (held for the next tick only; mash with a gap tick between taps). |
+| `state()` / `anim_type()` | The body state / current animation type (numbers, see `anim/types.rs`). |
+| `aim_deg()` | The aim direction (desired facing without the diagonal / sidestep body lean). |
+| `faithful(on)` | Reproduce the original's known bugs (`docs/QUIRKS.md`). |
+| `seed(n)` | Reseed the weighted animation pick for repeatable runs. |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |

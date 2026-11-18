@@ -30,12 +30,14 @@ local p3 = anim()
 print(string.format("punch chain: %s -> %s -> %s", p1, p2, p3))
 assert(p1:find("comb_p") or p1:find("punch"), "a punch clip started, got " .. p1)
 
--- Drive a full held-punch chain and confirm all three combo clips appear.
+-- Mash punch (press, release, press, …) and confirm all three combo clips
+-- appear. A press only counts when the button went down this tick, so the
+-- mash leaves a released tick between presses, like real button-mashing.
 step(60) -- idle out the combo-drop window
 local seen_p, seen_pp, seen_ppp = false, false, false
-for _ = 1, 200 do
+for _ = 1, 100 do
     punch()
-    step(1)
+    step(2)
     local a = anim()
     if a == "KONCOMcomb_p" then seen_p = true end
     if a == "KONCOMcomb_p_p" then seen_pp = true end

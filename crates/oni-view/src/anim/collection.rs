@@ -264,6 +264,19 @@ impl AnimCollection {
     /// One link's scan plus the "ask the rest of the chain" step.
     fn scan(&self, l: usize, anim_type: u16, from_state: u16, varient: u16) -> Option<usize> {
         let link = &self.links[l];
+        if anim_type == crate::anim::types::ty::NONE {
+            // No particular type requested: the first eligible clip that starts
+            // from this state, of any type.
+            let any = link.parts.iter().find(|p| {
+                let c = &self.entries[p.clip].clip;
+                p.from_state == from_state
+                    && c.varient & !varient == 0
+                    && c.first_level <= self.level
+            });
+            return any
+                .map(|p| p.clip)
+                .or_else(|| link.next.and_then(|n| self.lookup_from(n, anim_type, from_state, varient)));
+        }
         let key = (u32::from(anim_type) << 16) | u32::from(from_state);
         let start = link.parts.partition_point(|p| self.key(p) < key);
 
@@ -350,19 +363,6 @@ impl AnimCollection {
         }
     }
 
-    /// TEMPORARY (removed when the probe chain lands): first clip of a type
-    /// with a compatible variant, ignoring state — used only by the legacy
-    /// `anim_state::Locomotion` jump/land forcing.
-    pub fn lookup_any(&self, anim_type: u16, varient: u16) -> Option<usize> {
-        self.entries
-            .iter()
-            .position(|e| e.clip.anim_type == anim_type && e.clip.varient & !varient == 0)
-    }
-
-    /// Index of a clip by instance name (tests / debug).
-    pub fn find(&self, name: &str) -> Option<usize> {
-        self.entries.iter().position(|e| e.name == name)
-    }
 }
 
 #[cfg(test)]

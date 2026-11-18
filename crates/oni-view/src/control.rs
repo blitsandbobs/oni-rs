@@ -17,34 +17,6 @@ pub const SLOW_TURN: f32 = PI * 1.5 / 120.0;
 /// Pending-turn threshold past which a turn-in-place clip plays
 /// (Oni `ONgAimingWidth` = 70°); smaller turns just slew.
 pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
-/// Upward launch velocity for a jump (units/tick) — Konoko's `ONCC` air-constant
-/// `jumpAmount` (decoded). With the physics `JUMP_GRAVITY` this gives a ~10-unit,
-/// ~0.6s floaty arc, matching Oni. Per-character plumbing is a follow-up.
-pub const JUMP_SPEED: f32 = 1.1;
-
-/// The world-movement yaw offset for a diagonal strafe: forward/back combined
-/// with exactly one step key moves at ±45° toward the step side. 0 for
-/// non-diagonal input.
-///
-/// Sign is set by our camera/world basis, not Oni's: `camera.right()` is
-/// `forward × Y`, which is `-X` at yaw 0, so **+X is screen-left**. A left step
-/// must angle the forward move toward +X, i.e. a **positive** yaw offset
-/// (`Quat::from_rotation_y(+π/4)` sends forward `+Z` toward `+X`); a right step
-/// is negative. Moving backward flips the forward vector, so it reverses the
-/// lateral sense too.
-pub fn diagonal_strafe_offset(forward: bool, backward: bool, left: bool, right: bool) -> f32 {
-    if (forward ^ backward) && (left ^ right) {
-        let s = if left { PI / 4.0 } else { -PI / 4.0 };
-        if backward {
-            -s
-        } else {
-            s
-        }
-    } else {
-        0.0
-    }
-}
-
 /// Wraps an angle into `[0, 2π)` (Oni's `UUmTrig_Clip`).
 fn wrap_2pi(a: f32) -> f32 {
     let m = a % TAU;
@@ -120,22 +92,37 @@ impl Facing {
         facing_to_desired
     }
 
-    /// Advances `facing` toward `desired_facing` by at most `cap` radians this
-    /// tick (Oni's `HandleTurning` slew).
-    pub fn turn_toward(&mut self, cap: f32) {
-        let offset = self.desired_offset();
-        let turn = if offset > 0.0 {
-            offset.min(cap)
-        } else {
-            offset.max(-cap)
-        };
-        self.facing = wrap_2pi(self.facing + turn);
+    /// Turns the body by `amount` radians (positive = left).
+    pub fn rotate(&mut self, amount: f32) {
+        self.facing = wrap_2pi(self.facing + amount);
+    }
+
+    /// Sets the facing modifier: the body is asked to face `modifier` away
+    /// from the aim direction (a diagonal run leans the body ±45°, a turned
+    /// sidestep ±90°). The aim direction itself does not move.
+    pub fn set_modifier(&mut self, modifier: f32) {
+        let delta = modifier - self.facing_modifier;
+        self.facing_modifier = modifier;
+        self.adjust_desired(delta);
+    }
+
+    /// Where the player is aiming: the desired facing without the modifier.
+    /// The follow camera tracks this, so diagonal runs don't swing the view.
+    pub fn aim(&self) -> f32 {
+        wrap_2pi(self.desired_facing - self.facing_modifier)
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// One capped slew toward the desired facing (what the decision step's
+    /// steer does for a free-turning clip).
+    fn slew(f: &mut Facing, cap: f32) {
+        let off = f.desired_offset();
+        f.rotate(if off > 0.0 { off.min(cap) } else { off.max(-cap) });
+    }
 
     fn approx(a: f32, b: f32) -> bool {
         rel_angle(a - b).abs() < 1e-4
@@ -147,11 +134,11 @@ mod tests {
         f.adjust_desired(1.0); // desire 1 rad to the left
         assert!((f.desired_facing - 1.0).abs() < 1e-5);
         // One capped step moves part-way, not all the way.
-        f.turn_toward(0.3);
+        slew(&mut f, 0.3);
         assert!(approx(f.facing, 0.3), "facing {}", f.facing);
         // Several steps converge exactly onto the target.
         for _ in 0..10 {
-            f.turn_toward(0.3);
+            slew(&mut f, 0.3);
         }
         assert!(approx(f.facing, 1.0), "facing {}", f.facing);
     }
@@ -163,32 +150,26 @@ mod tests {
         f.desired_facing = TAU - 0.1;
         let off = f.desired_offset();
         assert!(off < 0.0 && off.abs() < 0.5, "offset {off}");
-        f.turn_toward(0.05);
+        slew(&mut f, 0.05);
         // Moved negative (wrapped), toward the target the short way.
         assert!(approx(f.facing, 0.05), "facing {}", f.facing);
     }
 
     #[test]
-    fn diagonal_offset_only_for_fwd_back_plus_one_step() {
-        let q = PI / 4.0;
-        // Pure forward or pure strafe → no offset.
-        assert_eq!(diagonal_strafe_offset(true, false, false, false), 0.0);
-        assert_eq!(diagonal_strafe_offset(false, false, false, true), 0.0);
-        // Forward + a step → ±45°, opposite signs for left vs right. +X is
-        // screen-left in our basis, so a left step is +q (toward +X), right −q.
-        assert!((diagonal_strafe_offset(true, false, true, false) - q).abs() < 1e-6);
-        assert!((diagonal_strafe_offset(true, false, false, true) + q).abs() < 1e-6);
-        // Backward negates the lateral sense.
-        assert!((diagonal_strafe_offset(false, true, false, true) - q).abs() < 1e-6);
-        // Both steps cancel → no diagonal.
-        assert_eq!(diagonal_strafe_offset(true, false, true, true), 0.0);
+    fn modifier_leans_the_body_but_not_the_aim() {
+        let mut f = Facing::new(0.0);
+        f.set_modifier(PI / 4.0);
+        assert!(approx(f.desired_facing, PI / 4.0), "body asked to lean 45° left");
+        assert!(approx(f.aim(), 0.0), "aim unchanged");
+        f.set_modifier(0.0);
+        assert!(approx(f.desired_facing, 0.0), "clearing the modifier undoes the lean");
     }
 
     #[test]
     fn reaches_target_without_overshoot() {
         let mut f = Facing::new(0.0);
         f.adjust_desired(0.02);
-        f.turn_toward(0.1); // cap larger than the remaining offset
+        slew(&mut f, 0.1); // cap larger than the remaining offset
         assert!(approx(f.facing, 0.02), "facing {}", f.facing);
     }
 }

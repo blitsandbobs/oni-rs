@@ -32,10 +32,6 @@ struct PlayWorld {
     /// Player capsule height (for the follow camera framing).
     player_height: f32,
     accum: f32,
-    /// Jump/punch/kick key state last frame (for press edges).
-    jump_down_prev: bool,
-    punch_down_prev: bool,
-    kick_down_prev: bool,
 }
 
 const TICK: f32 = 1.0 / 60.0;
@@ -74,21 +70,38 @@ pub struct App {
     eye: Option<Vec3>,
     target: Option<Vec3>,
     play: bool,
-    anims: Option<std::rc::Rc<crate::anim_state::AnimCollection>>,
+    anims: Option<std::rc::Rc<crate::anim::collection::AnimCollection>>,
+    class_tuning: crate::anim::motion::ClassTuning,
+    faithful: bool,
     state: Option<State>,
 }
 
+/// Play-mode settings: whether to run the character controller, and what it
+/// drives the character with.
+pub struct PlaySetup {
+    /// Enable the third-person character controller (needs a character).
+    pub play: bool,
+    pub anims: Option<std::rc::Rc<crate::anim::collection::AnimCollection>>,
+    pub class_tuning: crate::anim::motion::ClassTuning,
+    /// Reproduce the original's known bugs (`docs/QUIRKS.md`).
+    pub faithful: bool,
+}
+
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
-/// `play` enables the third-person character controller (needs a character).
 pub fn run(
     scene: Scene,
     charview: Option<crate::CharView>,
     particles: Vec<crate::particles::Particle>,
     eye: Option<Vec3>,
     target: Option<Vec3>,
-    play: bool,
-    anims: Option<std::rc::Rc<crate::anim_state::AnimCollection>>,
+    setup: PlaySetup,
 ) {
+    let PlaySetup {
+        play,
+        anims,
+        class_tuning,
+        faithful,
+    } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
     let mut app = App {
@@ -99,6 +112,8 @@ pub fn run(
         target,
         play,
         anims,
+        class_tuning,
+        faithful,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -161,9 +176,13 @@ impl ApplicationHandler for App {
                         model,
                         character: std::rc::Rc::new(character),
                         anims,
+                        tuning: self.class_tuning,
                     };
                     let (verts, idx) = crate::level_collision_mesh(&scene);
                     let mut world = crate::world::World::new(verts, idx);
+                    if self.faithful {
+                        world.set_quirks(crate::quirks::Quirks::FAITHFUL);
+                    }
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
@@ -181,9 +200,6 @@ impl ApplicationHandler for App {
                             mouse_dy: 0.0,
                             player_height,
                             accum: 0.0,
-                            jump_down_prev: false,
-                            punch_down_prev: false,
-                            kick_down_prev: false,
                         }),
                     )
                 }
@@ -376,17 +392,23 @@ impl State {
                 .filter_map(|&k| to_config_key(k))
                 .any(|k| self.bindings.key_action(k) == Some(a))
         };
-        let jump_held = held(Action::Jump);
-        let punch_held = held(Action::Punch);
-        let kick_held = held(Action::Kick);
-        let mv = crate::anim_state::Input {
-            forward: held(Action::Forward),
-            backward: held(Action::Backward),
-            step_left: held(Action::StepLeft),
-            step_right: held(Action::StepRight),
-            walk: held(Action::Walk),
-            ..Default::default()
-        };
+        use crate::anim::input::key;
+        let mut controls = 0u32;
+        for (action, bit) in [
+            (Action::Forward, key::FORWARD),
+            (Action::Backward, key::BACKWARD),
+            (Action::StepLeft, key::STEP_LEFT),
+            (Action::StepRight, key::STEP_RIGHT),
+            (Action::Walk, key::WALK),
+            (Action::Crouch, key::CROUCH),
+            (Action::Jump, key::JUMP),
+            (Action::Punch, key::PUNCH),
+            (Action::Kick, key::KICK),
+        ] {
+            if held(action) {
+                controls |= bit;
+            }
+        }
         let tuning = self.tuning;
         let sens = MOUSE_SENS * tuning.mouse_sensitivity;
 
@@ -408,31 +430,16 @@ impl State {
         pw.aiming_ud = (pw.aiming_ud + dy * sens)
             .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
 
-        // One-shot jump/punch/kick on each key's press edge.
-        let mut jump_edge = jump_held && !pw.jump_down_prev;
-        let mut punch_edge = punch_held && !pw.punch_down_prev;
-        let mut kick_edge = kick_held && !pw.kick_down_prev;
-        pw.jump_down_prev = jump_held;
-        pw.punch_down_prev = punch_held;
-        pw.kick_down_prev = kick_held;
-
         pw.accum += dt;
         while pw.accum >= TICK {
             pw.accum -= TICK;
-            let mut player_mv = mv;
-            player_mv.punch = punch_edge;
-            player_mv.kick = kick_edge;
-            let jmp = jump_edge;
-            punch_edge = false;
-            kick_edge = false;
-            jump_edge = false;
-
-            // Drive the player (fighter 0), then the dummies (idle; AI later).
+            // The player from the controls; dummies stand idle (AI later).
+            // Press edges are derived per tick inside each fighter.
             if let Some(player) = pw.world.fighters.first_mut() {
-                player.tick(player_mv, jmp);
+                player.tick(controls);
             }
             for f in pw.world.fighters.iter_mut().skip(1) {
-                f.tick(crate::anim_state::Input::default(), false);
+                f.tick(0);
             }
             // Melee connects between fighters.
             pw.world.resolve_hits();
@@ -441,7 +448,9 @@ impl State {
         // Third-person follow camera (behind + above the player, at the torso).
         if let Some(player) = pw.world.player() {
             let feet = player.feet();
-            let yaw = player.facing.facing;
+            // Follow the aim, not the body: a diagonal run leans the body
+            // 45° but the view stays put.
+            let yaw = player.facing.aim();
             let height = pw.player_height;
             let center = feet + Vec3::new(0.0, height * 0.55, 0.0);
             let fwd = Vec3::new(yaw.sin(), 0.0, yaw.cos());

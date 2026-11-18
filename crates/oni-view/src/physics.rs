@@ -1,31 +1,17 @@
-//! Kinematic character physics (engine milestone **E3**), via Rapier.
+//! Character collision against the level (engine milestone **E3**), via Rapier.
 //!
-//! Matches Oni's model (see `ENGINE_NOTES.md` §3–4): the character is a capsule
-//! moved by a velocity = **horizontal intent (from animation root motion) +
-//! gravity**, resolved by **move-and-slide** against the level mesh. We use
-//! Rapier's `KinematicCharacterController` (the same move-and-slide + ground
-//! detection category as Oni's `OBrPhysics_Update_Reflect`), with the static
-//! level as a trimesh collider. The character is controller-driven (not a
-//! dynamic body), so no rigid-body step is needed — just per-tick `move_shape`.
+//! This layer only *resolves* motion: the character model decides how far to
+//! move each tick (animation root motion on the ground; its own air velocity
+//! and gravity when airborne — see `fighter.rs`), and `slide` moves the capsule
+//! by that amount, sliding along walls and floors (Rapier's
+//! `KinematicCharacterController`, the same move-and-slide category as Oni's
+//! physics). `ground_below` answers how far the floor is under the feet, which
+//! the character uses to stick to slopes and to notice walking off a ledge.
 
 use glam::Vec3;
 use rapier3d::control::{CharacterLength, KinematicCharacterController};
 use rapier3d::na::{Isometry3, Point3, Translation3, Vector3};
 use rapier3d::prelude::*;
-
-// Vertical tuning — Konoko's `ONCC` air constants (decoded via
-// `oni_geom::charclass::AirConstants`, offset 0). Oni uses a gentle gravity for
-// the floaty jump arc and a stronger one for ordinary falls. These are her
-// values; per-character plumbing (ONCC → oni-view) is a follow-up.
-/// Per-tick downward acceleration while in a jump (`jumpGravity`).
-const JUMP_GRAVITY: f32 = 0.06;
-/// Per-tick downward acceleration while falling (`fallGravity`).
-const FALL_GRAVITY: f32 = 0.55;
-/// Terminal fall speed (units/tick), from `maxVelocity`.
-const MAX_FALL: f32 = 4.0;
-/// Small downward "stick" velocity while grounded, so ground contact keeps
-/// being detected (the collision stops it, so it doesn't actually sink).
-const GROUND_STICK: f32 = 1.0;
 
 pub struct Physics {
     bodies: RigidBodySet,
@@ -36,15 +22,12 @@ pub struct Physics {
     half_height: f32,
     /// Character **feet** position in world space.
     pub feet: Vec3,
-    /// Downward velocity (units/tick), 0 when grounded.
-    vel_y: f32,
+    /// Whether the last `slide` ended standing on something.
     pub grounded: bool,
-    /// In a jump (use the gentle `JUMP_GRAVITY` for the arc, not `FALL_GRAVITY`).
-    jumping: bool,
 }
 
 impl Physics {
-    /// Builds the physics world from the level's triangles and a character of
+    /// Builds the collision world from the level's triangles and a character of
     /// the given total height / radius, with feet starting at `feet`.
     pub fn new(
         level_positions: &[[f32; 3]],
@@ -77,11 +60,11 @@ impl Physics {
             radius,
         );
 
-        // Snap to ground within a small distance so the character sticks to
-        // floors/steps instead of hopping off edges.
+        // No snap-to-ground: the character model supplies its own downward
+        // stick each grounded tick (so walking off a ledge is detectable).
         let controller = KinematicCharacterController {
             up: Vector3::y_axis(),
-            snap_to_ground: Some(CharacterLength::Absolute(0.5)),
+            snap_to_ground: None,
             offset: CharacterLength::Absolute(0.05),
             ..KinematicCharacterController::default()
         };
@@ -94,23 +77,7 @@ impl Physics {
             capsule,
             half_height,
             feet,
-            vel_y: 0.0,
             grounded: false,
-            jumping: false,
-        }
-    }
-
-    /// Launches a jump: if currently grounded, sets an upward velocity (gravity
-    /// then shapes the arc in `step`) and leaves the ground. Returns whether the
-    /// jump fired (ignored mid-air — no double jump).
-    pub fn jump(&mut self, speed: f32) -> bool {
-        if self.grounded {
-            self.vel_y = speed;
-            self.grounded = false;
-            self.jumping = true;
-            true
-        } else {
-            false
         }
     }
 
@@ -120,51 +87,47 @@ impl Physics {
         Isometry3::from(Translation3::new(c.x, c.y, c.z))
     }
 
-    /// Advances one 60 Hz tick: `horizontal` is the desired in-plane move this
-    /// tick (from animation root motion / input); gravity and collision are
-    /// applied. Returns the new feet position.
-    pub fn step(&mut self, horizontal: Vec3) -> Vec3 {
-        // Vertical velocity: a small down-stick when grounded (keeps ground
-        // contact detected), else gravity accelerates the fall — the gentle
-        // jump gravity while in a jump arc, the stronger fall gravity otherwise.
-        self.vel_y = if self.grounded {
-            -GROUND_STICK
-        } else {
-            let g = if self.jumping {
-                JUMP_GRAVITY
-            } else {
-                FALL_GRAVITY
-            };
-            (self.vel_y - g).max(-MAX_FALL)
-        };
-
-        let desired = Vector3::new(horizontal.x, self.vel_y, horizontal.z);
+    /// Moves the character by `delta` (world units this tick, vertical
+    /// included), sliding along the level. Returns whether it ended grounded:
+    /// standing on a floor, or a downward move that the floor stopped.
+    pub fn slide(&mut self, delta: Vec3) -> bool {
         let movement = self.controller.move_shape(
-            1.0, // dt in ticks: velocities are already per-tick
+            1.0, // dt in ticks: the delta is already per-tick
             &self.bodies,
             &self.colliders,
             &self.query,
             &self.capsule,
             &self.capsule_iso(),
-            desired,
+            Vector3::new(delta.x, delta.y, delta.z),
             QueryFilter::default(),
             |_| {},
         );
-
         self.feet += Vec3::new(
             movement.translation.x,
             movement.translation.y,
             movement.translation.z,
         );
-        // Grounded when the controller says so, or when a downward move was
-        // blocked by collision (we wanted to fall but barely moved down).
-        let wanted_down = self.vel_y < 0.0;
-        let blocked_down = wanted_down && movement.translation.y > self.vel_y * 0.5;
+        let blocked_down = delta.y < 0.0 && movement.translation.y > delta.y * 0.5;
         self.grounded = movement.grounded || blocked_down;
-        if self.grounded {
-            self.jumping = false; // landed → back to fall gravity
-        }
-        self.feet
+        self.grounded
+    }
+
+    /// Distance from the feet straight down to the level, if within `max`.
+    pub fn ground_below(&self, max: f32) -> Option<f32> {
+        // Start slightly above the feet so a floor we are standing on counts.
+        let lift = 0.5;
+        let origin = Point3::new(self.feet.x, self.feet.y + lift, self.feet.z);
+        let ray = Ray::new(origin, Vector3::new(0.0, -1.0, 0.0));
+        self.query
+            .cast_ray(
+                &self.bodies,
+                &self.colliders,
+                &ray,
+                max + lift,
+                true,
+                QueryFilter::default(),
+            )
+            .map(|(_, toi)| (toi - lift).max(0.0))
     }
 }
 
@@ -199,78 +162,60 @@ mod tests {
         (v, i)
     }
 
+    /// Falls under a simple per-tick gravity until grounded.
+    fn settle(p: &mut Physics) {
+        let mut vy = 0.0f32;
+        for _ in 0..300 {
+            vy = (vy - 0.06).max(-4.0);
+            if p.slide(Vec3::new(0.0, vy, 0.0)) {
+                vy = 0.0;
+            }
+        }
+    }
+
     #[test]
     fn drops_and_lands_grounded() {
         let (v, i) = floor();
         let mut p = Physics::new(&v, &i, Vec3::new(0.0, 20.0, 0.0), 4.0, 0.7);
-        for _ in 0..200 {
-            p.step(Vec3::ZERO);
-        }
+        settle(&mut p);
         assert!(p.grounded, "settles grounded after falling");
-        assert!(
-            p.feet.y.abs() < 0.3,
-            "feet rest at floor level, got {}",
-            p.feet.y
-        );
+        assert!(p.feet.y.abs() < 0.3, "feet rest at floor level, got {}", p.feet.y);
     }
 
     #[test]
     fn walks_freely_on_open_floor() {
         let (v, i) = floor();
         let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
-        for _ in 0..10 {
-            p.step(Vec3::ZERO); // settle
-        }
+        settle(&mut p);
         let x0 = p.feet.x;
         for _ in 0..30 {
-            p.step(Vec3::new(0.3, 0.0, 0.0)); // move +x across open floor
+            p.slide(Vec3::new(0.3, -0.5, 0.0)); // move +x with a ground stick
         }
         assert!(p.feet.x - x0 > 5.0, "moved freely, dx = {}", p.feet.x - x0);
         assert!(p.feet.y.abs() < 0.3, "stays on the floor while moving");
+        assert!(p.grounded);
     }
 
     #[test]
-    fn jump_rises_then_lands_grounded() {
+    fn upward_move_leaves_the_ground() {
         let (v, i) = floor();
         let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
-        for _ in 0..10 {
-            p.step(Vec3::ZERO); // settle on the floor
-        }
-        assert!(p.grounded, "grounded before the jump");
-        assert!(p.jump(1.1), "jump fires from the ground"); // Konoko jumpAmount
-        assert!(!p.grounded, "left the ground");
-        // Rises above the floor over the (floaty) arc.
-        let mut peak = p.feet.y;
-        for _ in 0..80 {
-            p.step(Vec3::ZERO);
-            peak = peak.max(p.feet.y);
-        }
-        assert!(peak > 3.0, "the jump gains height, peak = {peak}");
-        // A second jump mid-air is ignored (no double jump) while airborne.
-        // Eventually lands back on the floor.
-        assert!(p.grounded, "lands back on the ground, feet.y = {}", p.feet.y);
-        assert!(p.feet.y.abs() < 0.3, "rests at floor level after landing");
+        settle(&mut p);
+        assert!(!p.slide(Vec3::new(0.0, 1.0, 0.0)), "moving up is not grounded");
+        assert!(p.feet.y > 0.5, "rose off the floor");
+        let below = p.ground_below(4.0).expect("floor within reach");
+        assert!((below - p.feet.y).abs() < 0.2, "ground distance {below} ≈ height {}", p.feet.y);
     }
 
     #[test]
     fn wall_blocks_and_does_not_tunnel() {
         let (v, i) = floor_and_wall(); // wall at x = 5
         let mut p = Physics::new(&v, &i, Vec3::ZERO, 4.0, 0.7);
-        for _ in 0..10 {
-            p.step(Vec3::ZERO);
-        }
+        settle(&mut p);
         for _ in 0..60 {
-            p.step(Vec3::new(0.5, 0.0, 0.0)); // push hard into the +x wall (30u desired)
+            p.slide(Vec3::new(0.5, -0.5, 0.0)); // push hard into the +x wall
         }
-        assert!(
-            p.feet.x > 3.0,
-            "advanced toward the wall, got x = {}",
-            p.feet.x
-        );
-        assert!(
-            p.feet.x < 6.0,
-            "stopped at the wall, no tunnelling, got x = {}",
-            p.feet.x
-        );
+        assert!(p.feet.x > 3.0, "advanced toward the wall, got x = {}", p.feet.x);
+        assert!(p.feet.x < 6.0, "stopped at the wall, no tunnelling, got x = {}", p.feet.x);
     }
 }

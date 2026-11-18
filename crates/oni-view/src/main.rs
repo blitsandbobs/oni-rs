@@ -14,7 +14,6 @@
 //! ```
 
 mod anim;
-mod anim_state;
 mod app;
 mod camera;
 mod control;
@@ -22,6 +21,7 @@ mod fighter;
 mod gltf;
 mod particles;
 mod physics;
+mod quirks;
 mod render;
 mod script;
 mod skel;
@@ -98,11 +98,13 @@ fn main() {
     let mut play = false;
     let mut class_name = String::from("konoko_generic");
     let mut level_number: Option<u16> = None;
+    let mut faithful = false;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
             "--play" => play = true,
             "--class" => class_name = args.next().unwrap_or(class_name),
+            "--faithful" => faithful = true,
             "--level" => level_number = args.next().and_then(|s| s.parse().ok()),
             "--script" => script_path = args.next().map(PathBuf::from),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
@@ -178,12 +180,15 @@ fn main() {
     // Play / script mode: load the character class's animation collection — its
     // real `TRAC` chain (`--class`, default Konoko) — once, shared (`Rc`) across
     // every fighter spawned from this character (player + dummies).
+    let mut class_tuning = anim::motion::ClassTuning::default();
     let anims = if play || script_path.is_some() {
         let oni_root = oni_root_from(&scene_path);
         let level = level_number.unwrap_or_else(|| level_from(&scene_path));
         let anim_dir = oni_root.join("common/animations");
-        match class_collection(&oni_root, &class_name) {
-            Some(coll_name) => match anim::collection::AnimCollection::load(&anim_dir, &coll_name, level) {
+        match class_info(&oni_root, &class_name) {
+            Some((coll_name, tuning)) => {
+                class_tuning = tuning;
+                match anim::collection::AnimCollection::load(&anim_dir, &coll_name, level) {
                 Ok(coll) => {
                     eprintln!(
                         "play: class {class_name} → {coll_name}: {} clips (level {level})",
@@ -195,7 +200,8 @@ fn main() {
                     eprintln!("play: cannot load collection {coll_name}: {e}");
                     None
                 }
-            },
+            }
+            }
             None => {
                 eprintln!("play: class {class_name:?} not found in classes.json");
                 None
@@ -210,7 +216,7 @@ fn main() {
     // `--sim`/`--walk`/`--facing` test flags.
     if let Some(sp) = script_path {
         match charview {
-            Some(cv) => script::run_script(&sp, scene, cv, particles, anims),
+            Some(cv) => script::run_script(&sp, scene, cv, particles, anims, class_tuning, faithful),
             None => eprintln!("--script requires --character"),
         }
         return;
@@ -227,7 +233,19 @@ fn main() {
             target,
             time,
         ),
-        None => app::run(scene, charview, particles, eye, target, play, anims),
+        None => app::run(
+            scene,
+            charview,
+            particles,
+            eye,
+            target,
+            app::PlaySetup {
+                play,
+                anims,
+                class_tuning,
+                faithful,
+            },
+        ),
     }
 }
 
@@ -264,17 +282,58 @@ fn level_from(scene: &std::path::Path) -> u16 {
         .unwrap_or(0)
 }
 
-/// The animation collection (`TRAC`) name of character class `class`, from
-/// the converter's `common/characters/classes.json`.
-fn class_collection(oni_root: &std::path::Path, class: &str) -> Option<String> {
+/// Character class `class` from the converter's
+/// `common/characters/classes.json`: its animation collection (`TRAC`) name
+/// and the tuning the movement model uses.
+fn class_info(
+    oni_root: &std::path::Path,
+    class: &str,
+) -> Option<(String, anim::motion::ClassTuning)> {
     let text = std::fs::read_to_string(oni_root.join("common/characters/classes.json")).ok()?;
     let doc: serde_json::Value = serde_json::from_str(&text).ok()?;
-    doc["classes"]
+    let c = doc["classes"]
         .as_array()?
         .iter()
-        .find(|c| c["name"].as_str() == Some(class))?["animationCollection"]
-        .as_str()
-        .map(String::from)
+        .find(|c| c["name"].as_str() == Some(class))?;
+    let coll = c["animationCollection"].as_str()?.to_string();
+    let mut t = anim::motion::ClassTuning::default();
+    let (stats, air) = (&c["stats"], &c["air"]);
+    let u = |v: &serde_json::Value| v.as_u64();
+    let f = |v: &serde_json::Value| v.as_f64().map(|x| x as f32);
+    if let Some(v) = u(&stats["fightModeDuration"]) {
+        t.fight_mode_duration = v.min(u64::from(u16::MAX)) as u16;
+    }
+    if let Some(v) = u(&stats["idleDelay"]) {
+        t.idle_delay = v as u32;
+    }
+    if let Some(v) = u(&stats["idleRestartDelay"]) {
+        t.idle_restart_delay = v as u32;
+    }
+    if let Some(v) = u(&stats["maxHitPoints"]) {
+        t.max_hit_points = v as i32;
+    }
+    if let Some(v) = f(&air["jumpGravity"]) {
+        t.jump_gravity = v;
+    }
+    if let Some(v) = f(&air["jumpAmount"]) {
+        t.jump_amount = v;
+    }
+    if let Some(v) = f(&air["maxVelocity"]) {
+        t.max_velocity = v;
+    }
+    if let Some(v) = f(&air["jumpAccelAmount"]) {
+        t.jump_accel_amount = v;
+    }
+    if let Some(v) = u(&air["numJumpAccelFrames"]) {
+        t.num_jump_accel_frames = v as u16;
+    }
+    if let Some(v) = f(&air["damageStart"]) {
+        t.damage_start = v;
+    }
+    if let Some(v) = f(&air["damageEnd"]) {
+        t.damage_end = v;
+    }
+    Some((coll, t))
 }
 
 fn parse_vec3(s: String) -> Option<Vec3> {

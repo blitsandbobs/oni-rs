@@ -12,8 +12,10 @@ use std::rc::Rc;
 
 use glam::Vec3;
 
-use crate::anim_state::AnimCollection;
+use crate::anim::collection::AnimCollection;
+use crate::anim::motion::ClassTuning;
 use crate::fighter::Fighter;
+use crate::quirks::Quirks;
 use crate::skel::Character;
 
 /// Extra melee reach beyond the two capsules' radii (Oni units) — the distance
@@ -22,11 +24,10 @@ const MELEE_REACH: f32 = 4.0;
 /// The victim must be within this cosine of the attacker's facing to be hit
 /// (`0.2` ≈ a ±78° frontal arc), so attacks only connect in front.
 const FRONT_DOT: f32 = 0.2;
-/// Scales the data `knockback` into our per-tick impulse accumulator. The
-/// primary combat feel knob: at `1.0` a single jab shoves the target clean out
-/// of combo range; `0.4` keeps a staggered target reachable for a 2–3 hit
-/// chain. Tune on playtest (the honest Oni→physics mapping is a follow-up).
-const KNOCKBACK_SCALE: f32 = 0.4;
+/// Scales an attack's data `knockback` (total shove distance). `1.0` is the
+/// original's behaviour: the shove is spent over the following ticks, a share
+/// per tick (see `Fighter::tick`). A feel knob to revisit at playtest.
+const KNOCKBACK_SCALE: f32 = 1.0;
 
 /// A spawnable character: its uploaded render model and the shared data a new
 /// instance needs. Clone-cheap (two `Rc`s + an index).
@@ -35,12 +36,16 @@ pub struct CharKind {
     pub model: usize,
     pub character: Rc<Character>,
     pub anims: Rc<AnimCollection>,
+    /// The character class's tuning (fight stance, idle, jump, fall damage).
+    pub tuning: ClassTuning,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
 /// against. Fighter 0 is the player by convention.
 pub struct World {
     pub fighters: Vec<Fighter>,
+    /// Reproduce the original's known bugs (`--faithful`)?
+    pub quirks: Quirks,
     level_positions: Vec<[f32; 3]>,
     level_indices: Vec<u32>,
 }
@@ -50,6 +55,7 @@ impl World {
     pub fn new(level_positions: Vec<[f32; 3]>, level_indices: Vec<u32>) -> World {
         World {
             fighters: Vec::new(),
+            quirks: Quirks::FIXED,
             level_positions,
             level_indices,
         }
@@ -57,20 +63,33 @@ impl World {
 
     /// Spawns a fighter of `kind` with its pelvis origin at `pos`, facing
     /// `facing_yaw` (radians). `passive` marks a training dummy (no attacks).
-    /// Returns the new fighter's index.
+    /// The first fighter spawned is the player. Returns the new fighter's index.
     pub fn spawn(&mut self, kind: &CharKind, pos: Vec3, facing_yaw: f32, passive: bool) -> usize {
+        let player = self.fighters.is_empty();
         let f = Fighter::new(
             kind.model,
             kind.character.clone(),
             kind.anims.clone(),
+            kind.tuning,
             &self.level_positions,
             &self.level_indices,
             pos,
             facing_yaw,
             passive,
+            player,
+            self.quirks,
         );
         self.fighters.push(f);
         self.fighters.len() - 1
+    }
+
+    /// Switches every fighter (and future spawns) between fixed and faithful
+    /// handling of the original's known bugs.
+    pub fn set_quirks(&mut self, quirks: Quirks) {
+        self.quirks = quirks;
+        for f in &mut self.fighters {
+            f.quirks = quirks;
+        }
     }
 
     /// The player fighter (index 0), if any.

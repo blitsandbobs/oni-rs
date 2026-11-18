@@ -14,9 +14,12 @@
 //! Movement/combat below act on the **player** (fighter 0):
 //! - `input(forward, backward)` — set the move keys (W/S)
 //! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
-//! - `walk(on)` — the hold-to-walk modifier
-//! - `jump()` / `airborne()` — queue a jump / read airborne state
-//! - `punch()` / `kick()` — queue a melee attack (combos chain via the table)
+//! - `walk(on)` / `crouch(on)` — hold the walk / crouch modifier
+//! - `jump()` / `airborne()` — tap jump (one tick) / read airborne state
+//! - `punch()` / `kick()` / `crouch_tap()` — tap a button for one tick
+//! - `state()` / `anim_type()` — the body state / current animation type
+//! - `faithful(on)` — reproduce the original's known bugs (`docs/QUIRKS.md`)
+//! - `seed(n)` — reseed the weighted animation pick (repeatable runs)
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -44,7 +47,10 @@ use std::rc::Rc;
 use glam::{Mat4, Vec3};
 use mlua::Lua;
 
-use crate::anim_state::{AnimCollection, Input};
+use crate::anim::collection::AnimCollection;
+use crate::anim::input::key;
+use crate::anim::motion::ClassTuning;
+use crate::quirks::Quirks;
 use crate::camera::Camera;
 use crate::render::{CharDraw, Gpu, Renderer};
 use crate::world::{CharKind, World};
@@ -60,11 +66,10 @@ struct ScriptHost {
     world: World,
     /// The character kind new `spawn`s use (the loaded character).
     kind: CharKind,
-    /// Persistent held movement keys for the player (edges fire via `*_pending`).
-    input: Input,
-    jump_pending: bool,
-    punch_pending: bool,
-    kick_pending: bool,
+    /// Controls the player holds across steps (`anim::input::key` bits).
+    held: u32,
+    /// Buttons tapped for the next step's first tick only.
+    taps: u32,
     eye: Option<Vec3>,
     target: Option<Vec3>,
 }
@@ -75,6 +80,8 @@ impl ScriptHost {
         charview: CharView,
         particles: &[crate::particles::Particle],
         anims: Rc<AnimCollection>,
+        tuning: ClassTuning,
+        faithful: bool,
     ) -> Self {
         let gpu = pollster::block_on(Gpu::new(None));
         eprintln!("  GPU: {}", gpu.adapter.get_info().name);
@@ -88,10 +95,14 @@ impl ScriptHost {
             model,
             character: Rc::new(character),
             anims,
+            tuning,
         };
 
         let (verts, idx) = crate::level_collision_mesh(&scene);
         let mut world = World::new(verts, idx);
+        if faithful {
+            world.set_quirks(Quirks::FAITHFUL);
+        }
         // Player = fighter 0, facing +Z.
         world.spawn(&kind, spawn_pos, 0.0, false);
 
@@ -102,38 +113,37 @@ impl ScriptHost {
             scene,
             world,
             kind,
-            input: Input::default(),
-            jump_pending: false,
-            punch_pending: false,
-            kick_pending: false,
+            held: 0,
+            taps: 0,
             eye: None,
             target: None,
         }
     }
 
-    /// Advances `n` ticks: drive the player from the held input (+ one-shot
-    /// jump/punch/kick edges on the first tick), the dummies idle, then resolve
-    /// melee hits — exactly as play mode does.
+    /// Advances `n` ticks: drive the player from the held controls (plus any
+    /// tapped buttons on the first tick), the dummies idle, then resolve melee
+    /// hits — exactly as play mode does.
     fn step(&mut self, n: u32) {
-        let mut jump_edge = std::mem::take(&mut self.jump_pending);
-        let mut punch_edge = std::mem::take(&mut self.punch_pending);
-        let mut kick_edge = std::mem::take(&mut self.kick_pending);
+        let mut taps = std::mem::take(&mut self.taps);
         for _ in 0..n {
-            let mut mv = self.input;
-            mv.punch = punch_edge;
-            mv.kick = kick_edge;
-            let jmp = jump_edge;
-            punch_edge = false;
-            kick_edge = false;
-            jump_edge = false;
-
+            let controls = self.held | taps;
+            taps = 0;
             if let Some(p) = self.world.fighters.first_mut() {
-                p.tick(mv, jmp);
+                p.tick(controls);
             }
             for f in self.world.fighters.iter_mut().skip(1) {
-                f.tick(Input::default(), false);
+                f.tick(0);
             }
             self.world.resolve_hits();
+        }
+    }
+
+    /// Sets or clears held control bits.
+    fn hold(&mut self, bits: u32, on: bool) {
+        if on {
+            self.held |= bits;
+        } else {
+            self.held &= !bits;
         }
     }
 
@@ -182,13 +192,15 @@ pub fn run_script(
     charview: CharView,
     particles: Vec<crate::particles::Particle>,
     anims: Option<Rc<AnimCollection>>,
+    tuning: ClassTuning,
+    faithful: bool,
 ) {
     let Some(anims) = anims else {
         eprintln!("--script requires an animation set (none loaded)");
         return;
     };
     let host = Rc::new(RefCell::new(ScriptHost::new(
-        scene, charview, &particles, anims,
+        scene, charview, &particles, anims, tuning, faithful,
     )));
     let lua = Lua::new();
     if let Err(e) = register(&lua, &host) {
@@ -216,8 +228,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "input",
         lua.create_function(move |_, (f, b): (bool, bool)| {
             let mut host = h.borrow_mut();
-            host.input.forward = f;
-            host.input.backward = b;
+            host.hold(key::FORWARD, f);
+            host.hold(key::BACKWARD, b);
             Ok(())
         })?,
     )?;
@@ -227,8 +239,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "strafe",
         lua.create_function(move |_, (l, r): (bool, bool)| {
             let mut host = h.borrow_mut();
-            host.input.step_left = l;
-            host.input.step_right = r;
+            host.hold(key::STEP_LEFT, l);
+            host.hold(key::STEP_RIGHT, r);
             Ok(())
         })?,
     )?;
@@ -237,8 +249,61 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "walk",
         lua.create_function(move |_, on: bool| {
-            h.borrow_mut().input.walk = on;
+            h.borrow_mut().hold(key::WALK, on);
             Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "crouch",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().hold(key::CROUCH, on);
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "crouch_tap",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().taps |= key::CROUCH;
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "faithful",
+        lua.create_function(move |_, on: bool| {
+            let q = if on { Quirks::FAITHFUL } else { Quirks::FIXED };
+            h.borrow_mut().world.set_quirks(q);
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "seed",
+        lua.create_function(move |_, n: u32| {
+            h.borrow().kind.anims.seed(n);
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "state",
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow().world.player().map(|p| p.motion.state).unwrap_or(0))
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "anim_type",
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow().world.player().map(|p| p.motion.kind).unwrap_or(0))
         })?,
     )?;
 
@@ -247,7 +312,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "jump",
         lua.create_function(move |_, ()| {
-            h.borrow_mut().jump_pending = true;
+            h.borrow_mut().taps |= key::JUMP;
             Ok(())
         })?,
     )?;
@@ -256,7 +321,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "airborne",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow().world.player().map(|p| p.airborne).unwrap_or(false))
+            Ok(h.borrow().world.player().map(|p| p.airborne()).unwrap_or(false))
         })?,
     )?;
 
@@ -265,7 +330,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "punch",
         lua.create_function(move |_, ()| {
-            h.borrow_mut().punch_pending = true;
+            h.borrow_mut().taps |= key::PUNCH;
             Ok(())
         })?,
     )?;
@@ -274,7 +339,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "kick",
         lua.create_function(move |_, ()| {
-            h.borrow_mut().kick_pending = true;
+            h.borrow_mut().taps |= key::KICK;
             Ok(())
         })?,
     )?;
@@ -313,6 +378,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .world
                 .player()
                 .map(|p| p.facing.facing.to_degrees())
+                .unwrap_or(0.0))
+        })?,
+    )?;
+
+    // The aim direction: where the player points, without the body lean a
+    // diagonal run or turned sidestep adds.
+    let h = host.clone();
+    g.set(
+        "aim_deg",
+        lua.create_function(move |_, ()| {
+            Ok(h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.facing.aim().to_degrees())
                 .unwrap_or(0.0))
         })?,
     )?;
@@ -383,7 +463,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .world
                 .fighters
                 .get(id)
-                .map(|f| f.loco.clip_name().to_string())
+                .map(|f| f.motion.name().to_string())
                 .unwrap_or_default())
         })?,
     )?;
@@ -441,7 +521,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .borrow()
                 .world
                 .player()
-                .and_then(|p| p.loco.blend())
+                .and_then(|p| p.motion.blend_pose())
                 .map(|(_, t)| t)
                 .unwrap_or(0.0))
         })?,
@@ -455,7 +535,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .borrow()
                 .world
                 .player()
-                .map(|p| p.loco.clip_name().to_string())
+                .map(|p| p.motion.name().to_string())
                 .unwrap_or_default())
         })?,
     )?;

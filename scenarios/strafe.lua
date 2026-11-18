@@ -29,7 +29,8 @@ cam(x1 + 2, 10, z1 - 14,  x1, 6, z1)
 screenshot("/tmp/oni_strafe.png", 760, 900)
 
 -- Diagonal strafe: forward + step-right travels forward AND to the player's
--- right, playing the forward run clip, body still facing forward. "Right" is
+-- right, playing the forward run clip. As in Oni, the body leans into the
+-- diagonal (a -45° facing modifier) while the aim — and the camera — stays put. "Right" is
 -- camera.right() = forward × Y = -X at yaw 0, so the move is -X (toward the
 -- player's right) and +Z (forward) — NOT +X (that would be screen-left).
 facing(0)
@@ -43,7 +44,11 @@ print(string.format("diagonal fwd+right: dX=%.1f dZ=%.1f anim=%s", ddx, ddz, ani
 assert(ddx < -3.0 and ddz > 3.0,
     "travels diagonally forward-right (-X and +Z): dX=" .. ddx .. " dZ=" .. ddz)
 assert(anim():find("run") ~= nil, "diagonal uses a run clip, got " .. anim())
-assert(math.abs(facing_deg()) < 5.0, "body still faces forward during diagonal")
+local lean = facing_deg()
+if lean > 180 then lean = lean - 360 end
+print(string.format("diagonal fwd+right: body %.1f°, aim %.1f°", lean, aim_deg()))
+assert(math.abs(lean + 45) < 6, "body leans 45° right into the diagonal, got " .. lean)
+assert(math.abs(aim_deg()) < 1 or math.abs(aim_deg() - 360) < 1, "aim stays forward, got " .. aim_deg())
 
 -- And the mirror: forward + step-left travels forward and to the player's LEFT
 -- (+X, +Z). This is the case that was inverted before the fix.

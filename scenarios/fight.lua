@@ -32,7 +32,8 @@ print(string.format(
     "dummy hp %d -> %d, z %.2f -> %.2f, player clip %s",
     hp0, hp1, dz0, dz1, anim()))
 
-assert(hp0 == 100, "dummy starts at full hp, got " .. hp0)
+-- Full health is the class value (Konoko: 200), same as the untouched player.
+assert(hp0 > 0 and hp0 == hp(0), "dummy starts at full hp, got " .. hp0)
 assert(hp1 < hp0, "the punch damaged the dummy (" .. hp0 .. " -> " .. hp1 .. ")")
 assert(dz1 > dz0 - 0.01, "the dummy was knocked back (not pulled in)")
 

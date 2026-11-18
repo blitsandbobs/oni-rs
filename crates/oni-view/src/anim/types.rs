@@ -112,49 +112,24 @@ pub mod ty {
 
 /// Body states (the pose a clip starts from / ends in).
 pub mod st {
-    pub const NONE: u16 = 0;
     pub const ANYTHING: u16 = 1;
+    pub const SLIDING: u16 = 4;
     pub const STANDING: u16 = 7;
+    pub const RUN_SLIDE: u16 = 12;
     pub const FALLEN_BACK: u16 = 18;
     pub const CROUCH: u16 = 19;
-    pub const CROUCH_WALK: u16 = 35;
+    pub const RUN_BACK_SLIDE: u16 = 30;
+    pub const LIE_BACK: u16 = 31;
     pub const FLYING: u16 = 37;
     pub const FALLING: u16 = 38;
-    pub const FLYING_FORWARD: u16 = 39;
-    pub const FALLING_FORWARD: u16 = 40;
-    pub const FLYING_BACK: u16 = 41;
-    pub const FALLING_BACK: u16 = 42;
-    pub const FLYING_LEFT: u16 = 43;
-    pub const FALLING_LEFT: u16 = 44;
-    pub const FLYING_RIGHT: u16 = 45;
     pub const FALLING_RIGHT: u16 = 46;
     pub const CROUCH_START: u16 = 47;
     pub const FALLEN_FRONT: u16 = 50;
-    pub const CROUCH_RUN_LEFT: u16 = 57;
-    pub const CROUCH_RUN_RIGHT: u16 = 58;
-    pub const CROUCH_RUN_BACK_LEFT: u16 = 59;
-    pub const CROUCH_RUN_BACK_RIGHT: u16 = 60;
-    pub const CROUCH_BLOCKING1: u16 = 64;
 
     /// The airborne states (a clip entered from one of these launches the
     /// character into the air).
     pub fn is_flying(s: u16) -> bool {
         (FLYING..=FALLING_RIGHT).contains(&s)
-    }
-
-    /// The crouched states.
-    pub fn is_crouch(s: u16) -> bool {
-        matches!(
-            s,
-            CROUCH
-                | CROUCH_WALK
-                | CROUCH_START
-                | CROUCH_RUN_LEFT
-                | CROUCH_RUN_RIGHT
-                | CROUCH_RUN_BACK_LEFT
-                | CROUCH_RUN_BACK_RIGHT
-                | CROUCH_BLOCKING1
-        )
     }
 }
 
@@ -166,7 +141,6 @@ pub mod var {
 
 /// Per-clip flag bit indices (`ONcAnimFlag_*`; mask = `1 << index`).
 pub mod flag {
-    pub const NO_TURN: u32 = 8;
     pub const NO_INTERP_VELOCITY: u32 = 14;
     pub const THROW_SOURCE: u32 = 15;
     pub const THROW_TARGET: u32 = 16;

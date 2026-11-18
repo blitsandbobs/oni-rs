@@ -1,10 +1,11 @@
-//! Oni's character movement / animation system, ported: the animation
-//! collection lookup, the per-character animation model, the input probe
-//! chain, and the identifiers they share. See `docs/MOVEMENT.md`.
-
-// Transitional: the identifier tables and pause/interpolation helpers are
-// consumed by the character model and probe chain (next phases of the port).
-#![allow(dead_code)]
+//! Character movement and animation: the animation collection lookup, the
+//! per-character animation model, the input rules and per-tick decisions,
+//! and the identifiers they share. A behavioural reimplementation of Oni's
+//! system — see `docs/MOVEMENT.md`.
 
 pub mod collection;
+pub mod decide;
+pub mod input;
+pub mod motion;
+pub mod rules;
 pub mod types;
