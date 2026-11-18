@@ -7,6 +7,7 @@ rust-version = "1.87"
 description = "Oni level viewer — renders the converted glTF/PNG tree with wgpu (E1)"
 
 [dependencies]
+oni-config = { path = "../oni-config" }
 wgpu = "27"
 winit = "0.30"
 glam = "0.30"

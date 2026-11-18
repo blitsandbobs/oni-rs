@@ -9,6 +9,7 @@ members = [
     "crates/oni-template",
     "crates/oni-template-gen",
     "crates/oni-geom",
+    "crates/oni-config",
     "crates/oni-convert",
     "crates/oni-view",
 ]

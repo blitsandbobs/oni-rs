@@ -1,0 +1,9 @@
+[package]
+name = "oni-config"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Input actions, key bindings and tuning for Oni (portable, GUI-agnostic)"
+
+[lints.rust]
+unsafe_code = "forbid"
