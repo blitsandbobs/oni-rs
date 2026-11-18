@@ -350,6 +350,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                     Some(t) => eprintln!("MESSAGE ({m}): {t}"),
                     None => eprintln!("MESSAGE {m}"),
                 }
+                state.messages.retain(|x| *x != m);
+                if let Some(t) = int(a(1)).filter(|&t| t > 0) {
+                    state.message_until.insert(m.clone(), state.now + t as u64);
+                } else {
+                    state.message_until.remove(&m);
+                }
                 state.messages.push(m);
             }
             nil()

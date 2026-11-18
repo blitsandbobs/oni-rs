@@ -50,6 +50,8 @@ pub struct State {
     pub messages: Vec<String>,
     /// `win` (true) / `lose` (false).
     pub outcome: Option<bool>,
+    /// When shown messages with a time limit go away (tick).
+    pub message_until: HashMap<String, u64>,
     /// The game's message texts (`message`), and dialogue subtitles.
     pub texts: HashMap<String, String>,
     pub subtitles: HashMap<String, String>,
@@ -230,6 +232,14 @@ impl Mission {
     /// that is due runs until it sleeps or ends.
     pub fn tick(&mut self, host: &mut dyn Host) {
         self.state.now += 1;
+        // Messages shown for a while go away.
+        let now = self.state.now;
+        let st = &mut self.state;
+        let expired: Vec<String> = st.message_until.iter().filter(|(_, &t)| t <= now).map(|(m, _)| m.clone()).collect();
+        for m in expired {
+            st.message_until.remove(&m);
+            st.messages.retain(|x| *x != m);
+        }
         let mut events = std::mem::take(&mut self.state.pending_events);
         events.append(&mut host.world().script_events);
         events.extend(commands::events(&mut self.state, host));
