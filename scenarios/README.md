@@ -41,6 +41,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
+| `stairs.lua` | Stairs: Konoko runs up a flight (steps aren't collided with — the ramp under them is); the Bay 4 comguy climbs to its alarm console (#32). |
 | `hearing.lua` | Hearing bodies (#13): a crouched walk is silent, running is heard, a landed blow alarms (medium). |
 | `death.lua` | Death (#12): a body stays — unless its class deletes its dead after a delay (the mad bomber, 190 ticks). |
 | `teams.lua` | Teams (#11): a friend's punch passes through; an enemy's lands; auto-facing turns toward an enemy, never a friend. |

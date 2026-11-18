@@ -35,6 +35,11 @@ pub struct Prim {
     /// The door (its object id) this is the closed leaf of — a node named
     /// `door_0x<id>`, or under one.
     pub door: Option<u32>,
+    /// Drawn (a node named `…__invisible` only collides).
+    pub visible: bool,
+    /// Characters collide with it (not a static-world node named
+    /// `…__nocollide`; placed objects always do).
+    pub collide: bool,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -202,6 +207,11 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
     };
     for (wm, mesh_idx, node) in jobs {
         let door = door_of(node);
+        let name = nodes[node]["name"].as_str().unwrap_or("");
+        // (Placed objects — under a pivot node — are flagged not to collide
+        // as level geometry because the object itself collides: they do.)
+        let object = parent[node].is_some();
+        let (visible, collide) = (!name.ends_with("__invisible"), object || !name.ends_with("__nocollide"));
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
         for prim in json["meshes"][mesh_idx]["primitives"].as_array().unwrap() {
             let attrs = &prim["attributes"];
@@ -263,6 +273,8 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 blend,
                 additive,
                 door,
+                visible,
+                collide,
             });
         }
     }

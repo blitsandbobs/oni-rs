@@ -50,6 +50,10 @@ const GQ_RENDER_SIZE: usize = 4; // textureMapIndex(2) + alpha(2)
 const GQ_FLAG_TRIANGLE: u32 = 1 << 6;
 const GQ_FLAG_TRANSPARENT: u32 = 1 << 7;
 const GQ_FLAG_INVISIBLE: u32 = 1 << 13;
+/// What characters don't collide with (`AKcGQ_Flag_Chr_Col_Skip`): no
+/// collision, no character collision, broken glass. (Stairs are drawn as
+/// steps characters pass through, over an invisible-or-not ramp they walk.)
+const GQ_FLAG_CHR_COL_SKIP: u32 = (1 << 11) | (1 << 15) | (1 << 18);
 /// Door | ghost | stairs up | stairs down: the portals of the room graph.
 const GQ_FLAG_PATHFINDING: u32 = 0xF;
 
@@ -88,6 +92,10 @@ pub struct TextureGroup {
     pub tex_instance: Option<usize>,
     /// Whether these quads are transparent (alpha-blended).
     pub blend: bool,
+    /// Drawn (invisible quads only collide).
+    pub visible: bool,
+    /// Characters collide with them.
+    pub collide: bool,
     /// Vertex positions (per quad corner).
     pub positions: Vec<[f32; 3]>,
     /// Vertex texture coordinates.
@@ -191,13 +199,17 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
     };
 
     // Bucket quads by object_tag; within each bucket, by (texture, blend mode).
-    let mut buckets: BTreeMap<u32, BTreeMap<(u16, bool), TextureGroup>> = BTreeMap::new();
+    // (Groups: texture, blend, visible, collide.)
+    type Groups = BTreeMap<(u16, bool, bool, bool), TextureGroup>;
+    let mut buckets: BTreeMap<u32, Groups> = BTreeMap::new();
 
     for q in 0..num_gq {
         let go = ARR20_DATA + q * GQ_GENERAL_SIZE;
         let flags = read_u32(gg, go + GQ_FLAGS)?;
-        if flags & GQ_FLAG_INVISIBLE != 0 {
-            continue; // collision-only surface, never drawn
+        let visible = flags & GQ_FLAG_INVISIBLE == 0;
+        let collide = flags & GQ_FLAG_CHR_COL_SKIP == 0;
+        if !visible && !collide {
+            continue; // neither drawn nor collided with
         }
         if flags & GQ_FLAG_PATHFINDING != 0 {
             // Portals between rooms (ghost quads, stair entries, door ways):
@@ -229,13 +241,15 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
         let grp = buckets
             .entry(object_tag)
             .or_default()
-            .entry((tex_index, blend))
+            .entry((tex_index, blend, visible, collide))
             .or_default();
         if grp.tex_instance.is_none() {
             let (idx, name) = tex_lookup(tex_index as usize);
             grp.tex_instance = idx;
             grp.texture = name;
             grp.blend = blend;
+            grp.visible = visible;
+            grp.collide = collide;
         }
         let base = grp.positions.len() as u32;
         // A triangle quad uses only its first 3 corners.

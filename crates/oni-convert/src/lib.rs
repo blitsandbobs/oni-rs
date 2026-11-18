@@ -872,8 +872,9 @@ fn convert_environment(
                 .unwrap_or((false, false));
             specs.push(NodeSpec {
                 name: format!(
-                    "env_{}",
-                    sanitize(g.texture.as_deref().unwrap_or(&format!("mat{i}")))
+                    "env_{}{}",
+                    sanitize(g.texture.as_deref().unwrap_or(&format!("mat{i}"))),
+                    surface_suffix(g)
                 ),
                 translation: [0.0; 3],
                 parent: None,
@@ -910,9 +911,10 @@ fn convert_environment(
                     .unwrap_or((false, false));
                 specs.push(NodeSpec {
                     name: format!(
-                        "{}_{}",
+                        "{}_{}{}",
                         node_name,
-                        sanitize(g.texture.as_deref().unwrap_or("mat"))
+                        sanitize(g.texture.as_deref().unwrap_or("mat")),
+                        surface_suffix(g)
                     ),
                     translation: [0.0; 3],
                     parent: Some(parent),
@@ -954,6 +956,17 @@ fn convert_environment(
         stats.env_objects += level.objects.len();
     }
     Ok(object_infos)
+}
+
+/// Marks a level node's surface kind in its name: `__invisible` (collides,
+/// never drawn) or `__nocollide` (drawn; characters pass through — e.g.
+/// stair steps over the ramp they walk on). See `docs/ASSET_FORMAT.md`.
+fn surface_suffix(g: &oni_geom::level::TextureGroup) -> &'static str {
+    match (g.visible, g.collide) {
+        (false, _) => "__invisible",
+        (true, false) => "__nocollide",
+        _ => "",
+    }
 }
 
 const TAG_IGST: FourCc = FourCc(0x4947_5374); // 'I','G','S','t'

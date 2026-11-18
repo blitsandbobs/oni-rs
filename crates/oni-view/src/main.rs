@@ -269,7 +269,9 @@ fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     let mut verts: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
     // (Doors' closed leaves collide on their own, while closed.)
-    for p in scene.prims.iter().filter(|p| p.door.is_none()) {
+    // (Stair steps don't collide — the ramp under them does; invisible
+    // surfaces do.)
+    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.collide) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));
@@ -295,7 +297,7 @@ fn opaque_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     let mut verts: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
     // (Doors' closed leaves block sight on their own, while closed.)
-    for p in scene.prims.iter().filter(|p| !p.blend && p.door.is_none()) {
+    for p in scene.prims.iter().filter(|p| !p.blend && p.visible && p.door.is_none()) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));

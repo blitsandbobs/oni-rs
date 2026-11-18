@@ -348,7 +348,7 @@ impl Renderer {
         }
         let default_tex = make_texture_bg(gpu, &tex_bgl, &sampler, 1, 1, &[200, 200, 200, 255]);
 
-        let prims: Vec<GpuPrim> = scene.prims.iter().map(|p| upload_prim(device, p)).collect();
+        let prims: Vec<GpuPrim> = scene.prims.iter().filter(|p| p.visible).map(|p| upload_prim(device, p)).collect();
 
         // Billboard particles, batched by texture. Each particle contributes a
         // quad (4 verts / 6 indices); the quad is oriented in the vertex shader.
