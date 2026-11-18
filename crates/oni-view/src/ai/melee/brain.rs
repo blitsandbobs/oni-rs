@@ -24,6 +24,8 @@ pub struct View<'a> {
     /// Movement last tick (world).
     pub velocity: Vec3,
     pub motion: &'a Motion,
+    /// For looking ahead along the floor (walls, ledges).
+    pub physics: &'a crate::physics::Physics,
     /// The body's cylinder: radius and height span above the feet, for an
     /// attack against it (`full`) and for planning our own (`planning`).
     pub full: (f32, (f32, f32)),
@@ -136,6 +138,8 @@ pub struct Melee {
     pub(super) now: i64,
     /// Test hook: use this technique next (by name), if it can be used.
     pub force: Option<String>,
+    /// This tick's look along the floor toward the target.
+    ahead: Option<crate::physics::Probe>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -174,6 +178,7 @@ impl Melee {
             no_technique: 0,
             now: 0,
             force: None,
+            ahead: None,
         }
     }
 
@@ -239,6 +244,7 @@ impl Melee {
             self.dazed_this_time = false;
         }
 
+        self.ahead = None;
         let mut out = Output {
             face: Some(bearing(me, target)),
             ..Output::default()
@@ -445,10 +451,22 @@ impl Melee {
                 }
                 let Some(Move::Evade(e)) = t.moves.first() else { continue };
                 let ev = &tables::EVADES[*e];
-                if !me.motion.coll.lookup(tables::ty(ev.anim), me.motion.state, me.motion.varient | var::FIGHT).is_some() {
+                let Some(clip) = me.motion.coll.lookup(tables::ty(ev.anim), me.motion.state, me.motion.varient | var::FIGHT)
+                else {
+                    continue;
+                };
+                // Room to land where the evasion ends?
+                let end = me.motion.coll.entries[clip].clip.body.last().map_or(Vec3::ZERO, |b| Vec3::new(b[0], 0.0, b[1]));
+                let world = Quat::from_rotation_y(me.facing) * end;
+                let safe = if t.fearless || world.length() < 0.5 {
+                    1.0
+                } else {
+                    movement_safety(me, world.normalize(), world.length())
+                };
+                if safe <= 0.0 {
                     continue;
                 }
-                choices.push((i, t.weight.max(0.0)));
+                choices.push((i, t.weight.max(0.0) * safe));
             }
             let total: f32 = choices.iter().map(|c| c.1).sum();
             if total > 0.0 {
@@ -484,6 +502,7 @@ impl Melee {
     fn choose(&mut self, me: &View, target: &View, slot: bool, fights: &Fights, positions: &[Vec3]) -> Option<usize> {
         let kind = if slot { Kind::Action } else { Kind::Spacing };
         let state = me.state();
+        self.ahead = Some(self.look_ahead(me, target));
         let mut weights: Vec<(usize, f32)> = Vec::new();
         let mut best_attack: f32 = 0.0;
         for (i, t) in self.profile.of_kind(kind) {
@@ -753,8 +772,34 @@ impl Melee {
             if !geometry::bounds(&attacker, &victim, true) {
                 return 0.0;
             }
+            // The way there (and where the attack carries us) must be clear.
+            if !t.fearless {
+                let carry = c.body.last().map_or(0.0, |b| b[1].abs().max(b[0].abs()));
+                let dist = match jump {
+                    Some((kind, _)) => jumps.vel(kind) * 0.5 * (jumps.min + jumps.max),
+                    None => offset + carry,
+                };
+                f *= safety(self.look_ahead(me, target), dist);
+            }
+        }
+        if info.throw.is_some() && info.attack.is_none() {
+            // A throw that lands its victim over a drop is worth more.
+            let beyond = distance(me, target) + 8.0;
+            if self.look_ahead(me, target).ledge.is_some_and(|l| l <= beyond) {
+                f *= self.profile.weights.throw_into_danger;
+            }
         }
         f
+    }
+
+    /// The floor toward the target, looked at once per tick.
+    fn look_ahead(&self, me: &View, target: &View) -> crate::physics::Probe {
+        if let Some(p) = self.ahead {
+            return p;
+        }
+        let toward = target.feet - me.feet;
+        let dir = Vec3::new(toward.x, 0.0, toward.z).normalize_or_zero();
+        me.physics.probe(dir, distance(me, target) + DANGER_LOOKAHEAD, fall_danger(me))
     }
 
     /// A throw move's range for our animation set.
@@ -823,6 +868,7 @@ pub fn view(fighters: &[crate::fighter::Fighter], i: usize, observer: usize) -> 
         facing: f.facing.facing,
         velocity: f.velocity,
         motion: &f.motion,
+        physics: &f.physics,
         full,
         planning: (pr * 0.75, ph),
         alive: f.alive() && !f.motion.dying,
@@ -995,6 +1041,64 @@ fn weigh_spacing(
         }
     }
     f
+}
+
+/// How far ahead the AI looks for danger, and the margin it wants from it.
+const DANGER_LOOKAHEAD: f32 = 50.0;
+const DANGER_SAFETY: f32 = 10.0;
+
+/// A drop deep enough to hurt counts as danger.
+pub(super) fn fall_danger(me: &View) -> f32 {
+    let d = me.motion.tuning.damage_start;
+    if d > 0.0 {
+        d
+    } else {
+        10.0
+    }
+}
+
+/// Moving `dist` units along the floor in world direction `dir`: 0 if a wall
+/// is in the way or the move would run into danger (a ledge), shading off
+/// within 10 units of it, else 1.
+pub(super) fn movement_safety(me: &View, dir: Vec3, dist: f32) -> f32 {
+    if dist <= 0.0 || dir == Vec3::ZERO {
+        return 1.0;
+    }
+    safety(me.physics.probe(dir, dist.max(DANGER_LOOKAHEAD), fall_danger(me)), dist)
+}
+
+/// The danger cost of moving `dist` along a probed way.
+fn safety(probe: crate::physics::Probe, dist: f32) -> f32 {
+    if dist <= 0.0 {
+        return 1.0;
+    }
+    if probe.free < dist {
+        return 0.0;
+    }
+    let danger = probe.ledge.unwrap_or(f32::MAX);
+    let safety = danger - dist;
+    if safety < 0.0 {
+        0.0
+    } else if safety < DANGER_SAFETY {
+        safety / DANGER_SAFETY
+    } else {
+        1.0
+    }
+}
+
+/// A clear direction to move in for a while: the wanted one, else up to four
+/// steps of π/16 either side. Returns the deviation from `want` (radians).
+pub(super) fn steer(me: &View, want: f32) -> Option<f32> {
+    const STEP: f32 = PI / 16.0;
+    const LOOK: f32 = 15.0;
+    let ok = |dev: f32| {
+        let a = want + dev;
+        let p = me.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), LOOK, fall_danger(me));
+        p.free >= LOOK && p.ledge.is_none()
+    };
+    std::iter::once(0.0)
+        .chain((1..=4).flat_map(|i| [i as f32 * STEP, -(i as f32) * STEP]))
+        .find(|&d| ok(d))
 }
 
 /// The cost of getting from `from` to `goal` through the transition graph

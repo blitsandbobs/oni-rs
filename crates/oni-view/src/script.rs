@@ -40,6 +40,7 @@
 //! - `spawn(x, y, z [, facing_deg [, class]])` — spawn a training dummy of a
 //!   character class (default: `--opponent`, else the player's), returns its id
 //! - `class_of(id)` — a fighter's character class name
+//! - `probe(id, deg, dist)` — free distance before a wall, distance to a ledge (or nil)
 //! - `count()` — number of fighters (player + dummies)
 //! - `hp(id)` — a fighter's hit points (0 = player)
 //! - `pos_of(id)` — a fighter's feet `x, y, z`
@@ -636,6 +637,20 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 Ok(id as u32)
             },
         )?,
+    )?;
+
+    // Looks along the floor from fighter `id` toward yaw `deg` up to `dist`:
+    // the free distance before a wall, and the distance to a ledge (or nil).
+    let h = host.clone();
+    g.set(
+        "probe",
+        lua.create_function(move |_, (id, deg, dist): (usize, f32, f32)| {
+            let host = h.borrow();
+            let Some(f) = host.world.fighters.get(id) else { return Ok((0.0, None)) };
+            let a = deg.to_radians();
+            let p = f.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
+            Ok((p.free, p.ledge))
+        })?,
     )?;
 
     // Test hook: make melee AI `id` use technique `name` next (once usable).

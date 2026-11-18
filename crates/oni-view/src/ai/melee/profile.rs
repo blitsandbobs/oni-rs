@@ -41,8 +41,7 @@ pub struct Technique {
     pub kind: Kind,
     pub interruptible: bool,
     pub generous_direction: bool,
-    /// Ignores danger (ledges, hazards) — danger isn't modelled yet.
-    #[allow(dead_code)]
+    /// Ignores danger (ledges).
     pub fearless: bool,
     pub weight: f32,
     /// Ticks before it may be used again.
@@ -59,8 +58,7 @@ pub struct GuardWeights {
     pub staggers: f32,
     pub block_stun: f32,
     pub blocked: f32,
-    /// Bonus for throwing into danger — danger isn't modelled yet.
-    #[allow(dead_code)]
+    /// Bonus for throwing the target over a drop.
     pub throw_into_danger: f32,
 }
 

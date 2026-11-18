@@ -11,7 +11,17 @@
 use glam::Vec3;
 use rapier3d::control::{CharacterLength, KinematicCharacterController};
 use rapier3d::na::{Isometry3, Point3, Translation3, Vector3};
+use rapier3d::parry::query::ShapeCastOptions;
 use rapier3d::prelude::*;
+
+/// What lies ahead along the floor (see [`Physics::probe`]).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Probe {
+    /// Distance the body could move before a wall.
+    pub free: f32,
+    /// Distance at which the floor drops away, if within `free`.
+    pub ledge: Option<f32>,
+}
 
 pub struct Physics {
     bodies: RigidBodySet,
@@ -112,6 +122,49 @@ impl Physics {
         self.grounded
     }
 
+    /// Looks ahead along the floor from the feet in horizontal direction `dir`
+    /// (unit) up to `max` units: how far the body could go before a wall, and
+    /// where (if anywhere before that) the floor drops away by more than
+    /// `drop` — a ledge. Small steps don't count as walls.
+    pub fn probe(&self, dir: Vec3, max: f32, drop: f32) -> Probe {
+        const STEP: f32 = 2.0;
+        const SAMPLE: f32 = 2.0;
+        let mut iso = self.capsule_iso();
+        iso.translation.y += STEP;
+        let options = ShapeCastOptions {
+            max_time_of_impact: max,
+            stop_at_penetration: false,
+            ..ShapeCastOptions::default()
+        };
+        let free = self
+            .query
+            .cast_shape(
+                &self.bodies,
+                &self.colliders,
+                &iso,
+                &Vector3::new(dir.x, 0.0, dir.z),
+                &self.capsule,
+                options,
+                QueryFilter::default(),
+            )
+            .map_or(max, |(_, hit)| hit.time_of_impact.min(max));
+        let mut ledge = None;
+        let mut d = SAMPLE;
+        while d <= free {
+            let p = self.feet + dir * d;
+            let ray = Ray::new(Point3::new(p.x, p.y + STEP, p.z), Vector3::new(0.0, -1.0, 0.0));
+            let floor = self
+                .query
+                .cast_ray(&self.bodies, &self.colliders, &ray, STEP + drop, true, QueryFilter::default());
+            if floor.is_none() {
+                ledge = Some(d);
+                break;
+            }
+            d += SAMPLE;
+        }
+        Probe { free, ledge }
+    }
+
     /// Distance from the feet straight down to the level, if within `max`.
     pub fn ground_below(&self, max: f32) -> Option<f32> {
         // Start slightly above the feet so a floor we are standing on counts.
@@ -134,6 +187,17 @@ impl Physics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn probe_finds_the_edge_of_the_floor() {
+        let (pos, idx) = floor();
+        let p = Physics::new(&pos, &idx, Vec3::new(0.0, 0.0, 0.0), 16.0, 2.0);
+        let half = pos.iter().map(|v| v[0].abs()).fold(0.0, f32::max);
+        let probe = p.probe(Vec3::X, half + 20.0, 10.0);
+        let edge = probe.ledge.expect("the floor ends");
+        assert!((edge - half).abs() <= 2.5, "edge at {edge}, floor half-size {half}");
+        assert!(p.probe(Vec3::X, 10.0, 10.0).ledge.is_none(), "solid floor nearby");
+    }
 
     /// A large flat floor quad at y=0 (two triangles), no assets needed.
     fn floor() -> (Vec<[f32; 3]>, Vec<u32>) {

@@ -312,6 +312,19 @@ fn position(
                 return Step::Abort;
             }
             if !in_reach_after_run_in(m, me, target) {
+                // Running in along a clear way only.
+                let want = bearing(me, target) + p.dir.offset().unwrap_or(0.0);
+                let fearless = m.current().is_some_and(|t| t.fearless);
+                if !fearless && super::brain::steer(me, want) != Some(0.0) && me.physics.probe(
+                    glam::Vec3::new(want.sin(), 0.0, want.cos()),
+                    distance(me, target),
+                    super::brain::fall_danger(me),
+                )
+                .ledge
+                .is_some()
+                {
+                    return Step::Abort;
+                }
                 let keys = cur.maintain_keys() | p.dir.keys();
                 m.mv.last_keys = keys;
                 out.held = if facing_delta(me, target, p.dir) > STANDING_TURN { 0 } else { keys };
@@ -481,7 +494,15 @@ fn maneuver(
                 set_delay(m);
                 return Step::Done;
             }
-            // Face the target and move in the maneuver's direction.
+            // Face the target and move in the maneuver's direction, steering
+            // round walls and ledges (turning the body by the detour).
+            let want = bearing(me, target) + dir.offset().unwrap_or(0.0);
+            let fearless = m.current().is_some_and(|t| t.fearless);
+            match super::brain::steer(me, want) {
+                Some(dev) => out.face = out.face.map(|f| f + dev),
+                None if !fearless => return Step::Abort,
+                None => {}
+            }
             out.held = dir.keys();
         }
         None => out.held = man.keys,
