@@ -92,7 +92,12 @@ impl State {
     /// name's first letter), its markup stripped.
     pub fn message_text(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_lowercase();
-        let raw = self.texts.get(&key).or_else(|| self.subtitles.get(key.get(1..).unwrap_or("")))?;
+        // Subtitles are keyed by a number the name (after its first letter)
+        // starts with: `c00_01_29shinatama` → `00_01_29`.
+        let rest = key.get(1..).unwrap_or("");
+        let raw = self.texts.get(&key).or_else(|| {
+            self.subtitles.iter().filter(|(k, _)| rest.starts_with(k.as_str())).max_by_key(|(k, _)| k.len()).map(|(_, v)| v)
+        })?;
         // `[o.text]` / `[c.text]`: styled spans.
         let mut out = String::new();
         let mut chars = raw.chars().peekable();

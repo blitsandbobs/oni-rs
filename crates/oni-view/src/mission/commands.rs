@@ -394,6 +394,16 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
+        // --- dialogue (no audio yet: its subtitle, in the terminal) -------------
+        "sound_dialog_play" | "sound_dialog_play_block" | "sound_dialog_play_interrupt" => {
+            if let Some(line) = a(0).and_then(text) {
+                if let Some(t) = state.message_text(&line) {
+                    eprintln!("SAY ({line}): {t}");
+                }
+            }
+            nil()
+        }
+
         // --- characters ------------------------------------------------------
         "ai2_spawn" => {
             let Some(who) = a(0).and_then(text) else { return nil() };

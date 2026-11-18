@@ -138,7 +138,6 @@ impl Door {
         }
         false
     }
-
 }
 
 pub fn load(level_dir: &Path) -> Vec<Door> {
