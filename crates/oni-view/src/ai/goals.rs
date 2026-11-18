@@ -143,6 +143,18 @@ impl MoveMode {
         }
     }
 
+    /// A movement mode as scripts name it (`ai2_setmovementmode`).
+    pub fn from_script(n: &str) -> MoveMode {
+        match n.to_ascii_lowercase().as_str() {
+            "creep" => MoveMode::Creep,
+            "walk_noaim" => MoveMode::WalkNoAim,
+            "walk" => MoveMode::Walk,
+            "run_noaim" => MoveMode::RunNoAim,
+            "run" => MoveMode::Run,
+            _ => MoveMode::ByAlert,
+        }
+    }
+
     /// The pace at `alert`, hurrying or not (by alert: walk until medium
     /// when hurrying, else always walk).
     fn pace(self, alert: Alert, hurry: bool) -> Pace {
@@ -360,6 +372,8 @@ pub enum Goal {
     Combat(Box<Combat>),
     /// Cowering in fear (a non-combatant).
     Panic(Box<Panic>),
+    /// A patrol a script ordered (`ai2_dopath`): back to the job when done.
+    Path(Box<Patrol>),
 }
 
 /// A non-combatant's panic.
@@ -384,6 +398,7 @@ impl Goal {
             Goal::Pursuit(_) => "pursuit",
             Goal::Combat(_) => "combat",
             Goal::Panic(_) => "panic",
+            Goal::Path(_) => "path",
         }
     }
 }
@@ -577,6 +592,10 @@ pub struct Agent {
     /// Where its eyes look (yaw): toward what it looks at, as far as the
     /// head turns from the body (vision looks this way).
     pub eye: Option<f32>,
+    /// Scripts its patrol asked to run (the mission takes them).
+    pub scripts: Vec<String>,
+    /// Waiting for a patrol script to finish.
+    waiting_script: bool,
     rng: Rng,
 }
 
@@ -600,6 +619,8 @@ impl Agent {
             turning_to: None,
             press: 0,
             eye: None,
+            scripts: Vec::new(),
+            waiting_script: false,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
     }
@@ -636,6 +657,7 @@ impl Agent {
             Goal::Pursuit(p) => format!("pursuit {}", p.mode.name()),
             Goal::Combat(c) => format!("combat {:?} → {}", c.primary, c.target),
             Goal::Panic(p) => format!("panic{}", if p.kneeling { " kneeling" } else { "" }),
+            Goal::Path(p) => format!("path {} @{}", p.path.name, p.current),
             g => g.name().to_string(),
         }
     }
@@ -644,8 +666,51 @@ impl Agent {
         match &self.goal {
             Goal::None | Goal::Idle => true,
             Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
+            Goal::Path(p) => !p.locked,
             _ => false,
         }
+    }
+
+    /// Whether it is following a patrol path (its job's or a script's).
+    fn patrolling(&self) -> bool {
+        matches!(self.goal, Goal::Path(_)) || (matches!(self.goal, Goal::Job) && matches!(self.job, Job::Patrol(_)))
+    }
+
+    /// Follows patrol path `path` now (a script's order); back to the job
+    /// when it ends.
+    pub fn do_path(&mut self, path: Rc<PatrolPath>, cx: &mut Ctx) {
+        self.exit(cx);
+        self.goal = Goal::Path(Box::new(Patrol::new(path)));
+        eprintln!("ai: {} → {}", self.name, self.describe());
+        self.patrol_enter(cx);
+    }
+
+    /// What it is doing now becomes its job (`ai2_setjobstate`).
+    pub fn make_job(&mut self) {
+        match std::mem::replace(&mut self.goal, Goal::Job) {
+            Goal::Path(p) => self.job = Job::Patrol(p),
+            Goal::Idle | Goal::None => self.job = Job::Idle,
+            Goal::Job => {}
+            other => self.goal = other,
+        }
+        self.job_location = None;
+    }
+
+    /// Stops what it is doing (made passive): no goal until it is woken.
+    pub fn stop(&mut self, cx: &mut Ctx) {
+        self.exit(cx);
+        self.goal = Goal::None;
+    }
+
+    /// Stands idle now (`ai2_idle`), its job kept.
+    pub fn idle_now(&mut self, cx: &mut Ctx) {
+        self.exit(cx);
+        self.enter_idle(cx);
+    }
+
+    /// A patrol script it asked to run has finished.
+    pub fn script_done(&mut self) {
+        self.waiting_script = false;
     }
 
     /// Whether it is cowering (the panic animation variants).
@@ -658,6 +723,7 @@ impl Agent {
         match &self.goal {
             Goal::Idle => true,
             Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
+            Goal::Path(p) => !p.locked,
             _ => false,
         }
     }
@@ -716,6 +782,7 @@ impl Agent {
                 }
             }
             Goal::Panic(_) => self.mode = MoveMode::ByAlert,
+            Goal::Path(_) => self.waiting_script = false,
             Goal::Combat(c) => {
                 cx.fights.leave(cx.me);
                 // The alert drops to high on leaving combat.
@@ -829,6 +896,7 @@ impl Agent {
             Goal::Pursuit(_) => self.pursuit_update(cx),
             Goal::Combat(_) => self.combat_update(cx),
             Goal::Panic(_) => self.panic_update(cx),
+            Goal::Path(_) => self.patrol_update(cx),
             Goal::Idle | Goal::None => {}
         }
         let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
@@ -836,7 +904,11 @@ impl Agent {
         if let Some(n) = self.nav.as_mut() {
             n.set_pace(pace);
         }
-        cx.perception.locked = matches!((&self.goal, &self.job), (Goal::Job, Job::Patrol(p)) if p.locked);
+        cx.perception.locked = match (&self.goal, &self.job) {
+            (Goal::Job, Job::Patrol(p)) => p.locked,
+            (Goal::Path(p), _) => p.locked,
+            _ => false,
+        };
     }
 
     /// This tick's movement for a body at `feet` facing `facing`, plus
@@ -897,9 +969,10 @@ impl Agent {
     // --- patrol (`docs/GOALS.md`, *Patrol*) -----------------------------------
 
     fn patrol(&mut self) -> &mut Patrol {
-        match &mut self.job {
-            Job::Patrol(p) => p,
-            Job::Idle => unreachable!("not a patroller"),
+        match (&mut self.goal, &mut self.job) {
+            (Goal::Path(p), _) => p,
+            (_, Job::Patrol(p)) => p,
+            _ => unreachable!("not patrolling"),
         }
     }
 
@@ -1022,9 +1095,13 @@ impl Agent {
                 p.guarding = false;
                 p.scanguard = 0;
             }
-            Waypoint::Script { name, .. } => {
-                // Scripts aren't run yet (#20): a played script ends at once.
-                eprintln!("ai: {}: patrol script {name} (not run)", self.name);
+            Waypoint::Script { name, wait } => {
+                // The mission runs it (with this character's name); a played
+                // script holds the patrol until it ends.
+                self.scripts.push(name);
+                if wait {
+                    self.waiting_script = true;
+                }
             }
             Waypoint::Lock(lock) => {
                 self.patrol().locked = lock;
@@ -1034,7 +1111,7 @@ impl Agent {
                     let notices = cx.perception.reconsider(cx.now);
                     for n in notices {
                         self.notice(n, cx);
-                        if !matches!(self.goal, Goal::Job) {
+                        if !self.patrolling() {
                             return;
                         }
                     }
@@ -1051,6 +1128,12 @@ impl Agent {
         let p = self.patrol();
         if p.current >= p.path.waypoints.len() {
             p.current = 0;
+        }
+        if matches!(self.goal, Goal::Path(_)) {
+            // A script's patrol: back to the job.
+            eprintln!("ai: {}: path over", self.name);
+            self.return_to_job(true, false, cx);
+            return;
         }
         // A job patrol that ends stands idle.
         self.exit(cx);
@@ -1070,7 +1153,7 @@ impl Agent {
         }
         let i = p.current;
         self.do_waypoint(i, true, false, cx);
-        !matches!(self.goal, Goal::Job)
+        !self.patrolling()
     }
 
     fn patrol_update(&mut self, cx: &mut Ctx) {
@@ -1120,7 +1203,7 @@ impl Agent {
         while skip || self.fulfilled(cx) {
             skip = false;
             self.advance_waypoint(cx);
-            if !matches!(self.goal, Goal::Job) {
+            if !self.patrolling() {
                 return;
             }
             if self.patrol().current == start {
@@ -1135,9 +1218,10 @@ impl Agent {
         let clear = cx.clear_toward();
         let facing = cx.facing;
         let course = self.nav.as_ref().filter(|n| n.state == NavState::Following).map(|_| facing);
-        let p = match &mut self.job {
-            Job::Patrol(p) => p,
-            Job::Idle => return,
+        let p = match (&mut self.goal, &mut self.job) {
+            (Goal::Path(p), _) => p,
+            (Goal::Job, Job::Patrol(p)) => p,
+            _ => return,
         };
         if p.scanning {
             if let Some(c) = course {
@@ -1247,6 +1331,7 @@ impl Agent {
                 !p.guarding
             }
             Waypoint::ShootAt { .. } => self.patrol().shooting == 0,
+            Waypoint::Script { wait: true, .. } => !self.waiting_script,
             _ => true,
         }
     }

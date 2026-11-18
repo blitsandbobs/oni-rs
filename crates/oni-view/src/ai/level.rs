@@ -122,8 +122,12 @@ pub struct Placed {
     pub job_id: Option<u16>,
     pub combat_id: u16,
     pub melee_id: Option<u16>,
+    /// Added to its class's hit points.
+    pub hp_offset: i32,
     pub alert: [Alert; 4],
     pub pursue: Pursue,
+    /// Its event scripts (`spawn`, `die`, `combat`, `hurt`, `alarm`, …).
+    pub scripts: HashMap<String, String>,
 }
 
 impl Placed {
@@ -151,6 +155,17 @@ fn read(path: &Path) -> Value {
 fn v3(v: &Value) -> Vec3 {
     let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
     Vec3::new(f(0), f(1), f(2))
+}
+
+/// An alert level by name (`lull`, `low`, `medium`, `high`, `combat`).
+pub fn alert_named(n: &str) -> Alert {
+    match n.to_ascii_lowercase().as_str() {
+        "low" => Alert::Low,
+        "medium" => Alert::Medium,
+        "high" => Alert::High,
+        "combat" => Alert::Combat,
+        _ => Alert::Lull,
+    }
 }
 
 fn alert(v: &Value) -> Alert {
@@ -183,6 +198,7 @@ impl LevelAi {
                 job_id: c["jobId"].as_u64().map(|v| v as u16),
                 combat_id: c["combatProfileId"].as_u64().unwrap_or(0) as u16,
                 melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
+                hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
                 alert: [alert(&a["initial"]), alert(&a["minimum"]), alert(&a["job"]), alert(&a["investigate"])],
                 pursue: Pursue {
                     strong_unseen: s(&p["strongUnseen"]),
@@ -191,6 +207,10 @@ impl LevelAi {
                     weak_seen: s(&p["weakSeen"]),
                     lost: s(&p["lost"]),
                 },
+                scripts: c["scripts"]
+                    .as_object()
+                    .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect())
+                    .unwrap_or_default(),
             });
         }
         for f in read(&level_dir.join("flags.json"))["flags"].as_array().into_iter().flatten() {

@@ -93,6 +93,10 @@ pub struct World {
     pub sight: Option<crate::physics::Sight>,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
+    /// The level's folder (`levels/NN`), if known.
+    pub level_dir: std::path::PathBuf,
+    /// The player's name (its level placement's).
+    pub player_name: String,
     /// The level's AI data: placed characters, patrol paths, flags, combat
     /// profiles.
     pub level_ai: Rc<crate::ai::level::LevelAi>,
@@ -114,6 +118,8 @@ impl World {
             sight: None,
             sounds: Vec::new(),
             level_ai: Default::default(),
+            player_name: "player".into(),
+            level_dir: Default::default(),
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -473,9 +479,90 @@ impl World {
                 p.omniscient = pl.has("omniscient");
             }
         }
+        if let Some(pl) = placed {
+            f.max_hp += pl.hp_offset;
+            f.hp = f.max_hp;
+        }
         f.passive = false;
         agent.goal = crate::ai::goals::Goal::None;
         f.brain = Some(crate::ai::Brain::Agent(Box::new(agent)));
+    }
+
+    /// Removes fighter `id` from the level (it stays in the list, gone).
+    pub fn remove(&mut self, id: usize) {
+        if let Some(f) = self.fighters.get_mut(id) {
+            f.gone = true;
+            f.brain = None;
+            f.perception = None;
+            f.physics.feet = Vec3::new(0.0, -100_000.0, 0.0);
+        }
+        self.fights.leave(id);
+    }
+
+    /// Puts fighter `id` at `at` (feet), facing `facing` if given.
+    pub fn teleport(&mut self, id: usize, at: Vec3, facing: Option<f32>) {
+        if let Some(f) = self.fighters.get_mut(id) {
+            f.physics.feet = at;
+            if let Some(y) = facing {
+                f.facing.facing = y;
+                f.facing.desired_facing = y;
+            }
+        }
+    }
+
+    /// Orders fighter `id` along the level's patrol path named `path`.
+    pub fn order_path(&mut self, id: usize, path: &str) {
+        let Some(p) = self.level_ai.patrols.values().find(|p| p.name.eq_ignore_ascii_case(path)).cloned() else {
+            eprintln!("ai: no patrol path {path:?}");
+            return;
+        };
+        self.with_agent(id, |a, cx| a.do_path(p, cx));
+    }
+
+    /// What fighter `id` is doing becomes its job.
+    pub fn make_job(&mut self, id: usize) {
+        if let Some(crate::ai::Brain::Agent(a)) = self.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+            a.make_job();
+        }
+    }
+
+    /// Makes fighter `id` passive (doing nothing, noticing nothing) or not.
+    pub fn set_passive(&mut self, id: usize, on: bool) {
+        if let Some(f) = self.fighters.get_mut(id) {
+            if f.player {
+                return;
+            }
+            f.passive = on;
+        }
+        if on && matches!(self.fighters.get(id).and_then(|f| f.brain.as_ref()), Some(crate::ai::Brain::Agent(_))) {
+            self.with_agent(id, |a, cx| a.stop(cx));
+        }
+    }
+
+    /// Makes fighter `id` stand idle now (`ai2_idle`).
+    pub fn order_idle(&mut self, id: usize) {
+        self.with_agent(id, |a, cx| a.idle_now(cx));
+    }
+
+    /// Orders fighter `id` to attack fighter `target` (it knows where they
+    /// are).
+    /// (`force`: a forced target, else just a definite sighting.)
+    pub fn order_attack(&mut self, id: usize, target: usize, force: bool) {
+        let Some(t) = self.fighters.get(target) else { return };
+        let (team, feet, now) = (t.team(), t.feet(), self.now as u64);
+        if let Some(p) = self.fighters.get_mut(id).and_then(|f| f.perception.as_mut()) {
+            if force {
+                p.force_target(target, team, feet, now);
+            } else {
+                p.perceive(Some(target), Some(team), crate::ai::perception::Stimulus::SightDefinite, crate::ai::perception::Strength::Definite, feet, 0, now);
+                p.notices.clear();
+            }
+        }
+        if matches!(self.fighters.get(id).and_then(|f| f.brain.as_ref()), Some(crate::ai::Brain::Agent(_))) {
+            self.with_agent(id, |a, cx| a.notice(crate::ai::perception::Notice::Combat(target), cx));
+        } else {
+            self.fight(id, target);
+        }
     }
 
     /// Plans a path for every navigator that needs one. Other characters'

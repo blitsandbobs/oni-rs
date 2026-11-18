@@ -21,6 +21,7 @@ mod classes;
 mod control;
 mod fighter;
 mod gltf;
+mod mission;
 mod nav;
 mod particles;
 mod physics;

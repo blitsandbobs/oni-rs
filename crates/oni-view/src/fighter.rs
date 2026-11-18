@@ -90,6 +90,12 @@ pub struct Fighter {
     part_spheres: Vec<(usize, Vec3, f32)>,
     // --- combat (see docs/COMBAT.md) ---
     pub hp: i32,
+    /// Its full health.
+    pub max_hp: i32,
+    /// Takes no damage (`chr_invincible`).
+    pub invincible: bool,
+    /// Removed from the level (`chr_delete`): not simulated or drawn.
+    pub gone: bool,
     /// A passive fighter (training dummy): stands and takes hits, never deals
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
@@ -174,6 +180,9 @@ impl Fighter {
             placement,
             part_spheres,
             hp: tuning.max_hit_points,
+            max_hp: tuning.max_hit_points,
+            invincible: false,
+            gone: false,
             passive,
             knockback: Vec3::ZERO,
             hit_set: Vec::new(),
@@ -577,7 +586,10 @@ impl Fighter {
         };
         let damage = damage.round() as i32;
         if damage > 0 {
-            self.hp = (self.hp - damage).max(0);
+            if self.invincible {
+            return;
+        }
+        self.hp = (self.hp - damage).max(0);
             eprintln!("fall: {fall:.1} units, {damage} damage (hp {})", self.hp);
         }
         let air = &mut self.motion.air;
@@ -837,7 +849,7 @@ impl Fighter {
     }
 
     pub fn alive(&self) -> bool {
-        self.hp > 0 && !self.motion.dying
+        self.hp > 0 && !self.motion.dying && !self.gone
     }
 }
 

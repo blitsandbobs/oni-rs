@@ -352,6 +352,8 @@ pub struct Perception {
     pub omniscient: bool,
     /// What behaviour should act on, since last asked.
     pub notices: Vec<Notice>,
+    /// Pays the player no attention (`ai2_makeignoreplayer`).
+    pub ignore_player: bool,
     /// Locked into its patrol: stimuli change nothing (no alert, startle,
     /// pursuit or combat).
     pub locked: bool,
@@ -379,6 +381,7 @@ impl Perception {
             omniscient: false,
             notices: Vec::new(),
             locked: false,
+            ignore_player: false,
             next_id: 1,
         }
     }
@@ -421,7 +424,7 @@ impl Perception {
             return true;
         }
         if player {
-            return false;
+            return self.ignore_player;
         }
         if combat_sound {
             return true; // the shipped rule: fights between others are heard only through their victims

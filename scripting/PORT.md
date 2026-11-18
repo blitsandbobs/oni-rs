@@ -1,6 +1,13 @@
 # BSL → Lua port plan (groundwork)
 
-**Status: groundwork only — no implementation yet.** This lays out *what to build*
+**Status (2026-11): translation and runtime working.** The converter translates every
+level's scripts (`crates/oni-convert/src/bsl.rs` → `levels/NN/scripts.lua`, all 14
+levels, no untranslated lines); the engine runs them (`crates/oni-view/src/mission/`):
+the level start, `main`, `sleep` / `fork`, character and trigger-volume events,
+patrol scripts, and the gameplay commands (spawning, paths, passivity, attack orders,
+health, trigger volumes, objectives / messages, character waits). Camera, sound,
+particles, cutscenes, doors, consoles and the like are logged no-ops so far. This
+document originally laid out *what to build*
 for the gameplay scripting layer (E4+), derived from [`BSL.md`](BSL.md). The dev/test
 Lua driver that exists today (`crates/oni-view/src/script.rs`,
 [[oni-config-input-facing]]) is a *separate, movement-only* harness; the gameplay port

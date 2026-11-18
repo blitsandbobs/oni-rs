@@ -87,6 +87,22 @@ struct ScriptHost {
     taps: u32,
     eye: Option<Vec3>,
     target: Option<Vec3>,
+    /// The level's own scripts, once begun (`mission_begin`).
+    mission: Option<crate::mission::Mission>,
+}
+
+impl crate::mission::Host for ScriptHost {
+    fn world(&mut self) -> &mut World {
+        &mut self.world
+    }
+    fn kind(&mut self, class: &str) -> Result<CharKind, String> {
+        let k = ScriptHost::kind(self, class)?;
+        self.class_names.push(class.to_string());
+        Ok(k)
+    }
+    fn melee(&self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
+        self.classes.melee_by_id(id)
+    }
 }
 
 impl ScriptHost {
@@ -112,6 +128,7 @@ impl ScriptHost {
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
+        world.level_dir = cast.level_dir.clone();
         let common = cast.level_dir.join("../../common");
         world.level_ai = Rc::new(crate::ai::level::LevelAi::load(&cast.level_dir, &common));
         let (ov, oi) = crate::opaque_mesh(&scene);
@@ -135,6 +152,7 @@ impl ScriptHost {
             taps: 0,
             eye: None,
             target: None,
+            mission: None,
         })
     }
 
@@ -153,6 +171,10 @@ impl ScriptHost {
             let controls = self.held | taps;
             taps = 0;
             self.world.step(controls);
+            if let Some(mut m) = self.mission.take() {
+                m.tick(self);
+                self.mission = Some(m);
+            }
         }
     }
 
@@ -685,6 +707,68 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             host.world.give_goals(id, Some(&placed), melee);
             host.class_names.push(placed.class.clone());
             Ok(id as u32)
+        })?,
+    )?;
+    // The level's own scripts (`scripting/PORT.md`): begin the level (the
+    // player at its placement, the characters present from the start,
+    // `main`); what the scripts are doing; a character by name; run a
+    // script function.
+    let h = host.clone();
+    g.set(
+        "mission_begin",
+        lua.create_function(move |_, ()| {
+            let mut host = h.borrow_mut();
+            let mut m = crate::mission::Mission::load(&host.world.level_dir).map_err(mlua::Error::runtime)?;
+            m.begin(&mut *host);
+            host.mission = Some(m);
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "mission_info",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            if let Some(m) = &host.mission {
+                t.set("tasks", m.tasks())?;
+                t.set("errors", m.state.errors.clone())?;
+                t.set("objective", m.state.objective)?;
+                t.set("outcome", m.state.outcome)?;
+                t.set("spawned", m.state.spawned.len())?;
+                t.set("messages", m.state.messages.clone())?;
+                let mut stubs: Vec<_> = m.state.stubbed.keys().cloned().collect();
+                stubs.sort();
+                t.set("stubbed", stubs)?;
+            }
+            Ok(t)
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "named",
+        lua.create_function(move |_, name: String| {
+            Ok(h.borrow().world.fighters.iter().position(|f| {
+                !f.gone && matches!(&f.brain, Some(crate::ai::Brain::Agent(a)) if a.name == name)
+            }))
+        })?,
+    )?;
+    // Moves fighter `id` (feet) to a point.
+    let h = host.clone();
+    g.set(
+        "teleport",
+        lua.create_function(move |_, (id, x, y, z): (usize, f32, f32, f32)| {
+            h.borrow_mut().world.teleport(id, Vec3::new(x, y, z), None);
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "mission_call",
+        lua.create_function(move |_, (name, arg): (String, Option<String>)| {
+            let mut host = h.borrow_mut();
+            let args: Vec<&str> = arg.as_deref().into_iter().collect();
+            Ok(host.mission.as_mut().is_some_and(|m| m.start(&name, &args)))
         })?,
     )?;
     let h = host.clone();

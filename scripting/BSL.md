@@ -74,9 +74,11 @@ Return-value commands can appear in expressions: `if did_kill_griffen …`.
 - Per level: `GameDataFolder/IGMD/<LevelName>/*.bsl` (`ONiScript_Reload :99-117`).
 - `Database_Add` parses in *add-to-database* mode (registers `func` defs + globals,
   no execution). Live reload via the `script_reload` command.
-- **Note:** no `.bsl` files ship in `original/` here (`find … *.bsl` → 0). Real
-  authored examples must come from the shipped `GameDataFolder` or community dumps —
-  the snippets below are reconstructed from param-specs, not copied from real scripts.
+- The shipped scripts come from the Anniversary Edition archive, extracted to
+  `../original/bsl/…/AEInstaller/packages/05100Vanilla_BSL/bsl/common/<Level>/`
+  (the vanilla set; AE's own `GameDataFolder/IGMD` patches compound and
+  manplant). 121 files, 14 levels; the folder is named by the level's `ONLV`.
+  The example below is illustrative, not copied from them.
 
 ### Example (reconstructed)
 ```
@@ -91,14 +93,14 @@ func void main(void)
 
 func void spawn_guard(string ai_name)
 {
-    chr_teleport ai_name 14        # shell-style
-    ai2_active(ai_name)            # C-style
+    chr_teleport(ai_name, 14)      # C-style: ai_name is the variable
+    ai2_active(ai_name)
     chr_giveweapon ai_name "w2_tap"
 }
 
 func void check_mission(string self)
 {
-    if trigvolume_count 3 eq 0     # return-value command in a condition
+    if (trigvolume_count(3) eq 0)  # parentheses required
         win
 }
 ```
@@ -206,13 +208,74 @@ in-engine dump is the `dump_docs` command → `script_commands.txt`
 > `func_` is **not** a prefix — `func` is the keyword for user subroutines, which are
 > what the engine invokes as event handlers.
 
-## Open questions (verify before relying on these)
-1. No `.bsl` ships here — confirm authored style from the real `GameDataFolder/IGMD`.
-2. `iterate`/`using`/`over` + iterator registration: mechanism exists in the core,
-   no registrations found in OniGameSource — confirm Oni actually uses it.
-3. Exact grammar of `for`/`repeat`/`schedule … at … repeat` not fully traced
-   (`Parse.c:1200-1500`).
-4. `fork` vs `schedule` concurrency/return semantics not fully traced.
-5. Full command count is approximate — ground truth is runtime `dump_docs`.
-6. Save-game: exactly which script-visible state serializes.
-7. Scheduler limits (32 tasks, 6-deep call nesting) — preserve or lift in a port.
+## Runtime semantics (traced from the interpreter and the game)
+
+What the port reproduces, in our words (anchors in the original's
+`BFW_ScriptLang_*.c`, `Oni_Script.c`, `Oni_AI2_Script.c`, `ONI_Character.c`,
+`OT_TriggerVolume.c`).
+
+**Language actually used.** The shipped scripts use `var` / `func`, `if`
+(always with parentheses, never `else`), `sleep`, `fork`, assignments and
+calls — no `return`, `schedule`, `iterate` or loops (`for` / `repeat` /
+`every` have no loop grammar at all).
+
+**Words.** A shell-style argument (`cmd a b`) is always the word's own
+spelling, even if it names a variable (so `chr_delete ai_name` passes the text
+"ai_name"); C-style arguments and expressions read variables, and an
+undeclared word is a string of its own name. A function's name ending its line
+is a call; alone mid-expression it is an error. Names are case-sensitive.
+
+**Numbers.** A number may start with `-` (no space) or `.`; `f` right before a
+digit is dropped (`sleep f60` is `sleep 60`); only the valid prefix of
+`5-3` counts (5). `x - 1` needs the spaces.
+
+**Types.** Values are int / float / bool / string; `if` needs an int or bool
+(a string aborts the script); comparisons and `+ -` take the left operand's
+type without promoting; strings compare by identity (literal against literal
+works, an engine-given name never equals a literal). Missing command
+arguments get defaults, extra ones are dropped, a wrong type aborts.
+
+**Calls and tasks.** Calling a script function is synchronous (a sleep in the
+callee suspends the caller too; 6 frames deep at most). `fork f` starts an
+independent task that runs at once until it first sleeps, then the parent
+carries on. At most 32 tasks can be waiting; one that would wait beyond that
+dies. A task that errors is dropped and the rest of that tick's tasks wait.
+A blocking ("stalled") command is called again every tick until it stops
+stalling; most `_block` commands only wait for an earlier action to finish
+before starting theirs (`chr_wait_*`, `cm_wait`, `playback_block` wait for
+completion).
+
+**Level start.** The level's files are loaded (one global namespace; a
+duplicate function aborts the rest of the load), the player (the `CHAR` with
+the player flag) and every character not flagged "not initially present" are
+created — their spawn scripts run on the first tick — then `main` runs.
+`save_point` is 0 on a fresh start.
+
+**Characters and events.** A number names a character by script id (only the
+player has one, 0); a name, the living character of that name. `ai2_spawn`
+creates the first `CHAR` of that name not yet spawned (unless `force`, or it
+may spawn many times), with its job and alerts, and runs its spawn script at
+once. Event scripts, each once per life and with the character's name: spawn,
+hurt (damage while not invincible), defeated and die (on death), combat (on
+entering combat), alarm, out of ammo; "no path" never fires.
+
+**Trigger volumes.** A box from its position (a corner) along its rotated axes
+by its size; a character counts when the vertical segment from its feet to its
+top crosses it, if its team is in the mask (the parent's, for a child volume)
+and — for player-only volumes — it is the player. Entry fires when one starts
+being inside (each character tracks at most 4 volumes), inside every tick,
+exit on leaving; each type can be disabled, or fire once and then disable
+itself; a child also fires its parent's scripts. Disabling a volume forgets
+who was inside (no exit), so enabling it again fires entry anew.
+
+**Not reproduced** (no shipped script relies on them): operator precedence
+slips (each operator reduces at most one pending one), no short-circuit,
+assignments taking effect in a skipped branch after a local `var`, `return`
+in a skipped branch, a trailing `#` comment joining the next line, string
+`+`, the 6-frame call limit, the 32 KB handler-name buffer.
+
+## Open questions
+1. The per-command parameter specs (types, enums) are applied loosely: our
+   commands read what they need and ignore the rest.
+2. Save games (`save_game` / `restore_game`) aren't modelled; `save_point`
+   stays 0.
