@@ -178,6 +178,8 @@ const TRAM_POSITIONS: usize = 8; // tm_raw `positions` -> root-motion track in .
 const TRAM_ATTACKS: usize = 3; // `attacks` is the 4th tm_raw pointer (index 3)
 const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
 const TRAM_FLAGS: usize = 52; // `flags` u32, right after the pointer block
+const TRAM_FINAL_ROTATION: usize = 72; // `finalRotation` f32 (radians): net yaw the clip imparts
+const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection): which way the clip moves
                               // Scalar state-machine fields. Offsets: 52-byte pointer block, then flags(4),
                               // directAnimation[2](8), usedParts(4), replaceParts(4), finalRotation(4),
                               // moveDirection+vocalizationType(4), extentInfo(232), attackName[16],
@@ -320,6 +322,12 @@ pub struct Clip {
     pub to_state: u16,
     /// Variant bits required to select this clip (`TRtAnimation.varient`).
     pub varient: u16,
+    /// Net yaw (radians) this clip imparts to the character's facing
+    /// (`TRtAnimation.finalRotation`) — e.g. a turn-in-place clip's total turn.
+    pub final_rotation: f32,
+    /// Which way the clip moves the character (`TRtAnimation.moveDirection`, a
+    /// `TRtDirection`: 0 None, 1 Forwards, 2 Back, 3 Left, 4 Right, 5 360).
+    pub move_direction: u16,
     /// Frames to blend out of this clip when it ends (`endInterpolation`).
     pub end_interpolation: u16,
     /// Max frames another clip may blend into this one (`maxInterpolation`).
@@ -436,6 +444,8 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         from_state: read_u16(d, TRAM_FROM_STATE).unwrap_or(0),
         to_state: read_u16(d, TRAM_TO_STATE).unwrap_or(0),
         varient: read_u16(d, TRAM_VARIENT).unwrap_or(0),
+        final_rotation: read_f32(d, TRAM_FINAL_ROTATION).unwrap_or(0.0),
+        move_direction: read_u16(d, TRAM_MOVE_DIRECTION).unwrap_or(0),
         end_interpolation: read_u16(d, TRAM_END_INTERP).unwrap_or(0),
         max_interpolation: read_u16(d, TRAM_MAX_INTERP).unwrap_or(0),
     })

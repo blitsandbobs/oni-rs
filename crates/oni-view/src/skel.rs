@@ -67,6 +67,12 @@ pub struct Clip {
     pub to_state: u16,
     /// Variant bits required to select this clip.
     pub varient: u16,
+    /// Net yaw (radians) this clip imparts to facing (`extras.finalRotation`,
+    /// Oni's `finalRotation`) — e.g. a turn-in-place clip's total turn.
+    pub final_rotation: f32,
+    /// Which way the clip moves the character (`extras.moveDirection`,
+    /// `TRtDirection`: 1 Forwards, 2 Back, 3 Left, 4 Right). 0 = none/unset.
+    pub move_direction: u16,
     /// Frames to blend out of this clip when it ends (`endInterpolation`).
     pub end_interpolation: u16,
     /// Max frames another clip may blend into this one (`maxInterpolation`).
@@ -344,6 +350,8 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         from_state: u16_field("fromState"),
         to_state: u16_field("toState"),
         varient: u16_field("varient"),
+        final_rotation: ex["finalRotation"].as_f64().unwrap_or(0.0) as f32,
+        move_direction: u16_field("moveDirection"),
         end_interpolation: u16_field("endInterp"),
         max_interpolation: u16_field("maxInterp"),
     })

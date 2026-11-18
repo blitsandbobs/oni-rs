@@ -896,6 +896,12 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if clip.varient != 0 {
         obj.insert("varient".into(), serde_json::json!(clip.varient));
     }
+    if clip.final_rotation != 0.0 {
+        obj.insert("finalRotation".into(), serde_json::json!(clip.final_rotation));
+    }
+    if clip.move_direction != 0 {
+        obj.insert("moveDirection".into(), serde_json::json!(clip.move_direction));
+    }
     if clip.end_interpolation != 0 {
         obj.insert(
             "endInterp".into(),

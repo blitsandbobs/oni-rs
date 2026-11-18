@@ -173,6 +173,20 @@ fn animation_decodes_all_frames() {
         hmax - hmin
     );
 
+    // finalRotation / moveDirection decode into their valid domains (proves the
+    // @72/@76 offsets land on real fields, not garbage): a run imparts little
+    // net yaw, and moveDirection is a TRtDirection enum (0..=5).
+    assert!(
+        clip.final_rotation.abs() <= std::f32::consts::TAU,
+        "finalRotation is a sane yaw (radians), got {}",
+        clip.final_rotation
+    );
+    assert!(
+        clip.move_direction <= 5,
+        "moveDirection is a TRtDirection enum, got {}",
+        clip.move_direction
+    );
+
     // An attack animation carries a hit window with damage.
     if let Some(kick) = oni_geom::character::find_animation(&dat, "NINCOMkick_heavy") {
         let a = oni_geom::character::decode_animation(&dat, kick, &raw).expect("decode kick");
