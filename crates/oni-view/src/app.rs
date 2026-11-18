@@ -32,6 +32,30 @@ struct PlayWorld {
     /// Player capsule height (for the follow camera framing).
     player_height: f32,
     accum: f32,
+    /// The level's own scripts (`--mission`), and the classes they spawn
+    /// from.
+    mission: Option<(crate::mission::Mission, crate::classes::Classes)>,
+}
+
+/// What the level's scripts reach in play mode.
+struct PlayHost<'a> {
+    world: &'a mut crate::world::World,
+    classes: &'a mut crate::classes::Classes,
+    renderer: &'a mut Renderer,
+    gpu: &'a Gpu,
+}
+
+impl crate::mission::Host for PlayHost<'_> {
+    fn world(&mut self) -> &mut crate::world::World {
+        self.world
+    }
+    fn kind(&mut self, class: &str) -> Result<crate::world::CharKind, String> {
+        let (renderer, gpu) = (&mut *self.renderer, self.gpu);
+        self.classes.kind(class, |ch| renderer.add_character(gpu, ch))
+    }
+    fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
+        self.classes.melee_by_id(id)
+    }
 }
 
 const TICK: f32 = 1.0 / 60.0;
@@ -76,6 +100,7 @@ pub struct App {
     cast: crate::Cast,
     faithful: bool,
     spar: bool,
+    mission: bool,
     state: Option<State>,
 }
 
@@ -93,6 +118,9 @@ pub struct PlaySetup {
     /// The character in front of the player fights back (sparring AI)
     /// instead of standing as a passive training dummy.
     pub spar: bool,
+    /// Run the level's own scripts (the player at its placement, the
+    /// level's characters as its scripts spawn them) instead of a dummy.
+    pub mission: bool,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -110,6 +138,7 @@ pub fn run(
         cast,
         faithful,
         spar,
+        mission,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -124,6 +153,7 @@ pub fn run(
         cast,
         faithful,
         spar,
+        mission,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -203,12 +233,39 @@ impl ApplicationHandler for App {
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
-                    let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
-                    let opponent =
-                        world.spawn(&opponent_kind, dummy_pos, std::f32::consts::PI, !self.spar);
-                    if self.spar && !world.fight(opponent, 0) {
-                        world.fighters[opponent].brain =
-                            Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
+                    let mut mission = None;
+                    if self.mission {
+                        // The level's own scripts populate it.
+                        world.level_dir = self.cast.level_dir.clone();
+                        world.level_ai = std::rc::Rc::new(crate::ai::level::LevelAi::load(
+                            &self.cast.level_dir,
+                            &self.cast.level_dir.join("../../common"),
+                        ));
+                        match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
+                            (Ok(mut m), Some(mut classes)) => {
+                                let mut host = PlayHost {
+                                    world: &mut world,
+                                    classes: &mut classes,
+                                    renderer: &mut renderer,
+                                    gpu: &gpu,
+                                };
+                                m.begin(&mut host);
+                                mission = Some((m, classes));
+                            }
+                            (Err(e), classes) => {
+                                eprintln!("mission: {e}");
+                                self.classes = classes;
+                            }
+                            (_, None) => eprintln!("mission: no character classes"),
+                        }
+                    } else {
+                        let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
+                        let opponent =
+                            world.spawn(&opponent_kind, dummy_pos, std::f32::consts::PI, !self.spar);
+                        if self.spar && !world.fight(opponent, 0) {
+                            world.fighters[opponent].brain =
+                                Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
+                        }
                     }
                     // Capture the cursor so mouse motion turns the character
                     // continuously (Oni grabs the mouse in gameplay); Esc releases it.
@@ -222,6 +279,7 @@ impl ApplicationHandler for App {
                             mouse_dy: 0.0,
                             player_height,
                             accum: 0.0,
+                            mission,
                         }),
                     )
                 }
@@ -480,6 +538,15 @@ impl State {
             // The player from the controls, dummies idle (AI later); then
             // melee hits resolve and reactions play.
             pw.world.step(controls);
+            if let Some((m, classes)) = pw.mission.as_mut() {
+                let mut host = PlayHost {
+                    world: &mut pw.world,
+                    classes,
+                    renderer: &mut self.renderer,
+                    gpu: &self.gpu,
+                };
+                m.tick(&mut host);
+            }
         }
 
         // Third-person follow camera (behind + above the player, at the torso).
