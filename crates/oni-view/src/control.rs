@@ -10,6 +10,14 @@
 
 use std::f32::consts::{PI, TAU};
 
+/// Body turn cap per tick while running (Oni `iGetTurnPerFrame` `medTurn`).
+pub const MED_TURN: f32 = PI * 1.5 / 60.0;
+/// Body turn cap per tick while walking (Oni `slowTurn`).
+pub const SLOW_TURN: f32 = PI * 1.5 / 120.0;
+/// Pending-turn threshold past which a turn-in-place clip plays
+/// (Oni `ONgAimingWidth` = 70°); smaller turns just slew.
+pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
+
 /// Wraps an angle into `[0, 2π)` (Oni's `UUmTrig_Clip`).
 fn wrap_2pi(a: f32) -> f32 {
     let m = a % TAU;

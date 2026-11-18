@@ -11,8 +11,12 @@
 //! preservation crates (`oni-geom`, `oni-convert`) stay dependency-light.
 //!
 //! ## Lua API (all headless)
-//! - `input(forward, backward)` — set the movement keys (booleans)
-//! - `facing(deg)` / `turn(delta_deg)` — set / nudge the character's yaw
+//! - `input(forward, backward)` — set the move keys (W/S)
+//! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
+//! - `walk(on)` — the hold-to-walk modifier
+//! - `facing(deg)` — snap the body + target to an absolute yaw
+//! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
+//! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
 //! - `step(n)` — advance `n` 60 Hz ticks (state machine + physics)
 //! - `cam(ex,ey,ez, tx,ty,tz)` — place the camera (eye, look-at target)
 //! - `pos()` — returns the character's feet `x, y, z`
@@ -44,7 +48,7 @@ struct ScriptHost {
     physics: Physics,
     loco: Option<Locomotion>,
     foot_offset: f32,
-    yaw: f32,
+    facing: crate::control::Facing,
     input: Input,
     eye: Option<Vec3>,
     target: Option<Vec3>,
@@ -82,7 +86,7 @@ impl ScriptHost {
             physics,
             loco,
             foot_offset,
-            yaw: 0.0,
+            facing: crate::control::Facing::new(0.0),
             input: Input::default(),
             eye: None,
             target: None,
@@ -92,7 +96,21 @@ impl ScriptHost {
     /// Advances `n` ticks: locomotion state machine (if any) → root motion →
     /// physics, then re-places the character at its settled feet + facing.
     fn step(&mut self, n: u32) {
+        let moving = self.input.forward
+            || self.input.backward
+            || self.input.step_left
+            || self.input.step_right;
+        let turn_cap = if self.input.walk {
+            crate::control::SLOW_TURN
+        } else {
+            crate::control::MED_TURN
+        };
         for _ in 0..n {
+            // Turn-in-place intent, then tick the state machine, then slew the
+            // body toward the desired facing (Oni's heartbeat order).
+            let offset = self.facing.desired_offset();
+            self.input.turn_left = !moving && offset > crate::control::TURN_DEADZONE;
+            self.input.turn_right = !moving && offset < -crate::control::TURN_DEADZONE;
             let local = match &mut self.loco {
                 Some(l) => {
                     let d = l.tick(self.input, Some(&self.charview.character));
@@ -100,8 +118,9 @@ impl ScriptHost {
                 }
                 None => Vec3::ZERO,
             };
-            let world = Quat::from_rotation_y(self.yaw) * local;
+            let world = Quat::from_rotation_y(self.facing.facing) * local;
             self.physics.step(world);
+            self.facing.turn_toward(turn_cap);
         }
         let feet = self.physics.feet;
         // Pelvis elevation: the locomotion's per-frame `heightThisFrame` (Oni's
@@ -113,7 +132,7 @@ impl ScriptHost {
         };
         let origin = Vec3::new(feet.x, pelvis_y, feet.z);
         self.charview.placement =
-            Mat4::from_rotation_translation(Quat::from_rotation_y(self.yaw), origin);
+            Mat4::from_rotation_translation(Quat::from_rotation_y(self.facing.facing), origin);
     }
 
     fn screenshot(&mut self, path: &Path, w: u32, h: u32) {
@@ -191,9 +210,31 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
 
     let h = host.clone();
     g.set(
+        "strafe",
+        lua.create_function(move |_, (l, r): (bool, bool)| {
+            let mut host = h.borrow_mut();
+            host.input.step_left = l;
+            host.input.step_right = r;
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "walk",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().input.walk = on;
+            Ok(())
+        })?,
+    )?;
+
+    // `facing(deg)` snaps the body (and its target); `turn(delta)` nudges the
+    // target so the body slews toward it over subsequent ticks (mouse turn).
+    let h = host.clone();
+    g.set(
         "facing",
         lua.create_function(move |_, deg: f32| {
-            h.borrow_mut().yaw = deg.to_radians();
+            h.borrow_mut().facing = crate::control::Facing::new(deg.to_radians());
             Ok(())
         })?,
     )?;
@@ -202,9 +243,22 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "turn",
         lua.create_function(move |_, delta: f32| {
-            h.borrow_mut().yaw += delta.to_radians();
+            h.borrow_mut().facing.adjust_desired(delta.to_radians());
             Ok(())
         })?,
+    )?;
+
+    // Read-back of the body yaw and the (mouse) target, in degrees.
+    let h = host.clone();
+    g.set(
+        "facing_deg",
+        lua.create_function(move |_, ()| Ok(h.borrow().facing.facing.to_degrees()))?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "desired_deg",
+        lua.create_function(move |_, ()| Ok(h.borrow().facing.desired_facing.to_degrees()))?,
     )?;
 
     let h = host.clone();

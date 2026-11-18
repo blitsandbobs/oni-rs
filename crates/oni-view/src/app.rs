@@ -34,16 +34,10 @@ struct PlayState {
 }
 
 const TICK: f32 = 1.0 / 60.0;
-/// Body turn cap per tick (Oni `iGetTurnPerFrame`): `medTurn = 1.5π/60` when
-/// running, `slowTurn = 1.5π/120` when walking.
-const MED_TURN: f32 = std::f32::consts::PI * 1.5 / 60.0;
-const SLOW_TURN: f32 = std::f32::consts::PI * 1.5 / 120.0;
+use crate::control::{MED_TURN, SLOW_TURN, TURN_DEADZONE};
 /// Mouse sensitivity: radians of desired-facing per pixel of motion (tuned to
 /// feel like Oni's `/64` base; rebindable scale lives in `oni_config`).
 const MOUSE_SENS: f32 = 0.0022;
-/// Pending-turn threshold past which a turn-in-place clip plays
-/// (Oni `ONgAimingWidth` = 70°); smaller turns just slew the body.
-const TURN_DEADZONE: f32 = std::f32::consts::PI * 70.0 / 180.0;
 
 struct State {
     gpu: Gpu,

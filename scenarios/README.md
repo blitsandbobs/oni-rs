@@ -29,13 +29,20 @@ with `--anim-prefix`).
 | `drop.lua` | Gravity: dropped from height, lands grounded at `y≈0`. Use `--char-pos 200,20,300`. |
 | `collision.lua` | Move-and-slide: running into the lockers stops her (no tunnelling). |
 | `stitch.lua` | Clip-to-clip blending: the idle→run interrupt blends (weight 1→0 over 8 frames) instead of snapping. |
+| `strafe.lua` | A/D sidestep: lateral motion with the body still facing forward. |
+| `turn.lua` | Facing slew: a requested turn moves the body a few degrees/tick (not a snap); a big turn plays a turn-in-place clip. |
+| `walk.lua` | Walk modifier: holding walk covers far less ground than run over the same window. |
 
 ## Lua API
 
 | Call | Effect |
 |------|--------|
-| `input(forward, backward)` | Set the movement keys (booleans). |
-| `facing(deg)` / `turn(delta_deg)` | Set / nudge the character's yaw. |
+| `input(forward, backward)` | Set the move keys (W/S). |
+| `strafe(left, right)` | Set the strafe keys (A/D sidestep). |
+| `walk(on)` | The hold-to-walk modifier. |
+| `facing(deg)` | Snap the body + target to an absolute yaw. |
+| `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
+| `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |
 | `step(n)` | Advance `n` ticks at 60 Hz (state machine + physics). |
 | `cam(ex,ey,ez, tx,ty,tz)` | Place the camera (eye, look-at target). |
 | `pos()` → `x,y,z` | The character's feet position. |
