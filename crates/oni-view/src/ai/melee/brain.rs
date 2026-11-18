@@ -366,6 +366,14 @@ impl Melee {
         out
     }
 
+    /// Ticks in a row it has found no technique to use.
+    pub fn no_technique(&self) -> u32 {
+        self.no_technique
+    }
+    pub fn reset_no_technique(&mut self) {
+        self.no_technique = 0;
+    }
+
     fn start_technique(&mut self, t: usize, _me: &View, _target: &View, _slot: bool, fights: &mut Fights) {
         eprintln!("melee: fighter {} uses {:?}", _me.index, self.profile.techniques[t].name);
         self.technique = Some(t);

@@ -1,0 +1,2065 @@
+//! Goals and jobs (behaviour per `docs/GOALS.md`): what an AI character
+//! does over time. It has a **job** (stand idle, or patrol along a waypoint
+//! program) and a **current goal** — the job, or a transient goal that
+//! perception starts (**pursuit** of a threat, **combat** with an enemy),
+//! which returns to the job when done. The goals produce movement (walking
+//! a planned path, via the [`Navigator`]), where to look, and — in combat —
+//! the class's melee AI.
+
+use std::f32::consts::{PI, TAU};
+use std::rc::Rc;
+
+use glam::Vec3;
+
+use super::level::{CombatProfile, LevelAi, PatrolPath, Pursue as PursueSettings, Target, Waypoint};
+use super::melee::brain::Melee;
+use super::melee::fight::Fights;
+use super::melee::profile::Profile;
+use super::navigate::{Navigator, State as NavState};
+use super::perception::{Alert, Notice, Perception, Priority, Stimulus, Strength};
+use super::{relative, yaw_toward, Direction, Orders, Pace, MAX_TURN};
+use crate::anim::input::key;
+use crate::quirks::Quirks;
+
+// --- constants (`docs/GOALS.md`, *Constants*) -----------------------------------
+
+/// A resumed patrol is back on its path within this of where it left it.
+const RETURN_TO_PATH: f32 = 40.0;
+/// Give up on a patrol waypoint after this many failed paths.
+const PATROL_FAILS: u32 = 4;
+/// Patrol guard look-around: a new direction every 240–480 ticks, offsets of
+/// ±45° every 90–150.
+const GUARD_DIR: (u32, u32) = (240, 240);
+const GUARD_ANGLE: (u32, u32) = (90, 60);
+const GUARD_ANGLE_RANGE: f32 = PI / 4.0;
+/// Patrol scan offsets every 60–100 ticks.
+const SCAN_ANGLE: (u32, u32) = (60, 40);
+/// A moving scan follows a change of course of more than this.
+const SCAN_RECALC: f32 = 3.0 * PI / 180.0;
+/// Look-around: a new direction differs from the last by at least this, and
+/// needs this much clear view (tries).
+const LOOK_MIN_DELTA: f32 = 40.0 * PI / 180.0;
+const LOOK_CLEAR: f32 = 30.0;
+const LOOK_TRIES: u32 = 6;
+
+/// Pursuit: going to a contact.
+const PURSUIT_SCAN_DIST: f32 = 200.0;
+const PURSUIT_STOP_DIST: f32 = 60.0;
+const PURSUIT_CLOSE_DIST: f32 = 12.0;
+const PURSUIT_LOS_CHECKS: u32 = 6;
+const PURSUIT_SCAN: (u32, u32) = (40, 40);
+const PURSUIT_SCAN_RANGE: f32 = 70.0 * PI / 180.0;
+const PURSUIT_LOOK_DIR: (u32, u32) = (100, 100);
+const PURSUIT_LOOK_ANGLE: (u32, u32) = (40, 40);
+const PURSUIT_LOOK_RANGE: f32 = PI / 4.0;
+const PURSUIT_GLANCE_FIRST: u32 = 80;
+const PURSUIT_LOOK_AFTER_ARRIVING: u32 = 600;
+
+/// Combat: decisions every this many ticks.
+const COMBAT_PERIOD: u64 = 5;
+/// Melee is only an option within this of the target.
+const MELEE_RANGE: f32 = 80.0;
+/// No technique for this long → advance for a while instead.
+const MELEE_NO_TECHNIQUE: u32 = 30;
+const TRY_ADVANCE: u32 = 90;
+/// Recently punched by the target (for "fight back if punched").
+const RECENTLY_HURT: u64 = 240;
+/// Target switching (`docs/PERCEPTION.md`, *Memory*).
+const SWITCH_CLOSER: f32 = 0.8;
+const DONT_SWITCH_FARTHER: f32 = 3.5;
+const SWITCH_IF_NOT_SHOT: u64 = 150;
+const SWITCH_IF_NOT_PUNCHED: u64 = 90;
+/// Never advance closer than this.
+const ADVANCE_MIN: f32 = 6.0;
+
+/// Standing still, the body turns to where it looks once that is more than
+/// this off its facing (the head covers the rest).
+const STANDING_LOOK_RANGE: f32 = 40.0 * PI / 180.0;
+const STANDING_GLANCE_RANGE: f32 = 115.0 * PI / 180.0;
+const PURSUIT_AIM_RANGE: f32 = 85.0 * PI / 180.0;
+
+// --- class combat settings ----------------------------------------------------
+
+/// A class's combat timings (`classes.json` `perception.combat`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ClassCombat {
+    pub investigate_body: u32,
+    pub lost_contact: u32,
+    pub taunt_percent: u32,
+    pub default_profile: u16,
+}
+
+impl Default for ClassCombat {
+    fn default() -> Self {
+        ClassCombat { investigate_body: 240, lost_contact: 180, taunt_percent: 40, default_profile: 0 }
+    }
+}
+
+impl ClassCombat {
+    pub fn from_json(p: &serde_json::Value) -> ClassCombat {
+        let c = &p["combat"];
+        let u = |k: &str, d: u32| c[k].as_u64().map_or(d, |v| v as u32);
+        let d = ClassCombat::default();
+        ClassCombat {
+            investigate_body: u("investigateBodyTicks", d.investigate_body),
+            lost_contact: u("lostContactTicks", d.lost_contact),
+            taunt_percent: u("deadTauntPercent", d.taunt_percent),
+            default_profile: u("defaultCombatProfileId", 0) as u16,
+        }
+    }
+}
+
+// --- pace -----------------------------------------------------------------------
+
+/// A movement mode (a patrol's pace).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MoveMode {
+    ByAlert,
+    Creep,
+    WalkNoAim,
+    Walk,
+    RunNoAim,
+    Run,
+}
+
+impl MoveMode {
+    pub fn from_name(n: &str) -> MoveMode {
+        match n {
+            "creep" => MoveMode::Creep,
+            "walkNoAim" => MoveMode::WalkNoAim,
+            "walk" => MoveMode::Walk,
+            "runNoAim" => MoveMode::RunNoAim,
+            "run" => MoveMode::Run,
+            _ => MoveMode::ByAlert,
+        }
+    }
+
+    /// The pace at `alert`, hurrying or not (by alert: walk until medium
+    /// when hurrying, else always walk).
+    fn pace(self, alert: Alert, hurry: bool) -> Pace {
+        use MoveMode::*;
+        let m = match self {
+            ByAlert if hurry => [WalkNoAim, WalkNoAim, RunNoAim, Run, Run][alert as usize],
+            ByAlert => [WalkNoAim, WalkNoAim, Walk, Walk, Walk][alert as usize],
+            m => m,
+        };
+        match m {
+            Creep => Pace::Creep,
+            WalkNoAim | Walk => Pace::Walk,
+            _ => Pace::Run,
+        }
+    }
+}
+
+// --- randomness -------------------------------------------------------------------
+
+#[derive(Clone, Debug)]
+struct Rng(u32);
+
+impl Rng {
+    fn next(&mut self) -> u32 {
+        let mut x = self.0;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.0 = x;
+        x
+    }
+    /// `[0, 1)`.
+    fn unit(&mut self) -> f32 {
+        (self.next() >> 8) as f32 / (1u32 << 24) as f32
+    }
+    /// `min ..= min + delta`.
+    fn range(&mut self, (min, delta): (u32, u32)) -> u32 {
+        min + if delta > 0 { self.next() % (delta + 1) } else { 0 }
+    }
+}
+
+// --- looking around (`Oni_AI2_Guard.c`) ----------------------------------------
+
+/// Looking around: a main direction re-picked on one timer, offset by a
+/// random angle re-picked on another.
+#[derive(Clone, Debug, Default)]
+pub struct Scan {
+    initial: Option<f32>,
+    has_dir: bool,
+    dir: f32,
+    stay_facing: bool,
+    stay_dir: Option<f32>,
+    stay_range: f32,
+    dir_timer: u32,
+    dir_times: (u32, u32),
+    angle_timer: u32,
+    angle_times: (u32, u32),
+    angle_range: f32,
+    offset: f32,
+    /// Where it looks (yaw).
+    pub look: f32,
+}
+
+impl Scan {
+    fn reset(initial: Option<f32>) -> Scan {
+        Scan { initial, ..Scan::default() }
+    }
+
+    fn new_direction(&mut self, facing: f32, around: Option<(f32, f32)>, rng: &mut Rng, clear: &dyn Fn(f32) -> bool) {
+        let avoid = self.has_dir.then_some(self.dir);
+        let mut first = !self.has_dir;
+        let mut tries = 0;
+        loop {
+            let t = if first {
+                first = false;
+                self.initial.unwrap_or(facing)
+            } else {
+                match around {
+                    None => rng.unit() * TAU,
+                    Some((f, range)) => f + (rng.unit() * 2.0 - 1.0) * range,
+                }
+            };
+            if tries < LOOK_TRIES && avoid.is_some_and(|a| relative(t - a).abs() < LOOK_MIN_DELTA) {
+                tries += 1;
+                continue;
+            }
+            if tries >= LOOK_TRIES || clear(t) {
+                self.has_dir = true;
+                self.dir = t.rem_euclid(TAU);
+                return;
+            }
+            tries += 1;
+        }
+    }
+
+    /// One tick: re-picks the direction / offset when their timers run out.
+    fn update(&mut self, facing: f32, rng: &mut Rng, clear: &dyn Fn(f32) -> bool) -> f32 {
+        let mut changed = false;
+        if !self.has_dir || self.dir_timer == 0 {
+            let around = self.stay_facing.then(|| (self.stay_dir.unwrap_or(facing), self.stay_range));
+            self.new_direction(facing, around, rng, clear);
+            changed = true;
+            self.dir_timer = rng.range(self.dir_times);
+            self.angle_timer = rng.range(self.angle_times);
+        } else {
+            self.dir_timer -= 1;
+        }
+        if self.angle_range > 0.0 {
+            if self.angle_timer == 0 {
+                self.offset = self.angle_range * (2.0 * rng.unit() - 1.0);
+                self.angle_timer = rng.range(self.angle_times);
+                changed = true;
+            } else {
+                self.angle_timer -= 1;
+            }
+        }
+        if changed {
+            self.look = if self.angle_range == 0.0 { self.dir } else { self.dir + self.offset };
+        }
+        self.look
+    }
+}
+
+trait Flat {
+    fn with_y_zero(self) -> Vec3;
+}
+impl Flat for Vec3 {
+    fn with_y_zero(self) -> Vec3 {
+        Vec3::new(self.x, 0.0, self.z)
+    }
+}
+
+// --- what a goal sees of the world --------------------------------------------
+
+/// Another character, as goals see it.
+#[derive(Clone, Copy, Debug)]
+pub struct Other {
+    pub feet: Vec3,
+    pub alive: bool,
+}
+
+/// What a goal can see and use this tick.
+pub struct Ctx<'a> {
+    pub me: usize,
+    pub now: u64,
+    pub feet: Vec3,
+    pub eye: Vec3,
+    pub facing: f32,
+    /// Lying on the ground.
+    pub fallen: bool,
+    pub standing: bool,
+    pub perception: &'a mut Perception,
+    pub level: &'a LevelAi,
+    /// A clear line between two points.
+    pub sight: &'a dyn Fn(Vec3, Vec3) -> bool,
+    /// The length of the way between two points (None: no way).
+    pub path_length: &'a dyn Fn(Vec3, Vec3) -> Option<f32>,
+    pub others: &'a [Other],
+    pub fights: &'a mut Fights,
+    pub melee_profile: Option<Rc<Profile>>,
+    pub daze: (u32, u32),
+    pub quirks: Quirks,
+}
+
+impl Ctx<'_> {
+    fn clear_toward(&self) -> impl Fn(f32) -> bool + '_ {
+        move |yaw: f32| (self.sight)(self.eye, self.eye + Vec3::new(yaw.sin(), 0.0, yaw.cos()) * LOOK_CLEAR)
+    }
+    fn alert(&self) -> Alert {
+        self.perception.alert
+    }
+}
+
+// --- movement orders ------------------------------------------------------------
+
+/// Where to go: a point, the distance that counts as there, whether to stop
+/// there, and the facing to end with.
+#[derive(Clone, Copy, Debug)]
+struct Dest {
+    at: Vec3,
+    within: f32,
+    stop: bool,
+    face: Option<f32>,
+}
+
+/// Where to look.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Look {
+    None,
+    At(Vec3),
+    Dir(f32),
+}
+
+// --- goals -------------------------------------------------------------------------
+
+/// A character's job.
+#[derive(Clone, Debug)]
+pub enum Job {
+    Idle,
+    Patrol(Box<Patrol>),
+}
+
+/// What a character is doing now.
+#[derive(Clone, Debug)]
+pub enum Goal {
+    None,
+    /// Its job.
+    Job,
+    /// Standing idle (not its job: a patrol that ended, or too calm for its
+    /// job).
+    Idle,
+    Pursuit(Box<Pursuit>),
+    Combat(Box<Combat>),
+}
+
+impl Goal {
+    pub fn name(&self) -> &'static str {
+        match self {
+            Goal::None => "none",
+            Goal::Job => "job",
+            Goal::Idle => "idle",
+            Goal::Pursuit(_) => "pursuit",
+            Goal::Combat(_) => "combat",
+        }
+    }
+}
+
+/// A patrol in progress.
+#[derive(Clone, Debug)]
+pub struct Patrol {
+    pub path: Rc<PatrolPath>,
+    pub current: usize,
+    begun: bool,
+    pause: u32,
+    scanguard: u32,
+    scanning: bool,
+    guarding: bool,
+    started_guarding: bool,
+    scan: Scan,
+    done_glance: Option<usize>,
+    stationary_glance: bool,
+    pub locked: bool,
+    /// Walking back to where it left the path.
+    return_to: Option<Vec3>,
+    prev_point: Vec3,
+    on_path: bool,
+    failed: bool,
+    fails: u32,
+    movement_waypoint: Option<usize>,
+    shooting: u32,
+    scan_course: Option<f32>,
+}
+
+impl Patrol {
+    pub fn new(path: Rc<PatrolPath>) -> Patrol {
+        Patrol {
+            path,
+            current: 0,
+            begun: false,
+            pause: 0,
+            scanguard: 0,
+            scanning: false,
+            guarding: false,
+            started_guarding: false,
+            scan: Scan::default(),
+            done_glance: None,
+            stationary_glance: false,
+            locked: false,
+            return_to: None,
+            prev_point: Vec3::ZERO,
+            on_path: false,
+            failed: false,
+            fails: 0,
+            movement_waypoint: None,
+            shooting: 0,
+            scan_course: None,
+        }
+    }
+}
+
+/// Pursuit modes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PursuitMode {
+    None,
+    Forget,
+    GoTo,
+    Wait,
+    Look,
+    Move,
+    Hunt,
+    Glance,
+}
+
+impl PursuitMode {
+    fn from_name(n: &str) -> PursuitMode {
+        match n {
+            "forget" => PursuitMode::Forget,
+            "goTo" => PursuitMode::GoTo,
+            "wait" => PursuitMode::Wait,
+            "look" => PursuitMode::Look,
+            "move" => PursuitMode::Move,
+            "hunt" => PursuitMode::Hunt,
+            "glance" => PursuitMode::Glance,
+            _ => PursuitMode::None,
+        }
+    }
+    pub fn name(self) -> &'static str {
+        match self {
+            PursuitMode::None => "none",
+            PursuitMode::Forget => "forget",
+            PursuitMode::GoTo => "goTo",
+            PursuitMode::Wait => "wait",
+            PursuitMode::Look => "look",
+            PursuitMode::Move => "move",
+            PursuitMode::Hunt => "hunt",
+            PursuitMode::Glance => "glance",
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Check {
+    Initial,
+    PostGlance,
+    PostArrival,
+    ChangeTarget,
+}
+
+/// Investigating a contact.
+#[derive(Clone, Debug)]
+pub struct Pursuit {
+    /// The contact pursued (its serial).
+    pub target: u32,
+    pub mode: PursuitMode,
+    delay: u32,
+    certain: bool,
+    danger: bool,
+    last_los_check: u64,
+    los_ok: u32,
+    los_seen: bool,
+    close: bool,
+    running: bool,
+    scanning: bool,
+    scan: Scan,
+}
+
+/// Primary movements in combat, by precedence (ties go to the earlier).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Primary {
+    Hold,
+    Advance,
+    Retreat,
+    Melee,
+    GetUp,
+}
+
+/// Range bands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Band {
+    None,
+    Long,
+    Medium,
+    Short,
+    MediumRetreat,
+    LongRetreat,
+}
+
+/// Fighting an enemy.
+#[derive(Clone, Debug)]
+pub struct Combat {
+    pub target: usize,
+    contact: u32,
+    target_strength: Strength,
+    pub melee: Option<Box<Melee>>,
+    pub primary: Primary,
+    band: Band,
+    advance: (f32, f32),
+    retreat: (f32, f32),
+    try_advance: u32,
+    lost_contact: Option<u32>,
+    target_dead: bool,
+    investigate: u32,
+    taunt_enable: bool,
+    done_taunt: bool,
+    last_hit: u64,
+    last_melee_hit: u64,
+    daze: Option<u32>,
+    advance_goal: Option<Vec3>,
+}
+
+/// An AI character's goals (behaviour per `docs/GOALS.md`).
+#[derive(Clone, Debug)]
+pub struct Agent {
+    pub name: String,
+    pub job: Job,
+    pub goal: Goal,
+    /// Below this alert it doesn't take up its job (stands idle instead).
+    pub job_alert: Alert,
+    /// It pursues only at this alert or above.
+    pub investigate_alert: Alert,
+    pub pursue: PursueSettings,
+    pub profile: Rc<CombatProfile>,
+    pub class: ClassCombat,
+    /// Where its patrol had it last (pursuit limits are measured from here).
+    pub job_location: Option<Vec3>,
+    pub mode: MoveMode,
+    pub nav: Option<Navigator>,
+    dest: Option<Dest>,
+    look: Look,
+    glance: Option<(f32, u32)>,
+    turning_to: Option<f32>,
+    /// Buttons pressed this tick (getting up, taunting).
+    press: u32,
+    /// Where its eyes look (yaw): toward what it looks at, as far as the
+    /// head turns from the body (vision looks this way).
+    pub eye: Option<f32>,
+    rng: Rng,
+}
+
+impl Agent {
+    pub fn new(name: String, job: Job, profile: Rc<CombatProfile>, class: ClassCombat, seed: u32) -> Agent {
+        Agent {
+            name,
+            job,
+            goal: Goal::None,
+            job_alert: Alert::Low,
+            investigate_alert: Alert::Medium,
+            pursue: PursueSettings::default(),
+            profile,
+            class,
+            job_location: None,
+            mode: MoveMode::ByAlert,
+            nav: None,
+            dest: None,
+            look: Look::None,
+            glance: None,
+            turning_to: None,
+            press: 0,
+            eye: None,
+            rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
+        }
+    }
+
+    /// The melee AI, when combat has it fighting hand to hand.
+    pub fn melee_mut(&mut self) -> Option<&mut Melee> {
+        match &mut self.goal {
+            Goal::Combat(c) if c.primary == Primary::Melee && !c.target_dead => c.melee.as_deref_mut(),
+            _ => None,
+        }
+    }
+    pub fn melee(&self) -> Option<&Melee> {
+        match &self.goal {
+            Goal::Combat(c) if c.primary == Primary::Melee && !c.target_dead => c.melee.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Whom it fights, if anyone.
+    pub fn opponent(&self) -> Option<usize> {
+        match &self.goal {
+            Goal::Combat(c) if !c.target_dead => Some(c.target),
+            _ => None,
+        }
+    }
+
+    /// A one-line state for logs and scripts.
+    pub fn describe(&self) -> String {
+        match &self.goal {
+            Goal::Job => match &self.job {
+                Job::Idle => "job idle".into(),
+                Job::Patrol(p) => format!("job patrol {} @{}", p.path.name, p.current),
+            },
+            Goal::Pursuit(p) => format!("pursuit {}", p.mode.name()),
+            Goal::Combat(c) => format!("combat {:?} → {}", c.primary, c.target),
+            g => g.name().to_string(),
+        }
+    }
+
+    fn casual(&self) -> bool {
+        match &self.goal {
+            Goal::None | Goal::Idle => true,
+            Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
+            _ => false,
+        }
+    }
+
+    /// Whether its alert may ease (idle or patrolling, not locked in).
+    pub fn calming(&self) -> bool {
+        match &self.goal {
+            Goal::Idle => true,
+            Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
+            _ => false,
+        }
+    }
+
+    // --- movement helpers ------------------------------------------------------
+
+    fn go_to(&mut self, at: Vec3, within: f32, stop: bool, face: Option<f32>, cx: &Ctx) {
+        self.dest = Some(Dest { at, within, stop, face });
+        self.nav = Some(Navigator::new(at, within, self.pace(cx)));
+        self.turning_to = None;
+    }
+
+    fn halt(&mut self) {
+        self.dest = None;
+        self.nav = None;
+    }
+
+    fn pace(&self, cx: &Ctx) -> Pace {
+        let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
+        self.mode.pace(cx.alert(), hurry)
+    }
+
+    fn arrived(&self, cx: &Ctx) -> bool {
+        let Some(d) = self.dest else { return true };
+        let there = matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Arrived))
+            || self.distance_to_dest(cx) <= d.within.max(3.0);
+        there && d.face.is_none_or(|f| relative(f - cx.facing).abs() <= MAX_TURN)
+    }
+
+    fn distance_to_dest(&self, cx: &Ctx) -> f32 {
+        self.dest.map_or(0.0, |d| {
+            let v = d.at - cx.feet;
+            Vec3::new(v.x, 0.0, v.z).length()
+        })
+    }
+
+    fn path_failed(&self) -> bool {
+        matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Failed(_)))
+    }
+
+    fn glance_at(&mut self, at: Vec3, ticks: u32, cx: &Ctx) {
+        self.glance = Some((yaw_toward(cx.feet, at), ticks));
+    }
+
+    // --- the goal machine ----------------------------------------------------
+
+    /// Leaves the current goal.
+    fn exit(&mut self, cx: &mut Ctx) {
+        match std::mem::replace(&mut self.goal, Goal::None) {
+            Goal::Job => {
+                if let Job::Patrol(p) = &mut self.job {
+                    p.pause = 0;
+                    p.shooting = 0;
+                    p.return_to = Some(cx.feet);
+                    p.prev_point = cx.feet;
+                }
+            }
+            Goal::Combat(c) => {
+                cx.fights.leave(cx.me);
+                // The alert drops to high on leaving combat.
+                if cx.perception.alert > Alert::High {
+                    cx.perception.alert = Alert::High;
+                }
+                drop(c);
+            }
+            _ => {}
+        }
+        self.halt();
+        self.look = Look::None;
+        self.glance = None;
+        self.turning_to = None;
+        cx.perception.locked = false;
+    }
+
+    /// Goes back to its job (`docs/GOALS.md`, *Returning to the job*):
+    /// idle where it stands if its alert is below its job alert.
+    pub fn return_to_job(&mut self, set_idle: bool, even_if_alerted: bool, cx: &mut Ctx) {
+        let idle = cx.alert() < self.job_alert;
+        if matches!(self.goal, Goal::Job) {
+            return;
+        }
+        if idle && !set_idle && !matches!(self.goal, Goal::None) {
+            return;
+        }
+        if !self.casual() && !even_if_alerted {
+            return;
+        }
+        self.exit(cx);
+        if idle {
+            self.enter_idle(cx);
+        } else {
+            self.goal = Goal::Job;
+            self.enter_job(cx);
+        }
+        eprintln!("ai: {} → {}", self.name, self.describe());
+    }
+
+    fn enter_idle(&mut self, _cx: &mut Ctx) {
+        self.goal = Goal::Idle;
+        self.halt();
+        self.look = Look::None;
+    }
+
+    fn enter_job(&mut self, cx: &mut Ctx) {
+        match &self.job {
+            Job::Idle => self.halt(),
+            Job::Patrol(_) => self.patrol_enter(cx),
+        }
+    }
+
+    /// Acts on what perception noticed (the knowledge callbacks of the
+    /// current goal).
+    pub fn notice(&mut self, n: Notice, cx: &mut Ctx) {
+        match n {
+            Notice::Combat(who) => {
+                if !matches!(self.goal, Goal::Combat(_)) && cx.others.get(who).is_some_and(|o| o.alive) {
+                    self.enter_combat(who, cx);
+                }
+            }
+            Notice::Pursue(id) => {
+                if !matches!(self.goal, Goal::Pursuit(_) | Goal::Combat(_)) {
+                    self.enter_pursuit(id, cx);
+                }
+            }
+            Notice::Glance(at, ticks) => {
+                if !matches!(self.goal, Goal::Combat(_)) {
+                    self.glance_at(at, ticks, cx);
+                }
+            }
+            Notice::Knowledge { id, degrade } => match self.goal {
+                Goal::Pursuit(_) => self.pursuit_knowledge(id, degrade, cx),
+                Goal::Combat(_) => self.combat_knowledge(id, degrade, cx),
+                _ => {}
+            },
+            Notice::Startle(_) => {}
+        }
+    }
+
+    /// One tick of the current goal.
+    pub fn update(&mut self, cx: &mut Ctx) {
+        self.press = 0;
+        if let Some((_, t)) = &mut self.glance {
+            *t = t.saturating_sub(1);
+            if *t == 0 {
+                self.glance = None;
+            }
+        }
+        if matches!(self.goal, Goal::None) {
+            self.return_to_job(true, false, cx);
+        }
+        // Where its patrol has it.
+        if matches!(self.goal, Goal::Job) {
+            if let Job::Patrol(p) = &self.job {
+                if p.return_to.is_none() && p.on_path {
+                    self.job_location = Some(cx.feet);
+                }
+            }
+        }
+        match self.goal {
+            Goal::Job => {
+                if matches!(self.job, Job::Patrol(_)) {
+                    self.patrol_update(cx);
+                }
+            }
+            Goal::Pursuit(_) => self.pursuit_update(cx),
+            Goal::Combat(_) => self.combat_update(cx),
+            Goal::Idle | Goal::None => {}
+        }
+        let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
+        let pace = self.mode.pace(cx.perception.alert, hurry);
+        if let Some(n) = self.nav.as_mut() {
+            n.set_pace(pace);
+        }
+        cx.perception.locked = matches!((&self.goal, &self.job), (Goal::Job, Job::Patrol(p)) if p.locked);
+    }
+
+    /// This tick's movement for a body at `feet` facing `facing`, plus
+    /// buttons to press.
+    pub fn orders(&mut self, feet: Vec3, facing: f32, now: u64) -> (Orders, u32) {
+        let mut o = match self.nav.as_mut() {
+            Some(n) => n.orders(feet, facing, now),
+            None => Orders::default(),
+        };
+        if o.direction == Direction::Stopped {
+            let arrived_facing = self.dest.and_then(|d| d.face).filter(|_| {
+                matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Arrived))
+                    || self.dest.is_some_and(|d| (d.at - feet).with_y_zero().length() <= d.within.max(3.0))
+            });
+            if let Some(f) = arrived_facing {
+                o.face = Some(f);
+            } else {
+                let (want, range) = match (self.glance, self.look) {
+                    (Some((g, _)), _) => (Some(g), STANDING_GLANCE_RANGE),
+                    (None, Look::At(p)) => (Some(yaw_toward(feet, p)), self.look_range()),
+                    (None, Look::Dir(d)) => (Some(d), self.look_range()),
+                    (None, Look::None) => (None, 0.0),
+                };
+                self.eye = want.map(|w| facing + relative(w - facing).clamp(-range, range));
+                if let Some(w) = want {
+                    let from = self.turning_to.unwrap_or(facing);
+                    if relative(w - from).abs() > range {
+                        self.turning_to = Some(w);
+                    }
+                }
+                if let Some(t) = self.turning_to {
+                    o.face = Some(t);
+                    if relative(t - facing).abs() <= MAX_TURN {
+                        self.turning_to = None;
+                    }
+                }
+            }
+        } else {
+            self.turning_to = None;
+            // On the move it looks where it goes (glancing aside a little).
+            let range = STANDING_LOOK_RANGE;
+            self.eye = self.glance.map(|(g, _)| facing + relative(g - facing).clamp(-range, range));
+        }
+        (o, self.press)
+    }
+
+    fn look_range(&self) -> f32 {
+        match &self.goal {
+            Goal::Pursuit(_) => PURSUIT_AIM_RANGE,
+            Goal::Combat(_) => 10.0 * PI / 180.0,
+            _ => STANDING_LOOK_RANGE,
+        }
+    }
+
+    // --- patrol (`docs/GOALS.md`, *Patrol*) -----------------------------------
+
+    fn patrol(&mut self) -> &mut Patrol {
+        match &mut self.job {
+            Job::Patrol(p) => p,
+            Job::Idle => unreachable!("not a patroller"),
+        }
+    }
+
+    fn patrol_enter(&mut self, cx: &mut Ctx) {
+        let level = cx.level;
+        let begun = self.patrol().begun;
+        if begun {
+            let nearest = self.patrol().path.return_to_nearest;
+            let p = self.patrol();
+            if p.current >= p.path.waypoints.len() {
+                p.current = 0;
+            }
+            if nearest {
+                // Resume at the movement waypoint nearest by path.
+                let path = p.path.clone();
+                let mut best: Option<(usize, f32)> = None;
+                for (i, w) in path.waypoints.iter().enumerate() {
+                    let Some(flag) = movement_flag(w) else { continue };
+                    let Some(f) = level.flags.get(&flag) else { continue };
+                    if let Some(d) = (cx.path_length)(cx.feet, f.at) {
+                        if best.is_none_or(|(_, b)| d < b) {
+                            best = Some((i, d));
+                        }
+                    }
+                }
+                if let Some((i, _)) = best {
+                    let p = self.patrol();
+                    p.current = i;
+                    p.return_to = None;
+                }
+            }
+        } else {
+            let p = self.patrol();
+            *p = Patrol::new(p.path.clone());
+            p.begun = true;
+        }
+        self.patrol().on_path = false;
+        let i = self.patrol().current;
+        self.do_waypoint(i, true, false, cx);
+    }
+
+    /// Runs a waypoint's command (`fresh`: just reached it).
+    fn do_waypoint(&mut self, index: usize, fresh: bool, retry: bool, cx: &mut Ctx) {
+        let level = cx.level;
+        if !retry {
+            let p = self.patrol();
+            p.failed = false;
+            p.fails = 0;
+        }
+        if let Some(back) = self.patrol().return_to {
+            self.go_to(back, RETURN_TO_PATH, false, None, cx);
+            return;
+        }
+        let Some(w) = self.patrol().path.waypoints.get(index).cloned() else { return };
+        if movement_flag(&w).is_some() || matches!(w, Waypoint::MoveTo { at: Target::Point(_), .. }) {
+            self.patrol().movement_waypoint = Some(index);
+        }
+        let flag = |id: i16| level.flags.get(&id).copied();
+        match w {
+            Waypoint::MoveTo { at, stop, face, within } => {
+                let facing = match (face, at) {
+                    (true, Target::Flag(id)) => flag(id).map(|f| f.facing),
+                    _ => None,
+                };
+                match level.place(at) {
+                    Some(p) => self.go_to(p, within, stop, facing, cx),
+                    None => eprintln!("ai: {}: patrol: no flag {:?}", self.name, at),
+                }
+            }
+            Waypoint::Stop => self.patrol_finish(cx),
+            Waypoint::Pause(n) => {
+                if fresh {
+                    self.patrol().pause = n;
+                    self.halt();
+                }
+            }
+            Waypoint::LookAt(t) => {
+                if let Some(p) = level.place(t) {
+                    self.look = Look::At(p);
+                }
+            }
+            Waypoint::Loop => {
+                // (A loop as the first waypoint would recurse for ever.)
+                if index != 0 {
+                    self.patrol().current = 0;
+                    self.do_waypoint(0, true, false, cx);
+                }
+            }
+            Waypoint::LoopTo(to) => {
+                let n = self.patrol().path.waypoints.len();
+                let cur = self.patrol().current;
+                let mut next = to.min(n.saturating_sub(1));
+                if next == cur {
+                    next = (cur + 1) % n.max(1);
+                }
+                if next != cur {
+                    self.patrol().current = next;
+                    self.do_waypoint(next, true, false, cx);
+                }
+            }
+            Waypoint::Pace(m) => self.mode = MoveMode::from_name(&m),
+            Waypoint::StopLooking => self.look = Look::None,
+            Waypoint::LookInDirection | Waypoint::FreeFacing => {}
+            Waypoint::Glance { .. } | Waypoint::Scan { .. } => {} // in `fulfilled`
+            Waypoint::StopScanning => {
+                let p = self.patrol();
+                if p.scanning {
+                    p.scanning = false;
+                    p.scanguard = 0;
+                    self.look = Look::None;
+                }
+            }
+            Waypoint::Guard { flag: id, .. } => {
+                match flag(id) {
+                    Some(f) => self.go_to(f.at, 0.0, true, Some(f.facing), cx),
+                    None => eprintln!("ai: {}: patrol: no flag {id}", self.name),
+                }
+                let p = self.patrol();
+                p.started_guarding = false;
+                p.guarding = false;
+                p.scanguard = 0;
+            }
+            Waypoint::Script { name, .. } => {
+                // Scripts aren't run yet (#20): a played script ends at once.
+                eprintln!("ai: {}: patrol script {name} (not run)", self.name);
+            }
+            Waypoint::Lock(lock) => {
+                self.patrol().locked = lock;
+                cx.perception.locked = lock;
+                if !lock {
+                    // Released: react to what it knows.
+                    let notices = cx.perception.reconsider(cx.now);
+                    for n in notices {
+                        self.notice(n, cx);
+                        if !matches!(self.goal, Goal::Job) {
+                            return;
+                        }
+                    }
+                }
+            }
+            Waypoint::ShootAt { ticks, .. } => {
+                // No guns yet (#10): it just waits out the shooting.
+                self.patrol().shooting = ticks;
+            }
+        }
+    }
+
+    fn patrol_finish(&mut self, cx: &mut Ctx) {
+        let p = self.patrol();
+        if p.current >= p.path.waypoints.len() {
+            p.current = 0;
+        }
+        // A job patrol that ends stands idle.
+        self.exit(cx);
+        self.enter_idle(cx);
+        eprintln!("ai: {}: patrol over → idle", self.name);
+    }
+
+    /// Moves to the next waypoint. True when the patrol is over (or left).
+    fn advance_waypoint(&mut self, cx: &mut Ctx) -> bool {
+        let p = self.patrol();
+        p.current += 1;
+        p.fails = 0;
+        p.done_glance = None;
+        if p.current >= p.path.waypoints.len() {
+            self.patrol_finish(cx);
+            return true;
+        }
+        let i = p.current;
+        self.do_waypoint(i, true, false, cx);
+        !matches!(self.goal, Goal::Job)
+    }
+
+    fn patrol_update(&mut self, cx: &mut Ctx) {
+        if self.patrol().pause > 0 {
+            self.patrol().pause -= 1;
+            if self.patrol().pause > 0 {
+                self.halt();
+                return;
+            }
+            let i = self.patrol().current;
+            self.do_waypoint(i, false, false, cx);
+        }
+        if self.patrol().shooting > 0 {
+            self.patrol().shooting -= 1;
+        }
+        if self.patrol().scanguard > 0 {
+            let p = self.patrol();
+            p.scanguard -= 1;
+            if p.scanguard == 0 {
+                p.scanning = false;
+                p.guarding = false;
+                self.look = Look::None;
+                // (A moving scan's end advances whatever waypoint is current
+                // by then — the original's behaviour, kept.)
+                if self.advance_waypoint(cx) {
+                    return;
+                }
+            }
+        }
+        if self.path_failed() {
+            self.patrol().failed = true;
+        }
+        let mut skip = false;
+        if self.patrol().failed {
+            let name = self.name.clone();
+            let p = self.patrol();
+            p.failed = false;
+            p.fails += 1;
+            if p.fails >= PATROL_FAILS {
+                eprintln!("ai: {name}: patrol {}: giving up on waypoint {}", p.path.name, p.current);
+                skip = true;
+            } else if let Some(m) = p.movement_waypoint {
+                self.do_waypoint(m, true, true, cx);
+            }
+        }
+        let start = self.patrol().current;
+        while skip || self.fulfilled(cx) {
+            skip = false;
+            self.advance_waypoint(cx);
+            if !matches!(self.goal, Goal::Job) {
+                return;
+            }
+            if self.patrol().current == start {
+                eprintln!("ai: {}: patrol loops endlessly, aborting", self.name);
+                self.patrol_finish(cx);
+                return;
+            }
+        }
+        if cx.fallen && !self.arrived(cx) {
+            self.press |= key::FORWARD;
+        }
+        let clear = cx.clear_toward();
+        let facing = cx.facing;
+        let course = self.nav.as_ref().filter(|n| n.state == NavState::Following).map(|_| facing);
+        let p = match &mut self.job {
+            Job::Patrol(p) => p,
+            Job::Idle => return,
+        };
+        if p.scanning {
+            if let Some(c) = course {
+                if p.scan_course.is_none_or(|old| relative(c - old).abs() > SCAN_RECALC) {
+                    p.scan_course = Some(c);
+                    p.scan.has_dir = true;
+                    p.scan.dir = c;
+                    p.scan.look = c + p.scan.offset;
+                }
+            }
+            let look = p.scan.update(facing, &mut self.rng, &clear);
+            self.look = Look::Dir(look);
+        } else if p.guarding {
+            let look = p.scan.update(facing, &mut self.rng, &clear);
+            self.look = Look::Dir(look);
+        }
+    }
+
+    /// Whether the current waypoint is done (and starts glances / scans /
+    /// guarding as it gets to them).
+    fn fulfilled(&mut self, cx: &mut Ctx) -> bool {
+        if self.patrol().pause > 0 || self.patrol().failed {
+            return false;
+        }
+        if self.patrol().return_to.is_some() {
+            if !self.arrived(cx) {
+                return false;
+            }
+            self.patrol().return_to = None;
+            let i = self.patrol().current;
+            self.do_waypoint(i, true, false, cx);
+        }
+        let i = self.patrol().current;
+        let Some(w) = self.patrol().path.waypoints.get(i).cloned() else { return true };
+        match w {
+            Waypoint::MoveTo { face, .. } => {
+                if self.arrived(cx) {
+                    self.patrol().on_path = true;
+                    return true;
+                }
+                if let Some(d) = self.dest {
+                    if !face && d.within > 0.0 && self.distance_to_dest(cx) < d.within {
+                        self.patrol().on_path = true;
+                        return true;
+                    }
+                }
+                false
+            }
+            Waypoint::Glance { .. } | Waypoint::Scan { .. } => {
+                if self.patrol().done_glance == Some(i) {
+                    let glancing = self.glance.is_some();
+                    let p = self.patrol();
+                    return if p.stationary_glance { !glancing && !p.scanning } else { true };
+                }
+                if self.glance.is_some() || self.patrol().scanning {
+                    return false;
+                }
+                match w {
+                    Waypoint::Glance { at, ticks } => match cx.level.place(at) {
+                        Some(p) => self.glance_at(p, ticks, cx),
+                        None => return true,
+                    },
+                    Waypoint::Scan { ticks, angle } => {
+                        let facing = cx.facing;
+                        let p = self.patrol();
+                        p.scan = Scan::reset(Some(facing));
+                        p.scanning = true;
+                        p.guarding = false;
+                        p.scanguard = ticks;
+                        p.scan_course = None;
+                        p.scan.dir_times = (10000, 0);
+                        p.scan.angle_times = SCAN_ANGLE;
+                        p.scan.angle_range = angle;
+                    }
+                    _ => unreachable!(),
+                }
+                let stopped = self.dest.is_none_or(|d| d.stop) && self.arrived(cx);
+                let p = self.patrol();
+                p.done_glance = Some(i);
+                p.stationary_glance = stopped;
+                if stopped {
+                    self.halt();
+                    return false;
+                }
+                true
+            }
+            Waypoint::Guard { ticks, angle, .. } => {
+                if !self.arrived(cx) {
+                    return false;
+                }
+                let facing = self.dest.and_then(|d| d.face).unwrap_or(cx.facing);
+                let p = self.patrol();
+                p.on_path = true;
+                if !p.started_guarding {
+                    p.scan = Scan::reset(Some(cx.facing));
+                    p.scanning = false;
+                    p.guarding = true;
+                    p.started_guarding = true;
+                    p.scanguard = ticks.unwrap_or(0);
+                    p.scan.stay_facing = true;
+                    p.scan.stay_dir = Some(facing);
+                    p.scan.stay_range = angle.clamp(0.0, PI);
+                    p.scan.dir_times = GUARD_DIR;
+                    p.scan.angle_times = GUARD_ANGLE;
+                    p.scan.angle_range = GUARD_ANGLE_RANGE;
+                }
+                !p.guarding
+            }
+            Waypoint::ShootAt { .. } => self.patrol().shooting == 0,
+            _ => true,
+        }
+    }
+
+    // --- pursuit (`docs/GOALS.md`, *Pursuit*) ---------------------------------
+
+    fn enter_pursuit(&mut self, id: u32, cx: &mut Ctx) {
+        let Some(c) = cx.perception.contact(id).cloned() else { return };
+        self.exit(cx);
+        let danger = cx.alert() >= Alert::Medium;
+        let mut p = Pursuit {
+            target: id,
+            mode: PursuitMode::Glance,
+            delay: 0,
+            certain: c.highest >= Strength::Definite,
+            danger,
+            last_los_check: 0,
+            los_ok: 0,
+            los_seen: false,
+            close: false,
+            running: false,
+            scanning: false,
+            scan: Scan::default(),
+        };
+        if danger && self.desire_pursuit(&p, Check::Initial, cx) {
+            p.mode = PursuitMode::GoTo;
+        } else {
+            p.mode = PursuitMode::Glance;
+            p.delay = c.stimulus.glance();
+        }
+        self.goal = Goal::Pursuit(Box::new(p));
+        let mode = self.pursuit().mode;
+        eprintln!("ai: {} → pursuit ({})", self.name, mode.name());
+        self.change_mode(cx);
+        self.begin_mode(cx);
+    }
+
+    fn pursuit(&mut self) -> &mut Pursuit {
+        match &mut self.goal {
+            Goal::Pursuit(p) => p,
+            _ => unreachable!("not pursuing"),
+        }
+    }
+
+    fn desire_pursuit(&self, p: &Pursuit, check: Check, cx: &Ctx) -> bool {
+        let Some(c) = cx.perception.contact(p.target) else { return false };
+        if check != Check::Initial && c.priority == Priority::Friendly {
+            return false;
+        }
+        if cx.alert() < self.investigate_alert {
+            return false;
+        }
+        let limit = self.profile.pursuit_distance;
+        if limit == 0.0 {
+            return true;
+        }
+        match check {
+            Check::PostArrival | Check::ChangeTarget => match self.job_location {
+                // No way back counts as close enough. (Without a job
+                // location the original reads an unset flag: pursue.)
+                Some(home) => (cx.path_length)(cx.feet, home).is_none_or(|d| d < limit),
+                None => true,
+            },
+            _ => (cx.path_length)(cx.feet, c.location).is_some_and(|d| d < limit),
+        }
+    }
+
+    /// Picks the mode the contact's strength calls for. True if it changed.
+    fn change_mode(&mut self, cx: &mut Ctx) -> bool {
+        let alerted = cx.alert() >= Alert::Medium;
+        let settings = self.pursue.clone();
+        let investigate = self.class.investigate_body;
+        let strength = cx.perception.contact(self.pursuit().target).map_or(Strength::Forgotten, |c| c.strength);
+        let p = self.pursuit();
+        if p.delay > 0 {
+            return false;
+        }
+        let mut force = false;
+        let new = if p.mode == PursuitMode::Forget {
+            force = true;
+            PursuitMode::Forget
+        } else {
+            match strength {
+                Strength::Definite | Strength::Strong => {
+                    if strength == Strength::Definite {
+                        p.certain = true;
+                    }
+                    PursuitMode::from_name(if alerted { &settings.strong_seen } else { &settings.strong_unseen })
+                }
+                Strength::Weak => {
+                    PursuitMode::from_name(if alerted { &settings.weak_seen } else { &settings.weak_unseen })
+                }
+                Strength::Forgotten => {
+                    if settings.lost == "keepLooking" {
+                        PursuitMode::None
+                    } else {
+                        force = true;
+                        PursuitMode::Forget
+                    }
+                }
+                Strength::Dead => {
+                    p.delay = investigate;
+                    return true;
+                }
+            }
+        };
+        if new == PursuitMode::None || (new != PursuitMode::Forget && new == p.mode) {
+            return false;
+        }
+        if p.mode == PursuitMode::GoTo && !force {
+            return false; // don't interrupt going there
+        }
+        p.mode = new;
+        true
+    }
+
+    fn begin_mode(&mut self, cx: &mut Ctx) {
+        let Some(c) = cx.perception.contact(self.pursuit().target).cloned() else {
+            self.return_to_job(true, true, cx);
+            return;
+        };
+        self.halt();
+        self.look = Look::None;
+        let mode = self.pursuit().mode;
+        match mode {
+            PursuitMode::Forget => {
+                // (Raising the alarm needs consoles, #18: back to the job.)
+                eprintln!("ai: {}: pursuit over", self.name);
+                self.return_to_job(true, true, cx);
+            }
+            PursuitMode::GoTo => {
+                let p = self.pursuit();
+                p.last_los_check = 0;
+                p.los_ok = 0;
+                p.los_seen = false;
+                p.running = p.danger;
+                p.scanning = false;
+                self.go_to(c.location, PURSUIT_CLOSE_DIST, true, None, cx);
+            }
+            PursuitMode::Look => {
+                let to = yaw_toward(cx.feet, c.location);
+                let p = self.pursuit();
+                if !p.scanning {
+                    p.scan = Scan::reset(Some(to));
+                    p.scanning = true;
+                }
+                p.scan.stay_facing = false;
+                p.scan.dir_times = PURSUIT_LOOK_DIR;
+                p.scan.angle_times = PURSUIT_LOOK_ANGLE;
+                p.scan.angle_range = PURSUIT_LOOK_RANGE;
+            }
+            PursuitMode::Glance => {
+                let to = yaw_toward(cx.feet, c.location);
+                let p = self.pursuit();
+                p.scanning = false;
+                p.scan = Scan::reset(Some(to));
+                p.scan.dir_times = (0, 0);
+                p.scan.angle_times = (PURSUIT_LOOK_ANGLE.0, PURSUIT_LOOK_ANGLE.1);
+                p.scan.angle_range = PURSUIT_LOOK_RANGE;
+                p.scan.dir_timer = 10000;
+                p.scan.has_dir = true;
+                p.scan.dir = to;
+                p.scan.look = to;
+                p.scan.angle_timer = PURSUIT_GLANCE_FIRST;
+                p.scan.offset = 0.0;
+                self.look = Look::Dir(to);
+            }
+            // Hunting and moving were never implemented: they stand.
+            PursuitMode::Hunt | PursuitMode::Move | PursuitMode::Wait | PursuitMode::None => {}
+        }
+    }
+
+    fn next_mode(&mut self, cx: &mut Ctx) {
+        let prev = self.pursuit().mode;
+        let friendly_seen = cx
+            .perception
+            .contact(self.pursuit().target)
+            .is_some_and(|c| c.priority == Priority::Friendly && c.strength == Strength::Definite);
+        match prev {
+            PursuitMode::GoTo => {
+                let p = self.pursuit();
+                if friendly_seen {
+                    p.mode = PursuitMode::Glance;
+                    p.delay = PURSUIT_GLANCE_FIRST;
+                } else {
+                    p.mode = PursuitMode::Look;
+                    p.delay = PURSUIT_LOOK_AFTER_ARRIVING;
+                }
+            }
+            PursuitMode::Glance => {
+                let p = self.pursuit().clone();
+                let go = self.desire_pursuit(&p, Check::PostGlance, cx);
+                self.pursuit().mode = if go { PursuitMode::GoTo } else { PursuitMode::Forget };
+            }
+            PursuitMode::Look => {
+                let p = self.pursuit().clone();
+                if !self.desire_pursuit(&p, Check::PostArrival, cx) {
+                    self.pursuit().mode = PursuitMode::Forget;
+                }
+                self.pursuit().delay = 0;
+                self.change_mode(cx);
+            }
+            _ => {
+                let p = self.pursuit();
+                p.delay = 0;
+                p.mode = PursuitMode::Wait;
+            }
+        }
+        if !matches!(self.goal, Goal::Pursuit(_)) {
+            return;
+        }
+        if self.pursuit().mode != prev {
+            let mode = self.pursuit().mode;
+            eprintln!("ai: {}: pursuit {} → {}", self.name, prev.name(), mode.name());
+            self.begin_mode(cx);
+        }
+    }
+
+    fn pursuit_update(&mut self, cx: &mut Ctx) {
+        if cx.fallen {
+            self.press |= key::FORWARD;
+        }
+        if self.pursuit().delay > 0 {
+            self.pursuit().delay -= 1;
+            if self.pursuit().delay == 0 {
+                self.next_mode(cx);
+            }
+        }
+        if !matches!(self.goal, Goal::Pursuit(_)) {
+            return;
+        }
+        let facing = cx.facing;
+        match self.pursuit().mode {
+            PursuitMode::GoTo => self.goto_update(cx),
+            PursuitMode::Look | PursuitMode::Glance => {
+                let clear = cx.clear_toward();
+                let Goal::Pursuit(p) = &mut self.goal else { return };
+                let look = p.scan.update(facing, &mut self.rng, &clear);
+                self.look = Look::Dir(look);
+            }
+            _ => {}
+        }
+    }
+
+    fn goto_update(&mut self, cx: &mut Ctx) {
+        let target = self.pursuit().target;
+        cx.perception.hold(target);
+        let Some(location) = cx.perception.contact(target).map(|c| c.location) else { return };
+        let dist = self.distance_to_dest(cx);
+        let mut finished = false;
+        let mut scan = false;
+        if self.arrived(cx) || dist < PURSUIT_CLOSE_DIST {
+            finished = true;
+        } else if dist > PURSUIT_SCAN_DIST {
+            let p = self.pursuit();
+            p.running = p.danger;
+        } else {
+            // Can it see the place it is heading for? (The original meant to
+            // check every 15 ticks but never moves its timer on: it checks
+            // every tick.)
+            let every = cx.quirks.investigate_check_every();
+            let now = cx.now;
+            let due = now >= self.pursuit().last_los_check + every;
+            let los = if due {
+                let seen = (cx.sight)(cx.eye, location + Vec3::Y * 5.0);
+                let p = self.pursuit();
+                p.last_los_check = now;
+                p.los_seen = seen;
+                if seen && dist < PURSUIT_STOP_DIST {
+                    p.los_ok += 1;
+                } else if !seen {
+                    p.los_ok = 0;
+                }
+                seen
+            } else {
+                self.pursuit().los_seen
+            };
+            let p = self.pursuit();
+            if los {
+                scan = true;
+                if dist < PURSUIT_STOP_DIST {
+                    if p.los_ok >= PURSUIT_LOS_CHECKS {
+                        finished = true;
+                    }
+                } else {
+                    p.running = !p.close && p.danger;
+                }
+            }
+        }
+        if finished {
+            let p = self.pursuit();
+            p.close = true;
+            p.running = false;
+            p.scanning = false;
+            self.next_mode(cx);
+            if !matches!(self.goal, Goal::Pursuit(_)) {
+                return;
+            }
+        }
+        if self.pursuit().mode != PursuitMode::GoTo {
+            return;
+        }
+        if scan {
+            let facing = cx.facing;
+            let clear = cx.clear_toward();
+            let Goal::Pursuit(p) = &mut self.goal else { return };
+            if !p.scanning {
+                p.scan = Scan::reset(Some(yaw_toward(cx.feet, location)));
+                p.scanning = true;
+                p.scan.stay_facing = true;
+                p.scan.stay_dir = Some(facing);
+                p.scan.stay_range = PURSUIT_SCAN_RANGE;
+                p.scan.dir_timer = 0;
+                p.scan.dir_times = PURSUIT_SCAN;
+                p.scan.angle_range = 0.0;
+                p.scan.angle_timer = 0;
+            }
+            let look = p.scan.update(facing, &mut self.rng, &clear);
+            self.look = Look::Dir(look);
+        } else {
+            self.pursuit().scanning = false;
+            self.look = Look::None;
+        }
+    }
+
+    fn pursuit_knowledge(&mut self, id: u32, degrade: bool, cx: &mut Ctx) {
+        let alerted = cx.alert() >= Alert::Medium;
+        self.pursuit().danger = alerted;
+        let target = self.pursuit().target;
+        if degrade && id == target && self.change_mode(cx) {
+            self.begin_mode(cx);
+            if !matches!(self.goal, Goal::Pursuit(_)) {
+                return;
+            }
+        }
+        let best = cx.perception.contacts.first().cloned();
+        let investigate = match best {
+            None => true,
+            Some(b) if b.id == self.pursuit().target => !degrade,
+            Some(b) if b.priority >= Priority::HostileNoThreat => {
+                self.pursuit().target = b.id;
+                true
+            }
+            _ => false,
+        };
+        if !investigate {
+            return;
+        }
+        let p = self.pursuit().clone();
+        if !self.desire_pursuit(&p, Check::ChangeTarget, cx) {
+            return;
+        }
+        self.pursuit().mode = PursuitMode::GoTo;
+        self.begin_mode(cx);
+    }
+
+    // --- combat (`docs/GOALS.md`, *Combat*) -----------------------------------
+
+    fn enter_combat(&mut self, who: usize, cx: &mut Ctx) {
+        let Some(c) = cx.perception.about(who).cloned() else { return };
+        self.exit(cx);
+        self.mode = MoveMode::ByAlert;
+        let melee = cx.melee_profile.clone().map(|p| Box::new(Melee::new(p, who, cx.daze, cx.me as u32 * 7919 + 1)));
+        let mut combat = Combat {
+            target: who,
+            contact: c.id,
+            target_strength: c.strength,
+            melee,
+            primary: Primary::Hold,
+            band: Band::None,
+            advance: (15.0, 20.0),
+            retreat: (100.0, 1000.0),
+            try_advance: 0,
+            lost_contact: None,
+            target_dead: false,
+            investigate: 0,
+            taunt_enable: false,
+            done_taunt: false,
+            last_hit: 0,
+            last_melee_hit: 0,
+            daze: None,
+            advance_goal: None,
+        };
+        set_new_target(&mut combat, &c);
+        self.goal = Goal::Combat(Box::new(combat));
+        eprintln!("ai: {} → combat with {who} (profile {})", self.name, self.profile.name);
+    }
+
+    fn combat(&mut self) -> &mut Combat {
+        match &mut self.goal {
+            Goal::Combat(c) => c,
+            _ => unreachable!("not fighting"),
+        }
+    }
+
+    fn target_died(&mut self, cx: &mut Ctx) {
+        // The original's search for another target always finds none (a
+        // bug); fixed, it takes up the best other live threat.
+        if !cx.quirks.no_new_target() {
+            let me = cx.me;
+            let target = self.combat().target;
+            let other = cx
+                .perception
+                .contacts
+                .iter()
+                .find(|c| {
+                    c.who.is_some_and(|w| w != target && w != me && cx.others.get(w).is_some_and(|o| o.alive))
+                        && c.priority >= Priority::HostileNoThreat
+                        && c.strength >= Strength::Strong
+                })
+                .cloned();
+            if let Some(o) = other {
+                let who = o.who.expect("someone");
+                if o.strength == Strength::Definite {
+                    let c = self.combat();
+                    c.target = who;
+                    if let Some(m) = c.melee.as_mut() {
+                        m.target = who;
+                    }
+                    set_new_target(c, &o);
+                } else {
+                    self.exit(cx);
+                    self.enter_pursuit(o.id, cx);
+                }
+                return;
+            }
+        }
+        let investigate = self.class.investigate_body;
+        let c = self.combat();
+        c.target_dead = true;
+        c.investigate = investigate;
+        c.taunt_enable = c.primary == Primary::Melee;
+        cx.fights.leave(cx.me);
+        eprintln!("ai: {}: target dead", self.name);
+    }
+
+    fn combat_knowledge(&mut self, id: u32, degrade: bool, cx: &mut Ctx) {
+        let Some(c) = cx.perception.contact(id).cloned() else { return };
+        let (target, contact) = (self.combat().target, self.combat().contact);
+        if degrade {
+            if c.who != Some(target) || id != contact {
+                return;
+            }
+            if c.strength == Strength::Dead {
+                if !self.combat().target_dead {
+                    self.target_died(cx);
+                }
+            } else if c.strength < Strength::Definite {
+                if self.combat().target_strength == Strength::Definite {
+                    // Lost sight of it: remember where it really is, and
+                    // after a while pursue.
+                    if let Some(o) = cx.others.get(target) {
+                        cx.perception.set_location(id, o.feet);
+                    }
+                    let delay = self.class.lost_contact;
+                    let c = self.combat();
+                    c.lost_contact = Some(delay);
+                    c.target_strength = Strength::Strong;
+                }
+            } else {
+                self.combat().lost_contact = None;
+            }
+            return;
+        }
+        let now = cx.now;
+        if c.who == Some(target) && matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
+            let k = self.combat();
+            k.last_hit = now;
+            if c.stimulus == Stimulus::HitMelee {
+                k.last_melee_hit = now;
+            }
+        }
+        if id == contact {
+            let k = self.combat();
+            k.target_strength = c.strength;
+            if c.strength == Strength::Definite {
+                k.lost_contact = None;
+            }
+            return;
+        }
+        // Someone else: switch to them?
+        if c.priority == Priority::Friendly {
+            return;
+        }
+        let Some(who) = c.who.filter(|&w| cx.others.get(w).is_some_and(|o| o.alive)) else { return };
+        if who == cx.me {
+            return;
+        }
+        let current = cx.perception.contact(contact).cloned();
+        let mut change = false;
+        if let Some(cur) = &current {
+            match super::perception::compare(&c, cur) {
+                std::cmp::Ordering::Less => change = true, // ranks ahead
+                std::cmp::Ordering::Greater => return,
+                std::cmp::Ordering::Equal => {}
+            }
+            if c.strength == Strength::Definite {
+                let d_new = cx.feet.distance_squared(c.location);
+                let d_old = cx.feet.distance_squared(cur.location);
+                if d_new < SWITCH_CLOSER * SWITCH_CLOSER * d_old {
+                    change = true;
+                } else if d_new > DONT_SWITCH_FARTHER * DONT_SWITCH_FARTHER * d_old {
+                    change = false;
+                }
+            }
+        } else {
+            change = true;
+        }
+        let last_hit = self.combat().last_hit;
+        match c.stimulus {
+            Stimulus::HitWeapon if c.time > last_hit + SWITCH_IF_NOT_SHOT => change = true,
+            Stimulus::HitMelee if c.time > last_hit + SWITCH_IF_NOT_PUNCHED => change = true,
+            _ => {}
+        }
+        if change {
+            eprintln!("ai: {}: switches target {target} → {who}", self.name);
+            let k = self.combat();
+            k.target = who;
+            if let Some(m) = k.melee.as_mut() {
+                m.target = who;
+            }
+            cx.fights.leave(cx.me);
+            set_new_target(k, &c);
+        }
+    }
+
+    fn combat_update(&mut self, cx: &mut Ctx) {
+        // The target.
+        let target = self.combat().target;
+        let alive = cx.others.get(target).is_some_and(|o| o.alive);
+        if !self.combat().target_dead && !alive {
+            self.target_died(cx);
+            if !matches!(self.goal, Goal::Combat(_)) {
+                return;
+            }
+        }
+        let target = self.combat().target;
+        let target_feet = cx.others.get(target).map_or(cx.feet, |o| o.feet);
+        if self.combat().target_dead {
+            let (half, chance) = (self.class.investigate_body / 2, self.class.taunt_percent);
+            let roll = self.rng.next() % 100;
+            let standing = cx.standing;
+            let k = self.combat();
+            let mut taunt = false;
+            if k.primary != Primary::Advance && k.investigate > 0 {
+                k.investigate -= 1;
+                if k.taunt_enable && !k.done_taunt && standing && k.investigate < half {
+                    k.done_taunt = true;
+                    k.taunt_enable = false;
+                    taunt = roll < chance;
+                }
+            }
+            if taunt {
+                eprintln!("ai: {}: taunts", self.name);
+                self.press |= key::ACTION;
+            }
+            if self.combat().investigate == 0 {
+                self.return_to_job(true, true, cx);
+                return;
+            }
+        } else {
+            // In combat it knows where its target is.
+            let contact = self.combat().contact;
+            cx.perception.set_location(contact, target_feet);
+            if let Some(t) = self.combat().lost_contact {
+                // The original pursues at once (its delay is skipped).
+                let pursue = cx.quirks.pursue_lost_target_at_once() || t <= 1;
+                if pursue {
+                    self.exit(cx);
+                    self.enter_pursuit(contact, cx);
+                    return;
+                }
+                self.combat().lost_contact = Some(t - 1);
+            }
+        }
+
+        // Every 5 ticks: choose a primary movement.
+        if (cx.me as u64 + cx.now).is_multiple_of(COMBAT_PERIOD) || self.combat().band == Band::None {
+            self.choose_primary(target_feet, cx);
+        }
+
+        // Carry it out.
+        let primary = self.combat().primary;
+        if primary != Primary::Melee {
+            cx.fights.leave(cx.me);
+        }
+        let dist = (target_feet - cx.feet).with_y_zero().length();
+        self.look = Look::At(target_feet);
+        match primary {
+            Primary::Melee => {
+                self.halt();
+                let k = self.combat();
+                if let Some(m) = k.melee.as_mut() {
+                    if m.no_technique() >= MELEE_NO_TECHNIQUE {
+                        m.reset_no_technique();
+                        k.try_advance = TRY_ADVANCE;
+                    }
+                }
+            }
+            Primary::Advance => {
+                let (min, _) = self.combat().advance;
+                let stale = self.combat().advance_goal.is_none_or(|g| g.distance(target_feet) > 10.0);
+                if dist <= min {
+                    self.halt();
+                } else if stale || self.nav.is_none() || self.path_failed() {
+                    self.combat().advance_goal = Some(target_feet);
+                    self.go_to(target_feet, min, true, None, cx);
+                }
+            }
+            Primary::Retreat => {
+                let away = (cx.feet - target_feet).with_y_zero().normalize_or_zero();
+                let to = cx.feet + away * 30.0;
+                if self.nav.is_none() || self.path_failed() || self.arrived(cx) {
+                    self.go_to(to, 3.0, true, None, cx);
+                }
+            }
+            Primary::Hold => self.halt(),
+            Primary::GetUp => {
+                self.halt();
+                self.press |= key::FORWARD;
+            }
+        }
+        // Lying down outside melee: dazed a while, then get up.
+        if primary != Primary::Melee {
+            let (lo, hi) = cx.daze;
+            let roll = lo + self.rng.next() % hi.saturating_sub(lo).max(1);
+            let fallen = cx.fallen;
+            let k = self.combat();
+            k.daze = match (fallen, k.daze) {
+                (false, _) => None,
+                (true, None) => Some(roll),
+                (true, Some(n)) => Some(n.saturating_sub(1)),
+            };
+        }
+    }
+
+    /// The combat layer's decision (every 5 ticks): the range band, the
+    /// profile's behaviour for it, and the highest viable primary movement.
+    fn choose_primary(&mut self, target_feet: Vec3, cx: &mut Ctx) {
+        const HOLD: usize = 0;
+        const ADVANCE: usize = 1;
+        const RETREAT: usize = 2;
+        const MELEE: usize = 3;
+        const GETUP: usize = 4;
+        let profile = self.profile.clone();
+        let dist = (target_feet - cx.feet).with_y_zero().length();
+        let now = cx.now;
+        let has_melee = self.combat().melee.is_some();
+        let k = self.combat();
+        k.try_advance = k.try_advance.saturating_sub(COMBAT_PERIOD as u32);
+        let mut w = [0.0f32; 5];
+
+        if k.target_dead {
+            // Go and look at the body.
+            w[ADVANCE] = 1.2;
+            w[HOLD] = 0.8;
+            k.advance = (12.0, 30.0);
+        } else {
+            // The range band (a retreat band if it was closer before).
+            let prev = k.band;
+            let closer_before = |p: Band| matches!(p, Band::Short | Band::MediumRetreat | Band::LongRetreat | Band::Medium);
+            k.band = if dist < profile.short_range {
+                Band::Short
+            } else if dist < profile.medium_range {
+                if matches!(prev, Band::Short | Band::MediumRetreat | Band::LongRetreat) {
+                    Band::MediumRetreat
+                } else {
+                    Band::Medium
+                }
+            } else if prev != Band::None && closer_before(prev) {
+                Band::LongRetreat
+            } else {
+                Band::Long
+            };
+            let index = match k.band {
+                Band::Long | Band::None => 0,
+                Band::Medium => 1,
+                Band::Short => 2,
+                Band::MediumRetreat => 3,
+                Band::LongRetreat => 4,
+            };
+            let behavior = profile.behavior[index].as_str();
+            let base = match k.band {
+                Band::MediumRetreat => Band::Medium,
+                Band::LongRetreat => Band::Long,
+                b => b,
+            };
+            let fight_back = match profile.melee_when.as_str() {
+                "always" => true,
+                "never" => false,
+                "ifShortRange" => base == Band::Short,
+                "ifMediumRange" => matches!(base, Band::Short | Band::Medium),
+                "ifPunched" => k.last_melee_hit > 0 && now < k.last_melee_hit + RECENTLY_HURT,
+                _ => base == Band::Short,
+            };
+            match behavior {
+                "stare" => w[HOLD] = 1.0,
+                "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee" => w[MELEE] = 1.0,
+                "runForAlarm" => {
+                    // (No alarm consoles yet, #18.)
+                    w[RETREAT] = 0.8;
+                }
+                // Shooting behaviours, unarmed (no guns yet, #10): fight
+                // back hand to hand if the profile says so, else the
+                // no-gun option (looking for a gun finds none).
+                _ => {
+                    if fight_back {
+                        w[MELEE] = 1.0;
+                    } else {
+                        match profile.no_gun.as_str() {
+                            "retreat" => {
+                                w[RETREAT] = 0.8;
+                                k.retreat = (100.0, 1000.0);
+                            }
+                            _ => w[MELEE] = 0.8,
+                        }
+                    }
+                }
+            }
+            if cx.fallen && k.daze == Some(0) {
+                w[GETUP] = 1.5;
+            }
+        }
+
+        // The highest viable one.
+        let mut checked = [false; 5];
+        let pick = loop {
+            let (best, &bw) = w
+                .iter()
+                .enumerate()
+                .fold((0, &w[0]), |(bi, bw), (i, v)| if *v > *bw { (i, v) } else { (bi, bw) });
+            if bw <= 0.0 {
+                break Primary::Hold;
+            }
+            if checked[best] {
+                break [Primary::Hold, Primary::Advance, Primary::Retreat, Primary::Melee, Primary::GetUp][best];
+            }
+            checked[best] = true;
+            let k = self.combat();
+            match best {
+                ADVANCE => {
+                    let (min, max) = k.advance;
+                    if dist <= min.max(ADVANCE_MIN) {
+                        w[ADVANCE] = 0.0;
+                    } else {
+                        let urgency = ((dist - min) / (max - min).max(1e-3)).clamp(0.0, 1.0);
+                        w[ADVANCE] *= urgency.max(0.5);
+                    }
+                }
+                RETREAT => {
+                    w[MELEE] = 0.0;
+                    let (min, max) = k.retreat;
+                    if dist >= max {
+                        w[RETREAT] = 0.0;
+                    } else {
+                        let urgency = if dist <= min { 1.0 } else { 1.0 - (dist - min) / (max - min) };
+                        w[RETREAT] *= urgency;
+                    }
+                }
+                MELEE => {
+                    let clear = (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0);
+                    if !has_melee || dist > MELEE_RANGE || k.try_advance > 0 || !clear {
+                        w[MELEE] = 0.0;
+                        w[ADVANCE] = w[ADVANCE].max(1.0);
+                        k.advance = (15.0, 20.0);
+                        w[HOLD] = w[HOLD].max(0.2);
+                    }
+                }
+                _ => {}
+            }
+        };
+        let name = self.name.clone();
+        let k = self.combat();
+        if pick != k.primary {
+            eprintln!("ai: {name}: combat {:?} → {pick:?} (at {dist:.0})", k.primary);
+            k.primary = pick;
+            k.advance_goal = None;
+        }
+    }
+}
+
+/// Points a combat at a new target (its contact).
+fn set_new_target(c: &mut Combat, contact: &super::perception::Contact) {
+    c.contact = contact.id;
+    c.target_dead = false;
+    c.target_strength = contact.strength;
+    c.investigate = 0;
+    c.done_taunt = false;
+    c.taunt_enable = false;
+    c.lost_contact = None;
+    c.last_hit = 0;
+    c.last_melee_hit = 0;
+    if matches!(contact.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
+        c.last_hit = contact.time;
+        if contact.stimulus == Stimulus::HitMelee {
+            c.last_melee_hit = contact.time;
+        }
+    }
+    c.band = Band::None;
+}
+
+/// The flag a movement waypoint heads for (the waypoints a resumed patrol
+/// may rejoin at).
+fn movement_flag(w: &Waypoint) -> Option<i16> {
+    match w {
+        Waypoint::MoveTo { at: Target::Flag(f), .. } | Waypoint::LookAt(Target::Flag(f)) => Some(*f),
+        Waypoint::Guard { flag, .. } => Some(*flag),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn pace_follows_the_alert_and_hurry() {
+        assert_eq!(MoveMode::ByAlert.pace(Alert::Lull, true), Pace::Walk);
+        assert_eq!(MoveMode::ByAlert.pace(Alert::Medium, true), Pace::Run);
+        assert_eq!(MoveMode::ByAlert.pace(Alert::Combat, false), Pace::Walk);
+        assert_eq!(MoveMode::Run.pace(Alert::Lull, false), Pace::Run);
+        assert_eq!(MoveMode::Creep.pace(Alert::High, true), Pace::Creep);
+    }
+
+    #[test]
+    fn a_guard_scan_stays_within_its_range() {
+        let mut rng = Rng(12345);
+        let mut s = Scan::reset(Some(1.0));
+        s.stay_facing = true;
+        s.stay_dir = Some(1.0);
+        s.stay_range = 0.5;
+        s.dir_times = GUARD_DIR;
+        s.angle_times = GUARD_ANGLE;
+        s.angle_range = GUARD_ANGLE_RANGE;
+        let clear = |_: f32| true;
+        let first = s.update(0.0, &mut rng, &clear);
+        assert!(relative(first - 1.0).abs() <= GUARD_ANGLE_RANGE + 1e-4, "starts looking where it faces");
+        for _ in 0..5000 {
+            let l = s.update(0.0, &mut rng, &clear);
+            assert!(relative(l - 1.0).abs() <= 0.5 + GUARD_ANGLE_RANGE + 1e-3, "{l}");
+        }
+    }
+
+    #[test]
+    fn a_new_look_direction_avoids_the_last() {
+        let mut rng = Rng(7);
+        let mut s = Scan::reset(None);
+        let clear = |_: f32| true;
+        s.new_direction(0.0, None, &mut rng, &clear);
+        assert_eq!(s.dir, 0.0, "the first look is along the facing");
+        for _ in 0..50 {
+            let last = s.dir;
+            s.new_direction(0.0, None, &mut rng, &clear);
+            assert!(relative(s.dir - last).abs() >= LOOK_MIN_DELTA - 1e-4);
+        }
+    }
+}

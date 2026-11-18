@@ -117,6 +117,7 @@ impl Classes {
             melee: c["meleeProfile"].as_str().and_then(|n| self.melee.get(n)).cloned(),
             daze,
             perception: crate::ai::perception::Tuning::from_json(&c["perception"]),
+            class_combat: crate::ai::goals::ClassCombat::from_json(&c["perception"]),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)
@@ -124,6 +125,11 @@ impl Classes {
 }
 
 impl Classes {
+    /// A melee profile by id (what a placed character names).
+    pub fn melee_by_id(&self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
+        self.melee.values().find(|p| p.id == id).cloned()
+    }
+
     /// The AI's difficulty multipliers for `level` ("easy", "normal", "hard").
     pub fn difficulty(&self, level: &str) -> crate::ai::melee::brain::Difficulty {
         let d = &self.settings["difficulty"];

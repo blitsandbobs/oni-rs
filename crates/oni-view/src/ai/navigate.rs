@@ -65,6 +65,14 @@ impl Navigator {
         }
     }
 
+    /// Changes the pace (also of a path being followed).
+    pub fn set_pace(&mut self, pace: Pace) {
+        self.pace = pace;
+        if let Some(r) = self.route.as_mut() {
+            r.pace = pace;
+        }
+    }
+
     /// The waypoints being followed (with arrival radii) and the index of
     /// the next one.
     pub fn waypoints(&self) -> (Vec<(Vec3, f32)>, usize) {

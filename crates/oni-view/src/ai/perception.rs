@@ -296,6 +296,8 @@ impl Tuning {
 /// One thing a character knows about.
 #[derive(Clone, Debug)]
 pub struct Contact {
+    /// This contact's serial (stable while it's remembered).
+    pub id: u32,
     /// About whom (None: a noise with nobody behind it).
     pub who: Option<usize>,
     pub location: Vec3,
@@ -322,6 +324,12 @@ pub enum Notice {
     Startle(Vec3),
     /// Glance toward a point for a while (ticks).
     Glance(Vec3, u32),
+    /// A threat worth pursuing (contact id): the casual alert handler's
+    /// "investigate" (`docs/GOALS.md`, *Pursuit*).
+    Pursue(u32),
+    /// Something changed about a contact (new information, or it faded:
+    /// `degrade`) — what goals that track a contact listen to.
+    Knowledge { id: u32, degrade: bool },
 }
 
 /// A character's perception: contacts, alert, and the stimuli's effects.
@@ -344,6 +352,10 @@ pub struct Perception {
     pub omniscient: bool,
     /// What behaviour should act on, since last asked.
     pub notices: Vec<Notice>,
+    /// Locked into its patrol: stimuli change nothing (no alert, startle,
+    /// pursuit or combat).
+    pub locked: bool,
+    next_id: u32,
 }
 
 /// A neutral that hurt us stays hostile this long.
@@ -366,6 +378,20 @@ impl Perception {
             non_combatant: false,
             omniscient: false,
             notices: Vec::new(),
+            locked: false,
+            next_id: 1,
+        }
+    }
+
+    /// The contact with serial `id`, if still remembered.
+    pub fn contact(&self, id: u32) -> Option<&Contact> {
+        self.contacts.iter().find(|c| c.id == id)
+    }
+
+    /// Keeps a contact from fading this tick (it is being investigated).
+    pub fn hold(&mut self, id: u32) {
+        if let Some(c) = self.contacts.iter_mut().find(|c| c.id == id) {
+            c.degrade_at = c.degrade_at.saturating_add(1);
         }
     }
 
@@ -424,7 +450,9 @@ impl Perception {
         let idx = match self.contacts.iter().position(|c| c.who == who && who.is_some()) {
             Some(i) => i,
             None => {
+                self.next_id += 1;
                 self.contacts.push(Contact {
+                    id: self.next_id,
                     who,
                     location,
                     time: now,
@@ -447,6 +475,7 @@ impl Perception {
         c.location = location;
         c.time = now;
         c.stimulus = stimulus;
+        let upgraded = strength > c.strength;
         let first_sighting = strength > c.highest;
         if first_sighting {
             c.highest = strength;
@@ -470,56 +499,72 @@ impl Perception {
         }
         let contact = c.clone();
         self.rank();
-        self.notify(&contact, first_sighting, now);
+        self.notify(&contact, upgraded, first_sighting, now);
+        self.notices.push(Notice::Knowledge { id: contact.id, degrade: false });
     }
 
     /// Orders the contacts most important first (behaviour per
     /// `docs/PERCEPTION.md`, *Memory*).
     fn rank(&mut self) {
-        self.contacts.sort_by(|a, b| {
-            let solid = |c: &Contact| c.strength >= Strength::Strong;
-            solid(b)
-                .cmp(&solid(a))
-                .then(b.priority.cmp(&a.priority))
-                .then(b.strength.cmp(&a.strength))
-                .then(b.hurt_me.cmp(&a.hurt_me))
-                .then(b.hurt_me_melee.cmp(&a.hurt_me_melee))
-                .then(b.highest.cmp(&a.highest))
-        });
+        self.contacts.sort_by(compare);
     }
 
-    /// The most important live contact.
-    pub fn top(&self) -> Option<&Contact> {
-        self.contacts.first().filter(|c| c.strength > Strength::Forgotten)
+    /// Runs the alert handler again on the most important contact (a patrol
+    /// lock released); returns what it noticed.
+    pub fn reconsider(&mut self, now: u64) -> Vec<Notice> {
+        let before = self.notices.len();
+        if let Some(top) = self.contacts.first().cloned() {
+            self.notify(&top, false, false, now);
+        }
+        self.notices.split_off(before)
     }
 
-    /// What a stimulus leads to (behaviour per `docs/PERCEPTION.md`, *Alert*).
-    fn notify(&mut self, c: &Contact, first_sighting: bool, now: u64) {
-        if c.priority == Priority::Friendly && !c.stimulus.combat_sound() {
-            if first_sighting {
+    /// Where a contact is now known to be (combat tracks its target).
+    pub fn set_location(&mut self, id: u32, at: Vec3) {
+        if let Some(c) = self.contacts.iter_mut().find(|c| c.id == id) {
+            c.location = at;
+        }
+    }
+
+    /// The casual alert handler (`Oni_AI2_Alert.c`; `docs/PERCEPTION.md`,
+    /// *Alert*): new information about `c` may glance at a non-threat, raise
+    /// the alert (startling, or starting combat at combat level) and ask to
+    /// pursue a threat.
+    fn notify(&mut self, c: &Contact, upgraded: bool, first_sighting: bool, now: u64) {
+        if self.locked {
+            return;
+        }
+        let top = self.contacts.first();
+        let is_top = top.is_some_and(|t| t.id == c.id);
+        if !is_top && top.is_some_and(|t| t.strength == Strength::Definite) {
+            return; // its main concern is in plain sight
+        }
+        let threat = c.stimulus.combat_sound() || c.priority >= Priority::HostileNoThreat;
+        if !threat {
+            if upgraded {
                 self.glance_until = now + u64::from(c.stimulus.glance());
                 self.notices.push(Notice::Glance(c.location, c.stimulus.glance()));
             }
             return;
         }
-        // Only the most important contact sets the alert.
-        if self.top().map(|t| t.who) != Some(c.who) {
+        if !is_top || c.strength <= Strength::Forgotten {
             return;
         }
         let level = c.stimulus.alert();
         if level >= self.alert {
-            let rose = level > self.alert;
-            self.alert = level;
+            if level != self.alert {
+                self.alert = level;
+                if level >= Alert::Medium && self.alert_raised.is_none() {
+                    self.alert_raised = Some(now);
+                }
+                // A jumpy start, the first time it sees a threat.
+                let window = self.alert_raised.is_none_or(|t| now <= t + STARTLE_TOLERANCE);
+                if level >= Alert::High && !self.tuning.never_startle && first_sighting && window {
+                    self.startled_at = Some(now);
+                    self.notices.push(Notice::Startle(c.location));
+                }
+            }
             self.alert_timer = 0;
-            if level >= Alert::Medium && self.alert_raised.is_none() {
-                self.alert_raised = Some(now);
-            }
-            // A jumpy start, the first time it sees a threat.
-            let window = self.alert_raised.is_none_or(|t| now <= t + STARTLE_TOLERANCE);
-            if rose && level >= Alert::High && !self.tuning.never_startle && first_sighting && window {
-                self.startled_at = Some(now);
-                self.notices.push(Notice::Startle(c.location));
-            }
             if level == Alert::Combat && !self.non_combatant {
                 if let Some(who) = c.who {
                     self.notices.push(Notice::Combat(who));
@@ -527,9 +572,8 @@ impl Perception {
                 }
             }
         }
-        if self.alert < Alert::Combat {
-            self.glance_until = now + u64::from(c.stimulus.glance());
-            self.notices.push(Notice::Glance(c.location, c.stimulus.glance()));
+        if self.alert > Alert::Lull {
+            self.notices.push(Notice::Pursue(c.id));
         }
     }
 
@@ -548,6 +592,7 @@ impl Perception {
     pub fn died(&mut self, who: usize) {
         for c in self.contacts.iter_mut().filter(|c| c.who == Some(who)) {
             c.strength = Strength::Dead;
+            self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
         }
         self.rank();
     }
@@ -572,6 +617,7 @@ impl Perception {
             if unseen || (now >= c.degrade_at && !self.omniscient) {
                 c.strength = c.strength.down();
                 c.degrade_at = now + u64::from(tuning.contact_decay(c.strength));
+                self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
             }
         }
         self.rank();
@@ -610,6 +656,18 @@ impl Perception {
             59
         }
     }
+}
+
+/// How two contacts rank: `Less` when `a` comes first (more important).
+pub fn compare(a: &Contact, b: &Contact) -> std::cmp::Ordering {
+    let solid = |c: &Contact| c.strength >= Strength::Strong;
+    solid(b)
+        .cmp(&solid(a))
+        .then(b.priority.cmp(&a.priority))
+        .then(b.strength.cmp(&a.strength))
+        .then(b.hurt_me.cmp(&a.hurt_me))
+        .then(b.hurt_me_melee.cmp(&a.hurt_me_melee))
+        .then(b.highest.cmp(&a.highest))
 }
 
 /// A unit horizontal direction for a yaw.

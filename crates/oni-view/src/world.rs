@@ -73,6 +73,8 @@ pub struct CharKind {
     pub daze: (u32, u32),
     /// How it sees, hears and remembers.
     pub perception: crate::ai::perception::Tuning,
+    /// Its combat timings (for goals).
+    pub class_combat: crate::ai::goals::ClassCombat,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -91,6 +93,9 @@ pub struct World {
     pub sight: Option<crate::physics::Sight>,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
+    /// The level's AI data: placed characters, patrol paths, flags, combat
+    /// profiles.
+    pub level_ai: Rc<crate::ai::level::LevelAi>,
     now: i64,
     rng: u32,
     level_positions: Vec<[f32; 3]>,
@@ -108,6 +113,7 @@ impl World {
             nav: None,
             sight: None,
             sounds: Vec::new(),
+            level_ai: Default::default(),
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -136,6 +142,7 @@ impl World {
         let mut f = f;
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
+        f.class_combat = kind.class_combat;
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,
@@ -260,7 +267,12 @@ impl World {
                 continue;
             }
             let eye = points[i][1];
-            let look = forward(self.fighters[i].facing.facing);
+            // (An agent's eyes follow where its head looks.)
+            let yaw = match &self.fighters[i].brain {
+                Some(crate::ai::Brain::Agent(a)) => a.eye.unwrap_or(self.fighters[i].facing.facing),
+                _ => self.fighters[i].facing.facing,
+            };
+            let look = forward(yaw);
             for j in 0..n {
                 if j == i || !alive[j] {
                     continue;
@@ -280,14 +292,18 @@ impl World {
             }
         }
 
-        // Memory fades (every 60 ticks); the alert eases when not fighting.
+        // Memory fades (every 60 ticks); the alert eases when not fighting
+        // (an agent: only while idle or patrolling).
         for f in &mut self.fighters {
-            let fighting = matches!(f.brain, Some(crate::ai::Brain::Melee(_)));
+            let calm = match &f.brain {
+                Some(crate::ai::Brain::Agent(a)) => a.calming(),
+                b => b.as_ref().and_then(|b| b.melee()).is_none(),
+            };
             if let Some(p) = f.perception.as_mut() {
                 if now.is_multiple_of(60) {
                     p.decay(now, &|_| true);
                 }
-                if !fighting {
+                if calm {
                     p.calm();
                 }
             }
@@ -299,12 +315,26 @@ impl World {
                 Some(p) => std::mem::take(&mut p.notices),
                 None => continue,
             };
+            if matches!(self.fighters[i].brain, Some(crate::ai::Brain::Agent(_))) {
+                // Goals act on it (`docs/GOALS.md`).
+                for notice in notices {
+                    if let Notice::Startle(at) = notice {
+                        let fighting = matches!(&self.fighters[i].brain,
+                            Some(crate::ai::Brain::Agent(a)) if matches!(a.goal, crate::ai::goals::Goal::Combat(_)));
+                        if !fighting {
+                            self.fighters[i].startle(at);
+                        }
+                        continue;
+                    }
+                    self.with_agent(i, |a, cx| a.notice(notice, cx));
+                }
+                continue;
+            }
             for notice in notices {
                 match notice {
                     Notice::Combat(who) => {
-                        // (Switching targets mid-fight is the combat layer's
-                        // call, #4: a fighter keeps its fight.)
-                        let fighting = matches!(&self.fighters[i].brain, Some(crate::ai::Brain::Melee(_)));
+                        // (A fighter without goals keeps its fight.)
+                        let fighting = self.fighters[i].brain.as_ref().and_then(|b| b.melee()).is_some();
                         if !fighting && !self.fighters[i].passive && alive[who] {
                             eprintln!("perception: fighter {i} engages {who}");
                             self.fight(i, who);
@@ -312,9 +342,130 @@ impl World {
                     }
                     Notice::Startle(at) => self.fighters[i].startle(at),
                     Notice::Glance(at, ticks) => self.fighters[i].glance = Some((at, now + u64::from(ticks))),
+                    // Without goals, a threat it would pursue it glances at.
+                    Notice::Pursue(id) => {
+                        let p = self.fighters[i].perception.as_ref().expect("perceiving");
+                        if let Some(c) = p.contact(id) {
+                            if p.alert < crate::ai::perception::Alert::Combat {
+                                let (at, ticks) = (c.location, c.stimulus.glance());
+                                self.fighters[i].glance = Some((at, now + u64::from(ticks)));
+                            }
+                        }
+                    }
+                    Notice::Knowledge { .. } => {}
                 }
             }
         }
+    }
+
+    /// Runs `run` on fighter `i`'s goals (if it has them) with a view of the
+    /// world.
+    fn with_agent(&mut self, i: usize, run: impl FnOnce(&mut crate::ai::goals::Agent, &mut crate::ai::goals::Ctx)) {
+        use crate::ai::goals::{Ctx, Other};
+        use crate::anim::types::st;
+        let others: Vec<Other> = self
+            .fighters
+            .iter()
+            .map(|f| Other { feet: f.feet(), alive: f.alive() && !f.motion.dying })
+            .collect();
+        let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
+        let level = self.level_ai.clone();
+        let nav = self.nav.clone();
+        let sight = &self.sight;
+        let sight_fn = |a: Vec3, b: Vec3| sight.as_ref().is_none_or(|s| s.clear(a, b));
+        let path_fn = |a: Vec3, b: Vec3| match nav.as_deref() {
+            Some(n) => route_length(n, a, b),
+            None => Some(a.distance(b)),
+        };
+        let now = self.now as u64;
+        let quirks = self.quirks;
+        let f = &mut self.fighters[i];
+        let (feet, eye, facing) = (f.feet(), f.sight_points()[1], f.facing.facing);
+        let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
+        let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
+        if let Some(perception) = f.perception.as_mut() {
+            let mut cx = Ctx {
+                me: i,
+                now,
+                feet,
+                eye,
+                facing,
+                fallen,
+                standing: !fallen,
+                perception,
+                level: &level,
+                sight: &sight_fn,
+                path_length: &path_fn,
+                others: &others,
+                fights: &mut self.fights,
+                melee_profile,
+                daze,
+                quirks,
+            };
+            run(&mut agent, &mut cx);
+        }
+        self.fighters[i].brain = Some(crate::ai::Brain::Agent(agent));
+    }
+
+    /// Every agent's goals take a step (`docs/GOALS.md`) — except while
+    /// startled (only the turn plays) or dead.
+    fn run_agents(&mut self) {
+        for i in 0..self.fighters.len() {
+            let f = &self.fighters[i];
+            if !matches!(f.brain, Some(crate::ai::Brain::Agent(_))) || !f.alive() || f.motion.dying || f.passive {
+                continue;
+            }
+            if f.startling.is_some() {
+                continue;
+            }
+            self.with_agent(i, |a, cx| a.update(cx));
+        }
+    }
+
+    /// Gives fighter `id` goals: a placed character's job (idle, or its
+    /// patrol path), alerts, pursuit settings and combat / melee profiles —
+    /// or, unplaced, the defaults (idle, its class's combat profile).
+    pub fn give_goals(&mut self, id: usize, placed: Option<&crate::ai::level::Placed>, melee: Option<Rc<crate::ai::melee::profile::Profile>>) {
+        use crate::ai::goals::{Agent, Job, Patrol};
+        let level = self.level_ai.clone();
+        let Some(f) = self.fighters.get_mut(id) else { return };
+        let class = f.class_combat;
+        let profile_of = |cid: u16| level.combat.get(&cid).cloned().unwrap_or_default();
+        let mut agent = match placed {
+            Some(p) => {
+                let job = match (p.job.as_str(), p.job_id) {
+                    ("patrol", Some(pid)) => match level.patrols.get(&pid) {
+                        Some(path) => Job::Patrol(Box::new(Patrol::new(path.clone()))),
+                        None => {
+                            eprintln!("ai: {}: no patrol path {pid}: idle", p.name);
+                            Job::Idle
+                        }
+                    },
+                    _ => Job::Idle,
+                };
+                let mut a = Agent::new(p.name.clone(), job, profile_of(p.combat_id), class, id as u32 * 7919 + 3);
+                a.job_alert = p.alert[2];
+                a.investigate_alert = p.alert[3];
+                a.pursue = p.pursue.clone();
+                a
+            }
+            None => Agent::new(format!("fighter {id}"), Job::Idle, profile_of(class.default_profile), class, id as u32 * 7919 + 3),
+        };
+        if placed.is_some() {
+            f.melee_profile = melee.or_else(|| f.melee_profile.clone());
+        }
+        if let Some(p) = f.perception.as_mut() {
+            if let Some(pl) = placed {
+                p.alert = pl.alert[0];
+                p.minimum_alert = pl.alert[1];
+                p.team = pl.team;
+                p.non_combatant = pl.has("nonCombatant");
+                p.omniscient = pl.has("omniscient");
+            }
+        }
+        f.passive = false;
+        agent.goal = crate::ai::goals::Goal::None;
+        f.brain = Some(crate::ai::Brain::Agent(Box::new(agent)));
     }
 
     /// Plans a path for every navigator that needs one. Other characters'
@@ -324,14 +475,11 @@ impl World {
         let now = self.now as u64;
         let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
         for i in 0..self.fighters.len() {
-            let wants = matches!(&self.fighters[i].brain, Some(crate::ai::Brain::GoTo(n)) if n.wants_plan(now));
-            if !wants {
+            let Some(n) = self.fighters[i].brain.as_mut().and_then(|b| b.navigator_mut()) else { continue };
+            if !n.wants_plan(now) {
                 continue;
             }
-            let (from, careful, goal) = match &self.fighters[i].brain {
-                Some(crate::ai::Brain::GoTo(n)) => (feet[i], n.careful, n.goal),
-                _ => continue,
-            };
+            let (from, careful, goal) = (feet[i], n.careful, n.goal);
             let others: Vec<Vec3> = feet.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, p)| *p).collect();
             let obstructed = |room: usize| {
                 let mut set = std::collections::HashSet::new();
@@ -354,7 +502,10 @@ impl World {
                 set
             };
             let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful);
-            if let Some(crate::ai::Brain::GoTo(n)) = self.fighters[i].brain.as_mut() {
+            if let Err(e) = &plan {
+                eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
+            }
+            if let Some(n) = self.fighters[i].brain.as_mut().and_then(|b| b.navigator_mut()) {
                 n.take_plan(plan, now);
             }
         }
@@ -367,22 +518,22 @@ impl World {
         let positions: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
         let mut outs = vec![None; n];
         for (i, out) in outs.iter_mut().enumerate() {
-            let target = match &self.fighters[i].brain {
-                Some(crate::ai::Brain::Melee(m)) if m.target < n && m.target != i => m.target,
+            let target = match self.fighters[i].brain.as_ref().and_then(|b| b.melee()) {
+                Some(m) if m.target < n && m.target != i => m.target,
                 _ => continue,
             };
             if self.fighters[i].startle_turn() {
                 *out = Some(Default::default()); // startled: just the turn
                 continue;
             }
-            let Some(crate::ai::Brain::Melee(mut m)) = self.fighters[i].brain.take() else {
-                continue;
-            };
+            let Some(mut brain) = self.fighters[i].brain.take() else { continue };
             let nav = self.nav.as_deref();
             let me = view(&self.fighters, nav, i, target);
             let them = view(&self.fighters, nav, target, i);
-            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
-            self.fighters[i].brain = Some(crate::ai::Brain::Melee(m));
+            if let Some(m) = brain.melee_mut() {
+                *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
+            }
+            self.fighters[i].brain = Some(brain);
         }
         outs
     }
@@ -407,14 +558,14 @@ impl World {
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
         self.perceive();
+        self.run_agents();
         self.plan_paths();
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
             let order = d.and_then(|d| d.throw);
-            let target = match &self.fighters[i].brain {
-                Some(crate::ai::Brain::Melee(m)) => m.target,
-                _ => continue,
+            let Some(target) = self.fighters[i].brain.as_ref().and_then(|b| b.melee()).map(|m| m.target) else {
+                continue;
             };
             let sense = order.and_then(|kind| {
                 let mut s = self.throw_sense(i)?;
@@ -632,7 +783,7 @@ impl World {
     /// share its fight. None for anyone else (the shared rule alone decides).
     fn block_skill(&self, b: usize) -> Option<f32> {
         let f = &self.fighters[b];
-        let Some(crate::ai::Brain::Melee(m)) = &f.brain else { return None };
+        let m = f.brain.as_ref()?.melee()?;
         let p = &m.profile;
         let n = self.fights.attackers(m.target).len().max(1) as f32;
         let skill = if n >= 4.0 {
@@ -671,7 +822,7 @@ impl World {
         let mut shove = attack.knockback * KNOCKBACK_SCALE;
 
         // Hit while lying dazed: the AI gets up at once.
-        if let Some(crate::ai::Brain::Melee(m)) = fb.brain.as_mut() {
+        if let Some(m) = fb.brain.as_mut().and_then(|b| b.melee_mut()) {
             if fb.motion.state == crate::anim::types::st::FALLEN_BACK
                 || fb.motion.state == crate::anim::types::st::FALLEN_FRONT
             {

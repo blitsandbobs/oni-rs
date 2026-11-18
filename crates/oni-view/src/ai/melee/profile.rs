@@ -64,6 +64,7 @@ pub struct GuardWeights {
 
 #[derive(Clone, Debug)]
 pub struct Profile {
+    pub id: u16,
     pub name: String,
     /// The class whose animations the original plans with; we plan with the
     /// fighter's own (the same class for every shipped profile but two).
@@ -103,6 +104,7 @@ fn f(v: &Value) -> f32 {
 }
 
 fn profile(p: &Value) -> Profile {
+    let id = p["id"].as_u64().unwrap_or(0) as u16;
     let w = &p["weights"];
     let mut techniques = Vec::new();
     for (key, kind) in [("actions", Kind::Action), ("reactions", Kind::Reaction), ("spacing", Kind::Spacing)] {
@@ -111,6 +113,7 @@ fn profile(p: &Value) -> Profile {
         }
     }
     Profile {
+        id,
         name: p["name"].as_str().unwrap_or("").to_string(),
         class: p["class"].as_str().unwrap_or("").to_string(),
         notice_percent: f(&p["attackNoticePercent"]),

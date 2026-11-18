@@ -112,6 +112,8 @@ impl ScriptHost {
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
+        let common = cast.level_dir.join("../../common");
+        world.level_ai = Rc::new(crate::ai::level::LevelAi::load(&cast.level_dir, &common));
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         if world.nav.is_none() {
@@ -647,6 +649,53 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         )?,
     )?;
 
+    // Goals (`docs/GOALS.md`): place one of the level's characters by name
+    // (its class, position, job, alerts, profiles) and return its id; give a
+    // spawned character default goals (idle, its class's combat profile);
+    // read what an agent is doing.
+    let h = host.clone();
+    g.set(
+        "place",
+        lua.create_function(move |_, name: String| {
+            let mut host = h.borrow_mut();
+            let placed = host
+                .world
+                .level_ai
+                .characters
+                .iter()
+                .find(|c| c.name.eq_ignore_ascii_case(&name))
+                .cloned()
+                .ok_or_else(|| mlua::Error::runtime(format!("no placed character {name:?}")))?;
+            let kind = host.kind(&placed.class).map_err(mlua::Error::runtime)?;
+            // (A placed position is the feet; spawning takes the pelvis:
+            // start it a little above and let it settle.)
+            let id = host.world.spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
+            let melee = placed.melee_id.and_then(|m| host.classes.melee_by_id(m));
+            host.world.give_goals(id, Some(&placed), melee);
+            host.class_names.push(placed.class.clone());
+            Ok(id as u32)
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "goals",
+        lua.create_function(move |_, id: usize| {
+            h.borrow_mut().world.give_goals(id, None, None);
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "goal_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::Agent(a)) => a.describe(),
+                Some(_) => "other".to_string(),
+                None => "none".to_string(),
+            })
+        })?,
+    )?;
+
     // Looks along the floor from fighter `id` toward yaw `deg` up to `dist`:
     // the free distance before a wall, and the distance to a ledge (or nil).
     let h = host.clone();
@@ -704,8 +753,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "nav_state",
         lua.create_function(move |_, id: usize| {
             use crate::ai::navigate::State;
-            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
-                Some(crate::ai::Brain::GoTo(n)) => match &n.state {
+            let host = h.borrow();
+            let nav = match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::GoTo(n)) => Some(&**n),
+                Some(crate::ai::Brain::Agent(a)) => a.nav.as_ref(),
+                _ => None,
+            };
+            Ok(match nav {
+                Some(n) => match &n.state {
                     State::Planning => "planning".to_string(),
                     State::Following => "following".to_string(),
                     State::Arrived => "arrived".to_string(),

@@ -363,6 +363,15 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
         },
         "flags": oni_schema::bit_names(&oni_schema::AI_FLAGS, int("ai2_behavior.flags") as u32),
         "turningNimbleness": float("ai2_behavior.turning_nimbleness"),
+        "combat": {
+            "makeSureTicks": int("ai2_behavior.combat_parameters.dead_makesure_delay"),
+            "investigateBodyTicks": int("ai2_behavior.combat_parameters.investigate_body_delay"),
+            "lostContactTicks": int("ai2_behavior.combat_parameters.lost_contact_delay"),
+            "deadTauntPercent": int("ai2_behavior.combat_parameters.dead_taunt_percentage"),
+            "gunPickupPercent": int("ai2_behavior.combat_parameters.gun_pickup_percentage"),
+            "gunRunningPickupPercent": int("ai2_behavior.combat_parameters.gun_runningpickup_percentage"),
+            "defaultCombatProfileId": int("ai2_behavior.default_combat_id"),
+        },
     })
 }
 

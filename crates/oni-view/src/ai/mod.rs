@@ -9,6 +9,8 @@
 //! rest: start clips, loops, stops, collisions. Higher layers (routes now;
 //! pathfinding, goals and combat later) only ever produce [`Orders`].
 
+pub mod goals;
+pub mod level;
 pub mod melee;
 pub mod navigate;
 pub mod perception;
@@ -81,7 +83,7 @@ pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
 }
 
 /// Folds an angle into `(-π, π]`.
-fn relative(a: f32) -> f32 {
+pub(crate) fn relative(a: f32) -> f32 {
     let r = (a + PI).rem_euclid(TAU) - PI;
     if r <= -PI {
         r + TAU
@@ -222,6 +224,8 @@ pub enum Brain {
     /// Fight an opponent hand to hand with the class's melee AI (driven by
     /// the world, which gives it a view of both fighters).
     Melee(Box<melee::brain::Melee>),
+    /// Goals and a job (`docs/GOALS.md`; updated by the world).
+    Agent(Box<goals::Agent>),
 }
 
 impl Brain {
@@ -232,6 +236,10 @@ impl Brain {
             Brain::Hold(o) => execute(*o, facing),
             Brain::Spar(s) => s.think(senses, facing),
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
+            Brain::Agent(a) => {
+                let (orders, press) = a.orders(senses.feet, facing.facing, senses.now);
+                execute(orders, facing) | press
+            }
             Brain::GoTo(n) => {
                 let now = senses.now;
                 execute(n.orders(senses.feet, facing.facing, now), facing)
@@ -244,6 +252,32 @@ impl Brain {
         match self {
             Brain::Spar(s) => Some(s.target),
             Brain::Melee(m) => Some(m.target),
+            Brain::Agent(a) => a.opponent(),
+            _ => None,
+        }
+    }
+
+    /// The navigator walking it somewhere, if any.
+    pub fn navigator_mut(&mut self) -> Option<&mut navigate::Navigator> {
+        match self {
+            Brain::GoTo(n) => Some(n),
+            Brain::Agent(a) => a.nav.as_mut(),
+            _ => None,
+        }
+    }
+
+    /// The melee AI driving it this tick, if any.
+    pub fn melee_mut(&mut self) -> Option<&mut melee::brain::Melee> {
+        match self {
+            Brain::Melee(m) => Some(m),
+            Brain::Agent(a) => a.melee_mut(),
+            _ => None,
+        }
+    }
+    pub fn melee(&self) -> Option<&melee::brain::Melee> {
+        match self {
+            Brain::Melee(m) => Some(m),
+            Brain::Agent(a) => a.melee(),
             _ => None,
         }
     }

@@ -119,6 +119,8 @@ pub struct Fighter {
     /// Its class's melee AI profile and daze range (ticks).
     pub melee_profile: Option<Rc<crate::ai::melee::profile::Profile>>,
     pub daze: (u32, u32),
+    /// Its class's combat timings (for goals).
+    pub class_combat: crate::ai::goals::ClassCombat,
     /// Its movement last tick (world).
     pub velocity: Vec3,
     /// A noise it made this tick (kind, volume), for the world to spread.
@@ -187,6 +189,7 @@ impl Fighter {
             thrown_by: None,
             melee_profile: None,
             daze: (60, 100),
+            class_combat: Default::default(),
             velocity: Vec3::ZERO,
             noise: None,
             perception: None,
@@ -705,6 +708,10 @@ impl Fighter {
     pub fn npc_controls(&mut self, target: Option<Vec3>) -> u32 {
         use crate::anim::types::st;
         if self.motion.dying {
+            return 0;
+        }
+        // Startled: only the turn plays out (no goals meanwhile).
+        if self.startle_turn() {
             return 0;
         }
         let m = &self.motion;
