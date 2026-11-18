@@ -130,6 +130,47 @@ pub struct Clip {
     /// `(frame, damage)`: damage the clip deals whoever plays it
     /// (`extras.selfDamage`; how a throw hurts its victim).
     pub self_damage: Vec<(u16, u16)>,
+    /// Where the clip's strikes reach (`extras.reach`), for attacks.
+    pub reach: Option<Reach>,
+    /// Per tick: root offset from the start `[x, forward]`, the body's lowest
+    /// point and its height (`extras.bodyTrack`).
+    pub body: Vec<[f32; 4]>,
+}
+
+/// Where an attack clip's striking parts reach (see `docs/MELEE_AI.md`,
+/// *Hit prediction*). Character-local: x left, forward ahead; angles 0 =
+/// ahead, growing toward the left.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reach {
+    pub max_distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    pub spokes: [f32; 36],
+    pub first: StrikeBound,
+    pub farthest: StrikeBound,
+    /// `oni_schema::DIRECTIONS` index.
+    pub direction: u16,
+    pub strikes: Vec<Strike>,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StrikeBound {
+    pub tick: u16,
+    pub offset: [f32; 2],
+    pub height: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    pub angle: f32,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Strike {
+    pub tick: u16,
+    pub angle: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
 }
 
 /// How a throw clip places and animates its victim.
@@ -541,6 +582,55 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
                 target_anim_type: named(&t["targetAnimType"], &sc::ANIM_TYPES),
             }
         }),
+        reach: ex["reach"].is_object().then(|| {
+            let r = &ex["reach"];
+            let g = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
+            let bound = |b: &serde_json::Value| StrikeBound {
+                tick: b["tick"].as_u64().unwrap_or(0) as u16,
+                offset: [g(&b["offset"][0]), g(&b["offset"][1])],
+                height: g(&b["height"]),
+                distance: g(&b["distance"]),
+                min_height: g(&b["minHeight"]),
+                max_height: g(&b["maxHeight"]),
+                angle: g(&b["angle"]),
+            };
+            let mut spokes = [0.0; 36];
+            for (i, s) in spokes.iter_mut().enumerate() {
+                *s = g(&r["spokes"][i]);
+            }
+            Reach {
+                max_distance: g(&r["maxDistance"]),
+                min_height: g(&r["minHeight"]),
+                max_height: g(&r["maxHeight"]),
+                spokes,
+                first: bound(&r["first"]),
+                farthest: bound(&r["farthest"]),
+                direction: named(&r["direction"], &sc::DIRECTIONS),
+                strikes: r["strikes"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(|s| Strike {
+                        tick: s["tick"].as_u64().unwrap_or(0) as u16,
+                        angle: g(&s["angle"]),
+                        distance: g(&s["distance"]),
+                        min_height: g(&s["minHeight"]),
+                        max_height: g(&s["maxHeight"]),
+                    })
+                    .collect(),
+            }
+        }),
+        body: ex["bodyTrack"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|p| {
+                        let c = |i: usize| p[i].as_f64().unwrap_or(0.0) as f32;
+                        [c(0), c(1), c(2), c(3)]
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
         self_damage: ex["selfDamage"]
             .as_array()
             .map(|arr| {

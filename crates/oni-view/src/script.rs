@@ -391,9 +391,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "spar",
         lua.create_function(move |_, (id, target): (usize, usize)| {
-            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+            let mut host = h.borrow_mut();
+            if let Some(f) = host.world.fighters.get_mut(id) {
                 f.passive = false;
-                f.brain = Some(crate::ai::Brain::Spar(crate::ai::Spar::new(target, id as u32 + 1)));
+            }
+            // The class's melee AI; the stand-in sparring partner if it has none.
+            if !host.world.fight(id, target) {
+                if let Some(f) = host.world.fighters.get_mut(id) {
+                    f.brain = Some(crate::ai::Brain::Spar(crate::ai::Spar::new(target, id as u32 + 1)));
+                }
             }
             Ok(())
         })?,

@@ -27,12 +27,15 @@ pub struct Classes {
     entries: Vec<serde_json::Value>,
     collections: HashMap<String, Rc<AnimCollection>>,
     kinds: HashMap<String, CharKind>,
+    /// AI melee profiles by name.
+    melee: HashMap<String, Rc<crate::ai::melee::profile::Profile>>,
 }
 
 impl Classes {
     /// Opens the class list under the converted-asset root `oni_root`.
     pub fn open(oni_root: &Path, level: u16) -> std::io::Result<Classes> {
         let dir = oni_root.join("common/characters");
+        let melee = crate::ai::melee::profile::load(&dir.join("melee_profiles.json")).unwrap_or_default();
         let text = std::fs::read_to_string(dir.join("classes.json"))?;
         let doc: serde_json::Value =
             serde_json::from_str(&text).map_err(|e| std::io::Error::other(format!("classes.json: {e}")))?;
@@ -43,6 +46,7 @@ impl Classes {
             entries: doc["classes"].as_array().cloned().unwrap_or_default(),
             collections: HashMap::new(),
             kinds: HashMap::new(),
+            melee,
         })
     }
 
@@ -95,11 +99,17 @@ impl Classes {
             }
         };
 
+        let daze = (
+            c["dazed"]["min"].as_u64().unwrap_or(60) as u32,
+            c["dazed"]["max"].as_u64().unwrap_or(100) as u32,
+        );
         let kind = CharKind {
             model: upload(&character),
             character: Rc::new(character),
             anims,
             tuning: tuning(&c),
+            melee: c["meleeProfile"].as_str().and_then(|n| self.melee.get(n)).cloned(),
+            daze,
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

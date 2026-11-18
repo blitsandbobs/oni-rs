@@ -55,6 +55,8 @@ pub struct Sense {
     pub aim: f32,
     pub facing: f32,
     pub candidates: Vec<Candidate>,
+    /// An AI's ordered throw: any strike it starts becomes this throw type.
+    pub only: Option<u16>,
 }
 
 /// A throw that has just begun.
@@ -105,7 +107,10 @@ pub fn attempt(
     varient: u16,
     sense: &Sense,
 ) -> Option<(usize, Started)> {
-    let (front, behind) = throw_types(strike)?;
+    let (front, behind) = match sense.only {
+        Some(t) => (t, t),
+        None => throw_types(strike)?,
+    };
     let (victim, bearing) = pick(sense)?;
     if victim.invulnerable {
         return None;
@@ -166,6 +171,7 @@ mod tests {
                 varient: 0,
                 invulnerable: false,
             }],
+            only: None,
         }
     }
 

@@ -180,6 +180,7 @@ const PTR_ATTACKS: usize = 3; // TRtAttack[]
 const PTR_SELF_DAMAGE: usize = 4; // TRtTakeDamage[] (damage u16, frame u16)
 const PTR_SHORTCUTS: usize = 6; // TRtShortcut[]
 const PTR_THROW: usize = 7; // TRtThrowInfo (one, or none)
+const PTR_BODY: usize = 10; // TRtPosition[numFrames]: per-tick body extent
 const PTR_DATA: usize = 11; // keyframe data
 const TRAM_NUM_PTRS: usize = 13;
 // Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
@@ -187,6 +188,15 @@ const TRAM_NUM_PTRS: usize = 13;
 // vocalizationType(4), extentInfo(232), attackName[16], hardPause + softPause,
 // numNewSounds + soundName, soundFrame + fps, compressionSize, then a u16 run.
 const TRAM_FLAGS: usize = 52; // `flags` u32
+// `extentInfo` (80..312): where the clip's striking parts reach.
+const TRAM_RING: usize = 80; // max distance, min / max height, 36 spokes (f32)
+const TRAM_FIRST_STRIKE: usize = 236; // TRtAttackBound (32 bytes)
+const TRAM_FARTHEST_STRIKE: usize = 268; // TRtAttackBound
+const TRAM_STRIKE_DIRECTION: usize = 300; // u32 TRtDirection (when moveDirection is none)
+const TRAM_NUM_STRIKES: usize = 304; // u32 numAttackExtents
+const TRAM_STRIKES: usize = 308; // raw offset of TRtAttackExtent[] (12 bytes each)
+const TRAM_FRAME_COUNT: usize = 356; // `numFrames` u16
+/// Fixed-point steps: positions in 0.01 units, angles in 2π/65535.
 const TRAM_DIRECT_ANIM: usize = 56; // `directAnimation[2]`: two instance references
 const TRAM_FINAL_ROTATION: usize = 72; // `finalRotation` f32 (radians): net yaw the clip imparts
 const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection)
@@ -213,6 +223,61 @@ const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
 const SHORTCUT_SIZE: usize = 8; // sizeof(TRtShortcut)
 const MAX_SHORTCUTS: usize = 8; // TRcMaxShortcuts
+
+/// Where an attack clip's striking parts reach (`TRtExtentInfo`). Frames are
+/// character-local: x to the left, `forward` ahead, heights above the floor;
+/// angles 0 = ahead, growing toward the left.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Reach {
+    /// The farthest any striking point gets from where the clip starts.
+    pub max_distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    /// Spoke i (direction i·10°): the farthest reach within ±30° of it.
+    pub spokes: [f32; 36],
+    /// The first strike, and the one reaching farthest from the start.
+    pub first: StrikeBound,
+    pub farthest: StrikeBound,
+    /// The direction the strikes reach most (meaningful when the clip has no
+    /// move direction): a `TRtDirection`.
+    pub direction: u16,
+    /// One per damage tick, measured from that tick's root.
+    pub strikes: Vec<Strike>,
+}
+
+/// A notable strike tick (`TRtAttackBound`).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct StrikeBound {
+    pub tick: u16,
+    pub attack: u8,
+    pub strike: u8,
+    /// Root offset from the clip start `[x, forward]` and the pelvis height.
+    pub offset: [f32; 2],
+    pub height: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    pub angle: f32,
+}
+
+/// One damage tick's reach (`TRtAttackExtent`), from that tick's root.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Strike {
+    pub tick: u16,
+    pub angle: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+}
+
+/// The body's extent at one tick (`TRtPosition`): root offset from the clip
+/// start, the lowest point of the body and the body's height above it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct BodyPoint {
+    pub offset: [f32; 2],
+    pub floor: f32,
+    pub height: f32,
+}
 
 /// How a throw places its victim (`TRtThrowInfo`), for a clip that throws.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -413,6 +478,10 @@ pub struct Clip {
     pub first_level: u16,
     /// For a throw clip: how the victim is placed and what it plays.
     pub throw: Option<Throw>,
+    /// For an attack clip: where its strikes reach.
+    pub reach: Option<Reach>,
+    /// Per tick: the body's extent.
+    pub body: Vec<BodyPoint>,
     /// Damage the character playing this clip takes, as `(frame, damage)`
     /// pairs — how a thrown victim gets hurt.
     pub self_damage: Vec<(u16, u16)>,
@@ -583,6 +652,26 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 .collect()
         }
     };
+    let reach = decode_reach(d, raw);
+    let body = {
+        let off = ptrs.get(PTR_BODY).copied().unwrap_or(0) as usize;
+        let n = read_u16(d, TRAM_FRAME_COUNT).unwrap_or(0) as usize;
+        if off == 0 {
+            Vec::new()
+        } else {
+            (0..n)
+                .map_while(|k| {
+                    let o = off + k * 8;
+                    let c = |at: usize| read_i16(raw, o + at).map(|v| f32::from(v) * 0.01);
+                    Some(BodyPoint {
+                        offset: [c(0)?, c(2)?],
+                        height: f32::from(read_u16(raw, o + 4)?) * 0.01,
+                        floor: c(6)?,
+                    })
+                })
+                .collect()
+        }
+    };
     let direct = (0..2)
         .filter_map(|k| read_u32(d, TRAM_DIRECT_ANIM + k * 4))
         .filter_map(|v| ref_name(dat, v))
@@ -619,6 +708,60 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         first_level: read_u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
         throw,
         self_damage,
+        reach,
+        body,
+    })
+}
+
+/// Decodes the clip's reach (`extentInfo`), if it has strikes.
+fn decode_reach(d: &[u8], raw: &[u8]) -> Option<Reach> {
+    let n = read_u32(d, TRAM_NUM_STRIKES)? as usize;
+    if n == 0 {
+        return None;
+    }
+    let f = |o: usize| read_f32(d, o);
+    let mut spokes = [0.0; 36];
+    for (i, s) in spokes.iter_mut().enumerate() {
+        *s = f(TRAM_RING + 12 + i * 4)?;
+    }
+    let bound = |o: usize| -> Option<StrikeBound> {
+        Some(StrikeBound {
+            tick: read_u16(d, o)?,
+            attack: read_u8(d, o + 2)?,
+            strike: read_u8(d, o + 3)?,
+            // The importer stores this y with the opposite sign to the
+            // body track's: negated, it is the distance ahead.
+            offset: [f(o + 4)?, -f(o + 8)?],
+            height: f(o + 12)?,
+            distance: f(o + 16)?,
+            min_height: f(o + 20)?,
+            max_height: f(o + 24)?,
+            angle: f(o + 28)?,
+        })
+    };
+    let at = read_u32(d, TRAM_STRIKES)? as usize;
+    let angle = std::f32::consts::TAU / 65535.0;
+    let strikes = (0..n.min(255))
+        .map_while(|k| {
+            let o = at + k * 12;
+            Some(Strike {
+                tick: read_u16(raw, o)?,
+                angle: f32::from(read_u16(raw, o + 2)?) * angle,
+                distance: f32::from(read_u16(raw, o + 4)?) * 0.01,
+                min_height: f32::from(read_i16(raw, o + 8)?) * 0.01,
+                max_height: f32::from(read_i16(raw, o + 10)?) * 0.01,
+            })
+        })
+        .collect();
+    Some(Reach {
+        max_distance: f(TRAM_RING)?,
+        min_height: f(TRAM_RING + 4)?,
+        max_height: f(TRAM_RING + 8)?,
+        spokes,
+        first: bound(TRAM_FIRST_STRIKE)?,
+        farthest: bound(TRAM_FARTHEST_STRIKE)?,
+        direction: read_u32(d, TRAM_STRIKE_DIRECTION)? as u16,
+        strikes,
     })
 }
 

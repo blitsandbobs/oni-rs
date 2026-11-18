@@ -9,6 +9,8 @@
 //! rest: start clips, loops, stops, collisions. Higher layers (routes now;
 //! pathfinding, goals and combat later) only ever produce [`Orders`].
 
+pub mod melee;
+
 use std::f32::consts::{PI, TAU};
 
 use glam::Vec3;
@@ -207,6 +209,9 @@ pub enum Brain {
     Hold(Orders),
     /// Fight an opponent.
     Spar(Spar),
+    /// Fight an opponent hand to hand with the class's melee AI (driven by
+    /// the world, which gives it a view of both fighters).
+    Melee(Box<melee::brain::Melee>),
 }
 
 impl Brain {
@@ -216,6 +221,7 @@ impl Brain {
             Brain::Route(r) => execute(r.orders(senses.feet, facing.facing), facing),
             Brain::Hold(o) => execute(*o, facing),
             Brain::Spar(s) => s.think(senses, facing),
+            Brain::Melee(_) => 0, // decided by the world (`World::step`)
         }
     }
 
@@ -223,6 +229,7 @@ impl Brain {
     pub fn opponent(&self) -> Option<usize> {
         match self {
             Brain::Spar(s) => Some(s.target),
+            Brain::Melee(m) => Some(m.target),
             _ => None,
         }
     }

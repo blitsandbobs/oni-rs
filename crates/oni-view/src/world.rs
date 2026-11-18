@@ -38,6 +38,9 @@ pub struct CharKind {
     pub anims: Rc<AnimCollection>,
     /// The character class's tuning (fight stance, idle, jump, fall damage).
     pub tuning: ClassTuning,
+    /// How its AI fights hand to hand, and how long it lies dazed (ticks).
+    pub melee: Option<Rc<crate::ai::melee::profile::Profile>>,
+    pub daze: (u32, u32),
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -46,6 +49,10 @@ pub struct World {
     pub fighters: Vec<Fighter>,
     /// Reproduce the original's known bugs (`--faithful`)?
     pub quirks: Quirks,
+    /// Who is fighting whom (attack slots).
+    pub fights: crate::ai::melee::fight::Fights,
+    now: i64,
+    rng: u32,
     level_positions: Vec<[f32; 3]>,
     level_indices: Vec<u32>,
 }
@@ -56,6 +63,9 @@ impl World {
         World {
             fighters: Vec::new(),
             quirks: Quirks::FIXED,
+            fights: Default::default(),
+            now: 0,
+            rng: 0x9E37_79B9,
             level_positions,
             level_indices,
         }
@@ -79,8 +89,53 @@ impl World {
             player,
             self.quirks,
         );
+        let mut f = f;
+        f.melee_profile = kind.melee.clone();
+        f.daze = kind.daze;
         self.fighters.push(f);
         self.fighters.len() - 1
+    }
+
+    /// Makes fighter `id` fight fighter `target` with its class's melee AI.
+    /// Returns false when its class has no melee profile.
+    pub fn fight(&mut self, id: usize, target: usize) -> bool {
+        let Some(f) = self.fighters.get_mut(id) else { return false };
+        let Some(profile) = f.melee_profile.clone() else { return false };
+        let m = crate::ai::melee::brain::Melee::new(profile, target, f.daze, id as u32 * 7919 + 1);
+        f.brain = Some(crate::ai::Brain::Melee(Box::new(m)));
+        true
+    }
+
+    /// A roll in `[0, 100)`.
+    fn percent(&mut self) -> f32 {
+        let mut x = self.rng;
+        x ^= x << 13;
+        x ^= x >> 17;
+        x ^= x << 5;
+        self.rng = x;
+        (x % 100) as f32
+    }
+
+    /// The melee AIs decide (all against the same snapshot of the world).
+    fn melee_decisions(&mut self) -> Vec<Option<crate::ai::melee::brain::Output>> {
+        use crate::ai::melee::brain::view;
+        let n = self.fighters.len();
+        let positions: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
+        let mut outs = vec![None; n];
+        for (i, out) in outs.iter_mut().enumerate() {
+            let target = match &self.fighters[i].brain {
+                Some(crate::ai::Brain::Melee(m)) if m.target < n && m.target != i => m.target,
+                _ => continue,
+            };
+            let Some(crate::ai::Brain::Melee(mut m)) = self.fighters[i].brain.take() else {
+                continue;
+            };
+            let me = view(&self.fighters, i, target);
+            let them = view(&self.fighters, target, i);
+            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions));
+            self.fighters[i].brain = Some(crate::ai::Brain::Melee(m));
+        }
+        outs
     }
 
     /// Switches every fighter (and future spawns) between fixed and faithful
@@ -101,6 +156,23 @@ impl World {
     /// else idle; then melee hits between them are resolved and the chosen
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
+        self.now += 1;
+        let decisions = self.melee_decisions();
+        // A melee AI ordering a throw may throw its target.
+        for (i, d) in decisions.iter().enumerate() {
+            let order = d.and_then(|d| d.throw);
+            let target = match &self.fighters[i].brain {
+                Some(crate::ai::Brain::Melee(m)) => m.target,
+                _ => continue,
+            };
+            let sense = order.and_then(|kind| {
+                let mut s = self.throw_sense(i)?;
+                s.candidates.retain(|c| c.who == target);
+                s.only = Some(kind);
+                Some(s)
+            });
+            self.fighters[i].motion.throw_sense = sense;
+        }
         let feet: Vec<(usize, Vec3)> = self
             .fighters
             .iter()
@@ -124,12 +196,15 @@ impl World {
                 .map(|(_, p)| *p);
             // The player's fire buttons become melee while unarmed (weapons
             // aren't modelled yet, #10).
-            let held = if i == 0 {
-                crate::anim::input::fire_as_melee(controls, false, false)
+            let (held, pressed) = if i == 0 {
+                (crate::anim::input::fire_as_melee(controls, false, false), 0)
+            } else if let Some(d) = decisions[i] {
+                f.follow(&d);
+                (d.held | d.pressed, d.pressed)
             } else {
-                f.npc_controls(target)
+                (f.npc_controls(target), 0)
             };
-            moves.push(f.plan(held, &others));
+            moves.push(f.plan(held, pressed, &others));
         }
         self.collide(&mut moves);
         for (f, m) in self.fighters.iter_mut().zip(moves) {
@@ -172,6 +247,7 @@ impl World {
             aim: f.facing.aim(),
             facing: f.facing.facing,
             candidates,
+            only: None,
         })
     }
 
@@ -291,6 +367,21 @@ impl World {
         }
     }
 
+    /// A melee AI's chance (percent) to make a block it is in position for:
+    /// its block skill, shading toward its group skill the more attackers
+    /// share its fight. None for anyone else (the shared rule alone decides).
+    fn block_skill(&self, b: usize) -> Option<f32> {
+        let f = &self.fighters[b];
+        let Some(crate::ai::Brain::Melee(m)) = &f.brain else { return None };
+        let p = &m.profile;
+        let n = self.fights.attackers(m.target).len().max(1) as f32;
+        Some(if n >= 4.0 {
+            p.block_group
+        } else {
+            p.block_skill + (p.block_group - p.block_skill) * (n - 1.0) / 3.0
+        })
+    }
+
     /// Applies one landed attack from fighter `a` to fighter `b`.
     fn land_hit(&mut self, a: usize, b: usize, attack: crate::skel::Attack) {
         use crate::anim::reaction::{self, Victim};
@@ -318,14 +409,27 @@ impl World {
         let mut damage = attack.damage as i32;
         let mut shove = attack.knockback * KNOCKBACK_SCALE;
 
+        // Hit while lying dazed: the AI gets up at once.
+        if let Some(crate::ai::Brain::Melee(m)) = fb.brain.as_mut() {
+            if fb.motion.state == crate::anim::types::st::FALLEN_BACK
+                || fb.motion.state == crate::anim::types::st::FALLEN_FRONT
+            {
+                m.daze = m.daze.min(1);
+            }
+        }
         if fb.motion.invulnerable() {
             fb.take_damage(0, attack_dir);
             eprintln!("hit: fighter {a} → {b}: invulnerable");
             return;
         }
 
-        // Blocking: automatic for a defensive character facing the attacker.
-        let blocks = attack.flags & strike::UNBLOCKABLE == 0
+        // Blocking: automatic for a defensive character facing the attacker
+        // (an AI also has to pass its block-skill roll).
+        let skill = self.block_skill(b);
+        let roll = self.percent();
+        let fb = &mut self.fighters[b];
+        let blocks = skill.is_none_or(|p| roll < p)
+            && attack.flags & strike::UNBLOCKABLE == 0
             && fb.motion.hit_stun == 0
             && fb.motion.defensive()
             && wrap(to_attacker - fb.facing.aim()).abs() <= BLOCK_ANGLE
@@ -392,6 +496,9 @@ impl World {
             }
         }
         fb.take_damage(damage, attack_dir * shove);
+        self.fights.damage(a, damage, true);
+        self.fights.damage(b, damage, false);
+        let fb = &mut self.fighters[b];
         if as_stagger {
             fb.motion.stagger_stun = stun;
         } else {

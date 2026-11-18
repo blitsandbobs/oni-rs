@@ -116,6 +116,11 @@ pub struct Fighter {
     pub throwing: Option<usize>,
     /// Who last threw this fighter.
     pub thrown_by: Option<usize>,
+    /// Its class's melee AI profile and daze range (ticks).
+    pub melee_profile: Option<Rc<crate::ai::melee::profile::Profile>>,
+    pub daze: (u32, u32),
+    /// Its movement last tick (world).
+    pub velocity: Vec3,
 }
 
 impl Fighter {
@@ -171,6 +176,9 @@ impl Fighter {
             brain: None,
             throwing: None,
             thrown_by: None,
+            melee_profile: None,
+            daze: (60, 100),
+            velocity: Vec3::ZERO,
         }
     }
 
@@ -180,7 +188,7 @@ impl Fighter {
     /// calling to turn.
     #[cfg(test)]
     pub fn tick(&mut self, held: u32, opponents: &[Vec3]) {
-        if let Some(world) = self.plan(held, opponents) {
+        if let Some(world) = self.plan(held, 0, opponents) {
             self.commit(world);
         }
     }
@@ -189,7 +197,7 @@ impl Fighter {
     /// world-space move — without applying it, so the world can stop
     /// characters walking into each other first. Returns None for a corpse
     /// (which moves itself).
-    pub fn plan(&mut self, held: u32, opponents: &[Vec3]) -> Option<Vec3> {
+    pub fn plan(&mut self, held: u32, pressed: u32, opponents: &[Vec3]) -> Option<Vec3> {
         let ch = self.character.clone();
         self.motion.now += 1;
         if self.motion.corpse {
@@ -203,6 +211,8 @@ impl Fighter {
             held
         };
         self.buttons.advance(held);
+        // An AI's fresh presses (it may press a key it already holds).
+        self.buttons.pressed |= pressed & self.buttons.held;
         self.update_sprint();
         self.motion.feet_y = self.physics.feet.y;
 
@@ -262,6 +272,26 @@ impl Fighter {
         Some(world)
     }
 
+    /// Applies a melee AI's decision: turns toward where it wants to face (at
+    /// the AI turn rate, not mid-reaction or mid-throw) and, for a fresh
+    /// attack, forgets the combo in progress.
+    pub fn follow(&mut self, d: &crate::ai::melee::brain::Output) {
+        let c = self.motion.current();
+        let locked = reaction::is_victim(self.motion.kind)
+            || c.has_flag(flag::THROW_SOURCE)
+            || c.has_flag(flag::THROW_TARGET);
+        if let (Some(yaw), false) = (d.face, locked) {
+            let cap = crate::ai::MAX_TURN;
+            let delta = (yaw - self.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
+            self.facing.rotate(delta.clamp(-cap, cap));
+            self.facing.desired_facing = self.facing.facing;
+        }
+        if d.fresh_attack {
+            self.motion.last_attack = ty::NONE;
+        }
+    }
+
     /// Keeps `throwing` in step with the clips: any new clip ends a throw this
     /// fighter was carrying out, unless it is itself the start of one — which
     /// also turns the thrower to face its victim squarely.
@@ -303,7 +333,9 @@ impl Fighter {
     /// The second half of a tick: apply the (possibly adjusted) move against
     /// the level, detect landing / ledges, and update the placement.
     pub fn commit(&mut self, world: Vec3) {
+        let before = self.physics.feet;
         let grounded = self.physics.slide(world);
+        self.velocity = self.physics.feet - before;
         if world.y < 0.0 {
             self.touch_ground(grounded);
         }

@@ -1112,6 +1112,46 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
             }),
         );
     }
+    if let Some(r) = &clip.reach {
+        let bound = |b: &oni_geom::character::StrikeBound| {
+            json!({
+                "tick": b.tick, "attack": b.attack, "strike": b.strike,
+                "offset": b.offset, "height": b.height, "distance": b.distance,
+                "minHeight": b.min_height, "maxHeight": b.max_height, "angle": b.angle,
+            })
+        };
+        let strikes: Vec<_> = r
+            .strikes
+            .iter()
+            .map(|s| {
+                json!({
+                    "tick": s.tick, "angle": s.angle, "distance": s.distance,
+                    "minHeight": s.min_height, "maxHeight": s.max_height,
+                })
+            })
+            .collect();
+        put(
+            "reach",
+            json!({
+                "maxDistance": r.max_distance,
+                "minHeight": r.min_height,
+                "maxHeight": r.max_height,
+                "spokes": r.spokes.to_vec(),
+                "first": bound(&r.first),
+                "farthest": bound(&r.farthest),
+                "direction": sc::name(&sc::DIRECTIONS, r.direction).unwrap_or("none"),
+                "strikes": strikes,
+            }),
+        );
+    }
+    if !clip.body.is_empty() {
+        let track: Vec<_> = clip
+            .body
+            .iter()
+            .map(|b| [b.offset[0], b.offset[1], b.floor, b.height])
+            .collect();
+        put("bodyTrack", json!(track));
+    }
     if !clip.self_damage.is_empty() {
         let list: Vec<_> = clip
             .self_damage

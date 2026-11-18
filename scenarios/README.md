@@ -40,6 +40,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
+| `melee_ai.lua` | The melee AI: Konoko and Striker AIs land hits on a dummy with their profiles' techniques; a knocked-down AI lies dazed for its class's time, then gets up. |
 | `classes.lua` | Other character classes spawn with their own body, skin, animation set and hit points, and can be thrown (the victim plays the thrower's clip). |
 | `throw.lua` | A forward punch / kick near an opponent becomes a front or behind throw (victim placed by the throw, locked out, hurt on landing); a running punch becomes a running throw; out of reach it's a plain forward punch. |
 | `rear_kick.lua` | Blows connect by body contact: a rear kick hits a dummy behind the player; a jab at nobody misses. |
@@ -65,7 +66,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `set_hp(id, n)` / `set_facing(id, deg)` / `knock(id, anim_type)` | Test hooks: set health, turn, force a reaction. |
 | `patrol(id, {{x,z},…} [, pace, loop])` / `route_done(id)` | AI: walk a waypoint route (`"run"`/`"walk"`/`"creep"`) / read whether it finished. |
 | `ai_order(id, dir [, pace, face_deg])` | AI: hold fixed orders — `"forward"`, `"backpedal"`, `"left"`, `"right"`, `"stop"`. |
-| `spar(id, target)` | AI: make fighter `id` fight fighter `target` (the sparring partner). |
+| `spar(id, target)` | Make a fighter fight another with its class's melee AI. |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |

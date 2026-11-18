@@ -200,7 +200,7 @@ impl ApplicationHandler for App {
                     let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
                     let opponent =
                         world.spawn(&opponent_kind, dummy_pos, std::f32::consts::PI, !self.spar);
-                    if self.spar {
+                    if self.spar && !world.fight(opponent, 0) {
                         world.fighters[opponent].brain =
                             Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
                     }
