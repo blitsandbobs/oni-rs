@@ -214,6 +214,8 @@ pub struct Sight {
     bodies: RigidBodySet,
     colliders: ColliderSet,
     query: QueryPipeline,
+    /// Doors' closed leaves (opaque only while closed).
+    doors: Vec<Option<ColliderHandle>>,
 }
 
 impl Sight {
@@ -226,7 +228,26 @@ impl Sight {
         }
         let mut query = QueryPipeline::new();
         query.update(&colliders);
-        Sight { bodies: RigidBodySet::new(), colliders, query }
+        Sight { bodies: RigidBodySet::new(), colliders, query, doors: Vec::new() }
+    }
+
+    /// Adds a door's closed leaf (opaque to begin with).
+    pub fn add_door(&mut self, positions: &[[f32; 3]], indices: &[u32]) {
+        let verts: Vec<Point3<f32>> = positions.iter().map(|v| Point3::new(v[0], v[1], v[2])).collect();
+        let idx: Vec<[u32; 3]> = indices.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+        let h = (!idx.is_empty()).then(|| self.colliders.insert(ColliderBuilder::trimesh(verts, idx).build()));
+        self.query.update(&self.colliders);
+        self.doors.push(h);
+    }
+
+    /// Makes door `k` opaque (closed) or not.
+    pub fn set_door(&mut self, k: usize, closed: bool) {
+        if let Some(c) = self.doors.get(k).copied().flatten().and_then(|h| self.colliders.get_mut(h)) {
+            if c.is_enabled() != closed {
+                c.set_enabled(closed);
+                self.query.update(&self.colliders);
+            }
+        }
     }
 
     /// Whether nothing opaque lies between `from` and `to`.

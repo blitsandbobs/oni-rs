@@ -106,6 +106,8 @@ pub struct World {
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
     door_links: Vec<Vec<(usize, usize)>>,
+    /// Whether each door's leaf is solid in the colliders now.
+    door_applied: Vec<bool>,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
@@ -143,6 +145,7 @@ impl World {
             doors: Vec::new(),
             door_meshes: Vec::new(),
             door_links: Vec::new(),
+            door_applied: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
             input_enabled: true,
@@ -550,6 +553,13 @@ impl World {
     /// geometry): each fighter collides with them while closed.
     pub fn attach_doors(&mut self, mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>) {
         self.door_meshes = self.doors.iter().map(|d| meshes.remove(&d.object_id).unwrap_or_default()).collect();
+        self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
+        if let Some(sight) = self.sight.as_mut() {
+            for (k, (v, i)) in self.door_meshes.iter().enumerate() {
+                sight.add_door(v, i);
+                sight.set_door(k, self.doors[k].solid());
+            }
+        }
         for f in &mut self.fighters {
             for (k, (v, i)) in self.door_meshes.iter().enumerate() {
                 let n = f.physics.add_door(v, i);
@@ -572,7 +582,6 @@ impl World {
                     if a.nav.as_ref().is_some_and(|n| n.state == crate::ai::navigate::State::Following));
                 near && (!closed_manual || walking)
             });
-            let was = self.doors[k].solid();
             let d = &mut self.doors[k];
             let started = if closed_manual && opener.is_some() {
                 d.open();
@@ -585,10 +594,16 @@ impl World {
                 let events = d.events.clone();
                 self.run_events(&events, opener);
             }
+            // (Its leaf follows its state — whoever changed it: this tick,
+            // a script, the Action key.)
             let solid = self.doors[k].solid();
-            if solid != was {
+            if self.door_applied.get(k).is_some_and(|&was| was != solid) {
+                self.door_applied[k] = solid;
                 for f in &mut self.fighters {
                     f.physics.set_door(k, solid);
+                }
+                if let Some(sight) = self.sight.as_mut() {
+                    sight.set_door(k, solid);
                 }
             }
         }

@@ -294,7 +294,8 @@ fn door_meshes(scene: &gltf::Scene) -> std::collections::HashMap<u32, (Vec<[f32;
 fn opaque_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     let mut verts: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
-    for p in scene.prims.iter().filter(|p| !p.blend) {
+    // (Doors' closed leaves block sight on their own, while closed.)
+    for p in scene.prims.iter().filter(|p| !p.blend && p.door.is_none()) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));

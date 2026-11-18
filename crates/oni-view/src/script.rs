@@ -131,9 +131,9 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
-        world.attach_doors(crate::door_meshes(&scene));
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
+        world.attach_doors(crate::door_meshes(&scene));
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }

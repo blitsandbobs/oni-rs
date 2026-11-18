@@ -55,6 +55,22 @@ input(true, false)
 took = wait_for(function() return z() > -570 end, 200)
 input(false, false)
 assert(took, "unlocked, it lets her through")
+-- A manual door (15, on the floor above): nothing until Action, facing it.
+door(15, "unlock")
+teleport(0, -172, 52, -654)
+facing(270)
+step(60)
+assert(door_state(15) == "closed", "a manual door doesn't open by itself")
+action()
+step(5)
+print("Action at the manual door:", door_state(15))
+assert(door_state(15) ~= "closed", "Action opens it")
+input(true, false)
+local function x() local xx = pos() return xx end
+took = wait_for(function() return x() < -215 end, 200)
+input(false, false)
+assert(took, "and she goes through")
+
 -- An AI's way: a locked door shuts it (no way round here), unlocked it
 -- walks through.
 teleport(0, 200, 8, 300) -- Konoko out of the way
