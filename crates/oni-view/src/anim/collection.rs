@@ -348,19 +348,7 @@ impl AnimCollection {
     /// Frames to blend from `from` into `to` when `from` ends naturally
     /// (`TRrAnimation_GetEndInterpolation`).
     pub fn end_interpolation(&self, from: usize, to: usize) -> u16 {
-        let (a, b) = (&self.entries[from].clip, &self.entries[to].clip);
-        let mut n = match b.shortcut_from(a.to_state) {
-            Some(s) => s.length,
-            None if a.to_state != b.from_state => 8,
-            None => 0,
-        };
-        if a.varient != b.varient {
-            n = n.max(8);
-        }
-        if !self.is_direct(from, to) {
-            n = n.max(a.end_interpolation);
-        }
-        n
+        blend_between(&self.entries[from].clip, &self.entries[to].clip, self.is_direct(from, to))
     }
 
     /// Hard / soft pause frames between two clips (0 when `to` is direct).
@@ -380,6 +368,25 @@ impl AnimCollection {
         }
     }
 
+}
+
+/// The blend length when clip `a` runs out into clip `b` (`direct`: `b` is
+/// one of `a`'s direct follow-ups): a shortcut's own length, or a short blend
+/// when the states or variants don't line up, and `a`'s own end blend unless
+/// `b` follows on directly.
+pub fn blend_between(a: &Clip, b: &Clip, direct: bool) -> u16 {
+    let mut n = match b.shortcut_from(a.to_state) {
+        Some(s) => s.length,
+        None if a.to_state != b.from_state => 8,
+        None => 0,
+    };
+    if a.varient != b.varient {
+        n = n.max(8);
+    }
+    if !direct {
+        n = n.max(a.end_interpolation);
+    }
+    n
 }
 
 #[cfg(test)]

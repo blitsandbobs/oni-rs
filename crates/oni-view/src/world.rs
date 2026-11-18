@@ -189,12 +189,11 @@ impl World {
             let fight = c.varient & var::FIGHT != 0;
             let dest = fa.feet() + glam::Quat::from_rotation_y(fa.facing.facing) * info.target_offset;
             let facing = fa.facing.facing + info.target_facing;
-            let clip = fa.motion.coll.entries[t.target_clip].name.clone();
+            let coll = fa.motion.coll.clone();
+            let clip = coll.entries[t.target_clip].name.clone();
             let victim = &mut self.fighters[t.target];
-            let thrown = victim.alive()
-                && !victim.motion.dying
-                && victim.be_thrown(a, &clip, fight, dest, facing);
-            if thrown {
+            if victim.alive() && !victim.motion.dying {
+                victim.be_thrown(a, coll, t.target_clip, fight, dest, facing);
                 eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
             } else {
                 self.fighters[a].throwing = None;

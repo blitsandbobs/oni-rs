@@ -35,7 +35,9 @@
 //! - `anim()` — the current clip name
 //!
 //! World / multi-character:
-//! - `spawn(x, y, z [, facing_deg])` — spawn a training dummy, returns its id
+//! - `spawn(x, y, z [, facing_deg [, class]])` — spawn a training dummy of a
+//!   character class (default: `--opponent`, else the player's), returns its id
+//! - `class_of(id)` — a fighter's character class name
 //! - `count()` — number of fighters (player + dummies)
 //! - `hp(id)` — a fighter's hit points (0 = player)
 //! - `pos_of(id)` — a fighter's feet `x, y, z`
@@ -53,9 +55,8 @@ use std::rc::Rc;
 use glam::{Mat4, Vec3};
 use mlua::Lua;
 
-use crate::anim::collection::AnimCollection;
 use crate::anim::input::key;
-use crate::anim::motion::ClassTuning;
+use crate::classes::Classes;
 use crate::quirks::Quirks;
 use crate::camera::Camera;
 use crate::render::{CharDraw, Gpu, Renderer};
@@ -70,8 +71,12 @@ struct ScriptHost {
     format: wgpu::TextureFormat,
     scene: crate::gltf::Scene,
     world: World,
-    /// The character kind new `spawn`s use (the loaded character).
-    kind: CharKind,
+    /// The character classes, loaded (and uploaded) on demand.
+    classes: Classes,
+    /// The class `spawn` uses unless told otherwise.
+    opponent: String,
+    /// Each fighter's class name, by fighter index.
+    class_names: Vec<String>,
     /// Controls the player holds across steps (`anim::input::key` bits).
     held: u32,
     /// Buttons tapped for the next step's first tick only.
@@ -85,24 +90,16 @@ impl ScriptHost {
         scene: crate::gltf::Scene,
         charview: CharView,
         particles: &[crate::particles::Particle],
-        anims: Rc<AnimCollection>,
-        tuning: ClassTuning,
+        mut classes: Classes,
+        cast: crate::Cast,
         faithful: bool,
-    ) -> Self {
+    ) -> Result<Self, String> {
         let gpu = pollster::block_on(Gpu::new(None));
         eprintln!("  GPU: {}", gpu.adapter.get_info().name);
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let mut renderer = Renderer::new(&gpu, &scene, particles, format);
-        let model = renderer.add_character(&gpu, &charview.character);
-
+        let kind = classes.kind(&cast.player, |ch| renderer.add_character(&gpu, ch))?;
         let spawn_pos = charview.placement.transform_point3(Vec3::ZERO);
-        let CharView { character, .. } = charview;
-        let kind = CharKind {
-            model,
-            character: Rc::new(character),
-            anims,
-            tuning,
-        };
 
         let (verts, idx) = crate::level_collision_mesh(&scene);
         let mut world = World::new(verts, idx);
@@ -112,18 +109,26 @@ impl ScriptHost {
         // Player = fighter 0, facing +Z.
         world.spawn(&kind, spawn_pos, 0.0, false);
 
-        ScriptHost {
+        Ok(ScriptHost {
             gpu,
             renderer,
             format,
             scene,
             world,
-            kind,
+            classes,
+            opponent: cast.opponent.unwrap_or_else(|| cast.player.clone()),
+            class_names: vec![cast.player],
             held: 0,
             taps: 0,
             eye: None,
             target: None,
-        }
+        })
+    }
+
+    /// The spawnable kind for class `name` (loaded on first use).
+    fn kind(&mut self, name: &str) -> Result<CharKind, String> {
+        let (renderer, gpu) = (&mut self.renderer, &self.gpu);
+        self.classes.kind(name, |ch| renderer.add_character(gpu, ch))
     }
 
     /// Advances `n` ticks: drive the player from the held controls (plus any
@@ -191,17 +196,21 @@ pub fn run_script(
     scene: crate::gltf::Scene,
     charview: CharView,
     particles: Vec<crate::particles::Particle>,
-    anims: Option<Rc<AnimCollection>>,
-    tuning: ClassTuning,
+    classes: Option<Classes>,
+    cast: crate::Cast,
     faithful: bool,
 ) {
-    let Some(anims) = anims else {
-        eprintln!("--script requires an animation set (none loaded)");
+    let Some(classes) = classes else {
+        eprintln!("--script requires the character classes (none loaded)");
         return;
     };
-    let host = Rc::new(RefCell::new(ScriptHost::new(
-        scene, charview, &particles, anims, tuning, faithful,
-    )));
+    let host = match ScriptHost::new(scene, charview, &particles, classes, cast, faithful) {
+        Ok(h) => Rc::new(RefCell::new(h)),
+        Err(e) => {
+            eprintln!("script setup error: {e}");
+            return;
+        }
+    };
     let lua = Lua::new();
     if let Err(e) = register(&lua, &host) {
         eprintln!("script setup error: {e}");
@@ -303,7 +312,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "seed",
         lua.create_function(move |_, n: u32| {
-            h.borrow().kind.anims.seed(n);
+            for f in &h.borrow().world.fighters {
+                f.motion.coll.seed(n);
+            }
             Ok(())
         })?,
     )?;
@@ -587,14 +598,22 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "spawn",
         lua.create_function(
-            move |_, (x, y, z, facing_deg): (f32, f32, f32, Option<f32>)| {
+            move |_, (x, y, z, facing_deg, class): (f32, f32, f32, Option<f32>, Option<String>)| {
                 let mut host = h.borrow_mut();
-                let kind = host.kind.clone();
+                let class = class.unwrap_or_else(|| host.opponent.clone());
+                let kind = host.kind(&class).map_err(mlua::Error::runtime)?;
                 let yaw = facing_deg.unwrap_or(180.0).to_radians();
                 let id = host.world.spawn(&kind, Vec3::new(x, y, z), yaw, true);
+                host.class_names.push(class);
                 Ok(id as u32)
             },
         )?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "class_of",
+        lua.create_function(move |_, id: usize| Ok(h.borrow().class_names.get(id).cloned()))?,
     )?;
 
     let h = host.clone();

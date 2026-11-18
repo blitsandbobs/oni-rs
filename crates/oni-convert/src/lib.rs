@@ -307,12 +307,24 @@ fn collect_character_classes(
                 "damageEnd": a.damage_end,
             })
         });
+        // The class's own skin: one texture per body part (part order), as a
+        // path relative to this file. Several classes share one body model
+        // with different skins (easy / medium / hard colours).
+        let part_textures: Vec<Option<String>> = cc
+            .textures
+            .as_deref()
+            .map(|t| decode_trma_maps(dat, t))
+            .unwrap_or_default()
+            .into_iter()
+            .map(|t| t.map(|t| format!("../textures/{}.png", sanitize(&t))))
+            .collect();
         out.push(serde_json::json!({
             "name": cc.name,
             "variant": cc.variant,
             "body": cc.body,
             "model": model,
             "textures": cc.textures,
+            "partTextures": part_textures,
             "aimingScreens": cc.aiming_screens,
             "animationCollection": cc.animation_collection,
             "animationCount": cc.animations.len(),

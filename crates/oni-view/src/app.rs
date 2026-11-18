@@ -72,8 +72,8 @@ pub struct App {
     eye: Option<Vec3>,
     target: Option<Vec3>,
     play: bool,
-    anims: Option<std::rc::Rc<crate::anim::collection::AnimCollection>>,
-    class_tuning: crate::anim::motion::ClassTuning,
+    classes: Option<crate::classes::Classes>,
+    cast: crate::Cast,
     faithful: bool,
     spar: bool,
     state: Option<State>,
@@ -84,8 +84,10 @@ pub struct App {
 pub struct PlaySetup {
     /// Enable the third-person character controller (needs a character).
     pub play: bool,
-    pub anims: Option<std::rc::Rc<crate::anim::collection::AnimCollection>>,
-    pub class_tuning: crate::anim::motion::ClassTuning,
+    /// The character classes to spawn from.
+    pub classes: Option<crate::classes::Classes>,
+    /// The player's class and the opponent's.
+    pub cast: crate::Cast,
     /// Reproduce the original's known bugs (`docs/QUIRKS.md`).
     pub faithful: bool,
     /// The character in front of the player fights back (sparring AI)
@@ -104,8 +106,8 @@ pub fn run(
 ) {
     let PlaySetup {
         play,
-        anims,
-        class_tuning,
+        classes,
+        cast,
         faithful,
         spar,
     } = setup;
@@ -118,8 +120,8 @@ pub fn run(
         eye,
         target,
         play,
-        anims,
-        class_tuning,
+        classes,
+        cast,
         faithful,
         spar,
         state: None,
@@ -173,19 +175,20 @@ impl ApplicationHandler for App {
         // fighter 0, plus a training dummy in front); the static viewer keeps the
         // single `CharView` for direct posing.
         let (char_model, play) = if self.play {
-            match (charview.take(), self.anims.take()) {
-                (Some(cv), Some(anims)) => {
-                    let model = renderer.add_character(&gpu, &cv.character);
+            let kinds = self.classes.as_mut().map(|classes| {
+                let mut kind = |name: &str| classes.kind(name, |ch| renderer.add_character(&gpu, ch));
+                let player = kind(&self.cast.player);
+                let opponent = match &self.cast.opponent {
+                    Some(o) => kind(o),
+                    None => player.clone(),
+                };
+                (player, opponent)
+            });
+            match (charview.take(), kinds) {
+                (Some(cv), Some((Ok(kind), Ok(opponent_kind)))) => {
                     let spawn_pos = cv.placement.transform_point3(Vec3::ZERO);
                     let (mn, mx) = cv.aabb(0.0);
                     let player_height = (mx.y - mn.y).max(2.0);
-                    let crate::CharView { character, .. } = cv;
-                    let kind = crate::world::CharKind {
-                        model,
-                        character: std::rc::Rc::new(character),
-                        anims,
-                        tuning: self.class_tuning,
-                    };
                     let (verts, idx) = crate::level_collision_mesh(&scene);
                     let mut world = crate::world::World::new(verts, idx);
                     if self.faithful {
@@ -195,7 +198,8 @@ impl ApplicationHandler for App {
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
-                    let opponent = world.spawn(&kind, dummy_pos, std::f32::consts::PI, !self.spar);
+                    let opponent =
+                        world.spawn(&opponent_kind, dummy_pos, std::f32::consts::PI, !self.spar);
                     if self.spar {
                         world.fighters[opponent].brain =
                             Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
@@ -214,6 +218,10 @@ impl ApplicationHandler for App {
                             accum: 0.0,
                         }),
                     )
+                }
+                (_, Some((Err(e), _) | (_, Err(e)))) => {
+                    eprintln!("play: {e}");
+                    (None, None)
                 }
                 _ => (None, None),
             }

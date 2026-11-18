@@ -278,23 +278,26 @@ impl Fighter {
         }
     }
 
-    /// Being thrown by fighter `by`: plays the victim clip `clip` (named, as
-    /// the thrower's set may differ from ours), moved to `dest` (sliding
-    /// against walls on the way) and turned to `facing`. Returns false when
-    /// this character has no such clip.
-    pub fn be_thrown(&mut self, by: usize, clip: &str, fight: bool, dest: Vec3, facing: f32) -> bool {
-        let Some(i) = self.motion.coll.entries.iter().position(|e| e.name == clip) else {
-            return false;
-        };
+    /// Being thrown by fighter `by`: plays the victim clip `clip` of the
+    /// thrower's collection `coll`, moved to `dest` (sliding against walls on
+    /// the way) and turned to `facing`.
+    pub fn be_thrown(
+        &mut self,
+        by: usize,
+        coll: Rc<AnimCollection>,
+        clip: usize,
+        fight: bool,
+        dest: Vec3,
+        facing: f32,
+    ) {
         let ch = self.character.clone();
-        self.motion.thrown(&ch, i, fight);
+        self.motion.thrown(&ch, coll, clip, fight);
         self.knockback = Vec3::ZERO;
         self.physics.slide(dest - self.physics.feet);
         self.facing = Facing::new(facing);
         self.thrown_by = Some(by);
         self.throwing = None;
         self.replace();
-        true
     }
 
     /// The second half of a tick: apply the (possibly adjusted) move against

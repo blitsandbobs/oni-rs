@@ -126,8 +126,11 @@ pub struct Air {
 /// One character's animation state.
 pub struct Motion {
     pub coll: Rc<AnimCollection>,
+    /// The collection the current clip belongs to: our own, except while
+    /// playing another character's clip (the victim's side of its throw).
+    playing: Rc<AnimCollection>,
     pub tuning: ClassTuning,
-    /// Current clip (index into the collection) and ticks into it.
+    /// Current clip (index into `playing`) and ticks into it.
     pub clip: usize,
     pub frame: u16,
     /// The state the current clip was entered from.
@@ -246,6 +249,7 @@ impl Motion {
             .map(|e| (e.clip.anim_type, e.clip.to_state))
             .unwrap_or((ty::STAND, st::STANDING));
         Motion {
+            playing: coll.clone(),
             coll,
             tuning,
             clip,
@@ -299,25 +303,43 @@ impl Motion {
 
     /// The current clip.
     pub fn current(&self) -> &Clip {
-        self.clip_of(self.clip)
+        &self.playing.entries[self.clip].clip
     }
 
     /// The current clip's instance name.
     pub fn name(&self) -> &str {
-        &self.coll.entries[self.clip].name
+        &self.playing.entries[self.clip].name
     }
 
-    /// Length of clip `i` in ticks.
-    fn length_of(&self, i: usize) -> u16 {
-        let c = self.clip_of(i);
+    /// Whether the current clip is one of our own (not a borrowed one).
+    fn playing_own(&self) -> bool {
+        Rc::ptr_eq(&self.playing, &self.coll)
+    }
+
+    /// Length of the current clip in ticks.
+    pub fn length(&self) -> u16 {
+        let c = self.current();
         let by_track = c.root_motion.len().max(c.heights.len()) as f32;
         let by_keys = (c.duration * skel::FPS).round() + 1.0;
         by_track.max(by_keys).max(1.0) as u16
     }
 
-    /// Length of the current clip in ticks.
-    pub fn length(&self) -> u16 {
-        self.length_of(self.clip)
+    /// The (hard, soft) pause the current clip leaves before our clip `to`.
+    fn pauses_into(&self, to: usize) -> (u16, u16) {
+        if self.playing_own() {
+            (self.coll.hard_pause(self.clip, to), self.coll.soft_pause(self.clip, to))
+        } else {
+            (self.current().hard_pause, self.current().soft_pause)
+        }
+    }
+
+    /// The blend length from the current clip into our clip `to` at its end.
+    fn blend_into(&self, to: usize) -> u16 {
+        if self.playing_own() {
+            self.coll.end_interpolation(self.clip, to)
+        } else {
+            crate::anim::collection::blend_between(self.current(), self.clip_of(to), false)
+        }
     }
 
     /// Seconds into the current clip (for sampling keyframes).
@@ -341,15 +363,15 @@ impl Motion {
 
     /// This tick's character-local root motion (blended during a switch).
     pub fn root_delta(&self) -> Vec3 {
-        let own = self.root_at(self.clip, self.frame);
+        let own = self.root_at(self.frame);
         match &self.blend {
             Some(b) => b.velocity + (own - b.velocity) * b.t(),
             None => own,
         }
     }
 
-    fn root_at(&self, i: usize, frame: u16) -> Vec3 {
-        let rm = &self.clip_of(i).root_motion;
+    fn root_at(&self, frame: u16) -> Vec3 {
+        let rm = &self.current().root_motion;
         rm.get(usize::from(frame).min(rm.len().saturating_sub(1)))
             .map(|&[x, z]| Vec3::new(x, 0.0, z))
             .unwrap_or(Vec3::ZERO)
@@ -362,7 +384,7 @@ impl Motion {
         let mut sum = Vec3::ZERO;
         let mut n = 0.0;
         for _ in 0..4 {
-            sum += self.root_at(self.clip, f);
+            sum += self.root_at(f);
             n += 1.0;
             if f == 0 {
                 break;
@@ -433,11 +455,9 @@ impl Motion {
         let clip = found?;
 
         let next = self.clip_of(clip);
-        let hard = self.hard_pause > 0 || self.coll.hard_pause(self.clip, clip) > 0;
-        let soft = self.hit_stun > 0
-            || self.block_stun > 0
-            || self.soft_pause > 0
-            || self.coll.soft_pause(self.clip, clip) > 0;
+        let (hard_after, soft_after) = self.pauses_into(clip);
+        let hard = self.hard_pause > 0 || hard_after > 0;
+        let soft = self.hit_stun > 0 || self.block_stun > 0 || self.soft_pause > 0 || soft_after > 0;
         if (hard && !pause_allows(next, false)) || (!hard && soft && !pause_allows(next, true)) {
             return None;
         }
@@ -511,6 +531,21 @@ impl Motion {
     /// the yaw just committed to facing; the saved pose is counter-rotated so
     /// the blend starts exactly where the body was.
     fn enter(&mut self, ch: &Character, from: u16, clip: usize, n: u16, turn: f32) {
+        let own = self.coll.clone();
+        self.enter_in(ch, own, from, clip, n, turn);
+    }
+
+    /// [`Self::enter`] for clip `clip` of collection `coll` (ours, or another
+    /// character's).
+    fn enter_in(
+        &mut self,
+        ch: &Character,
+        coll: Rc<AnimCollection>,
+        from: u16,
+        clip: usize,
+        n: u16,
+        turn: f32,
+    ) {
         if n > 0 {
             let mut saved = ch.local_rotations(Some(self.current()), self.frame_time());
             if let Some((prev, w)) = self.blend_pose() {
@@ -525,7 +560,7 @@ impl Motion {
                 }
             }
             let mut velocity = self.velocity_estimate();
-            if self.clip_of(clip).has_flag(flag::NO_INTERP_VELOCITY) {
+            if coll.entries[clip].clip.has_flag(flag::NO_INTERP_VELOCITY) {
                 velocity = Vec3::ZERO;
             }
             let carry = self.blend.as_ref().map_or(self.blend_carry, |b| b.count - b.itr);
@@ -538,12 +573,13 @@ impl Motion {
             });
         }
 
+        self.playing = coll;
         self.clip = clip;
         self.frame = 0;
         self.entered_from = from;
-        self.kind = self.clip_of(clip).anim_type;
+        self.kind = self.current().anim_type;
         self.queued = ty::NONE;
-        self.state = self.clip_of(clip).to_state;
+        self.state = self.current().to_state;
         self.started();
     }
 
@@ -588,7 +624,7 @@ impl Motion {
 
     /// The current clip has run out: play what was queued (or stand).
     fn next_clip(&mut self, ch: &Character) {
-        let next = if self.lock_frames > 0 {
+        let next = if self.lock_frames > 0 && self.playing_own() {
             self.clip
         } else {
             self.coll
@@ -597,9 +633,10 @@ impl Motion {
                 .unwrap_or(self.clip)
         };
         let next = if self.lock_frames > 0 { next } else { self.maybe_throw(next) };
-        self.soft_pause = self.soft_pause.max(self.coll.soft_pause(self.clip, next));
-        self.hard_pause = self.hard_pause.max(self.coll.hard_pause(self.clip, next));
-        let n = self.coll.end_interpolation(self.clip, next);
+        let (hard_after, soft_after) = self.pauses_into(next);
+        self.soft_pause = self.soft_pause.max(soft_after);
+        self.hard_pause = self.hard_pause.max(hard_after);
+        let n = self.blend_into(next);
         let turn = self.leave_clip(true);
         let from = self.state;
         self.enter(ch, from, next, n, turn);
@@ -622,10 +659,11 @@ impl Motion {
         }
     }
 
-    /// Being thrown: plays the victim's side of a throw (`clip`, an index into
-    /// the thrower's collection — the same set for our characters), cutting
-    /// off whatever was playing. Takes the fight stance if the throw does.
-    pub fn thrown(&mut self, ch: &Character, clip: usize, fight: bool) {
+    /// Being thrown: plays the victim's side of a throw — clip `clip` of the
+    /// *thrower's* collection `coll`, since the two clips were animated
+    /// together — cutting off whatever was playing. Takes the fight stance if
+    /// the throw does.
+    pub fn thrown(&mut self, ch: &Character, coll: Rc<AnimCollection>, clip: usize, fight: bool) {
         if fight {
             self.fight_mode();
         }
@@ -634,7 +672,7 @@ impl Motion {
         self.lock_frames = 0;
         self.leave_clip(false);
         let from = self.state;
-        self.enter(ch, from, clip, throw::VICTIM_BLEND, 0.0);
+        self.enter_in(ch, coll, from, clip, throw::VICTIM_BLEND, 0.0);
         self.queued = ty::STAND;
     }
 
@@ -765,6 +803,10 @@ impl Motion {
     /// If a better-matching variant of the current clip exists now (e.g. the
     /// fight stance just came on), blend over to it.
     pub fn upgrade_varient(&mut self, ch: &Character) {
+        let c = self.current();
+        if c.has_flag(flag::THROW_SOURCE) || c.has_flag(flag::THROW_TARGET) {
+            return; // a throw's two clips stay as they were paired
+        }
         if let Some(better) = self.coll.lookup(self.kind, self.entered_from, self.varient) {
             if self.clip_of(better).varient > self.current().varient {
                 let from = self.entered_from;

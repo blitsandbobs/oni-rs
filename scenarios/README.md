@@ -40,6 +40,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
+| `classes.lua` | Other character classes spawn with their own body, skin, animation set and hit points, and can be thrown (the victim plays the thrower's clip). |
 | `throw.lua` | A forward punch / kick near an opponent becomes a front or behind throw (victim placed by the throw, locked out, hurt on landing); a running punch becomes a running throw; out of reach it's a plain forward punch. |
 | `rear_kick.lua` | Blows connect by body contact: a rear kick hits a dummy behind the player; a jab at nobody misses. |
 | `spar.lua` | The sparring partner closes in without walking through its opponent, lands hits, gets up after a knockdown, stops once its opponent is dead. |
@@ -68,7 +69,8 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |
-| `spawn(x,y,z [,facing_deg])` → `id` | Spawn a training dummy; returns its fighter id (default facing 180°). |
+| `spawn(x,y,z [,facing_deg [,class]])` → `id` | Spawn a training dummy of character class `class` (default: `--opponent`, else the player's class); returns its fighter id (default facing 180°). |
+| `class_of(id)` → name | A fighter's character class. |
 | `count()` → `n` | Number of fighters (player = 0, plus dummies). |
 | `hp(id)` → `hp` | A fighter's hit points. |
 | `pos_of(id)` → `x,y,z` | A fighter's feet position. |
