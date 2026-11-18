@@ -51,7 +51,7 @@ fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f3
     if a == b {
         return Some(from.distance(to));
     }
-    let portals = crate::nav::plan::route(nav, a, from, b, to)?;
+    let portals = crate::nav::plan::route(nav, a, from, b, to, &Default::default())?;
     let mut at = from;
     let mut len = 0.0;
     for (r, k) in portals {
@@ -105,6 +105,7 @@ pub struct World {
     /// The level's doors, and each one's closed leaf (for collision).
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
+    door_links: Vec<Vec<(usize, usize)>>,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
@@ -141,6 +142,7 @@ impl World {
             consoles: Vec::new(),
             doors: Vec::new(),
             door_meshes: Vec::new(),
+            door_links: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
             input_enabled: true,
@@ -592,6 +594,32 @@ impl World {
         }
     }
 
+    /// Each door's portals: those whose midpoint it stands within half the
+    /// portal's width of (at most 2), as the original links them.
+    fn door_portals(&mut self, nav: &crate::nav::Navigation) -> &Vec<Vec<(usize, usize)>> {
+        if self.door_links.len() != self.doors.len() {
+            self.door_links = self
+                .doors
+                .iter()
+                .map(|d| {
+                    let mut near: Vec<(f32, (usize, usize))> = Vec::new();
+                    for (r, room) in nav.rooms.iter().enumerate() {
+                        for (k, p) in room.portals.iter().enumerate() {
+                            let flat = Vec3::new(p.mid.x - d.position.x, 0.0, p.mid.z - d.position.z).length();
+                            if flat <= p.width * 0.5 && (p.mid.y - d.position.y).abs() < 30.0 {
+                                near.push((flat, (r, k)));
+                            }
+                        }
+                    }
+                    near.sort_by(|a, b| a.0.total_cmp(&b.0));
+                    // (Both sides of an opening: a portal from each room.)
+                    near.into_iter().take(4).map(|(_, rk)| rk).collect()
+                })
+                .collect();
+        }
+        &self.door_links
+    }
+
     /// The player's Action at a manual door: the closed one in reach it
     /// faces most (preferring one it may open). True if there was one.
     fn door_action(&mut self, i: usize) -> bool {
@@ -939,7 +967,15 @@ impl World {
                 }
                 set
             };
-            let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful);
+            // Doors it may not open shut their portals to it.
+            let links = self.door_portals(&nav).clone();
+            let shut: std::collections::HashSet<(usize, usize)> = links
+                .iter()
+                .enumerate()
+                .filter(|&(k, _)| !self.doors[k].may_open(from, false))
+                .flat_map(|(_, ps)| ps.iter().copied())
+                .collect();
+            let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful, &shut);
             if let Err(e) = &plan {
                 eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
             }

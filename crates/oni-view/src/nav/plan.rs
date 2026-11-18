@@ -61,7 +61,15 @@ impl PartialOrd for Node {
 /// The portals to take from room `start` (at `from`) to room `goal` (at
 /// `to`): `(room, portal index)` pairs. A\* from portal midpoint to portal
 /// midpoint, never straight back, avoiding portals blocked all the way.
-pub fn route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: Vec3) -> Option<Vec<(usize, usize)>> {
+/// (`shut`: portals a door closes to this character — `(room, portal)`.)
+pub fn route(
+    nav: &Navigation,
+    start: usize,
+    from: Vec3,
+    goal: usize,
+    to: Vec3,
+    shut: &HashSet<(usize, usize)>,
+) -> Option<Vec<(usize, usize)>> {
     if start == goal {
         return Some(Vec::new());
     }
@@ -88,7 +96,7 @@ pub fn route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: Vec3) 
         }
         let back = via.map(|(r, _)| r);
         for (k, p) in nav.rooms[room].portals.iter().enumerate() {
-            if p.impassable || Some(p.to) == back {
+            if p.impassable || Some(p.to) == back || shut.contains(&(room, k)) {
                 continue;
             }
             let g = cost[id] + at.distance(p.mid);
@@ -176,10 +184,11 @@ pub fn plan(
     to: Vec3,
     obstructed: &dyn Fn(usize) -> HashSet<(i32, i32)>,
     careful: bool,
+    shut: &HashSet<(usize, usize)>,
 ) -> Result<Path, Error> {
     let start = nav.room_at(from).ok_or(Error::StartOutside)?;
     let goal = nav.room_at(to + Vec3::Y * 0.5).ok_or(Error::DestinationOutside)?;
-    let portals = route(nav, start, from, goal, to).ok_or(Error::Unreachable)?;
+    let portals = route(nav, start, from, goal, to, shut).ok_or(Error::Unreachable)?;
 
     let mut path = Path { points: Vec::new(), rooms: vec![start] };
     let mut at = from;
@@ -243,7 +252,7 @@ mod tests {
                 continue;
             }
             tried += 1;
-            if let Ok(p) = plan(&nav, from, to, &|_| HashSet::new(), false) {
+            if let Ok(p) = plan(&nav, from, to, &|_| HashSet::new(), false, &HashSet::new()) {
                 found += 1;
                 longest = longest.max(p.rooms.len());
                 for (w, _) in &p.points {

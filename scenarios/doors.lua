@@ -1,6 +1,7 @@
 -- Doors (#17; docs/DOORS.md): a door opens for anyone allowed through who
 -- comes near, and its leaf blocks only while closed — Konoko runs through
 -- an open one; locked, it stops her; unlocked again, it opens as she comes.
+-- An AI plans no way through a door it may not open.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -54,4 +55,19 @@ input(true, false)
 took = wait_for(function() return z() > -570 end, 200)
 input(false, false)
 assert(took, "unlocked, it lets her through")
+-- An AI's way: a locked door shuts it (no way round here), unlocked it
+-- walks through.
+teleport(0, 200, 8, 300) -- Konoko out of the way
+local a = spawn(-82, 6, -545, 180, "striker_easy_1")
+step(240)
+door(18, "lock")
+go_to(a, -82, 0, -640, "run")
+step(60)
+print("AI, door locked:", nav_state(a))
+assert(nav_state(a) ~= "following", "no way through a locked door")
+door(18, "unlock")
+go_to(a, -82, 0, -640, "run")
+took = wait_for(function() return nav_state(a) == "arrived" end, 400)
+print("AI, door unlocked: arrived after", took)
+assert(took, "unlocked, the AI walks through")
 print("doors OK")
