@@ -65,4 +65,12 @@ end
 print(string.format("ninja flying kick: kicked in the air=%s, dummy hp %d -> %d", tostring(flew), hp1, hp(nd)))
 assert(flew, "the ninja kicked in mid-air")
 assert(hp(nd) < hp1, "the flying kick landed")
-print("melee AI ok: profile techniques land hits; flying kicks; daze then get up")
+-- Difficulty scales the AI's chances to notice, dodge and block (the game
+-- settings' multipliers; normal is 1).
+local n, d, b = difficulty("hard")
+print(string.format("hard: notice x%.1f dodge x%.1f block x%.1f", n, d, b))
+assert(n > 1 and d > 1 and b > 1, "hard sharpens the AI")
+n, d, b = difficulty("easy")
+assert(n < 1 and d < 1 and b < 1, "easy dulls it")
+difficulty("normal")
+print("melee AI ok: profile techniques land hits; flying kicks; daze then get up; difficulty")

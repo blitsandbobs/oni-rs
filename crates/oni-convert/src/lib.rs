@@ -164,6 +164,7 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
     // across files into a single catalog written at the end.
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
+    let mut game_settings: Option<serde_json::Value> = None;
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -218,6 +219,9 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = convert_fonts(&dat, &root)?;
         collect_character_classes(&dat, &f.root, fi, &global_named, &registry, &mut character_classes);
+        if game_settings.is_none() {
+            game_settings = collect_game_settings(&dat, &registry);
+        }
         for p in melee::collect(&dat, raw.as_deref()) {
             if !melee_profiles.iter().any(|q| q.id == p.id) {
                 melee_profiles.push(p);
@@ -266,8 +270,44 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         )?;
     }
 
+    if let Some(gs) = game_settings {
+        let dir = output_dir.join("common");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("game_settings.json"), serde_json::to_string_pretty(&gs)?)?;
+    }
+
     write_manifest(output_dir, &report, &source_files)?;
     Ok(report)
+}
+
+/// The game settings (`ONGS`) the engine uses: per-difficulty multipliers
+/// (easy, normal, hard) on the AI's attack notice, block and dodge chances
+/// and its aim inaccuracy.
+fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<serde_json::Value> {
+    const TAG_ONGS: FourCc = FourCc(0x4F4E_4753);
+    let inst = dat.instances.iter().find(|i| i.tag == TAG_ONGS)?;
+    let rec = oni_template::decode(registry.get(TAG_ONGS)?, dat.instance_data(inst)?, dat.header.endian).ok()?;
+    let floats = |name: &str| -> Vec<f32> {
+        match rec.get(name).map(|e| &e.value) {
+            Some(oni_template::Value::Array(items)) => items
+                .iter()
+                .filter_map(|r| match r.entries.first().map(|e| &e.value) {
+                    Some(oni_template::Value::Float(f)) => Some(*f),
+                    _ => None,
+                })
+                .collect(),
+            _ => Vec::new(),
+        }
+    };
+    Some(serde_json::json!({
+        "difficulty": {
+            "levels": ["easy", "normal", "hard"],
+            "noticeMultiplier": floats("notice_multipliers"),
+            "blockMultiplier": floats("blocking_multipliers"),
+            "dodgeMultiplier": floats("dodge_multipliers"),
+            "inaccuracyMultiplier": floats("inaccuracy_multipliers"),
+        }
+    }))
 }
 
 /// Appends this file's canonical `ONCC` character classes to `out` as JSON.

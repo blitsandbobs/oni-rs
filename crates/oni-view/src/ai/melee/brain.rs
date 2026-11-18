@@ -48,6 +48,21 @@ impl View<'_> {
     }
 }
 
+/// How difficulty scales the melee AI's chances (the game settings'
+/// per-difficulty multipliers; normal is 1).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Difficulty {
+    pub notice: f32,
+    pub dodge: f32,
+    pub block: f32,
+}
+
+impl Default for Difficulty {
+    fn default() -> Self {
+        Difficulty { notice: 1.0, dodge: 1.0, block: 1.0 }
+    }
+}
+
 /// What the AI does this tick.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Output {
@@ -140,6 +155,7 @@ pub struct Melee {
     pub force: Option<String>,
     /// This tick's look along the floor toward the target.
     ahead: Option<crate::physics::Probe>,
+    difficulty: Difficulty,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -179,6 +195,7 @@ impl Melee {
             now: 0,
             force: None,
             ahead: None,
+            difficulty: Difficulty::default(),
         }
     }
 
@@ -208,8 +225,18 @@ impl Melee {
     /// One tick of melee for `me` against `target`.
     /// `positions`: every fighter's feet, by index (for spacing around
     /// other attackers).
-    pub fn think(&mut self, me: &View, target: &View, fights: &mut Fights, now: i64, positions: &[Vec3]) -> Output {
+    #[allow(clippy::too_many_arguments)]
+    pub fn think(
+        &mut self,
+        me: &View,
+        target: &View,
+        fights: &mut Fights,
+        now: i64,
+        positions: &[Vec3],
+        difficulty: Difficulty,
+    ) -> Output {
         self.now = now;
+        self.difficulty = difficulty;
         if self.info.is_empty() {
             self.info = self.profile.techniques.iter().map(|t| tech_info(t, me.motion)).collect();
             self.jumps = Jumps::of(me.motion);
@@ -404,9 +431,9 @@ impl Melee {
             let (notice, base, extra, threshold) =
                 (p.notice_percent, p.dodge_base, p.dodge_additional, p.dodge_damage_threshold);
             let damage = clip.attacks.iter().map(|a| f32::from(a.damage)).fold(0.0, f32::max);
-            self.react = self.percent() < notice;
+            self.react = self.percent() < notice * self.difficulty.notice;
             let dodge = base + extra * (damage / threshold.max(1.0)).min(1.0);
-            self.evade = self.percent() < dodge;
+            self.evade = self.percent() < dodge * self.difficulty.dodge;
         }
         if !self.react {
             return false;

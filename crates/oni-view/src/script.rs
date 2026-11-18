@@ -109,6 +109,7 @@ impl ScriptHost {
         if faithful {
             world.set_quirks(Quirks::FAITHFUL);
         }
+        world.difficulty = classes.difficulty(&cast.difficulty);
         // Player = fighter 0, facing +Z.
         world.spawn(&kind, spawn_pos, 0.0, false);
 
@@ -650,6 +651,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let a = deg.to_radians();
             let p = f.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
             Ok((p.free, p.ledge))
+        })?,
+    )?;
+
+    // The AI's difficulty: "easy", "normal" or "hard".
+    let h = host.clone();
+    g.set(
+        "difficulty",
+        lua.create_function(move |_, level: String| {
+            let mut host = h.borrow_mut();
+            let d = host.classes.difficulty(&level);
+            host.world.difficulty = d;
+            Ok((d.notice, d.dodge, d.block))
         })?,
     )?;
 

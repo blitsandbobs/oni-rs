@@ -42,6 +42,8 @@ use crate::skel::{Character, Clip};
 pub struct Cast {
     pub player: String,
     pub opponent: Option<String>,
+    /// "easy", "normal" or "hard": how sharp the AI is.
+    pub difficulty: String,
 }
 
 /// A character placed in the world.
@@ -106,6 +108,7 @@ fn main() {
     let mut play = false;
     let mut class_name = String::from("konoko_generic");
     let mut opponent_class: Option<String> = None;
+    let mut difficulty = String::from("normal");
     let mut level_number: Option<u16> = None;
     let mut faithful = false;
     let mut spar = false;
@@ -115,6 +118,7 @@ fn main() {
             "--play" => play = true,
             "--class" => class_name = args.next().unwrap_or(class_name),
             "--opponent" => opponent_class = args.next(),
+            "--difficulty" => difficulty = args.next().unwrap_or(difficulty),
             "--faithful" => faithful = true,
             "--spar" => spar = true,
             "--level" => level_number = args.next().and_then(|s| s.parse().ok()),
@@ -207,6 +211,7 @@ fn main() {
     let cast = Cast {
         player: class_name,
         opponent: opponent_class,
+        difficulty,
     };
 
     // Scripted scenario (headless Lua driver): drives physics + the locomotion

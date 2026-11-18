@@ -194,6 +194,9 @@ impl ApplicationHandler for App {
                     if self.faithful {
                         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
                     }
+                    if let Some(c) = self.classes.as_ref() {
+                        world.difficulty = c.difficulty(&self.cast.difficulty);
+                    }
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);

@@ -51,6 +51,8 @@ pub struct World {
     pub quirks: Quirks,
     /// Who is fighting whom (attack slots).
     pub fights: crate::ai::melee::fight::Fights,
+    /// How sharp the AI is.
+    pub difficulty: crate::ai::melee::brain::Difficulty,
     now: i64,
     rng: u32,
     level_positions: Vec<[f32; 3]>,
@@ -64,6 +66,7 @@ impl World {
             fighters: Vec::new(),
             quirks: Quirks::FIXED,
             fights: Default::default(),
+            difficulty: Default::default(),
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -132,7 +135,7 @@ impl World {
             };
             let me = view(&self.fighters, i, target);
             let them = view(&self.fighters, target, i);
-            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions));
+            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty));
             self.fighters[i].brain = Some(crate::ai::Brain::Melee(m));
         }
         outs
@@ -375,11 +378,12 @@ impl World {
         let Some(crate::ai::Brain::Melee(m)) = &f.brain else { return None };
         let p = &m.profile;
         let n = self.fights.attackers(m.target).len().max(1) as f32;
-        Some(if n >= 4.0 {
+        let skill = if n >= 4.0 {
             p.block_group
         } else {
             p.block_skill + (p.block_group - p.block_skill) * (n - 1.0) / 3.0
-        })
+        };
+        Some(skill * self.difficulty.block)
     }
 
     /// Applies one landed attack from fighter `a` to fighter `b`.

@@ -71,6 +71,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `spar(id, target)` | Make a fighter fight another with its class's melee AI. |
 | `turn_keys(l, r)` / `action()` | Hold the turn keys / tap the action key. |
 | `probe(id, deg, dist)` → `free, ledge` | Look along the floor from a fighter: distance before a wall, distance to a drop (or nil). |
+| `difficulty(level)` → `notice, dodge, block` | Set the AI's difficulty ("easy" / "normal" / "hard"); returns its multipliers. |
 | `technique(id, name)` | Make melee AI `id` use its profile's technique `name` next (once it can). |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |

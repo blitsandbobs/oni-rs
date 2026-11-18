@@ -29,6 +29,8 @@ pub struct Classes {
     kinds: HashMap<String, CharKind>,
     /// AI melee profiles by name.
     melee: HashMap<String, Rc<crate::ai::melee::profile::Profile>>,
+    /// The game settings (`common/game_settings.json`).
+    settings: serde_json::Value,
 }
 
 impl Classes {
@@ -47,6 +49,10 @@ impl Classes {
             collections: HashMap::new(),
             kinds: HashMap::new(),
             melee,
+            settings: std::fs::read_to_string(oni_root.join("common/game_settings.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default(),
         })
     }
 
@@ -113,6 +119,22 @@ impl Classes {
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)
+    }
+}
+
+impl Classes {
+    /// The AI's difficulty multipliers for `level` ("easy", "normal", "hard").
+    pub fn difficulty(&self, level: &str) -> crate::ai::melee::brain::Difficulty {
+        let d = &self.settings["difficulty"];
+        let i = d["levels"].as_array().and_then(|l| l.iter().position(|v| v.as_str() == Some(level)));
+        let pick = |k: &str| {
+            i.and_then(|i| d[k][i].as_f64()).map_or(1.0, |v| v as f32)
+        };
+        crate::ai::melee::brain::Difficulty {
+            notice: pick("noticeMultiplier"),
+            dodge: pick("dodgeMultiplier"),
+            block: pick("blockMultiplier"),
+        }
     }
 }
 
