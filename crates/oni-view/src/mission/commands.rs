@@ -482,6 +482,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
+        // --- laser triggers --------------------------------------------------
+        "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show" | "trig_speed" => {
+            let id = int(a(0)).unwrap_or(crate::lasers::ALL);
+            let factor = a(1).and_then(|v| match v {
+                Value::Number(n) => Some(*n as f32),
+                Value::Integer(n) => Some(*n as f32),
+                Value::String(s) => s.to_str().ok()?.trim().parse().ok(),
+                _ => None,
+            });
+            host.world().laser_set(id, &name[5..], factor.unwrap_or(1.0));
+            nil()
+        }
+
         // --- doors ------------------------------------------------------------
         "door_lock" | "door_unlock" | "door_jam" | "door_unjam" => {
             let id = int(a(0)).unwrap_or(-1);

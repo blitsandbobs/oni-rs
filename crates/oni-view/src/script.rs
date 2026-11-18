@@ -204,6 +204,7 @@ impl ScriptHost {
             _ => {}
         }
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
+        self.renderer.beams = self.world.beams.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let draws: Vec<CharDraw> = self
             .world
@@ -818,6 +819,35 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 }
             }
             Ok(())
+        })?,
+    )?;
+
+    // Orders laser trigger `id` ("activate", "deactivate", "reset", "hide",
+    // "show", "speed" with a factor); laser_state(id): active, on,
+    // triggered, and how many beams are out (nil: no such laser).
+    let h = host.clone();
+    g.set(
+        "laser",
+        lua.create_function(move |_, (id, what, factor): (i64, String, Option<f32>)| {
+            h.borrow_mut().world.laser_set(id, &what, factor.unwrap_or(1.0));
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "laser_state",
+        lua.create_function(move |_, id: u16| {
+            let host = h.borrow();
+            let l = host.world.lasers.iter().find(|l| l.id == id);
+            Ok((l.map(|l| l.active), l.map(|l| l.laser_on), l.map(|l| l.triggered), l.map(|l| if l.beaming() { l.emitters.len() } else { 0 })))
+        })?,
+    )?;
+    // Laser beams out now: a list of {x1, y1, z1, x2, y2, z2}.
+    let h = host.clone();
+    g.set(
+        "beams",
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow().world.beams.iter().map(|(a, b, _)| vec![a.x, a.y, a.z, b.x, b.y, b.z]).collect::<Vec<_>>())
         })?,
     )?;
 

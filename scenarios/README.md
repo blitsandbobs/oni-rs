@@ -41,6 +41,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
+| `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `stairs.lua` | Stairs: Konoko runs up a flight (steps aren't collided with — the ramp under them is); the Bay 4 comguy climbs to its alarm console (#32). |
 | `hearing.lua` | Hearing bodies (#13): a crouched walk is silent, running is heard, a landed blow alarms (medium). |
 | `death.lua` | Death (#12): a body stays — unless its class deletes its dead after a delay (the mad bomber, 190 ticks). |
@@ -90,6 +91,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `present(id)` | Whether a fighter is still in the level (not deleted). |
 | `damage(id, n)` | Deals `n` damage to a fighter (it dies at 0 health). |
 | `door(id, what)` / `door_state(id)` | Order a door (`open`, `close`, `lock`, `unlock`, `jam`, `unjam`); its state (`closed` / `opening` / `open` / `closing`) and whether it is locked. |
+| `laser(id, what [, factor])` / `laser_state(id)` / `beams()` | Order a laser trigger (`activate`, `deactivate`, `reset`, `hide`, `show`, `speed`); its active / on / triggered state and beams out; every beam now (`{x1,y1,z1,x2,y2,z2}`). |
 | `eye_of(id)` | Where an agent's eyes look (degrees; nil: along its body). |
 | `place(name)` / `goals(id)` / `goal_of(id)` | Goals: place one of the level's characters by name (class, position, job, alerts, profiles; returns its id); give a spawned character default goals (idle); what an agent is doing (`job patrol <path> @<waypoint>`, `pursuit goTo`, `combat Melee → 2`, `idle`, …). `nav_state(id)` also reads an agent's current walk. |
 | `watch(id)` / `alert_of(id)` / `contact_of(id, other)` / `team(id, name)` / `noise(x, y, z, kind, volume [, maker])` | Perception: make a placed character watch and listen; its alert level; how sure it is of another (`definite` … `forgotten`, nil); set its team; make a noise (`interesting`, `danger`, `melee`, `gunshot`, `ignore`). |

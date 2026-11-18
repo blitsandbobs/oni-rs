@@ -28,6 +28,7 @@ mod melee;
 mod bsl;
 mod consoles;
 mod doors;
+mod lasers;
 mod objects;
 mod patrols;
 mod particles;
@@ -228,6 +229,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
     let mut game_settings: Option<serde_json::Value> = None;
     let mut console_classes = std::collections::HashMap::new();
+    let mut laser_classes = std::collections::BTreeMap::new();
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -283,6 +285,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 patrols::write(&dat, raw, &root)?;
                 consoles::write(&dat, raw, &root, &console_classes)?;
                 doors::write(&dat, raw, &root)?;
+                lasers::write(&dat, raw, &root, &laser_classes)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
@@ -291,6 +294,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 }
             } else {
                 console_classes = consoles::classes(&dat, &registry);
+                laser_classes = lasers::classes(&dat, &registry);
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");

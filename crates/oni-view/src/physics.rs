@@ -189,6 +189,15 @@ impl Physics {
         Probe { free, ledge }
     }
 
+    /// How far a ray from `from` along unit `dir` goes before the level
+    /// (closed doors included), if within `max`.
+    pub fn ray(&self, from: Vec3, dir: Vec3, max: f32) -> Option<f32> {
+        let ray = Ray::new(Point3::new(from.x, from.y, from.z), Vector3::new(dir.x, dir.y, dir.z));
+        self.query
+            .cast_ray(&self.bodies, &self.colliders, &ray, max, true, QueryFilter::default())
+            .map(|(_, toi)| toi)
+    }
+
     /// Distance from the feet straight down to the level, if within `max`.
     pub fn ground_below(&self, max: f32) -> Option<f32> {
         // Start slightly above the feet so a floor we are standing on counts.

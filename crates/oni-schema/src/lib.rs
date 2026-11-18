@@ -312,6 +312,10 @@ pub const TRIGGER_FLAGS: [&str; 8] = [
 /// authored ones are kept).
 pub const CONSOLE_FLAGS: [&str; 7] = ["", "", "", "initialActive", "", "punch", "isAlarm"];
 
+/// Laser trigger flag bits (`OBJcTriggerFlag_*`; bit index → name; only the
+/// persistent ones are kept).
+pub const LASER_FLAGS: [&str; 6] = ["", "", "", "initialActive", "reverseAnim", "pingPong"];
+
 /// Door flag bits (`OBJcDoorFlag_*`; bit index → name; only the authored
 /// ones are kept).
 pub const DOOR_FLAGS: [&str; 13] = [

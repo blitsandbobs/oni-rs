@@ -102,6 +102,10 @@ pub struct World {
     pub level_dir: std::path::PathBuf,
     /// The level's consoles.
     pub consoles: Vec<crate::consoles::Console>,
+    /// The level's laser triggers, and their beams out this tick (from, to,
+    /// colour — for drawing).
+    pub lasers: Vec<crate::lasers::Laser>,
+    pub beams: Vec<(Vec3, Vec3, [f32; 3])>,
     /// The level's doors, and each one's closed leaf (for collision).
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
@@ -143,6 +147,8 @@ impl World {
             level_dir: Default::default(),
             consoles: Vec::new(),
             doors: Vec::new(),
+            lasers: Vec::new(),
+            beams: Vec::new(),
             door_meshes: Vec::new(),
             door_links: Vec::new(),
             door_applied: Vec::new(),
@@ -547,6 +553,67 @@ impl World {
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
         self.doors = crate::doors::load(level_dir);
+        self.lasers = crate::lasers::load(level_dir);
+    }
+
+    /// One tick of every laser trigger (behaviour per `docs/LASERS.md`): its
+    /// emitters move and it blinks; each beam out reaches the level (worked
+    /// out once per track frame) and trips if it meets the player's body
+    /// first — firing the event list once, until a beam misses again.
+    fn lasers_tick(&mut self) {
+        self.beams.clear();
+        for k in 0..self.lasers.len() {
+            self.lasers[k].tick();
+            if !self.lasers[k].beaming() {
+                continue;
+            }
+            for e in 0..self.lasers[k].emitters.len() {
+                let (from, dir, frame) = self.lasers[k].beam(e);
+                let level = self.fighters.first().map(|p| &p.physics);
+                let reach = self.lasers[k].reach(frame, || {
+                    level.and_then(|p| p.ray(from, dir, crate::lasers::BEAM_LENGTH)).unwrap_or(crate::lasers::BEAM_LENGTH)
+                });
+                let hit = self.fighters.first().filter(|p| p.player && !p.gone).and_then(|p| {
+                    p.body_spheres()
+                        .iter()
+                        .filter_map(|&(_, c, r)| crate::lasers::ray_sphere(from, dir, reach, c, r))
+                        .min_by(f32::total_cmp)
+                });
+                let len = hit.unwrap_or(reach);
+                let l = &mut self.lasers[k];
+                self.beams.push((from, from + dir * crate::lasers::drawn(len), l.color));
+                if hit.is_some() {
+                    if !l.triggered {
+                        l.triggered = true;
+                        eprintln!("laser {}: tripped", l.id);
+                        let events = l.events.clone();
+                        self.run_events(&events, Some(0));
+                    }
+                } else {
+                    // (Any beam missing re-arms it — with several emitters,
+                    // even while another beam is on the player.)
+                    l.triggered = false;
+                }
+            }
+        }
+    }
+
+    /// Script / event orders to laser trigger `id` (`-1`: every one, except
+    /// for activate / deactivate, as in the original): "activate",
+    /// "deactivate", "reset", "hide", "show", "speed" (by `factor`).
+    pub fn laser_set(&mut self, id: i64, what: &str, factor: f32) {
+        let every = id == crate::lasers::ALL && !matches!(what, "activate" | "deactivate");
+        for l in self.lasers.iter_mut().filter(|l| every || i64::from(l.id) == id) {
+            match what {
+                "activate" => l.activate(),
+                "deactivate" => l.active = false,
+                "reset" => l.reset(),
+                "hide" => l.hidden = true,
+                "show" => l.hidden = false,
+                "speed" => l.set_speed(factor),
+                _ => {}
+            }
+        }
     }
 
     /// Gives the doors their closed leaves (by object id, from the level's
@@ -715,6 +782,9 @@ impl World {
                 Event::ActivateAlarm(id) => self.trip_alarm(u32::from(*id), user.unwrap_or(0)),
                 Event::LockDoor(id) => self.door_set(i64::from(*id), Some(true), None),
                 Event::UnlockDoor(id) => self.door_set(i64::from(*id), Some(false), None),
+                // (By id only: the original's "every laser" doesn't apply here.)
+                Event::ActivateLaser(id) => self.laser_set(i64::from(*id), "activate", 1.0),
+                Event::DeactivateLaser(id) => self.laser_set(i64::from(*id), "deactivate", 1.0),
                 Event::Other(kind, id) => eprintln!("event {kind} {id} (not carried out yet)"),
             }
         }
@@ -1061,6 +1131,7 @@ impl World {
             }
         }
         self.doors_tick();
+        self.lasers_tick();
         for i in 0..self.fighters.len() {
             self.console_tick(i);
         }

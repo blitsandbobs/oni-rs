@@ -26,6 +26,7 @@ use oni_dat::{Dat, FourCc, Instance};
 pub const TAG_OBAN: FourCc = FourCc(0x4F42_414E);
 
 const OFF_FLAGS: usize = 12;
+const OFF_SCALE: usize = 64;
 const OFF_TICKS_PER_FRAME: usize = 112;
 const OFF_NUM_FRAMES: usize = 114;
 const OFF_DOOR_OPEN_FRAMES: usize = 116;
@@ -59,6 +60,58 @@ pub struct ObjectAnimation {
     pub door_open_frames: u16,
     /// Keyframes.
     pub keys: Vec<ObjAnimKey>,
+    /// The `scale` matrix (4×3, column-major: three axes, then translation)
+    /// applied after each key's rotation.
+    pub scale: [f32; 12],
+}
+
+impl ObjectAnimation {
+    /// The matrix at integer `frame` (4×3, column-major), as the original
+    /// builds it: translate × rotate × scale, the translation and quaternion
+    /// lerped between keys (Oni's quaternion-to-matrix is the transpose of
+    /// the usual one). Localized clips (from Max space) are rotated a
+    /// quarter-turn about X.
+    pub fn matrix(&self, frame: i32) -> [f32; 12] {
+        let k = self.keys.iter().rposition(|k| k.frame <= frame).unwrap_or(0);
+        let a = self.keys.get(k).copied().unwrap_or(ObjAnimKey { frame: 0, translation: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0] });
+        let (t, q) = match self.keys.get(k + 1) {
+            Some(b) if a.frame != frame && b.frame > a.frame => {
+                let u = (frame - a.frame) as f32 / (b.frame - a.frame) as f32;
+                let lerp = |x: f32, y: f32| x + (y - x) * u;
+                (
+                    std::array::from_fn::<f32, 3, _>(|i| lerp(a.translation[i], b.translation[i])),
+                    std::array::from_fn::<f32, 4, _>(|i| lerp(a.rotation[i], b.rotation[i])),
+                )
+            }
+            _ => (a.translation, a.rotation),
+        };
+        let [x, y, z, w] = q;
+        let s = 2.0 / (x * x + y * y + z * z + w * w).max(1e-12);
+        // Columns (m[col][row]) as Oni writes them.
+        let r = [
+            [1.0 - s * (y * y + z * z), s * (x * y) - s * (w * z), s * (x * z) + s * (w * y)],
+            [s * (x * y) + s * (w * z), 1.0 - s * (x * x + z * z), s * (y * z) - s * (w * x)],
+            [s * (x * z) - s * (w * y), s * (y * z) + s * (w * x), 1.0 - s * (x * x + y * y)],
+        ];
+        let col = |m: &[f32; 12], c: usize| [m[c * 3], m[c * 3 + 1], m[c * 3 + 2]];
+        let rot = |v: [f32; 3]| -> [f32; 3] { std::array::from_fn(|i| r[0][i] * v[0] + r[1][i] * v[1] + r[2][i] * v[2]) };
+        // (T·R)·S: S's axes rotated; its translation rotated and moved.
+        let mut out = [0.0; 12];
+        for c in 0..3 {
+            out[c * 3..c * 3 + 3].copy_from_slice(&rot(col(&self.scale, c)));
+        }
+        let st = rot(col(&self.scale, 3));
+        out[9..12].copy_from_slice(&[st[0] + t[0], st[1] + t[1], st[2] + t[2]]);
+        if self.flags & 0x10 != 0 {
+            // Rotate X by +90°: (x, y, z) → (x, -z, y).
+            for c in 0..4 {
+                let (yy, zz) = (out[c * 3 + 1], out[c * 3 + 2]);
+                out[c * 3 + 1] = -zz;
+                out[c * 3 + 2] = yy;
+            }
+        }
+        out
+    }
 }
 
 fn read_u16(d: &[u8], o: usize) -> Option<u16> {
@@ -117,5 +170,6 @@ pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectA
         num_frames: read_u16(d, OFF_NUM_FRAMES)?,
         door_open_frames: read_u16(d, OFF_DOOR_OPEN_FRAMES)?,
         keys,
+        scale: std::array::from_fn(|i| read_f32(d, OFF_SCALE + i * 4).unwrap_or(0.0)),
     })
 }

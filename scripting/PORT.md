@@ -7,7 +7,7 @@ the level start, `main`, `sleep` / `fork`, character and trigger-volume events,
 patrol scripts, and the gameplay commands (spawning, paths, passivity, attack orders,
 health, trigger volumes, objectives / messages, character waits, consoles and alarms,
 doors, films). Dialogue prints its subtitle (no audio yet). Camera, sound, particles,
-cutscenes, laser triggers, turrets and the like are logged no-ops so far. This
+cutscenes, turrets and the like are logged no-ops so far (laser triggers are real). This
 document originally laid out *what to build*
 for the gameplay scripting layer (E4+), derived from [`BSL.md`](BSL.md). The dev/test
 Lua driver that exists today (`crates/oni-view/src/script.rs`,

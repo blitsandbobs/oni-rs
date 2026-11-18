@@ -21,6 +21,7 @@ mod classes;
 mod consoles;
 mod control;
 mod doors;
+mod lasers;
 mod fighter;
 mod gltf;
 mod mission;

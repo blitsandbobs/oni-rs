@@ -578,6 +578,7 @@ impl State {
         // static viewer: the single character, looping over elapsed time.
         if let Some(pw) = &self.play {
             self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
+            self.renderer.beams = pw.world.beams.clone();
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

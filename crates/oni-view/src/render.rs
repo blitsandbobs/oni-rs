@@ -139,6 +139,9 @@ pub struct Renderer {
     prims: Vec<GpuPrim>,
     /// Doors (object ids) open now: their closed leaves aren't drawn.
     pub open_doors: std::collections::HashSet<u32>,
+    /// Laser beams to draw this frame (from, to, colour): thin glowing
+    /// strips facing the camera.
+    pub beams: Vec<(glam::Vec3, glam::Vec3, [f32; 3])>,
     char_models: Vec<CharModel>,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
@@ -417,6 +420,7 @@ impl Renderer {
             default_tex,
             prims,
             open_doors: Default::default(),
+            beams: Vec::new(),
             char_models: Vec::new(),
             particles: particle_groups,
             depth: None,
@@ -512,6 +516,7 @@ impl Renderer {
         cam_up: glam::Vec3,
     ) {
         self.ensure_depth(&gpu.device, w, h);
+        let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
         gpu.queue.write_buffer(
             &self.uniform_buf,
             0,
@@ -580,6 +585,9 @@ impl Renderer {
                 for p in self.prims.iter().filter(|p| p.bucket == bucket && p.door.is_none_or(|d| !self.open_doors.contains(&d))) {
                     draw_prim(&mut pass, p, Mat4::IDENTITY);
                 }
+                if let Some(b) = beams.as_ref().filter(|b| b.bucket == bucket) {
+                    draw_prim(&mut pass, b, Mat4::IDENTITY);
+                }
                 for d in characters {
                     let Some(cm) = self.char_models.get(d.model) else {
                         continue;
@@ -615,6 +623,40 @@ impl Renderer {
             }
         }
         gpu.queue.submit([encoder.finish()]);
+    }
+}
+
+/// How wide a drawn laser beam is.
+const BEAM_WIDTH: f32 = 0.25;
+
+impl Renderer {
+    /// This frame's laser beams as one additive strip mesh.
+    fn beam_prim(&self, device: &wgpu::Device, right: glam::Vec3, up: glam::Vec3) -> Option<GpuPrim> {
+        if self.beams.is_empty() {
+            return None;
+        }
+        let forward = right.cross(up).normalize_or_zero();
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+        for &(a, b, color) in &self.beams {
+            let side = (b - a).cross(forward).try_normalize().unwrap_or(up) * BEAM_WIDTH;
+            let base = vertices.len() as u32;
+            for p in [a - side, a + side, b + side, b - side] {
+                vertices.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0], color });
+            }
+            indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        let prim = Prim {
+            vertices,
+            indices,
+            texture: None,
+            blend: false,
+            additive: true,
+            door: None,
+            visible: true,
+            collide: false,
+        };
+        Some(upload_prim(device, &prim))
     }
 }
 
