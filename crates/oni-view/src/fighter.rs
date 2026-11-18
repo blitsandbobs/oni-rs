@@ -618,6 +618,7 @@ impl Fighter {
             attacking: !m.current().attacks.is_empty(),
             attacks_started: m.attacks_started,
             target,
+            now: m.now,
         };
         match self.brain.as_mut() {
             Some(brain) => brain.think(&senses, &mut self.facing),

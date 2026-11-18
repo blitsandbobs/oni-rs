@@ -10,6 +10,7 @@
 //! pathfinding, goals and combat later) only ever produce [`Orders`].
 
 pub mod melee;
+pub mod navigate;
 
 use std::f32::consts::{PI, TAU};
 
@@ -103,8 +104,10 @@ pub struct Route {
     pub looping: bool,
     /// Index of the point being headed for.
     pub next: usize,
-    /// Within this distance a point counts as reached.
+    /// Within this distance a point counts as reached…
     pub arrive: f32,
+    /// …or within its own radius, where given.
+    pub radii: Vec<f32>,
 }
 
 /// A point counts as reached this close (Oni units, on the ground plane).
@@ -137,6 +140,7 @@ impl Route {
             looping,
             next: 0,
             arrive: ARRIVE_DISTANCE,
+            radii: Vec::new(),
         }
     }
 
@@ -153,7 +157,8 @@ impl Route {
             };
             let flat = Vec3::new(target.x - feet.x, 0.0, target.z - feet.z);
             let dist = flat.length();
-            if dist > self.arrive {
+            let arrive = self.radii.get(self.next).copied().unwrap_or(self.arrive);
+            if dist > arrive {
                 let face = yaw_toward(feet, target);
                 let off = relative(face - yaw).abs();
                 // Moving on, the body sweeps a circle of the turning radius:
@@ -198,6 +203,8 @@ pub struct Senses {
     pub attacks_started: u32,
     /// Where its opponent stands, if it has a living one.
     pub target: Option<Vec3>,
+    /// Game time (ticks).
+    pub now: u64,
 }
 
 /// What drives a non-player character.
@@ -209,6 +216,8 @@ pub enum Brain {
     Hold(Orders),
     /// Fight an opponent.
     Spar(Spar),
+    /// Walk to a point through the level (planned by the world).
+    GoTo(Box<navigate::Navigator>),
     /// Fight an opponent hand to hand with the class's melee AI (driven by
     /// the world, which gives it a view of both fighters).
     Melee(Box<melee::brain::Melee>),
@@ -222,6 +231,10 @@ impl Brain {
             Brain::Hold(o) => execute(*o, facing),
             Brain::Spar(s) => s.think(senses, facing),
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
+            Brain::GoTo(n) => {
+                let now = senses.now;
+                execute(n.orders(senses.feet, facing.facing, now), facing)
+            }
         }
     }
 

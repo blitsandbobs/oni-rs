@@ -48,3 +48,23 @@ fn level1_navigation_decodes() {
         assert!(r.planes.iter().all(|p| p[0] * c[0] + p[1] * c[1] + p[2] * c[2] + p[3] <= 0.01));
     }
 }
+
+#[test]
+#[ignore]
+fn print_portal_flags() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../original/gamedata/level1_Final.dat");
+    let bytes = std::fs::read(&path).unwrap();
+    let raw = std::fs::read(path.with_extension("raw")).unwrap();
+    let dat = Dat::parse(&bytes).unwrap();
+    let akev = dat.instances.iter().find(|i| i.tag == TAG_AKEV).unwrap();
+    let rooms = extract_navigation(&dat, akev, &raw).unwrap();
+    let mut seen = std::collections::BTreeMap::new();
+    for r in &rooms {
+        for l in &r.links {
+            *seen.entry(l.quad_flags).or_insert(0) += 1;
+        }
+    }
+    for (f, n) in seen {
+        eprintln!("portal quad flags {f:#010x}: {n}");
+    }
+}

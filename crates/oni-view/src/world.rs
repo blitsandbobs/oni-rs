@@ -53,6 +53,8 @@ pub struct World {
     pub fights: crate::ai::melee::fight::Fights,
     /// How sharp the AI is.
     pub difficulty: crate::ai::melee::brain::Difficulty,
+    /// The level's navigation data (rooms, portals, grids), if it has any.
+    pub nav: Option<Rc<crate::nav::Navigation>>,
     now: i64,
     rng: u32,
     level_positions: Vec<[f32; 3]>,
@@ -67,6 +69,7 @@ impl World {
             quirks: Quirks::FIXED,
             fights: Default::default(),
             difficulty: Default::default(),
+            nav: None,
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -119,6 +122,49 @@ impl World {
         (x % 100) as f32
     }
 
+    /// Plans a path for every navigator that needs one. Other characters'
+    /// squares count as obstructions (a 5×5 block minus its corners).
+    fn plan_paths(&mut self) {
+        let Some(nav) = self.nav.clone() else { return };
+        let now = self.now as u64;
+        let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
+        for i in 0..self.fighters.len() {
+            let wants = matches!(&self.fighters[i].brain, Some(crate::ai::Brain::GoTo(n)) if n.wants_plan(now));
+            if !wants {
+                continue;
+            }
+            let (from, careful, goal) = match &self.fighters[i].brain {
+                Some(crate::ai::Brain::GoTo(n)) => (feet[i], n.careful, n.goal),
+                _ => continue,
+            };
+            let others: Vec<Vec3> = feet.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, p)| *p).collect();
+            let obstructed = |room: usize| {
+                let mut set = std::collections::HashSet::new();
+                let Some(g) = nav.rooms[room].grid.as_ref() else { return set };
+                for p in &others {
+                    if nav.room_at(*p) != Some(room) {
+                        continue;
+                    }
+                    if let Some((ci, cj)) = g.cell_of(p.x, p.z) {
+                        for dj in -2..=2i32 {
+                            for di in -2..=2i32 {
+                                if di.abs() == 2 && dj.abs() == 2 {
+                                    continue;
+                                }
+                                set.insert((ci + di, cj + dj));
+                            }
+                        }
+                    }
+                }
+                set
+            };
+            let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful);
+            if let Some(crate::ai::Brain::GoTo(n)) = self.fighters[i].brain.as_mut() {
+                n.take_plan(plan, now);
+            }
+        }
+    }
+
     /// The melee AIs decide (all against the same snapshot of the world).
     fn melee_decisions(&mut self) -> Vec<Option<crate::ai::melee::brain::Output>> {
         use crate::ai::melee::brain::view;
@@ -133,8 +179,9 @@ impl World {
             let Some(crate::ai::Brain::Melee(mut m)) = self.fighters[i].brain.take() else {
                 continue;
             };
-            let me = view(&self.fighters, i, target);
-            let them = view(&self.fighters, target, i);
+            let nav = self.nav.as_deref();
+            let me = view(&self.fighters, nav, i, target);
+            let them = view(&self.fighters, nav, target, i);
             *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
             self.fighters[i].brain = Some(crate::ai::Brain::Melee(m));
         }
@@ -160,6 +207,7 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
+        self.plan_paths();
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {

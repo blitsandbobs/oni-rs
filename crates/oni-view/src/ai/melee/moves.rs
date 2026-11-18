@@ -318,7 +318,7 @@ fn position(
                 let fearless = m.technique.is_some_and(|t| {
                     m.quirks.fearless(m.profile.techniques[t].fearless, m.info[t].start.map_or(0, |s| s as u8))
                 });
-                if !fearless && super::brain::steer(me, want) != Some(0.0) && me.physics.probe(
+                if !fearless && super::brain::steer(me, want) != Some(0.0) && super::brain::floor_probe(me, 
                     glam::Vec3::new(want.sin(), 0.0, want.cos()),
                     distance(me, target),
                     super::brain::fall_danger(me),

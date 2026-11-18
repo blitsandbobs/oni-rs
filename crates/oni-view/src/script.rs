@@ -110,6 +110,10 @@ impl ScriptHost {
             world.set_quirks(Quirks::FAITHFUL);
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
+        world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
+        if world.nav.is_none() {
+            eprintln!("  (no navigation data for this level)");
+        }
         // Player = fighter 0, facing +Z.
         world.spawn(&kind, spawn_pos, 0.0, false);
 
@@ -651,6 +655,61 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let a = deg.to_radians();
             let p = f.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
             Ok((p.free, p.ledge))
+        })?,
+    )?;
+
+    // Navigation: fighter `id` walks (pace "run" / "walk") to a point
+    // through the level; nav_state(id) reads "planning" / "following" /
+    // "arrived" / "failed: …".
+    let h = host.clone();
+    g.set(
+        "go_to",
+        lua.create_function(move |_, (id, x, y, z, pace): (usize, f32, f32, f32, Option<String>)| {
+            let pace = match pace.as_deref() {
+                Some("walk") => crate::ai::Pace::Walk,
+                _ => crate::ai::Pace::Run,
+            };
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.passive = false;
+                let n = crate::ai::navigate::Navigator::new(Vec3::new(x, y, z), 3.0, pace);
+                f.brain = Some(crate::ai::Brain::GoTo(Box::new(n)));
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "nav_path",
+        lua.create_function(move |lua, id: usize| {
+            let t = lua.create_table()?;
+            if let Some(crate::ai::Brain::GoTo(n)) = h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                let (points, next) = n.waypoints();
+                for (i, (p, r)) in points.iter().enumerate() {
+                    let w = lua.create_table()?;
+                    w.set(1, p.x)?;
+                    w.set(2, p.z)?;
+                    w.set(3, *r)?;
+                    w.set(4, i == next)?;
+                    t.set(i + 1, w)?;
+                }
+            }
+            Ok(t)
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "nav_state",
+        lua.create_function(move |_, id: usize| {
+            use crate::ai::navigate::State;
+            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::GoTo(n)) => match &n.state {
+                    State::Planning => "planning".to_string(),
+                    State::Following => "following".to_string(),
+                    State::Arrived => "arrived".to_string(),
+                    State::Failed(why) => format!("failed: {why}"),
+                },
+                _ => "none".to_string(),
+            })
         })?,
     )?;
 

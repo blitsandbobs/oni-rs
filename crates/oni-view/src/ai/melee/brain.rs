@@ -24,8 +24,10 @@ pub struct View<'a> {
     /// Movement last tick (world).
     pub velocity: Vec3,
     pub motion: &'a Motion,
-    /// For looking ahead along the floor (walls, ledges).
+    /// For looking ahead along the floor (walls, ledges): the level's grids
+    /// when it has them, else the collision geometry.
     pub physics: &'a crate::physics::Physics,
+    pub nav: Option<&'a crate::nav::Navigation>,
     /// The body's cylinder: radius and height span above the feet, for an
     /// attack against it (`full`) and for planning our own (`planning`).
     pub full: (f32, (f32, f32)),
@@ -839,7 +841,7 @@ impl Melee {
         }
         let toward = target.feet - me.feet;
         let dir = Vec3::new(toward.x, 0.0, toward.z).normalize_or_zero();
-        me.physics.probe(dir, distance(me, target) + DANGER_LOOKAHEAD, fall_danger(me))
+        floor_probe(me, dir, distance(me, target) + DANGER_LOOKAHEAD, fall_danger(me))
     }
 
     /// A throw move's range for our animation set.
@@ -857,7 +859,12 @@ impl Melee {
 
 /// Builds fighter `i`'s view, as seen by fighter `observer` (whether `i`
 /// could block `observer`'s attacks).
-pub fn view(fighters: &[crate::fighter::Fighter], i: usize, observer: usize) -> View<'_> {
+pub fn view<'a>(
+    fighters: &'a [crate::fighter::Fighter],
+    nav: Option<&'a crate::nav::Navigation>,
+    i: usize,
+    observer: usize,
+) -> View<'a> {
     use crate::anim::types::flag;
     let f = &fighters[i];
     let feet = f.feet();
@@ -909,6 +916,7 @@ pub fn view(fighters: &[crate::fighter::Fighter], i: usize, observer: usize) -> 
         velocity: f.velocity,
         motion: &f.motion,
         physics: &f.physics,
+        nav,
         full,
         planning: (pr * 0.75, ph),
         alive: f.alive() && !f.motion.dying,
@@ -1083,6 +1091,16 @@ fn weigh_spacing(
     f
 }
 
+/// Looks along the floor (walls, and ledges deeper than `drop`): through
+/// the level's grids if it has them (their danger squares), else the
+/// collision geometry.
+pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::physics::Probe {
+    match me.nav {
+        Some(nav) => nav.look(me.feet + Vec3::Y * 2.0, glam::Vec2::new(dir.x, dir.z), dist),
+        None => me.physics.probe(dir, dist, drop),
+    }
+}
+
 /// How far ahead the AI looks for danger, and the margin it wants from it.
 const DANGER_LOOKAHEAD: f32 = 50.0;
 const DANGER_SAFETY: f32 = 10.0;
@@ -1104,7 +1122,7 @@ pub(super) fn movement_safety(me: &View, dir: Vec3, dist: f32) -> f32 {
     if dist <= 0.0 || dir == Vec3::ZERO {
         return 1.0;
     }
-    safety(me.physics.probe(dir, dist.max(DANGER_LOOKAHEAD), fall_danger(me)), dist)
+    safety(floor_probe(me, dir, dist.max(DANGER_LOOKAHEAD), fall_danger(me)), dist)
 }
 
 /// The danger cost of moving `dist` along a probed way.
@@ -1133,7 +1151,7 @@ pub(super) fn steer(me: &View, want: f32) -> Option<f32> {
     const LOOK: f32 = 15.0;
     let ok = |dev: f32| {
         let a = want + dev;
-        let p = me.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), LOOK, fall_danger(me));
+        let p = floor_probe(me, Vec3::new(a.sin(), 0.0, a.cos()), LOOK, fall_danger(me));
         p.free >= LOOK && p.ledge.is_none()
     };
     std::iter::once(0.0)

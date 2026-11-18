@@ -21,6 +21,7 @@ mod classes;
 mod control;
 mod fighter;
 mod gltf;
+mod nav;
 mod particles;
 mod physics;
 mod quirks;
@@ -44,6 +45,8 @@ pub struct Cast {
     pub opponent: Option<String>,
     /// "easy", "normal" or "hard": how sharp the AI is.
     pub difficulty: String,
+    /// The level's folder (its navigation data).
+    pub level_dir: PathBuf,
 }
 
 /// A character placed in the world.
@@ -212,6 +215,7 @@ fn main() {
         player: class_name,
         opponent: opponent_class,
         difficulty,
+        level_dir: scene_path.parent().map(PathBuf::from).unwrap_or_default(),
     };
 
     // Scripted scenario (headless Lua driver): drives physics + the locomotion
