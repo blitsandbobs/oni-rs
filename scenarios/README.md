@@ -34,6 +34,7 @@ with `--anim-prefix`).
 | `walk.lua` | Walk modifier: holding walk covers far less ground than run over the same window. |
 | `jump.lua` | Jump: rises off the ground (start→air→land clips), lands grounded; a running jump carries forward momentum. |
 | `combo.lua` | Melee: punch/kick combos chain (P→PP→PPP) from the KONCOM combat set. |
+| `fight.lua` | Hit detection: spawn a training dummy, punch it — HP drops + knockback in reach, misses out of reach. |
 
 ## Lua API
 
@@ -47,13 +48,21 @@ with `--anim-prefix`).
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |
-| `step(n)` | Advance `n` ticks at 60 Hz (state machine + physics). |
+| `spawn(x,y,z [,facing_deg])` → `id` | Spawn a training dummy; returns its fighter id (default facing 180°). |
+| `count()` → `n` | Number of fighters (player = 0, plus dummies). |
+| `hp(id)` → `hp` | A fighter's hit points. |
+| `pos_of(id)` → `x,y,z` | A fighter's feet position. |
+| `anim_of(id)` → `name` | A fighter's current clip. |
+| `step(n)` | Advance `n` ticks at 60 Hz (every fighter + hit resolution). |
 | `cam(ex,ey,ez, tx,ty,tz)` | Place the camera (eye, look-at target). |
-| `pos()` → `x,y,z` | The character's feet position. |
-| `grounded()` → `bool` | Whether she's on the ground. |
+| `pos()` → `x,y,z` | The player's feet position. |
+| `grounded()` → `bool` | Whether the player is on the ground. |
 | `stitch()` → `weight` | Current clip-blend weight (0 = not blending). |
-| `anim()` → `name` | The clip currently playing. |
+| `anim()` → `name` | The player's current clip. |
 | `screenshot(path [,w,h])` | Render one frame to a PNG (default 800×600). |
+
+The movement/combat calls (`input`, `strafe`, `jump`, `punch`, `facing`, …) act
+on the **player** (fighter 0); `*_of(id)` read any fighter by its spawn id.
 
 Standard Lua is available (`print`, `assert`, `string.format`, `math`), so
 scenarios can assert outcomes and fail loudly.
