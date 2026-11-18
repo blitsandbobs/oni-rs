@@ -181,8 +181,17 @@ fn main() {
                     .map(|n| n.chars().take_while(|c| c.is_ascii_uppercase()).collect())
                     .unwrap_or_default()
             });
-            let coll = anim_state::AnimCollection::load(dir, &prefix).ok()?;
-            eprintln!("play: loaded {} '{}' clips", coll.len(), prefix);
+            // Load the locomotion set plus the character's combat set (`<CHR>COM`,
+            // e.g. KONOKO → KONCOM) so melee combos are available; variant gating
+            // keeps the fight-stance clips out of plain locomotion lookups.
+            let combat = format!("{}COM", prefix.chars().take(3).collect::<String>());
+            let coll = anim_state::AnimCollection::load_sets(dir, &[&prefix, &combat]).ok()?;
+            eprintln!(
+                "play: loaded {} '{}'+'{}' clips",
+                coll.len(),
+                prefix,
+                combat
+            );
             (!coll.is_empty()).then(|| anim_state::Locomotion::new(coll))
         })
     } else {

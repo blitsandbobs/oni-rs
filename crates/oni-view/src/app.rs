@@ -40,6 +40,9 @@ struct PlayState {
     last_horiz: Vec3,
     /// Jump key state last frame (for a press edge).
     jump_down_prev: bool,
+    /// Punch/kick key state last frame (for press edges).
+    punch_down_prev: bool,
+    kick_down_prev: bool,
 }
 
 const TICK: f32 = 1.0 / 60.0;
@@ -184,6 +187,8 @@ impl ApplicationHandler for App {
                     air_ticks: 0,
                     last_horiz: Vec3::ZERO,
                     jump_down_prev: false,
+                    punch_down_prev: false,
+                    kick_down_prev: false,
                 })
             }
             _ => None,
@@ -368,6 +373,8 @@ impl State {
         };
         let walk = held(Action::Walk);
         let jump_held = held(Action::Jump);
+        let punch_held = held(Action::Punch);
+        let kick_held = held(Action::Kick);
         let mut input = crate::anim_state::Input {
             forward: held(Action::Forward),
             backward: held(Action::Backward),
@@ -377,6 +384,8 @@ impl State {
             turn_left: false,
             turn_right: false,
             airborne: false,
+            punch: false,
+            kick: false,
         };
         let moving = input.forward || input.backward || input.step_left || input.step_right;
         let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
@@ -414,10 +423,14 @@ impl State {
             play.aiming_ud = (play.aiming_ud + dy * sens)
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
 
-            // One-shot jump on the key's press edge (consumed on the first
-            // grounded tick this frame).
+            // One-shot jump/punch/kick on each key's press edge (consumed on the
+            // first tick this frame).
             let mut jump_edge = jump_held && !play.jump_down_prev;
+            let mut punch_edge = punch_held && !play.punch_down_prev;
+            let mut kick_edge = kick_held && !play.kick_down_prev;
             play.jump_down_prev = jump_held;
+            play.punch_down_prev = punch_held;
+            play.kick_down_prev = kick_held;
 
             play.accum += dt;
             while play.accum >= TICK {
@@ -442,6 +455,11 @@ impl State {
                 input.turn_left = !moving && offset > TURN_DEADZONE;
                 input.turn_right = !moving && offset < -TURN_DEADZONE;
                 input.airborne = play.airborne;
+                // Attack triggers fire once (first tick of the frame).
+                input.punch = punch_edge;
+                input.kick = kick_edge;
+                punch_edge = false;
+                kick_edge = false;
 
                 // The state machine chooses the clip + root motion; while airborne
                 // the root motion is ignored in favour of the jump momentum.

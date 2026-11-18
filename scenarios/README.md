@@ -33,6 +33,7 @@ with `--anim-prefix`).
 | `turn.lua` | Facing slew: a requested turn moves the body a few degrees/tick (not a snap); a big turn plays a turn-in-place clip. |
 | `walk.lua` | Walk modifier: holding walk covers far less ground than run over the same window. |
 | `jump.lua` | Jump: rises off the ground (start→air→land clips), lands grounded; a running jump carries forward momentum. |
+| `combo.lua` | Melee: punch/kick combos chain (P→PP→PPP) from the KONCOM combat set. |
 
 ## Lua API
 
@@ -42,6 +43,7 @@ with `--anim-prefix`).
 | `strafe(left, right)` | Set the strafe keys (A/D sidestep). |
 | `walk(on)` | The hold-to-walk modifier. |
 | `jump()` / `airborne()` | Queue a jump / read whether the character is in the air. |
+| `punch()` / `kick()` | Queue a melee attack (combos chain via the table). |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |

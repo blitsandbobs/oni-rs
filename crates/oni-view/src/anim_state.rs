@@ -43,6 +43,20 @@ pub mod anim_type {
     pub const RUN: u16 = 3;
     pub const JUMP: u16 = 5; // jump_start (takeoff)
     pub const STAND: u16 = 6;
+    // Melee attack types (KONCOM set). The combo chains are in `COMBOS`.
+    pub const KICK: u16 = 12; // comb_k
+    pub const PUNCH: u16 = 22; // comb_p
+    pub const KICK2: u16 = 36; // comb_k_k (KK)
+    pub const KICK3: u16 = 37; // comb_k_k_k (KKK)
+    pub const PUNCH2: u16 = 38; // comb_p_p (PP)
+    pub const PUNCH3: u16 = 39; // comb_p_p_p (PPP)
+    pub const PUNCH_PUNCH_KICK: u16 = 44; // comb_p_p_k (PPK)
+
+    /// Whether `t` is a melee attack type (plays to completion, chains via the
+    /// combo table, blocks locomotion while active).
+    pub fn is_attack(t: u16) -> bool {
+        matches!(t, PUNCH | KICK | PUNCH2 | PUNCH3 | KICK2 | KICK3 | PUNCH_PUNCH_KICK)
+    }
     pub const STANDING_TURN_LEFT: u16 = 7;
     pub const STANDING_TURN_RIGHT: u16 = 8;
     pub const RUN_BACKWARDS: u16 = 9;
@@ -71,6 +85,33 @@ pub mod state {
     pub const STANDING: u16 = 7;
 }
 
+/// Variant bit required by combat clips (`ONcAnimVarientMask_Fight`), OR'd into
+/// the lookup variant when selecting an attack so fight-stance clips resolve.
+pub const FIGHT_VARIENT: u16 = 0x0200;
+
+/// One combo-table row: pressing `kick` (vs punch) while the last attack was
+/// `old` (`NONE` = any / a fresh start) selects `result`. A subset of Oni's
+/// `ONgComboTable` — the core punch/kick chains; deeper chains list first so
+/// they match before the starters.
+struct Combo {
+    kick: bool,
+    old: u16,
+    result: u16,
+}
+
+use anim_type::{KICK, KICK2, KICK3, NONE, PUNCH, PUNCH2, PUNCH3, PUNCH_PUNCH_KICK};
+const COMBOS: &[Combo] = &[
+    // continuations (matched against the previous attack)
+    Combo { kick: true, old: PUNCH2, result: PUNCH_PUNCH_KICK }, // PP + K → PPK
+    Combo { kick: false, old: PUNCH2, result: PUNCH3 },          // PP + P → PPP
+    Combo { kick: true, old: KICK2, result: KICK3 },             // KK + K → KKK
+    Combo { kick: false, old: PUNCH, result: PUNCH2 },           // P  + P → PP
+    Combo { kick: true, old: KICK, result: KICK2 },              // K  + K → KK
+    // fresh starters
+    Combo { kick: false, old: NONE, result: PUNCH },
+    Combo { kick: true, old: NONE, result: KICK },
+];
+
 /// A loaded clip plus its name (used by tests / debug output).
 struct Entry {
     #[allow(dead_code)]
@@ -84,13 +125,18 @@ pub struct AnimCollection {
 }
 
 impl AnimCollection {
-    /// Loads every `{prefix}*.glb` clip under `dir` (a character's animation set).
-    pub fn load(dir: &Path, prefix: &str) -> std::io::Result<Self> {
+    /// Loads every clip under `dir` whose name starts with any of `prefixes` — a
+    /// character's locomotion set plus its combat (`*COM`) / weapon sets. The
+    /// variant bits keep them apart at lookup time (combat clips carry `Fight`,
+    /// weapon clips carry weapon bits, so neither is eligible for plain
+    /// `varient=0` locomotion).
+    pub fn load_sets(dir: &Path, prefixes: &[&str]) -> std::io::Result<Self> {
         let mut entries = Vec::new();
         for ent in std::fs::read_dir(dir)? {
             let path = ent?.path();
             let name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-            if !name.starts_with(prefix) || path.extension().and_then(|e| e.to_str()) != Some("glb")
+            if path.extension().and_then(|e| e.to_str()) != Some("glb")
+                || !prefixes.iter().any(|p| name.starts_with(p))
             {
                 continue;
             }
@@ -156,6 +202,10 @@ pub struct Input {
     /// the caller lands it. Takeoff/landing are driven by the physics via
     /// [`Locomotion::start_jump`] / [`Locomotion::land`].
     pub airborne: bool,
+    /// Melee attack triggers (Oni: Punch=F, Kick=C) — set on the press edge; the
+    /// combo chain advances via the previous attack ([`anim_type::COMBOS`]).
+    pub punch: bool,
+    pub kick: bool,
 }
 
 /// The locomotion state machine driving one character.
@@ -170,6 +220,13 @@ pub struct Locomotion {
     varient: u16,
     /// Active clip-to-clip blend, if any.
     stitch: Option<Stitch>,
+    /// Combat: the type of the current/just-finished attack (0 = none), the tick
+    /// its clip ended (for the 10-tick combo-drop window), a monotone tick count,
+    /// and a buffered attack trigger pressed during the current attack.
+    last_attack: u16,
+    last_attack_end: Option<u32>,
+    tick_count: u32,
+    attack_buffer: Option<bool>,
 }
 
 impl Locomotion {
@@ -194,7 +251,26 @@ impl Locomotion {
             next_state,
             varient,
             stitch: None,
+            last_attack: 0,
+            last_attack_end: None,
+            tick_count: 0,
+            attack_buffer: None,
         }
+    }
+
+    /// The combo result type for pressing punch/kick given the last attack, and
+    /// the clip index that plays it (fight-variant, state-gated). `None` if no
+    /// combo row matches or no clip exists for it in the current state.
+    fn attack_lookup(&self, kick: bool) -> Option<usize> {
+        let v = self.varient | FIGHT_VARIENT;
+        for c in COMBOS {
+            if c.kick == kick && (c.old == NONE || c.old == self.last_attack) {
+                if let Some(i) = self.coll.lookup(c.result, self.next_state, v) {
+                    return Some(i);
+                }
+            }
+        }
+        None
     }
 
     /// The active stitch blend for posing: `(saved pose, weight)` where weight
@@ -276,7 +352,61 @@ impl Locomotion {
             }
         }
 
+        self.tick_count += 1;
+        // Combo-drop window: the chain survives the attack plus ~10 ticks after
+        // it ends (Oni's `lastAttackTime` + 10), then the next press is a fresh
+        // start (`Oni_GameState.c:3721`).
+        if self.last_attack != 0 {
+            if let Some(end) = self.last_attack_end {
+                if self.tick_count.saturating_sub(end) > 10 {
+                    self.last_attack = 0;
+                }
+            }
+        }
+
         let finished = self.frame + 1.0 >= self.frame_count();
+
+        // Attack probe (above locomotion, as in Oni's chain). An attack plays to
+        // completion; a trigger pressed during it is buffered and chains on the
+        // frame it ends.
+        if anim_type::is_attack(self.cur_type) {
+            if input.punch {
+                self.attack_buffer = Some(false);
+            }
+            if input.kick {
+                self.attack_buffer = Some(true);
+            }
+            if finished {
+                if let Some(kick) = self.attack_buffer.take() {
+                    if let Some(i) = self.attack_lookup(kick) {
+                        let count =
+                            STITCH_FRAMES.min(self.coll.entries[i].clip.max_interpolation as f32);
+                        self.switch_to(i, count, character);
+                        self.last_attack = self.cur_type;
+                        self.last_attack_end = None;
+                        return self.current_root_motion();
+                    }
+                }
+                // No continuation: the attack ends; start the drop timer and fall
+                // through to the locomotion logic (settle to idle / resume moving).
+                self.last_attack_end = Some(self.tick_count);
+            } else {
+                self.frame += 1.0;
+                return self.current_root_motion();
+            }
+        } else if input.punch || input.kick {
+            // Fresh attack: interrupt idle/locomotion with a starter.
+            let kick = input.kick && !input.punch;
+            if let Some(i) = self.attack_lookup(kick) {
+                let count = STITCH_FRAMES.min(self.coll.entries[i].clip.max_interpolation as f32);
+                self.switch_to(i, count, character);
+                self.last_attack = self.cur_type;
+                self.last_attack_end = None;
+                self.attack_buffer = None;
+                return self.current_root_motion();
+            }
+        }
+
         let resting = matches!(
             self.cur_type,
             anim_type::STAND | anim_type::IDLE | anim_type::NONE
@@ -310,6 +440,11 @@ impl Locomotion {
             self.frame += 1.0;
         }
 
+        self.current_root_motion()
+    }
+
+    /// The current frame's character-local `[x, z]` root motion.
+    fn current_root_motion(&self) -> Vec2 {
         let f = (self.frame as usize).min(self.clip().root_motion.len().saturating_sub(1));
         self.clip()
             .root_motion
@@ -470,7 +605,7 @@ mod tests {
             eprintln!("SKIP: converted animations not found");
             return None;
         }
-        let coll = AnimCollection::load(&dir, "KONOKO").ok()?;
+        let coll = AnimCollection::load_sets(&dir, &["KONOKO", "KONCOM"]).ok()?;
         (!coll.is_empty()).then_some(coll)
     }
 
@@ -577,6 +712,60 @@ mod tests {
             side.abs() > fwd.abs(),
             "sidesteps sideways, not forward: side={side} fwd={fwd}"
         );
+    }
+
+    /// Holding punch runs the P → PP → PPP combo chain (the three clips all play
+    /// within a bounded window; the buffered trigger chains on each clip's end).
+    #[test]
+    fn punch_combo_chains() {
+        let Some(coll) = konoko_collection() else {
+            return;
+        };
+        let mut loco = Locomotion::new(coll);
+        for _ in 0..10 {
+            loco.tick(Input::default(), None); // settle standing
+        }
+        let punch = Input {
+            punch: true,
+            ..Default::default()
+        };
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..300 {
+            loco.tick(punch, None);
+            if anim_type::is_attack(loco.cur_type) {
+                seen.insert(loco.cur_type);
+            }
+        }
+        use anim_type::*;
+        assert!(seen.contains(&PUNCH), "played the P starter; saw {seen:?}");
+        assert!(seen.contains(&PUNCH2), "chained to PP; saw {seen:?}");
+        assert!(seen.contains(&PUNCH3), "chained to PPP; saw {seen:?}");
+    }
+
+    /// A kick starter plays, and after the combo-drop window a fresh press starts
+    /// a new combo rather than continuing.
+    #[test]
+    fn kick_starts_and_combo_drops() {
+        let Some(coll) = konoko_collection() else {
+            return;
+        };
+        let mut loco = Locomotion::new(coll);
+        for _ in 0..10 {
+            loco.tick(Input::default(), None);
+        }
+        loco.tick(
+            Input {
+                kick: true,
+                ..Default::default()
+            },
+            None,
+        );
+        assert_eq!(loco.cur_type, anim_type::KICK, "kick starter plays");
+        // Let it finish and idle well past the 10-tick drop window.
+        for _ in 0..60 {
+            loco.tick(Input::default(), None);
+        }
+        assert_eq!(loco.last_attack, 0, "combo dropped after the window");
     }
 
     /// With the walk modifier held, forward input selects a Walk clip, not Run.

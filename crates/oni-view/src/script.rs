@@ -15,6 +15,7 @@
 //! - `strafe(left, right)` — set the strafe keys (A/D sidestep)
 //! - `walk(on)` — the hold-to-walk modifier
 //! - `jump()` / `airborne()` — queue a jump / read airborne state
+//! - `punch()` / `kick()` — queue a melee attack (combos chain via the table)
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -56,6 +57,8 @@ struct ScriptHost {
     air_ticks: u32,
     last_horiz: Vec3,
     jump_pending: bool,
+    punch_pending: bool,
+    kick_pending: bool,
     eye: Option<Vec3>,
     target: Option<Vec3>,
 }
@@ -99,6 +102,8 @@ impl ScriptHost {
             air_ticks: 0,
             last_horiz: Vec3::ZERO,
             jump_pending: false,
+            punch_pending: false,
+            kick_pending: false,
             eye: None,
             target: None,
         }
@@ -123,8 +128,17 @@ impl ScriptHost {
             self.input.step_right,
         );
         let mut jump_edge = self.jump_pending;
+        let mut punch_edge = self.punch_pending;
+        let mut kick_edge = self.kick_pending;
         self.jump_pending = false;
+        self.punch_pending = false;
+        self.kick_pending = false;
         for _ in 0..n {
+            // Attack triggers fire once (first tick of this step call).
+            self.input.punch = punch_edge;
+            self.input.kick = kick_edge;
+            punch_edge = false;
+            kick_edge = false;
             // Takeoff: launch the arc + force the jump clip (see app.rs).
             if jump_edge && !self.airborne && self.physics.grounded {
                 if self.physics.jump(crate::control::JUMP_SPEED) {
@@ -291,6 +305,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "airborne",
         lua.create_function(move |_, ()| Ok(h.borrow().airborne))?,
+    )?;
+
+    // Melee: queue a punch / kick (fires on the next step's first tick).
+    let h = host.clone();
+    g.set(
+        "punch",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().punch_pending = true;
+            Ok(())
+        })?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "kick",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().kick_pending = true;
+            Ok(())
+        })?,
     )?;
 
     // `facing(deg)` snaps the body (and its target); `turn(delta)` nudges the
