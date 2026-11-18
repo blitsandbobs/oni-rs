@@ -22,6 +22,11 @@ const MELEE_REACH: f32 = 4.0;
 /// The victim must be within this cosine of the attacker's facing to be hit
 /// (`0.2` ≈ a ±78° frontal arc), so attacks only connect in front.
 const FRONT_DOT: f32 = 0.2;
+/// Scales the data `knockback` into our per-tick impulse accumulator. The
+/// primary combat feel knob: at `1.0` a single jab shoves the target clean out
+/// of combo range; `0.4` keeps a staggered target reachable for a 2–3 hit
+/// chain. Tune on playtest (the honest Oni→physics mapping is a follow-up).
+const KNOCKBACK_SCALE: f32 = 0.4;
 
 /// A spawnable character: its uploaded render model and the shared data a new
 /// instance needs. Clone-cheap (two `Rc`s + an index).
@@ -115,13 +120,17 @@ impl World {
                 if dir.dot(fwd) < FRONT_DOT {
                     continue;
                 }
-                events.push((a, b, atk.damage as i32, dir * atk.knockback));
+                events.push((a, b, atk.damage as i32, dir * atk.knockback * KNOCKBACK_SCALE));
             }
         }
         // Pass 2 (mutations): mark the hit on the attacker, damage the victim.
         for (a, b, damage, knockback) in events {
             self.fighters[a].mark_hit(b);
             self.fighters[b].hurt(damage, knockback);
+            eprintln!(
+                "hit: fighter {a} → {b} for {damage} (hp {})",
+                self.fighters[b].hp
+            );
         }
     }
 }
