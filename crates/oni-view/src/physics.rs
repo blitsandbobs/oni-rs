@@ -13,11 +13,16 @@ use rapier3d::control::{CharacterLength, KinematicCharacterController};
 use rapier3d::na::{Isometry3, Point3, Translation3, Vector3};
 use rapier3d::prelude::*;
 
-/// Gravity acceleration (world units per tick²) — placeholder; the faithful
-/// value comes from the character's `ONCC` air constants later.
-const GRAVITY: f32 = 0.9;
-/// Terminal fall speed (units/tick).
-const MAX_FALL: f32 = 20.0;
+// Vertical tuning — Konoko's `ONCC` air constants (decoded via
+// `oni_geom::charclass::AirConstants`, offset 0). Oni uses a gentle gravity for
+// the floaty jump arc and a stronger one for ordinary falls. These are her
+// values; per-character plumbing (ONCC → oni-view) is a follow-up.
+/// Per-tick downward acceleration while in a jump (`jumpGravity`).
+const JUMP_GRAVITY: f32 = 0.06;
+/// Per-tick downward acceleration while falling (`fallGravity`).
+const FALL_GRAVITY: f32 = 0.55;
+/// Terminal fall speed (units/tick), from `maxVelocity`.
+const MAX_FALL: f32 = 4.0;
 /// Small downward "stick" velocity while grounded, so ground contact keeps
 /// being detected (the collision stops it, so it doesn't actually sink).
 const GROUND_STICK: f32 = 1.0;
@@ -34,6 +39,8 @@ pub struct Physics {
     /// Downward velocity (units/tick), 0 when grounded.
     vel_y: f32,
     pub grounded: bool,
+    /// In a jump (use the gentle `JUMP_GRAVITY` for the arc, not `FALL_GRAVITY`).
+    jumping: bool,
 }
 
 impl Physics {
@@ -89,6 +96,7 @@ impl Physics {
             feet,
             vel_y: 0.0,
             grounded: false,
+            jumping: false,
         }
     }
 
@@ -99,6 +107,7 @@ impl Physics {
         if self.grounded {
             self.vel_y = speed;
             self.grounded = false;
+            self.jumping = true;
             true
         } else {
             false
@@ -116,11 +125,17 @@ impl Physics {
     /// applied. Returns the new feet position.
     pub fn step(&mut self, horizontal: Vec3) -> Vec3 {
         // Vertical velocity: a small down-stick when grounded (keeps ground
-        // contact detected), else gravity accelerates the fall.
+        // contact detected), else gravity accelerates the fall — the gentle
+        // jump gravity while in a jump arc, the stronger fall gravity otherwise.
         self.vel_y = if self.grounded {
             -GROUND_STICK
         } else {
-            (self.vel_y - GRAVITY).max(-MAX_FALL)
+            let g = if self.jumping {
+                JUMP_GRAVITY
+            } else {
+                FALL_GRAVITY
+            };
+            (self.vel_y - g).max(-MAX_FALL)
         };
 
         let desired = Vector3::new(horizontal.x, self.vel_y, horizontal.z);
@@ -146,6 +161,9 @@ impl Physics {
         let wanted_down = self.vel_y < 0.0;
         let blocked_down = wanted_down && movement.translation.y > self.vel_y * 0.5;
         self.grounded = movement.grounded || blocked_down;
+        if self.grounded {
+            self.jumping = false; // landed → back to fall gravity
+        }
         self.feet
     }
 }
@@ -219,11 +237,11 @@ mod tests {
             p.step(Vec3::ZERO); // settle on the floor
         }
         assert!(p.grounded, "grounded before the jump");
-        assert!(p.jump(6.0), "jump fires from the ground");
+        assert!(p.jump(1.1), "jump fires from the ground"); // Konoko jumpAmount
         assert!(!p.grounded, "left the ground");
-        // Rises above the floor at the arc's peak.
+        // Rises above the floor over the (floaty) arc.
         let mut peak = p.feet.y;
-        for _ in 0..40 {
+        for _ in 0..80 {
             p.step(Vec3::ZERO);
             peak = peak.max(p.feet.y);
         }

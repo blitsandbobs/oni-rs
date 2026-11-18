@@ -330,6 +330,24 @@ fn character_classes_decode() {
     assert!(cc.animations.iter().any(|a| a.starts_with("KONOKO")));
 
     // Gameplay scalars read from the stable tail (anchored on the body ref).
+    // Air constants (offset 0): jump launch + gravities, in units/tick(²).
+    let air = cc.air.expect("konoko air constants");
+    assert!(
+        air.jump_amount > 0.0 && air.jump_amount < 20.0,
+        "jumpAmount is a sane launch velocity, got {}",
+        air.jump_amount
+    );
+    assert!(
+        air.jump_gravity > 0.0 && air.fall_gravity > 0.0,
+        "gravities are positive, got jump {} fall {}",
+        air.jump_gravity,
+        air.fall_gravity
+    );
+    eprintln!(
+        "konoko air: jumpAmount={:.3} jumpGravity={:.3} fallGravity={:.3} maxVel={:.3}",
+        air.jump_amount, air.jump_gravity, air.fall_gravity, air.max_velocity
+    );
+
     let s = cc.stats.expect("konoko stats");
     assert_eq!(s.max_hit_points, 200, "konoko HP");
     assert!(s.scale_high >= s.scale_low && s.scale_low > 0.0);

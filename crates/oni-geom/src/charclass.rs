@@ -84,6 +84,22 @@ pub struct CharacterStats {
     pub knockdown_resistant: bool,
 }
 
+/// Jump / fall tuning (`ONtAirConstants`, the first field of `ONtCharacterClass`,
+/// so it sits at offset 0 and is stable). Velocities are Oni units per tick,
+/// gravities units per tick² — they map directly onto the engine's jump launch
+/// speed and per-tick gravity.
+#[derive(Clone, Copy, Debug)]
+pub struct AirConstants {
+    /// Per-tick downward acceleration while falling.
+    pub fall_gravity: f32,
+    /// Per-tick downward acceleration while in a jump.
+    pub jump_gravity: f32,
+    /// Upward launch velocity added on takeoff (`jumpAmount`).
+    pub jump_amount: f32,
+    /// Terminal (most-negative) vertical velocity.
+    pub max_velocity: f32,
+}
+
 /// A decoded character class.
 #[derive(Clone, Debug, Default)]
 pub struct CharacterClass {
@@ -104,6 +120,8 @@ pub struct CharacterClass {
     pub animations: Vec<String>,
     /// Gameplay scalars (present when the `body` anchor was found).
     pub stats: Option<CharacterStats>,
+    /// Jump / fall tuning (`airConstants`, at struct offset 0).
+    pub air: Option<AirConstants>,
 }
 
 fn read_u16(d: &[u8], o: usize) -> Option<u16> {
@@ -172,6 +190,15 @@ pub fn decode_character_class(dat: &Dat<'_>, inst: &Instance) -> Option<Characte
         .filter(|&b| trac_i.is_none() || read_u32(d, b + 76).and_then(ref_index) == trac_i)
         .and_then(|b| read_stats(d, b));
 
+    // Air constants are the first struct field (offset 0) — stable regardless of
+    // the AI-section drift that forces the body-anchored read above.
+    let air = Some(AirConstants {
+        fall_gravity: read_f32(d, 0)?,
+        jump_gravity: read_f32(d, 4)?,
+        jump_amount: read_f32(d, 8)?,
+        max_velocity: read_f32(d, 12)?,
+    });
+
     Some(CharacterClass {
         name: inst.name.clone(),
         variant: name_of(variant_i),
@@ -181,6 +208,7 @@ pub fn decode_character_class(dat: &Dat<'_>, inst: &Instance) -> Option<Characte
         animation_collection: name_of(trac_i),
         animations,
         stats,
+        air,
     })
 }
 
