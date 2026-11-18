@@ -179,6 +179,56 @@ pub const SQUARE_TYPES: [&str; 10] = [
     "impassable",
 ];
 
+// --- Placed characters (`levels/NN/characters.json`) and AI perception ------
+
+/// Teams, by value.
+pub const TEAMS: [&str; 8] = [
+    "konoko",
+    "tctf",
+    "syndicate",
+    "neutral",
+    "securityGuard",
+    "rogueKonoko",
+    "switzerland",
+    "syndicateAccessory",
+];
+
+/// Placed-character flags, by bit (bit 5 is runtime-only).
+pub const CHARACTER_FLAGS: [&str; 13] = [
+    "player",
+    "randomCostume",
+    "notInitiallyPresent",
+    "nonCombatant",
+    "spawnMultiple",
+    "",
+    "unkillable",
+    "infiniteAmmo",
+    "omniscient",
+    "hasLsi",
+    "boss",
+    "upgradeDifficulty",
+    "noAutoDrop",
+];
+
+/// AI jobs (goals), by value.
+pub const JOBS: [&str; 10] =
+    ["none", "idle", "guard", "patrol", "teamBattle", "combat", "pursuit", "alarm", "neutral", "panic"];
+
+/// AI alert levels, by value.
+pub const ALERT_LEVELS: [&str; 5] = ["lull", "low", "medium", "high", "combat"];
+
+/// What an AI does about a contact it pursues, by value.
+pub const PURSUIT_MODES: [&str; 8] = ["none", "forget", "goTo", "wait", "look", "move", "hunt", "glance"];
+
+/// What an AI does when it loses its contact, by value.
+pub const PURSUIT_LOST: [&str; 3] = ["return", "keepLooking", "alarm"];
+
+/// Inventory kinds a placed character starts with, by index.
+pub const INVENTORY: [&str; 5] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"];
+
+/// AI behaviour flags (class), by bit.
+pub const AI_FLAGS: [&str; 5] = ["neverStartle", "dodge", "dodgeWhileFiring", "dodgeStopsFiring", "runningPickup"];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())

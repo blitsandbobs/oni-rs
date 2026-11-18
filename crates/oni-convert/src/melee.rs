@@ -7,18 +7,12 @@
 //! slice of the profile's move pool, and a move names an entry of one of the
 //! original's move tables (named in `oni-schema`).
 
-use oni_dat::{Dat, FourCc};
+use oni_dat::Dat;
 use oni_schema as sc;
 use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
-const TAG_BINA: FourCc = FourCc(0x4249_4E41);
-/// The blob's instance name: the byte-reversed object-file class + the group.
-const BLOB_NAME: &str = "CJBOMelee Profile";
-/// Object chunks start with a 36-byte header (type, id, flags, position,
-/// rotation); the profile follows.
-const OBJECT_HEADER: usize = 36;
 const TECHNIQUE_SIZE: usize = 88;
 const MOVE_SIZE: usize = 16;
 /// Position moves that can delay (run in) and so take parameters: the run,
@@ -35,42 +29,11 @@ pub struct Profile {
 /// The melee profiles stored in this file (empty unless it's level 0).
 pub fn collect(dat: &Dat<'_>, raw: Option<&[u8]>) -> Vec<Profile> {
     let Some(raw) = raw else { return Vec::new() };
-    let Some(inst) = dat
-        .instances
-        .iter()
-        .find(|i| i.tag == TAG_BINA && i.name.as_deref() == Some(BLOB_NAME))
-    else {
-        return Vec::new();
-    };
-    let Some(bd) = dat.instance_data(inst) else {
-        return Vec::new();
-    };
-    // Binary data: size @0, offset into .raw @4; there, an 8-byte header
-    // (class, payload size) and the payload: version, then chunks.
-    let start = le_u32(bd, 4) as usize + 8;
-    let Some(payload) = raw.get(start..) else {
-        return Vec::new();
-    };
-    let mut out = Vec::new();
-    let mut at = 4; // past the object-file version
-    while at + 4 <= payload.len() {
-        let size = le_u32(payload, at) as usize;
-        if size == 0 {
-            break;
-        }
-        if let Some(chunk) = payload.get(at + 4..at + 4 + size) {
-            if let Some(p) = profile(chunk) {
-                out.push(p);
-            }
-        }
-        at += 4 + size;
-    }
-    out
+    crate::objects::read(dat, raw, "Melee Profile").1.into_iter().filter_map(|o| profile(o.data)).collect()
 }
 
 /// One profile from its object chunk.
-fn profile(chunk: &[u8]) -> Option<Profile> {
-    let d = chunk.get(OBJECT_HEADER..)?;
+fn profile(d: &[u8]) -> Option<Profile> {
     if d.len() < 204 {
         return None;
     }

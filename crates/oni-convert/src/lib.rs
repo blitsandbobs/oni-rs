@@ -23,7 +23,9 @@
 #![forbid(unsafe_code)]
 
 mod level_json;
+mod characters;
 mod melee;
+mod objects;
 mod particles;
 
 use std::collections::BTreeMap;
@@ -214,6 +216,9 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
         if let Some(raw) = raw.as_deref() {
             convert_navigation(&dat, raw, &root)?;
+            if f.level != 0 {
+                characters::write(&dat, raw, &root)?;
+            }
         }
         stats.object_animations = convert_object_animations(&dat, &root)?;
         stats.particles =
@@ -311,6 +316,42 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
             "inaccuracyMultiplier": floats("inaccuracy_multipliers"),
         }
     }))
+}
+
+/// A class's AI perception tuning (`docs/PERCEPTION.md`): vision (the
+/// stored cosines turned back into angles, radians), hearing, memory and
+/// alert decay (ticks), behaviour flags, turning speed.
+fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
+    let float = |name: &str| match rec.get(name).map(|e| &e.value) {
+        Some(oni_template::Value::Float(f)) => *f,
+        _ => 0.0,
+    };
+    let int = |name: &str| rec.int(name).unwrap_or(0);
+    let angle = |name: &str| float(name).clamp(-1.0, 1.0).acos();
+    serde_json::json!({
+        "vision": {
+            "centralDistance": float("vision.central_distance"),
+            "peripheralDistance": float("vision.periph_distance"),
+            "verticalAngle": angle("vision.vertical_range"),
+            "centralFullAngle": angle("vision.central_range"),
+            "centralMaxAngle": angle("vision.central_max"),
+            "peripheralFullAngle": angle("vision.periph_range"),
+            "peripheralMaxAngle": angle("vision.periph_max"),
+        },
+        "hearingAcuity": float("hearing"),
+        "contactDecay": {
+            "definite": int("memory.definite_to_strong"),
+            "strong": int("memory.strong_to_weak"),
+            "weak": int("memory.weak_to_forgotten"),
+        },
+        "alertDecay": {
+            "high": int("memory.high_to_med"),
+            "medium": int("memory.med_to_low"),
+            "low": int("memory.low_to_lull"),
+        },
+        "flags": oni_schema::bit_names(&oni_schema::AI_FLAGS, int("ai2_behavior.flags") as u32),
+        "turningNimbleness": float("ai2_behavior.turning_nimbleness"),
+    })
 }
 
 /// Appends this file's canonical `ONCC` character classes to `out` as JSON.
@@ -412,6 +453,7 @@ fn collect_character_classes(
             if let (Some(min), Some(max)) = (field("dazed_minframes"), field("dazed_maxframes")) {
                 entry["dazed"] = serde_json::json!({ "min": min, "max": max });
             }
+            entry["perception"] = perception_json(&rec);
         }
     }
 }
