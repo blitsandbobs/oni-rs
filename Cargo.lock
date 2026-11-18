@@ -1519,6 +1519,10 @@ name = "oni-bytes"
 version = "0.0.1"
 
 [[package]]
+name = "oni-config"
+version = "0.0.1"
+
+[[package]]
 name = "oni-convert"
 version = "0.0.1"
 dependencies = [
@@ -1588,6 +1592,7 @@ dependencies = [
  "bytemuck",
  "glam",
  "mlua",
+ "oni-config",
  "png",
  "pollster",
  "rapier3d",
