@@ -275,6 +275,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
         if let Some(raw) = raw.as_deref() {
+            convert_messages(&dat, raw, &root)?;
             convert_navigation(&dat, raw, &root)?;
             if f.level != 0 {
                 characters::write(&dat, raw, &root)?;
@@ -1026,6 +1027,37 @@ fn convert_ui_text(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
         serde_json::to_string_pretty(&serde_json::json!({"count": items.len(), "strings": items}))?,
     )?;
     Ok(items.len())
+}
+
+/// Writes `<root>/messages.json` — the `SUBT` tables `messages` (what
+/// scripts' `message` shows, by name) and `subtitles` (dialogue lines):
+/// each entry a name and its text in the `.raw` block. Returns the count.
+fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
+    const TAG_SUBT: FourCc = FourCc(0x5355_4254);
+    let mut out = serde_json::Map::new();
+    let mut n = 0;
+    for inst in dat.instances.iter().filter(|i| i.tag == TAG_SUBT) {
+        let Some(d) = dat.instance_data(inst) else { continue };
+        let name = inst.name.as_deref().unwrap_or("").trim_start_matches("SUBT").to_string();
+        let (base, count) = (le_u32(d, 16) as usize, le_u32(d, 20) as usize);
+        let mut table = serde_json::Map::new();
+        for k in 0..count {
+            let at = base + le_u32(d, 24 + 4 * k) as usize;
+            let key = cstr(raw, at, 256);
+            let text = cstr(raw, at + key.len() + 1, 1024);
+            if !key.is_empty() {
+                table.insert(key, serde_json::json!(text));
+            }
+        }
+        n += table.len();
+        out.insert(name, serde_json::Value::Object(table));
+    }
+    if n == 0 {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(root)?;
+    std::fs::write(root.join("messages.json"), serde_json::to_string_pretty(&serde_json::Value::Object(out))?)?;
+    Ok(n)
 }
 
 /// Writes `<root>/films.json` — `FILM` cutscene recordings (initial pose +

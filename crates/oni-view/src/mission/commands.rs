@@ -346,7 +346,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "message" => {
             if let Some(m) = a(0).and_then(text) {
-                eprintln!("script: message {m}");
+                match state.message_text(&m) {
+                    Some(t) => eprintln!("MESSAGE ({m}): {t}"),
+                    None => eprintln!("MESSAGE {m}"),
+                }
                 state.messages.push(m);
             }
             nil()

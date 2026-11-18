@@ -50,6 +50,9 @@ pub struct State {
     pub messages: Vec<String>,
     /// `win` (true) / `lose` (false).
     pub outcome: Option<bool>,
+    /// The game's message texts (`message`), and dialogue subtitles.
+    pub texts: HashMap<String, String>,
+    pub subtitles: HashMap<String, String>,
     /// Errors that stopped a script (logged once each).
     pub errors: Vec<String>,
     /// Commands that reported a problem and carried on (the original logs
@@ -81,6 +84,32 @@ impl State {
             eprintln!("script error: {msg}");
             self.errors.push(msg);
         }
+    }
+
+    /// A message's text (the messages table, else the subtitles without the
+    /// name's first letter), its markup stripped.
+    pub fn message_text(&self, name: &str) -> Option<String> {
+        let key = name.to_ascii_lowercase();
+        let raw = self.texts.get(&key).or_else(|| self.subtitles.get(key.get(1..).unwrap_or("")))?;
+        // `[o.text]` / `[c.text]`: styled spans.
+        let mut out = String::new();
+        let mut chars = raw.chars().peekable();
+        while let Some(ch) = chars.next() {
+            match ch {
+                '[' => {
+                    // skip the style letter and its dot
+                    if chars.peek().is_some_and(|c| c.is_ascii_alphabetic()) {
+                        chars.next();
+                        if chars.peek() == Some(&'.') {
+                            chars.next();
+                        }
+                    }
+                }
+                ']' => {}
+                c => out.push(c),
+            }
+        }
+        Some(out)
     }
 
     /// Records a command's complaint (logged once; the script carries on).
@@ -118,6 +147,18 @@ impl Mission {
         load.call::<()>((chunk, "scripts")).map_err(|e| e.to_string())?;
         let mut state = State::default();
         state.vars.insert("save_point".into(), Value::Integer(0));
+        let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("../../common/messages.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let table = |k: &str| -> HashMap<String, String> {
+            doc[k]
+                .as_object()
+                .map(|m| m.iter().map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())).collect())
+                .unwrap_or_default()
+        };
+        state.texts = table("messages");
+        state.subtitles = table("subtitles");
         Ok(Mission { lua, tasks: Vec::new(), state })
     }
 
