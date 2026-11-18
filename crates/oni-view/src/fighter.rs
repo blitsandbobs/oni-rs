@@ -107,6 +107,8 @@ pub struct Fighter {
     corpse_rest: u16,
     /// Ticks spent lying on the ground (for the dummy's get-up stand-in).
     down_ticks: u16,
+    /// The AI driving this (non-player) character, if any.
+    pub brain: Option<crate::ai::Brain>,
 }
 
 impl Fighter {
@@ -158,6 +160,7 @@ impl Fighter {
             corpse_velocity: Vec3::ZERO,
             corpse_rest: 0,
             down_ticks: 0,
+            brain: None,
         }
     }
 
@@ -478,6 +481,20 @@ impl Fighter {
         self.corpse_velocity = v;
         self.physics.slide(v);
         self.replace();
+    }
+
+    /// This tick's controls for a non-player character: its AI's, if it has
+    /// one (which also turns the body); otherwise a training dummy's.
+    pub fn npc_controls(&mut self) -> u32 {
+        if self.motion.dying {
+            return 0;
+        }
+        let feet = self.physics.feet;
+        match self.brain.as_mut() {
+            Some(brain) => brain.think(feet, &mut self.facing),
+            None if self.passive => self.dummy_controls(),
+            None => 0,
+        }
     }
 
     /// Controls for a passive training dummy: none — except that after lying

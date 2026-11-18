@@ -22,6 +22,8 @@
 //! - `seed(n)` — reseed the weighted animation pick (repeatable runs)
 //! - `type_of(id)` / `state_of(id)` / `facing_of(id)` / `dead(id)` / `set_hp(id, n)` — any fighter
 //! - `knock(id, anim_type)` / `set_facing(id, deg)` — test hooks on any fighter
+//! - `patrol(id, {{x,z},…} [, pace, loop])` / `route_done(id)` — walk an AI route
+//! - `ai_order(id, dir [, pace, face_deg])` — hold fixed AI orders (forward/backpedal/left/right/stop)
 //! - `facing(deg)` — snap the body + target to an absolute yaw
 //! - `turn(delta_deg)` — nudge the facing *target* (body slews toward it)
 //! - `facing_deg()` / `desired_deg()` — read the body yaw / target yaw
@@ -296,6 +298,72 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 f.hp = v;
             }
             Ok(())
+        })?,
+    )?;
+
+    // AI: walk fighter `id` along `points` ({{x, z}, …}) at `pace` ("run",
+    // "walk" or "creep"), optionally looping; `route_done(id)` reads progress.
+    let h = host.clone();
+    g.set(
+        "patrol",
+        lua.create_function(
+            move |_, (id, points, pace, looping): (usize, mlua::Table, Option<String>, Option<bool>)| {
+                let mut pts = Vec::new();
+                for p in points.sequence_values::<mlua::Table>() {
+                    let p = p?;
+                    pts.push(Vec3::new(p.get(1)?, 0.0, p.get(2)?));
+                }
+                let pace = match pace.as_deref() {
+                    Some("walk") => crate::ai::Pace::Walk,
+                    Some("creep") => crate::ai::Pace::Creep,
+                    _ => crate::ai::Pace::Run,
+                };
+                if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                    let route = crate::ai::Route::new(pts, pace, looping.unwrap_or(false));
+                    f.brain = Some(crate::ai::Brain::Route(route));
+                }
+                Ok(())
+            },
+        )?,
+    )?;
+
+    // AI: hold fixed orders — direction "forward" | "backpedal" | "left" |
+    // "right" | "stop", pace "run" | "walk" | "creep", optional facing (deg).
+    let h = host.clone();
+    g.set(
+        "ai_order",
+        lua.create_function(
+            move |_, (id, dir, pace, face): (usize, String, Option<String>, Option<f32>)| {
+                use crate::ai::{Brain, Direction, Orders, Pace};
+                let direction = match dir.as_str() {
+                    "forward" => Direction::Forward,
+                    "backpedal" => Direction::Backpedal,
+                    "left" => Direction::SidestepLeft,
+                    "right" => Direction::SidestepRight,
+                    _ => Direction::Stopped,
+                };
+                let pace = match pace.as_deref() {
+                    Some("walk") => Pace::Walk,
+                    Some("creep") => Pace::Creep,
+                    _ => Pace::Run,
+                };
+                let face = face.map(f32::to_radians);
+                if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                    f.brain = Some(Brain::Hold(Orders { direction, pace, face }));
+                }
+                Ok(())
+            },
+        )?,
+    )?;
+
+    let h = host.clone();
+    g.set(
+        "route_done",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).is_some_and(|f| match &f.brain {
+                Some(crate::ai::Brain::Route(r)) => r.finished(),
+                _ => true,
+            }))
         })?,
     )?;
 

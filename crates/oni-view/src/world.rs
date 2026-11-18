@@ -113,13 +113,7 @@ impl World {
             .collect();
         for (i, f) in self.fighters.iter_mut().enumerate() {
             let others: Vec<Vec3> = feet.iter().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
-            let held = if i == 0 {
-                controls
-            } else if f.passive {
-                f.dummy_controls()
-            } else {
-                0
-            };
+            let held = if i == 0 { controls } else { f.npc_controls() };
             f.tick(held, &others);
         }
         self.resolve_hits();
