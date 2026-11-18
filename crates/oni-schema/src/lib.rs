@@ -98,6 +98,65 @@ pub const BODY_PARTS: [&str; 19] = [
     "right_handfist",
 ];
 
+// --- AI melee profiles (`melee_profiles.json`) -------------------------------
+//
+// A melee technique is a list of moves; each move names an entry of one of
+// these tables (the original's tables, in the original's order). Attack moves
+// keep the original's combo notation (P = punch, K = kick, F/L/R/B/D =
+// forward/left/right/back/down, H = heavy, C = crouched, CS = from crouch
+// start, R = running, J = jumping); where the original lists a name twice the
+// second asks for a different clip and is named apart here.
+
+/// Attack moves, by index.
+pub const MELEE_ATTACKS: [&str; 84] = [
+    "P", "P P", "P P P", "P P P P", "PF", "PL", "PR", "PB", "PD", "PF PF", "PF PF PF", "PL PL",
+    "PL PL PL", "PR PR", "PR PR PR", "PB PB", "PB PB PB", "PD PD", "PD PD PD", "K", "K K",
+    "K K K", "K K KF", "KF", "KL", "KR", "KB", "KD", "KF KF", "KF KF KF", "KL KL", "KL KL KL",
+    "KR KR", "KR KR KR", "KB KB", "KB KB KB", "KD KD", "KD KD KD", "P P K", "P K K", "P K P",
+    "K P K", "K P P", "K K P", "P K", "K P", "P P K K", "P P K K K", "P P K K K K", "HP", "HPF",
+    "HK", "HKF", "CS-P", "CS-K", "C-P", "C-P (low)", "C-PF", "C-K", "C-K (low)", "C-KF",
+    "GETUP-KF", "GETUP-KB", "R-P", "R-K", "RB-P", "RB-K", "RL-P", "RL-K", "RR-P", "RR-K",
+    "R-SLIDE", "J-P", "J-K", "JF-P", "JF-PB", "JF-K", "JF-KB", "JB-P", "JB-K", "JL-P", "JL-K",
+    "JR-P", "JR-K",
+];
+
+/// Position moves (get into the state an attack starts from), by index.
+pub const MELEE_POSITIONS: [&str; 20] = [
+    "runForward", "runLeft", "runRight", "runBack", "jumpUp", "jumpForward", "jumpLeft",
+    "jumpRight", "jumpBack", "startToCrouch", "crouch", "stand", "closeForward", "closeLeft",
+    "closeRight", "closeBack", "runJumpForward", "runJumpLeft", "runJumpRight", "runJumpBack",
+];
+
+/// Maneuvers (movement and pauses within a technique), by index.
+pub const MELEE_MANEUVERS: [&str; 14] = [
+    "advance", "retreat", "circleLeft", "circleRight", "pause", "crouch", "jump", "taunt",
+    "randomStop", "getUpForward", "getUpBack", "getUpRollLeft", "getUpRollRight",
+    "barabbasWave",
+];
+
+/// Evasions, by index (an `…Alt` asks for the direction-specific jump clip).
+pub const MELEE_EVADES: [&str; 24] = [
+    "jumpForward", "jumpForwardAlt", "jumpBack", "jumpBackAlt", "jumpLeft", "jumpLeftAlt",
+    "jumpRight", "jumpRightAlt", "runJumpForward", "runJumpForwardAlt", "runJumpBack",
+    "runJumpBackAlt", "runJumpLeft", "runJumpLeftAlt", "runJumpRight", "runJumpRightAlt",
+    "rollForward", "rollBack", "rollLeft", "rollRight", "slideForward", "slideBack", "slideLeft",
+    "slideRight",
+];
+
+/// Throws, by index.
+pub const MELEE_THROWS: [&str; 25] = [
+    "punchFront", "kickFront", "punchBehind", "kickBehind", "runPunchFront", "runKickFront",
+    "runPunchBehind", "runKickBehind", "punchFrontDisarm", "kickFrontDisarm",
+    "punchBehindDisarm", "kickBehindDisarm", "runPunchFrontDisarm", "runKickFrontDisarm",
+    "runPunchBehindDisarm", "runKickBehindDisarm", "punchFrontRifleDisarm",
+    "kickFrontRifleDisarm", "punchBehindRifleDisarm", "kickBehindRifleDisarm",
+    "runPunchFrontRifleDisarm", "runKickFrontRifleDisarm", "runPunchBehindRifleDisarm",
+    "runKickBehindRifleDisarm", "tackle",
+];
+
+/// Technique flags, by bit.
+pub const TECHNIQUE_FLAGS: [&str; 3] = ["interruptible", "generousDirection", "fearless"];
+
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
     table.get(usize::from(value)).copied().filter(|n| !n.is_empty())
@@ -163,7 +222,17 @@ mod tests {
 
     #[test]
     fn names_are_unique() {
-        for t in [&ANIM_TYPES[..], &ANIM_STATES[..], &ANIM_FLAGS[..], &BODY_PARTS[..]] {
+        for t in [
+            &ANIM_TYPES[..],
+            &ANIM_STATES[..],
+            &ANIM_FLAGS[..],
+            &BODY_PARTS[..],
+            &MELEE_ATTACKS[..],
+            &MELEE_POSITIONS[..],
+            &MELEE_MANEUVERS[..],
+            &MELEE_EVADES[..],
+            &MELEE_THROWS[..],
+        ] {
             let mut seen = std::collections::HashSet::new();
             assert!(t.iter().all(|n| seen.insert(*n)));
         }

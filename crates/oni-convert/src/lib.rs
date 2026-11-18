@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 mod level_json;
+mod melee;
 mod particles;
 
 use std::collections::BTreeMap;
@@ -162,6 +163,7 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
     // Character classes (ONCC) are named/global; accumulate the canonical ones
     // across files into a single catalog written at the end.
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
+    let mut melee_profiles: Vec<melee::Profile> = Vec::new();
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -215,7 +217,12 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
         stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = convert_fonts(&dat, &root)?;
-        collect_character_classes(&dat, &f.root, fi, &global_named, &mut character_classes);
+        collect_character_classes(&dat, &f.root, fi, &global_named, &registry, &mut character_classes);
+        for p in melee::collect(&dat, raw.as_deref()) {
+            if !melee_profiles.iter().any(|q| q.id == p.id) {
+                melee_profiles.push(p);
+            }
+        }
         write_animation_collections(&dat, &f.root, fi, &global_named, output_dir)?;
 
         // level.json for playable levels.
@@ -234,6 +241,21 @@ pub fn convert(input_dir: &Path, output_dir: &Path) -> std::io::Result<Report> {
     if !character_classes.is_empty() {
         let dir = output_dir.join("common/characters");
         std::fs::create_dir_all(&dir)?;
+        // Each class's melee profile, by name (the data links them by id).
+        for c in &mut character_classes {
+            let id = c.as_object_mut().and_then(|o| o.remove("meleeProfileId"));
+            let name = id
+                .and_then(|v| v.as_u64())
+                .and_then(|id| melee_profiles.iter().find(|p| u64::from(p.id) == id))
+                .map(|p| p.name.clone());
+            c["meleeProfile"] = serde_json::json!(name);
+        }
+        if !melee_profiles.is_empty() {
+            let doc = serde_json::json!({
+                "profiles": melee_profiles.iter().map(|p| &p.json).collect::<Vec<_>>(),
+            });
+            std::fs::write(dir.join("melee_profiles.json"), serde_json::to_string_pretty(&doc)?)?;
+        }
         let doc = serde_json::json!({
             "count": character_classes.len(),
             "classes": character_classes,
@@ -254,9 +276,11 @@ fn collect_character_classes(
     this_root: &str,
     fi: usize,
     global_named: &BTreeMap<(FourCc, String), usize>,
+    registry: &oni_template::Registry,
     out: &mut Vec<serde_json::Value>,
 ) {
     use oni_geom::charclass::{decode_character_class, TAG_ONCC};
+    let layout = registry.get(TAG_ONCC);
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_ONCC) {
         // Only the canonical file for this named class emits it.
         if export_root(inst, dat, this_root, fi, global_named) != Some("common") {
@@ -332,6 +356,20 @@ fn collect_character_classes(
             "stats": stats,
             "air": air,
         }));
+        // The AI's melee profile (resolved to a name once all are read) and
+        // how long it lies dazed after a knockdown.
+        let rec = layout.and_then(|l| {
+            oni_template::decode(l, dat.instance_data(inst)?, dat.header.endian).ok()
+        });
+        if let (Some(rec), Some(entry)) = (rec, out.last_mut()) {
+            let field = |n: &str| rec.int(&format!("ai2_behavior.{n}"));
+            if let Some(id) = field("default_melee_id").filter(|&id| id != 0xFFFF) {
+                entry["meleeProfileId"] = serde_json::json!(id);
+            }
+            if let (Some(min), Some(max)) = (field("dazed_minframes"), field("dazed_maxframes")) {
+                entry["dazed"] = serde_json::json!({ "min": min, "max": max });
+            }
+        }
     }
 }
 
