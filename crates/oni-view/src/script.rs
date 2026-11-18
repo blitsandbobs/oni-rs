@@ -182,10 +182,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "input",
         lua.create_function(move |_, (f, b): (bool, bool)| {
-            h.borrow_mut().input = Input {
-                forward: f,
-                backward: b,
-            };
+            let mut host = h.borrow_mut();
+            host.input.forward = f;
+            host.input.backward = b;
             Ok(())
         })?,
     )?;

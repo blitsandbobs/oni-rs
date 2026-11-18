@@ -42,7 +42,13 @@ pub mod anim_type {
     pub const WALK: u16 = 2;
     pub const RUN: u16 = 3;
     pub const STAND: u16 = 6;
+    pub const STANDING_TURN_LEFT: u16 = 7;
+    pub const STANDING_TURN_RIGHT: u16 = 8;
     pub const RUN_BACKWARDS: u16 = 9;
+    pub const RUN_SIDESTEP_LEFT: u16 = 10;
+    pub const RUN_SIDESTEP_RIGHT: u16 = 11;
+    pub const WALK_SIDESTEP_LEFT: u16 = 13;
+    pub const WALK_SIDESTEP_RIGHT: u16 = 14;
     pub const WALK_BACKWARDS: u16 = 15;
     pub const IDLE: u16 = 93;
     pub const RUN_STOP: u16 = 206;
@@ -52,6 +58,8 @@ pub mod anim_type {
     pub const RUN_BACKWARDS_START: u16 = 210;
     pub const WALK_BACKWARDS_START: u16 = 211;
     pub const ONE_STEP_STOP: u16 = 216;
+    pub const RUN_SIDESTEP_LEFT_START: u16 = 217;
+    pub const RUN_SIDESTEP_RIGHT_START: u16 = 218;
 }
 
 /// `TRtAnimState` values.
@@ -123,6 +131,16 @@ impl AnimCollection {
 pub struct Input {
     pub forward: bool,
     pub backward: bool,
+    /// Strafe left/right (Oni `stepleft`/`stepright` — A/D by default).
+    pub step_left: bool,
+    pub step_right: bool,
+    /// Hold-to-walk modifier (Oni `walk` — Caps Lock): prefer walk clips.
+    pub walk: bool,
+    /// A large pending body turn while standing (past Oni's aiming dead-zone) →
+    /// play a turn-in-place clip so the feet re-plant instead of sliding. The
+    /// caller sets at most one, from the facing offset's sign.
+    pub turn_left: bool,
+    pub turn_right: bool,
 }
 
 /// The locomotion state machine driving one character.
@@ -294,17 +312,25 @@ impl Locomotion {
         let st = self.next_state;
         let v = self.varient;
 
-        // HandleStartRunning: forward/backward → run (start then loop), then walk.
+        // HandleStartRunning: forward/backward → run (start then loop), then
+        // walk. The Walk modifier (Caps Lock) tries the walk clips first; the
+        // fromState gating picks start-vs-loop (as for run).
         if input.forward || input.backward {
-            let types: &[u16] = if input.backward && !input.forward {
-                &[
+            let types: &[u16] = match (input.backward && !input.forward, input.walk) {
+                (true, false) => &[
                     RUN_BACKWARDS_START,
                     RUN_BACKWARDS,
                     WALK_BACKWARDS_START,
                     WALK_BACKWARDS,
-                ]
-            } else {
-                &[RUN_START, RUN, WALK_START, WALK]
+                ],
+                (true, true) => &[
+                    WALK_BACKWARDS_START,
+                    WALK_BACKWARDS,
+                    RUN_BACKWARDS_START,
+                    RUN_BACKWARDS,
+                ],
+                (false, false) => &[RUN_START, RUN, WALK_START, WALK],
+                (false, true) => &[WALK_START, WALK, RUN_START, RUN],
             };
             for &t in types {
                 if let Some(i) = self.coll.lookup(t, st, v) {
@@ -313,8 +339,45 @@ impl Locomotion {
             }
         }
 
+        // HandleStartSidestep: step-left/right → sidestep (start then loop). The
+        // sidestep clips carry sideways root motion, so the body keeps facing
+        // forward (true strafe). No forward/back required.
+        if input.step_left || input.step_right {
+            let right = input.step_right && !input.step_left;
+            let types: &[u16] = match (right, input.walk) {
+                (false, false) => &[RUN_SIDESTEP_LEFT_START, RUN_SIDESTEP_LEFT, WALK_SIDESTEP_LEFT],
+                (false, true) => &[WALK_SIDESTEP_LEFT],
+                (true, false) => {
+                    &[RUN_SIDESTEP_RIGHT_START, RUN_SIDESTEP_RIGHT, WALK_SIDESTEP_RIGHT]
+                }
+                (true, true) => &[WALK_SIDESTEP_RIGHT],
+            };
+            for &t in types {
+                if let Some(i) = self.coll.lookup(t, st, v) {
+                    return Some(i);
+                }
+            }
+        }
+
+        let moving = input.forward || input.backward || input.step_left || input.step_right;
+
+        // HandleStandingTurn: a large pending turn while standing plays a
+        // turn-in-place clip (feet re-plant); the body yaw is still slewed by the
+        // caller. Konoko's turn clips carry finalRotation=0, so there is no
+        // rotation to double-count — the clip is purely visual.
+        if !moving && (input.turn_left || input.turn_right) {
+            let t = if input.turn_right {
+                STANDING_TURN_RIGHT
+            } else {
+                STANDING_TURN_LEFT
+            };
+            if let Some(i) = self.coll.lookup(t, st, v) {
+                return Some(i);
+            }
+        }
+
         // HandleStop: in a locomotion loop with no move key → settle.
-        if !input.forward && !input.backward && is_locomotion(self.cur_type) {
+        if !moving && is_locomotion(self.cur_type) {
             for &t in &[ONE_STEP_STOP, RUN_STOP, WALK_STOP, STAND] {
                 if let Some(i) = self.coll.lookup(t, st, v) {
                     return Some(i);
@@ -345,6 +408,12 @@ fn is_locomotion(t: u16) -> bool {
             | WALK_START
             | RUN_BACKWARDS_START
             | WALK_BACKWARDS_START
+            | RUN_SIDESTEP_LEFT
+            | RUN_SIDESTEP_RIGHT
+            | WALK_SIDESTEP_LEFT
+            | WALK_SIDESTEP_RIGHT
+            | RUN_SIDESTEP_LEFT_START
+            | RUN_SIDESTEP_RIGHT_START
     )
 }
 
@@ -385,7 +454,7 @@ mod tests {
         // Hold forward; collect which anim types play and total forward motion.
         let fwd = Input {
             forward: true,
-            backward: false,
+            ..Default::default()
         };
         let mut types = Vec::new();
         let mut forward_motion = 0.0f32;
@@ -436,5 +505,62 @@ mod tests {
             }
         }
         out
+    }
+
+    /// Holding step-left enters a left sidestep (start then loop), with sideways
+    /// root motion but little forward motion.
+    #[test]
+    fn strafe_left_sidesteps() {
+        let Some(coll) = konoko_collection() else {
+            return;
+        };
+        let mut loco = Locomotion::new(coll);
+        let step = Input {
+            step_left: true,
+            ..Default::default()
+        };
+        let mut types = Vec::new();
+        let (mut side, mut fwd) = (0.0f32, 0.0f32);
+        for _ in 0..60 {
+            let d = loco.tick(step, None);
+            side += d.x;
+            fwd += d.y;
+            types.push((loco.cur_type, loco.clip_name().to_string()));
+        }
+        assert!(
+            types.iter().any(|(t, _)| *t == anim_type::RUN_SIDESTEP_LEFT),
+            "enters the left sidestep loop; saw {:?}",
+            dedup(&types)
+        );
+        assert!(
+            side.abs() > fwd.abs(),
+            "sidesteps sideways, not forward: side={side} fwd={fwd}"
+        );
+    }
+
+    /// With the walk modifier held, forward input selects a Walk clip, not Run.
+    #[test]
+    fn walk_modifier_prefers_walk() {
+        let Some(coll) = konoko_collection() else {
+            return;
+        };
+        let mut loco = Locomotion::new(coll);
+        let walk_fwd = Input {
+            forward: true,
+            walk: true,
+            ..Default::default()
+        };
+        let mut saw_walk = false;
+        let mut saw_run = false;
+        for _ in 0..90 {
+            loco.tick(walk_fwd, None);
+            match loco.cur_type {
+                anim_type::WALK | anim_type::WALK_START => saw_walk = true,
+                anim_type::RUN => saw_run = true,
+                _ => {}
+            }
+        }
+        assert!(saw_walk, "walk modifier reaches the Walk loop");
+        assert!(!saw_run, "walk modifier does not fall into the Run loop");
     }
 }

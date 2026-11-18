@@ -41,6 +41,9 @@ const SLOW_TURN: f32 = std::f32::consts::PI * 1.5 / 120.0;
 /// Mouse sensitivity: radians of desired-facing per pixel of motion (tuned to
 /// feel like Oni's `/64` base; rebindable scale lives in `oni_config`).
 const MOUSE_SENS: f32 = 0.0022;
+/// Pending-turn threshold past which a turn-in-place clip plays
+/// (Oni `ONgAimingWidth` = 70°); smaller turns just slew the body.
+const TURN_DEADZONE: f32 = std::f32::consts::PI * 70.0 / 180.0;
 
 struct State {
     gpu: Gpu,
@@ -312,12 +315,19 @@ impl State {
     /// Play-mode character controller: W/S move (root motion), A/D turn; the
     /// camera follows third-person. Stepped at a fixed 60 Hz.
     fn update_play(&mut self, dt: f32) {
-        let input = crate::anim_state::Input {
+        // Walk modifier (Oni: Caps Lock) → walk clips + slower turn cap.
+        let walk = self.keys.contains(&KeyCode::CapsLock);
+        let mut input = crate::anim_state::Input {
             forward: self.keys.contains(&KeyCode::KeyW),
             backward: self.keys.contains(&KeyCode::KeyS),
+            // A/D are strafe in Oni's stock layout, not turn (turning is mouse).
+            step_left: self.keys.contains(&KeyCode::KeyA),
+            step_right: self.keys.contains(&KeyCode::KeyD),
+            walk,
+            turn_left: false,
+            turn_right: false,
         };
-        // Walk modifier (Oni: Caps Lock) → slower turn cap.
-        let walk = self.keys.contains(&KeyCode::CapsLock);
+        let moving = input.forward || input.backward || input.step_left || input.step_right;
         let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
 
         // Step the simulation (character immutably borrowed for stitch capture,
@@ -342,14 +352,20 @@ impl State {
             play.accum += dt;
             while play.accum >= TICK {
                 play.accum -= TICK;
-                // Body yaw chases the mouse target at the capped rate.
-                play.facing.turn_toward(turn_cap);
+                // Turn-in-place intent: a large pending body turn while standing
+                // (Oni's HandleStandingTurn, evaluated before the slew).
+                let offset = play.facing.desired_offset();
+                input.turn_left = !moving && offset > TURN_DEADZONE;
+                input.turn_right = !moving && offset < -TURN_DEADZONE;
                 // The animation state machine chooses the clip and yields this
                 // frame's character-local root motion; facing rotates it to world.
                 let local = play.loco.tick(input, Some(&cv.character));
                 let world_move = Quat::from_rotation_y(play.facing.facing)
                     * Vec3::new(local.x, 0.0, local.y);
                 play.physics.step(world_move);
+                // Then slew the body yaw toward the mouse target (Oni runs
+                // HandleTurning at the end of the heartbeat).
+                play.facing.turn_toward(turn_cap);
             }
         }
 
