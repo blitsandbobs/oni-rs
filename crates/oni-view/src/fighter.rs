@@ -305,23 +305,26 @@ impl Fighter {
         self.facing.rotate(self.motion.take_facing_change());
         self.track_throw();
 
-        // Noises: crouch-moving or sliding (faint) and taunting (interesting),
-        // at the clip's half-way point.
+        // Noises: rolling or sliding (faint) and taunting (interesting), at
+        // the clip's half-way point. (Crouched walking is silent.)
         if self.motion.frame == self.motion.length() / 2 {
             use crate::ai::perception::Stimulus;
             self.noise = match self.motion.kind {
-                ty::CROUCH_RUN
-                | ty::CROUCH_WALK
-                | ty::CROUCH_RUN_BACKWARDS
-                | ty::CROUCH_WALK_BACKWARDS
-                | ty::CROUCH_RUN_SIDESTEP_LEFT
-                | ty::CROUCH_RUN_SIDESTEP_RIGHT
-                | ty::CROUCH_WALK_SIDESTEP_LEFT
-                | ty::CROUCH_WALK_SIDESTEP_RIGHT
-                | ty::SLIDE => Some((Stimulus::SoundIgnore, 60.0)),
+                ty::CROUCH_FORWARD | ty::CROUCH_BACK | ty::CROUCH_LEFT | ty::CROUCH_RIGHT | ty::SLIDE => {
+                    Some((Stimulus::SoundIgnore, 60.0))
+                }
                 ty::TAUNT => Some((Stimulus::SoundInteresting, 150.0)),
                 _ => None,
             };
+        }
+
+        // Footfalls (on the ground): the noise each kind of step makes —
+        // the impact effects' AI-audible part on an ordinary floor
+        // (`docs/PERCEPTION.md`, *Hearing*).
+        if self.motion.air.frames == 0 && self.motion.current().footsteps.contains(&self.motion.frame) {
+            if let Some(n) = footstep_noise(&self.motion) {
+                self.noise = Some(n);
+            }
         }
 
         // A clip can hurt whoever plays it at set frames (a throw's victim
@@ -870,6 +873,35 @@ impl Fighter {
     pub fn alive(&self) -> bool {
         self.hp > 0 && !self.motion.dying && !self.gone
     }
+}
+
+/// The noise a footfall in the current clip makes (kind, radius) — by the
+/// clip's kind, as the original's animation-impact table and the impact
+/// data give it on an ordinary floor; none for crouching and sliding.
+fn footstep_noise(m: &crate::anim::motion::Motion) -> Option<(crate::ai::perception::Stimulus, f32)> {
+    use crate::ai::perception::Stimulus::{SoundIgnore as Faint, SoundInteresting as Notable};
+    let kind = oni_schema::name(&oni_schema::ANIM_TYPES, m.kind).unwrap_or("");
+    let sprint = m.varient & crate::anim::types::var::SPRINT != 0;
+    Some(match kind {
+        "standingTurnLeft" | "standingTurnRight" | "runStart" | "runBackwardsStart" | "runSidestepLeftStart"
+        | "runSidestepRightStart" | "oneStepStop" => (Faint, 20.0),
+        "walk" | "walkStart" | "walkSidestepLeft" | "walkSidestepRight" | "walkBackwards" | "consoleWalk"
+        | "walkStop" => (Faint, 25.0),
+        "run" | "runBackwards" | "runSidestepLeft" | "runSidestepRight" if sprint => (Notable, 100.0),
+        "run" | "runBackwards" | "runSidestepLeft" | "runSidestepRight" | "runStop" => (Faint, 80.0),
+        k if k.starts_with("knockdown")
+            || k.starts_with("blownup")
+            || k.starts_with("thrown")
+            || k.starts_with("land")
+            || k.starts_with("throw")
+            || k.starts_with("runThrow") =>
+        {
+            (Notable, 150.0)
+        }
+        // Attacks land a flying attacker.
+        _ if !m.current().attacks.is_empty() => (Notable, 150.0),
+        _ => return None,
+    })
 }
 
 /// Someone an attack may turn toward: not a friend (`hostile`: an enemy —

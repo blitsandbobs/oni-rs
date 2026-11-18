@@ -180,6 +180,8 @@ const PTR_ATTACKS: usize = 3; // TRtAttack[]
 const PTR_SELF_DAMAGE: usize = 4; // TRtTakeDamage[] (damage u16, frame u16)
 const PTR_SHORTCUTS: usize = 6; // TRtShortcut[]
 const PTR_THROW: usize = 7; // TRtThrowInfo (one, or none)
+const PTR_FOOTSTEPS: usize = 8; // TRtFootstep[] (frame u16, type u16)
+const TRAM_NUM_FOOTSTEPS: usize = 382; // `numFootsteps` u8
 const PTR_BODY: usize = 10; // TRtPosition[numFrames]: per-tick body extent
 const PTR_DATA: usize = 11; // keyframe data
 const TRAM_NUM_PTRS: usize = 13;
@@ -485,6 +487,9 @@ pub struct Clip {
     /// Damage the character playing this clip takes, as `(frame, damage)`
     /// pairs — how a thrown victim gets hurt.
     pub self_damage: Vec<(u16, u16)>,
+    /// Frames a foot comes down (`footsteps`; their kind — left / right /
+    /// single — dropped): where the footstep sounds and noises come.
+    pub footsteps: Vec<u16>,
 }
 
 /// Resolves a reference-form word (`v & 1`, index `v >> 8`) to an instance name.
@@ -652,6 +657,27 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 .collect()
         }
     };
+    let footsteps = {
+        let off = ptrs.get(PTR_FOOTSTEPS).copied().unwrap_or(0) as usize;
+        let count = read_u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
+        let bound = ptrs
+            .iter()
+            .map(|&p| p as usize)
+            .filter(|&p| p > off)
+            .min()
+            .unwrap_or(off + count * 4);
+        if off == 0 {
+            Vec::new()
+        } else {
+            (0..count.min((bound - off) / 4))
+                .filter_map(|k| {
+                    let o = off + k * 4;
+                    let kind = read_u16(raw, o + 2)?;
+                    (kind != 0).then_some(read_u16(raw, o)?)
+                })
+                .collect()
+        }
+    };
     let reach = decode_reach(d, raw);
     let body = {
         let off = ptrs.get(PTR_BODY).copied().unwrap_or(0) as usize;
@@ -708,6 +734,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         first_level: read_u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
         throw,
         self_damage,
+        footsteps,
         reach,
         body,
     })

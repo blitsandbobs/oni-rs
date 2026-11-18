@@ -1421,6 +1421,9 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
             .collect();
         put("selfDamage", json!(list));
     }
+    if !clip.footsteps.is_empty() {
+        put("footsteps", json!(clip.footsteps));
+    }
     serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
 }
 

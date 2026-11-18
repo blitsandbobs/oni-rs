@@ -1242,6 +1242,15 @@ impl World {
             eprintln!("hit: fighter {a} → {b}: invulnerable");
             return;
         }
+        // A blow landing (or blocked) is a melee noise at the defender,
+        // louder for heavier blows (×2 at 15+ damage, ×1.5 at 10+).
+        let scale = match attack.damage {
+            d if d >= 15 => 2.0,
+            d if d >= 10 => 1.5,
+            _ => 1.0,
+        };
+        let at = fb.feet() + Vec3::Y * 8.0;
+        self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0 * scale, Some(a), Some(b));
 
         let (attacker_team, attacker_feet) = (self.fighters[a].team(), self.fighters[a].feet());
         // Blocking: automatic for a defensive character facing the attacker

@@ -132,6 +132,8 @@ pub struct Clip {
     /// `(frame, damage)`: damage the clip deals whoever plays it
     /// (`extras.selfDamage`; how a throw hurts its victim).
     pub self_damage: Vec<(u16, u16)>,
+    /// Frames a foot comes down (`extras.footsteps`).
+    pub footsteps: Vec<u16>,
     /// Where the clip's strikes reach (`extras.reach`), for attacks.
     pub reach: Option<Reach>,
     /// Per tick: root offset from the start `[x, forward]`, the body's lowest
@@ -633,6 +635,10 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
                     })
                     .collect()
             })
+            .unwrap_or_default(),
+        footsteps: ex["footsteps"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_u64().map(|v| v as u16)).collect())
             .unwrap_or_default(),
         self_damage: ex["selfDamage"]
             .as_array()

@@ -40,6 +40,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
+| `hearing.lua` | Hearing bodies (#13): a crouched walk is silent, running is heard, a landed blow alarms (medium). |
 | `death.lua` | Death (#12): a body stays — unless its class deletes its dead after a delay (the mad bomber, 190 ticks). |
 | `teams.lua` | Teams (#11): a friend's punch passes through; an enemy's lands; auto-facing turns toward an enemy, never a friend. |
 | `alarm.lua` | Consoles and alarms: an AI sent to raise the alarm runs to the alarm console, uses it and goes back to its job; Konoko tripping it sends the AIs answering it after her. |
