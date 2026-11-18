@@ -18,6 +18,40 @@ impl Quirks {
     pub const FIXED: Quirks = Quirks { faithful: false };
     pub const FAITHFUL: Quirks = Quirks { faithful: true };
 
+    /// Whether a melee technique ignores danger. The shipped game tests its
+    /// "fearless" flag against the wrong set of bits — the ones holding the
+    /// technique's start state — so it really depends on that state (Q5).
+    pub fn fearless(self, flag: bool, start_state: u8) -> bool {
+        if self.faithful {
+            start_state & 0b100 != 0
+        } else {
+            flag
+        }
+    }
+
+    /// Whether a melee AI weighs a throw against a target it can't throw
+    /// (knockdown-resistant, invulnerable). The shipped game only notices at
+    /// the last moment, so such throws keep their weight (Q6).
+    pub fn weigh_unthrowable(self) -> bool {
+        !self.faithful
+    }
+
+    /// How many times the target's radius comes off the run-in distance the
+    /// melee AI plans with: the shipped game subtracts it twice (Q7).
+    pub fn run_in_radius_times(self) -> f32 {
+        if self.faithful {
+            2.0
+        } else {
+            1.0
+        }
+    }
+
+    /// Hit prediction's body-contact step: the shipped game adds the target's
+    /// height offset to its head twice (Q8).
+    pub fn contact_head_twice(self) -> bool {
+        self.faithful
+    }
+
     /// The animation type a jump with step-right held asks for. The shipped
     /// game names the right-landing type here (and in the matching "already
     /// jumping" check), so that request never finds a takeoff clip and the
@@ -28,5 +62,21 @@ impl Quirks {
         } else {
             ty::JUMP_RIGHT
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn melee_quirks_follow_the_mode() {
+        let (fixed, faithful) = (Quirks::FIXED, Quirks::FAITHFUL);
+        // Fearless: the flag, or (shipped) bit 2 of the start state.
+        assert!(fixed.fearless(true, 1) && !fixed.fearless(false, 4));
+        assert!(faithful.fearless(false, 4) && !faithful.fearless(true, 1));
+        assert!(fixed.weigh_unthrowable() && !faithful.weigh_unthrowable());
+        assert_eq!((fixed.run_in_radius_times(), faithful.run_in_radius_times()), (1.0, 2.0));
+        assert!(!fixed.contact_head_twice() && faithful.contact_head_twice());
     }
 }

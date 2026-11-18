@@ -222,6 +222,7 @@ fn attack(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usiz
             tick: 0,
             air: None,
             sphere: 3.0,
+            quirks: m.quirks,
         };
         let victim = Target {
             pos: rel,
@@ -314,7 +315,9 @@ fn position(
             if !in_reach_after_run_in(m, me, target) {
                 // Running in along a clear way only.
                 let want = bearing(me, target) + p.dir.offset().unwrap_or(0.0);
-                let fearless = m.current().is_some_and(|t| t.fearless);
+                let fearless = m.technique.is_some_and(|t| {
+                    m.quirks.fearless(m.profile.techniques[t].fearless, m.info[t].start.map_or(0, |s| s as u8))
+                });
                 if !fearless && super::brain::steer(me, want) != Some(0.0) && me.physics.probe(
                     glam::Vec3::new(want.sin(), 0.0, want.cos()),
                     distance(me, target),
@@ -383,7 +386,7 @@ fn air_strike_ready(m: &mut Melee, me: &View, target: &View, p: &tables::Positio
         gravity: me.motion.tuning.jump_gravity,
         expected_ticks: 0,
     };
-    let attacker = Attacker { clip: c, tick: 0, air: Some(air), sphere: 3.0 };
+    let attacker = Attacker { clip: c, tick: 0, air: Some(air), sphere: 3.0, quirks: m.quirks };
     let victim = Target {
         pos: rel,
         velocity: vel,
@@ -439,6 +442,7 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
             tick: 0,
             air: None,
             sphere: 3.0,
+            quirks: m.quirks,
         };
         let victim = Target {
             pos: rel,
@@ -497,7 +501,9 @@ fn maneuver(
             // Face the target and move in the maneuver's direction, steering
             // round walls and ledges (turning the body by the detour).
             let want = bearing(me, target) + dir.offset().unwrap_or(0.0);
-            let fearless = m.current().is_some_and(|t| t.fearless);
+            let fearless = m.technique.is_some_and(|t| {
+                    m.quirks.fearless(m.profile.techniques[t].fearless, m.info[t].start.map_or(0, |s| s as u8))
+                });
             match super::brain::steer(me, want) {
                 Some(dev) => out.face = out.face.map(|f| f + dev),
                 None if !fearless => return Step::Abort,

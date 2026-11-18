@@ -135,7 +135,7 @@ impl World {
             };
             let me = view(&self.fighters, i, target);
             let them = view(&self.fighters, target, i);
-            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty));
+            *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
             self.fighters[i].brain = Some(crate::ai::Brain::Melee(m));
         }
         outs

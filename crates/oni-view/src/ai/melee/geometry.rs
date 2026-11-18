@@ -35,6 +35,8 @@ pub struct Attacker<'a> {
     pub air: Option<Air>,
     /// Its own body sphere (3 for an AI, 4 for the player).
     pub sphere: f32,
+    /// Reproduce the original's slips (`crate::quirks`).
+    pub quirks: crate::quirks::Quirks,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -260,7 +262,8 @@ pub fn intersect(attacker: &Attacker, target: &Target) -> Result<u16, Miss> {
             let d = flat(a) - flat(t);
             let (my_feet, my_head) = body_of(Some(clip), tick);
             let (its_feet, its_head) = body_of(target.clip, target_tick);
-            let overlap = a.y + my_feet < t.y + its_head && t.y + its_feet < a.y + my_head;
+            let head_twice = if attacker.quirks.contact_head_twice() { t.y } else { 0.0 };
+            let overlap = a.y + my_feet < t.y + its_head + head_twice && t.y + its_feet < a.y + my_head;
             if d.length_squared() <= touch2 && overlap {
                 match dir {
                     2 => a.z = t.z + (touch2 - d.x * d.x).max(0.0).sqrt(), // back
@@ -307,7 +310,7 @@ mod tests {
     #[test]
     fn a_jab_reaches_ahead_only() {
         let Some(c) = konoko() else { return };
-        let jab = Attacker { clip: clip(&c, "KONCOMcomb_p"), tick: 0, air: None, sphere: 3.0 };
+        let jab = Attacker { clip: clip(&c, "KONCOMcomb_p"), tick: 0, air: None, sphere: 3.0, quirks: Default::default() };
         let ahead = standing(Vec3::new(0.0, 0.0, 9.0));
         assert!(bounds(&jab, &ahead, false));
         let ticks = intersect(&jab, &ahead).expect("the jab lands");
@@ -320,7 +323,7 @@ mod tests {
     #[test]
     fn a_back_kick_reaches_behind() {
         let Some(c) = konoko() else { return };
-        let kick = Attacker { clip: clip(&c, "KONCOMkick_bk"), tick: 0, air: None, sphere: 3.0 };
+        let kick = Attacker { clip: clip(&c, "KONCOMkick_bk"), tick: 0, air: None, sphere: 3.0, quirks: Default::default() };
         let behind = standing(Vec3::new(0.0, 0.0, -10.0));
         assert!(bounds(&kick, &behind, false));
         assert!(intersect(&kick, &behind).is_ok());
@@ -330,7 +333,7 @@ mod tests {
     #[test]
     fn a_target_lying_low_is_below_a_jab() {
         let Some(c) = konoko() else { return };
-        let jab = Attacker { clip: clip(&c, "KONCOMcomb_p"), tick: 0, air: None, sphere: 3.0 };
+        let jab = Attacker { clip: clip(&c, "KONCOMcomb_p"), tick: 0, air: None, sphere: 3.0, quirks: Default::default() };
         let mut lying = standing(Vec3::new(0.0, 0.0, 9.0));
         lying.height = (0.0, 4.0);
         assert!(!bounds(&jab, &lying, false), "the jab passes over it");

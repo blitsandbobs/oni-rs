@@ -156,6 +156,7 @@ pub struct Melee {
     /// This tick's look along the floor toward the target.
     ahead: Option<crate::physics::Probe>,
     difficulty: Difficulty,
+    pub(super) quirks: crate::quirks::Quirks,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -196,6 +197,7 @@ impl Melee {
             force: None,
             ahead: None,
             difficulty: Difficulty::default(),
+            quirks: Default::default(),
         }
     }
 
@@ -234,9 +236,11 @@ impl Melee {
         now: i64,
         positions: &[Vec3],
         difficulty: Difficulty,
+        quirks: crate::quirks::Quirks,
     ) -> Output {
         self.now = now;
         self.difficulty = difficulty;
+        self.quirks = quirks;
         if self.info.is_empty() {
             self.info = self.profile.techniques.iter().map(|t| tech_info(t, me.motion)).collect();
             self.jumps = Jumps::of(me.motion);
@@ -445,6 +449,7 @@ impl Melee {
             tick: target.motion.frame,
             air: None,
             sphere: if target.player { 4.0 } else { 3.0 },
+            quirks: self.quirks,
         };
         let victim = Target {
             pos: rel,
@@ -489,7 +494,8 @@ impl Melee {
                 // Room to land where the evasion ends?
                 let end = me.motion.coll.entries[clip].clip.body.last().map_or(Vec3::ZERO, |b| Vec3::new(b[0], 0.0, b[1]));
                 let world = Quat::from_rotation_y(me.facing) * end;
-                let safe = if t.fearless || world.length() < 0.5 {
+                let fearless = self.quirks.fearless(t.fearless, self.info[i].start.map_or(0, |s| s as u8));
+                let safe = if fearless || world.length() < 0.5 {
                     1.0
                 } else {
                     movement_safety(me, world.normalize(), world.length())
@@ -654,6 +660,9 @@ impl Melee {
             if th.victim_running && target.state() != MeleeState::Running {
                 return 0.0; // the tackle needs a running victim
             }
+            if self.quirks.weigh_unthrowable() && (target.knockdown_resistant || target.motion.invulnerable()) {
+                return 0.0;
+            }
             f *= if behind {
                 ((PI / 2.0 - rel) / THROW_RAMP).clamp(0.0, 1.0)
             } else {
@@ -747,7 +756,7 @@ impl Melee {
             if target_dist < ri.min + ri.tolerance && ri.tolerance > 0.0 {
                 f *= ((test - ri.min) / ri.tolerance).clamp(0.0, 1.0);
             }
-            let delay = target_dist - reach;
+            let delay = target_dist - reach - (self.quirks.run_in_radius_times() - 1.0) * target.planning.0;
             if !(skippable && delay < -SKIP_POSITIONING) {
                 let delay = delay.max(0.0);
                 if delay > ri.max {
@@ -791,7 +800,7 @@ impl Melee {
                 }
                 jumps.air(me, kind, jdir)
             });
-            let attacker = Attacker { clip: c, tick: 0, air, sphere: 3.0 };
+            let attacker = Attacker { clip: c, tick: 0, air, sphere: 3.0, quirks: self.quirks };
             let victim = Target {
                 pos: rel - along * offset,
                 velocity: vel,
@@ -804,7 +813,7 @@ impl Melee {
                 return 0.0;
             }
             // The way there (and where the attack carries us) must be clear.
-            if !t.fearless {
+            if !self.quirks.fearless(t.fearless, info.start.map_or(0, |s| s as u8)) {
                 let carry = c.body.last().map_or(0.0, |b| b[1].abs().max(b[0].abs()));
                 let dist = match jump {
                     Some((kind, _)) => jumps.vel(kind) * 0.5 * (jumps.min + jumps.max),
