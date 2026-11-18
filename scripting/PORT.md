@@ -5,8 +5,9 @@ level's scripts (`crates/oni-convert/src/bsl.rs` → `levels/NN/scripts.lua`, al
 levels, no untranslated lines); the engine runs them (`crates/oni-view/src/mission/`):
 the level start, `main`, `sleep` / `fork`, character and trigger-volume events,
 patrol scripts, and the gameplay commands (spawning, paths, passivity, attack orders,
-health, trigger volumes, objectives / messages, character waits). Camera, sound,
-particles, cutscenes, doors, consoles and the like are logged no-ops so far. This
+health, trigger volumes, objectives / messages, character waits, consoles and alarms,
+doors, films). Dialogue prints its subtitle (no audio yet). Camera, sound, particles,
+cutscenes, laser triggers, turrets and the like are logged no-ops so far. This
 document originally laid out *what to build*
 for the gameplay scripting layer (E4+), derived from [`BSL.md`](BSL.md). The dev/test
 Lua driver that exists today (`crates/oni-view/src/script.rs`,
