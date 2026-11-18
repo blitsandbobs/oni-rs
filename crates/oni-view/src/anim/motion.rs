@@ -364,14 +364,17 @@ impl Motion {
         sum / n
     }
 
-    /// The attack whose damage window contains the current frame.
-    pub fn active_attack(&self) -> Option<skel::Attack> {
+    /// The attacks whose damage window contains the current frame, with their
+    /// index within the clip (a clip has up to two).
+    pub fn active_attacks(&self) -> Vec<(usize, skel::Attack)> {
         let f = self.frame;
         self.current()
             .attacks
             .iter()
-            .find(|a| a.first_damage_frame <= f && f <= a.last_damage_frame)
-            .copied()
+            .enumerate()
+            .filter(|(_, a)| a.first_damage_frame <= f && f <= a.last_damage_frame)
+            .map(|(k, a)| (k, *a))
+            .collect()
     }
 
     /// Whether the current clip needs variant bits the character no longer has.

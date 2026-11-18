@@ -39,6 +39,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `block.lua` | Automatic blocking: a dummy facing the player head-on blocks a punch (no damage); turned 60° away it can't. |
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
+| `rear_kick.lua` | Blows connect by body contact: a rear kick hits a dummy behind the player; a jab at nobody misses. |
 | `spar.lua` | The sparring partner closes in without walking through its opponent, lands hits, gets up after a knockdown, stops once its opponent is dead. |
 | `autoface.lua` | Starting a punch turns the player onto a dummy 35° off-aim. |
 | `ground_moves.lua` | Crouch, crouch-run, the roll (crouch tap mid-run), and a sideways jump out of a sidestep. |

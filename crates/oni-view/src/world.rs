@@ -19,12 +19,6 @@ use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
 
-/// Extra melee reach beyond the two capsules' radii (Oni units) — the distance
-/// an outstretched punch/kick adds. A feel constant to tune on playtest.
-const MELEE_REACH: f32 = 4.0;
-/// The victim must be within this cosine of the attacker's facing to be hit
-/// (`0.2` ≈ a ±78° frontal arc), so attacks only connect in front.
-const FRONT_DOT: f32 = 0.2;
 /// Characters further apart than this are never tested for touching.
 const CONTACT_RANGE: f32 = 25.0;
 /// A defensive character blocks attackers within this angle of where it faces.
@@ -125,28 +119,34 @@ impl World {
             let held = if i == 0 { controls } else { f.npc_controls(target) };
             moves.push(f.plan(held, &others));
         }
-        self.block_contact(&mut moves);
+        self.collide(&mut moves);
         for (f, m) in self.fighters.iter_mut().zip(moves) {
             if let Some(m) = m {
                 f.commit(m);
             }
         }
-        self.resolve_hits();
         for f in &mut self.fighters {
             f.apply_reaction();
         }
     }
 
-    /// Characters can't walk into each other (the original's behaviour): when
-    /// two bodies touch, each one's planned move loses whatever part of it
-    /// heads toward the other — moving away or sideways is unaffected, and
-    /// neither is pushed. Bodies lying in death, characters further apart than
-    /// `CONTACT_RANGE`, and pairs almost on top of each other are skipped.
-    /// Touching is tested body part against body part with bounding spheres
-    /// (an approximation of the original's per-part geometry test, #7).
-    fn block_contact(&self, moves: &mut [Option<Vec3>]) {
+    /// This tick's body contact between characters (behaviour per
+    /// `docs/COMBAT.md`). For each pair within `CONTACT_RANGE` — skipping
+    /// bodies lying in death — the body parts are tested against each other
+    /// by their bounding spheres, as Oni does. If any touch:
+    ///
+    /// * **contact** — each one's planned move loses whatever part of it heads
+    ///   toward the other (nobody is pushed; pairs almost on top of each other
+    ///   are left alone);
+    /// * **blows** — an attack in its damage window connects when a part of the
+    ///   other body touches one of the attack's live parts (its damage bits).
+    ///   If both land blows, the higher precedence wins (both on a tie). Each
+    ///   of a clip's attacks hits each victim once.
+    fn collide(&mut self, moves: &mut [Option<Vec3>]) {
         let n = self.fighters.len();
-        let spheres: Vec<Vec<(Vec3, f32)>> = self.fighters.iter().map(|f| f.body_spheres()).collect();
+        let spheres: Vec<Vec<(usize, Vec3, f32)>> =
+            self.fighters.iter().map(|f| f.body_spheres()).collect();
+        let mut blows: Vec<(usize, usize, usize, crate::skel::Attack)> = Vec::new();
         for i in 0..n {
             for j in i + 1..n {
                 let (a, b) = (&self.fighters[i], &self.fighters[j]);
@@ -156,12 +156,21 @@ impl World {
                 if a.feet().distance_squared(b.feet()) > CONTACT_RANGE * CONTACT_RANGE {
                     continue;
                 }
-                let touching = spheres[i].iter().any(|&(ca, ra)| {
-                    spheres[j].iter().any(|&(cb, rb)| ca.distance_squared(cb) < (ra + rb) * (ra + rb))
-                });
-                if !touching {
+                // Which of i's parts touch any of j's, and vice versa.
+                let (mut touch_i, mut touch_j) = (0u32, 0u32);
+                for &(pa, ca, ra) in &spheres[i] {
+                    for &(pb, cb, rb) in &spheres[j] {
+                        if ca.distance_squared(cb) <= (ra + rb) * (ra + rb) {
+                            touch_i |= 1 << pa;
+                            touch_j |= 1 << pb;
+                        }
+                    }
+                }
+                if touch_i == 0 {
                     continue;
                 }
+
+                // Contact: no walking into each other.
                 for (me, other) in [(i, j), (j, i)] {
                     let mut away = self.fighters[me].feet() - self.fighters[other].feet();
                     away.y = 0.0;
@@ -176,59 +185,33 @@ impl World {
                         }
                     }
                 }
-            }
-        }
-    }
 
-    /// Resolves this tick's melee hits (`docs/COMBAT.md` §4). For every
-    /// attacker in an attack's damage window, each live fighter in front and
-    /// within reach that this swing hasn't touched yet is either:
-    ///
-    /// * **untouchable** — its clip is invulnerable now: only a small shove;
-    /// * **blocking** — it stands (or crouches, or backs off) facing the
-    ///   attacker within 20° and has a block that covers the attack's height:
-    ///   no damage; it blocks (or staggers, for attacks that stagger through a
-    ///   block). Attacks marked special break through at half strength;
-    /// * **hit** — it takes the damage and the attack's shove (along the
-    ///   attack's direction) and reacts: the attack's named reaction, a stagger
-    ///   for heavy hits, a knockdown if already reeling, adapted to whether it
-    ///   is airborne, crouched or down, and the behind variant when struck
-    ///   from behind — turning to face (or away from) the attacker.
-    ///
-    /// The reach test is a capsule-distance + frontal-arc approximation, not
-    /// the original's per-limb geometry test.
-    pub fn resolve_hits(&mut self) {
-        let n = self.fighters.len();
-        let mut hits = Vec::new();
-        for a in 0..n {
-            let fa = &self.fighters[a];
-            if fa.passive || !fa.alive() {
-                continue;
-            }
-            let Some(attack) = fa.active_attack() else {
-                continue;
-            };
-            let afeet = fa.feet();
-            let fwd = Vec3::new(fa.facing.facing.sin(), 0.0, fa.facing.facing.cos());
-            for b in 0..n {
-                if b == a || !self.fighters[b].alive() || self.fighters[a].already_hit(b) {
-                    continue;
+                // Blows: each side's live parts against the other's body.
+                let landed = |att: usize, vic: usize, touching: u32| {
+                    let f = &self.fighters[att];
+                    if f.passive || !f.alive() || !self.fighters[vic].alive() {
+                        return (Vec::new(), 0);
+                    }
+                    let hits: Vec<_> = f
+                        .active_attacks()
+                        .into_iter()
+                        .filter(|(k, atk)| atk.damage_bits & touching != 0 && !f.already_hit(*k, vic))
+                        .collect();
+                    let top = hits.iter().map(|(_, a)| a.precedence).max().unwrap_or(0);
+                    (hits, top)
+                };
+                let (from_i, prec_i) = landed(i, j, touch_i);
+                let (from_j, prec_j) = landed(j, i, touch_j);
+                if !from_i.is_empty() && prec_i >= prec_j {
+                    blows.extend(from_i.into_iter().map(|(k, atk)| (i, j, k, atk)));
                 }
-                let fb = &self.fighters[b];
-                let mut to = fb.feet() - afeet;
-                to.y = 0.0;
-                let dist = to.length();
-                if dist < 1e-3 || dist > fa.radius + fb.radius + MELEE_REACH {
-                    continue;
+                if !from_j.is_empty() && prec_j >= prec_i {
+                    blows.extend(from_j.into_iter().map(|(k, atk)| (j, i, k, atk)));
                 }
-                if (to / dist).dot(fwd) < FRONT_DOT {
-                    continue;
-                }
-                hits.push((a, b, attack));
             }
         }
-        for (a, b, attack) in hits {
-            self.fighters[a].mark_hit(b);
+        for (a, b, k, attack) in blows {
+            self.fighters[a].mark_hit(k, b);
             self.land_hit(a, b, attack);
         }
     }

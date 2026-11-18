@@ -380,6 +380,15 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
         if !children.is_empty() {
             node_json.push_str(&format!(",\"children\":[{}]", children.join(",")));
         }
+        if let Some([cx, cy, cz, r]) = n.mesh.and_then(|m| m.bound_sphere) {
+            node_json.push_str(&format!(
+                ",\"extras\":{{\"boundSphere\":[{},{},{},{}]}}",
+                f(cx),
+                f(cy),
+                f(cz),
+                f(r)
+            ));
+        }
         node_json.push('}');
     }
     let roots: Vec<String> = nodes

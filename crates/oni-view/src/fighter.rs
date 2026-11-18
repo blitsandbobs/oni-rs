@@ -85,8 +85,6 @@ pub struct Fighter {
     pub player: bool,
     /// World placement matrix (rotation + pelvis origin), rebuilt each tick.
     pub placement: Mat4,
-    /// Capsule radius (for melee reach tests).
-    pub radius: f32,
     /// Each body part's bounding sphere in its bone's space (bone index,
     /// centre, radius) — for detecting characters touching each other.
     part_spheres: Vec<(usize, Vec3, f32)>,
@@ -97,8 +95,9 @@ pub struct Fighter {
     pub passive: bool,
     /// Pending knockback displacement, applied a share per tick.
     knockback: Vec3,
-    /// Victims already hit by the current clip (one hit per swing).
-    hit_set: Vec<usize>,
+    /// (attack index, victim) pairs already hit by the current clip: each of
+    /// a clip's attacks hits each victim once.
+    hit_set: Vec<(usize, usize)>,
     last_forward_tap: Option<u64>,
     sprinting: bool,
     /// A reaction to force at the end of this tick's hit resolution.
@@ -152,7 +151,6 @@ impl Fighter {
             quirks,
             player,
             placement,
-            radius,
             part_spheres,
             hp: tuning.max_hit_points,
             passive,
@@ -549,14 +547,15 @@ impl Fighter {
         }
     }
 
-    /// World-space bounding spheres of the body parts in the current pose.
-    pub fn body_spheres(&self) -> Vec<(Vec3, f32)> {
+    /// World-space bounding spheres of the body parts in the current pose:
+    /// `(part index, centre, radius)`.
+    pub fn body_spheres(&self) -> Vec<(usize, Vec3, f32)> {
         let bones = self.bones();
         self.part_spheres
             .iter()
             .map(|&(bone, c, r)| {
                 let m = bones.get(bone).copied().unwrap_or(Mat4::IDENTITY);
-                (m.transform_point3(c), r)
+                (bone, m.transform_point3(c), r)
             })
             .collect()
     }
@@ -566,19 +565,19 @@ impl Fighter {
         self.motion.air.frames > 0
     }
 
-    /// The attack whose damage window contains the current frame (hit detection).
-    pub fn active_attack(&self) -> Option<crate::skel::Attack> {
-        self.motion.active_attack()
+    /// The attacks in their damage window this frame (index within the clip).
+    pub fn active_attacks(&self) -> Vec<(usize, crate::skel::Attack)> {
+        self.motion.active_attacks()
     }
 
-    /// Whether this fighter has already landed the current attack on `victim`.
-    pub fn already_hit(&self, victim: usize) -> bool {
-        self.hit_set.contains(&victim)
+    /// Whether attack `k` of the current clip has already hit `victim`.
+    pub fn already_hit(&self, k: usize, victim: usize) -> bool {
+        self.hit_set.contains(&(k, victim))
     }
 
-    /// Records that the current attack has now hit `victim`.
-    pub fn mark_hit(&mut self, victim: usize) {
-        self.hit_set.push(victim);
+    /// Records that attack `k` of the current clip has hit `victim`.
+    pub fn mark_hit(&mut self, k: usize, victim: usize) {
+        self.hit_set.push((k, victim));
     }
 
     /// Rebuilds the world placement from the feet + pelvis height + facing.
@@ -620,27 +619,36 @@ impl Fighter {
     }
 }
 
-/// Each body part's bounding sphere in its bone's own space.
+/// One bounding sphere per body part (bone), in the bone's own space: the
+/// sphere stored with the part's geometry when the model carries it (what Oni
+/// tests), else one computed around the part's vertices.
 fn part_spheres(ch: &Character) -> Vec<(usize, Vec3, f32)> {
-    ch.parts
-        .iter()
-        .filter(|p| !p.vertices.is_empty())
-        .map(|p| {
-            let (mut mn, mut mx) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
-            for v in &p.vertices {
-                let q = Vec3::from_array(v.pos);
-                mn = mn.min(q);
-                mx = mx.max(q);
-            }
-            let c = (mn + mx) * 0.5;
-            let r = p
-                .vertices
-                .iter()
-                .map(|v| Vec3::from_array(v.pos).distance(c))
-                .fold(0.0, f32::max);
-            (p.bone, c, r)
-        })
-        .collect()
+    let mut out: Vec<(usize, Vec3, f32)> = Vec::new();
+    for bone in 0..ch.bones.len() {
+        let parts: Vec<_> = ch.parts.iter().filter(|p| p.bone == bone).collect();
+        if parts.is_empty() {
+            continue;
+        }
+        if let Some((c, r)) = parts.iter().find_map(|p| p.bound_sphere) {
+            out.push((bone, c, r));
+            continue;
+        }
+        let pts: Vec<Vec3> = parts
+            .iter()
+            .flat_map(|p| p.vertices.iter().map(|v| Vec3::from_array(v.pos)))
+            .collect();
+        if pts.is_empty() {
+            continue;
+        }
+        let (mn, mx) = pts.iter().fold(
+            (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY)),
+            |(a, b), p| (a.min(*p), b.max(*p)),
+        );
+        let c = (mn + mx) * 0.5;
+        let r = pts.iter().map(|p| p.distance(c)).fold(0.0, f32::max);
+        out.push((bone, c, r));
+    }
+    out
 }
 
 /// Capsule dimensions from a character's rest pose: `(foot_offset, height,

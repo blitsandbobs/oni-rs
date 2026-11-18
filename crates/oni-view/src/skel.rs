@@ -30,6 +30,9 @@ pub struct Part {
     pub texture: Option<PathBuf>,
     pub blend: bool,
     pub additive: bool,
+    /// The body part's stored bounding sphere (centre in the bone's space,
+    /// radius) — what Oni tests to decide whether bodies and blows connect.
+    pub bound_sphere: Option<(Vec3, f32)>,
 }
 
 /// A loaded character: skeleton + drawable parts.
@@ -307,6 +310,10 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
             parent: parent[i],
         });
 
+        let bound_sphere = n["extras"]["boundSphere"].as_array().and_then(|a| {
+            let r = a.get(3)?.as_f64()? as f32;
+            Some((Vec3::new(f(a, 0), f(a, 1), f(a, 2)), r))
+        });
         if let Some(mesh) = n["mesh"].as_u64() {
             for prim in json["meshes"][mesh as usize]["primitives"]
                 .as_array()
@@ -355,6 +362,7 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
                     texture,
                     blend,
                     additive,
+                    bound_sphere,
                 });
             }
         }

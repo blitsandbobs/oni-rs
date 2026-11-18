@@ -576,6 +576,7 @@ fn convert_environment(
                 colors: g.colors.clone(),
                 indices: g.indices.clone(),
                 base_texture: None,
+                bound_sphere: None,
             });
             meshes.len() - 1
         };

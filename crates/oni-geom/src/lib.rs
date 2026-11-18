@@ -43,6 +43,7 @@ const OFF_TRINORMAL_INDEX_ARRAY: usize = 24;
 const OFF_BASE_MAP: usize = 28;
 
 // Element-array field offsets.
+const PNTA_SPHERE: usize = 36; // boundingSphere: centre (3 × f32) + radius
 const PNTA_NUM: usize = 52; // numPoints, then points[] at +56
 const PNTA_DATA: usize = 56;
 const VCRA_NUM: usize = 20; // numVectors, then vectors[] at +24
@@ -70,6 +71,10 @@ pub struct Mesh {
     pub indices: Vec<u32>,
     /// Name of the base texture (TXMP) this mesh uses, if any.
     pub base_texture: Option<String>,
+    /// The bounding sphere stored with the points (`[cx, cy, cz, radius]`, in
+    /// the mesh's own space). For a character body part this is what decides
+    /// whether two characters touch, and whether an attack connects.
+    pub bound_sphere: Option<[f32; 4]>,
 }
 
 impl Mesh {
@@ -113,8 +118,19 @@ pub fn extract_mesh(dat: &Dat<'_>, inst: &Instance) -> Option<Mesh> {
         positions.push([read_f32(pa, o)?, read_f32(pa, o + 4)?, read_f32(pa, o + 8)?]);
     }
 
+    let bound_sphere = (|| {
+        Some([
+            read_f32(pa, PNTA_SPHERE)?,
+            read_f32(pa, PNTA_SPHERE + 4)?,
+            read_f32(pa, PNTA_SPHERE + 8)?,
+            read_f32(pa, PNTA_SPHERE + 12)?,
+        ])
+    })()
+    .filter(|s| s.iter().all(|v| v.is_finite()) && s[3] > 0.0);
+
     let mut mesh = Mesh {
         positions,
+        bound_sphere,
         ..Default::default()
     };
 
