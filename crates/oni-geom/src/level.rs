@@ -50,6 +50,8 @@ const GQ_RENDER_SIZE: usize = 4; // textureMapIndex(2) + alpha(2)
 const GQ_FLAG_TRIANGLE: u32 = 1 << 6;
 const GQ_FLAG_TRANSPARENT: u32 = 1 << 7;
 const GQ_FLAG_INVISIBLE: u32 = 1 << 13;
+/// Door | ghost | stairs up | stairs down: the portals of the room graph.
+const GQ_FLAG_PATHFINDING: u32 = 0xF;
 
 /// Maps an `OBJcTypeIndex` (the high byte of an `object_tag`) to a short name.
 pub fn object_type_name(type_index: u8) -> &'static str {
@@ -196,6 +198,12 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
         let flags = read_u32(gg, go + GQ_FLAGS)?;
         if flags & GQ_FLAG_INVISIBLE != 0 {
             continue; // collision-only surface, never drawn
+        }
+        if flags & GQ_FLAG_PATHFINDING != 0 {
+            // Portals between rooms (ghost quads, stair entries, door ways):
+            // pathfinding data only — the original's importer leaves them out
+            // of everything drawn or collided with (`AKcGQ_Flag_NoTextureMask`).
+            continue;
         }
         let mut vidx = [0usize; 4];
         let mut uvidx = [0usize; 4];
