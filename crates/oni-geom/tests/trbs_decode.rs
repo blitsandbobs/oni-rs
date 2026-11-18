@@ -471,3 +471,34 @@ fn character_classes_decode() {
         s.max_hit_points
     );
 }
+
+#[test]
+fn throw_data_decodes() {
+    let Some(path) = level0() else {
+        eprintln!("SKIP: level0 fixture not found");
+        return;
+    };
+    let Ok(raw) = std::fs::read(path.with_extension("raw")) else {
+        eprintln!("SKIP: level0 .raw not found");
+        return;
+    };
+    let bytes = std::fs::read(&path).expect("read");
+    let dat = Dat::parse(&bytes).expect("parse");
+    use oni_geom::character::{decode_animation, find_animation};
+
+    // The thrower's side carries where the victim goes and what it plays.
+    let src = find_animation(&dat, "KONCOMthrow_fw_p").expect("KONCOMthrow_fw_p");
+    let clip = decode_animation(&dat, src, &raw).expect("decode throw");
+    let t = clip.throw.expect("a throw clip has throw data");
+    assert_eq!(t.target_anim_type, 96, "the forward punch throw's victim plays thrown 1");
+    assert!((t.range - 12.0).abs() < 1e-3);
+    assert!((t.target_facing - std::f32::consts::PI).abs() < 1e-3, "front throw: victim faces the thrower");
+    assert!(t.target_offset[2] > 9.0, "the victim stands in front");
+    assert!(clip.self_damage.is_empty());
+
+    // The victim's side hurts whoever plays it, at set frames.
+    let tgt = find_animation(&dat, "KONCOMthrow_fw_p_tgt").expect("KONCOMthrow_fw_p_tgt");
+    let clip = decode_animation(&dat, tgt, &raw).expect("decode victim clip");
+    assert!(clip.throw.is_none());
+    assert_eq!(clip.self_damage, vec![(42, 20)]);
+}

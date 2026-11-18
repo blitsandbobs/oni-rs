@@ -14,7 +14,8 @@ use glam::Vec3;
 
 use crate::anim::collection::AnimCollection;
 use crate::anim::motion::ClassTuning;
-use crate::anim::types::flag;
+use crate::anim::throw;
+use crate::anim::types::{flag, var};
 use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
@@ -107,6 +108,11 @@ impl World {
             .filter(|(_, f)| f.alive())
             .map(|(i, f)| (i, f.feet()))
             .collect();
+        // The player's strikes may become throws: tell it who it could throw.
+        let sense = self.throw_sense(0);
+        if let Some(p) = self.fighters.first_mut() {
+            p.motion.throw_sense = sense;
+        }
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
             let others: Vec<Vec3> = feet.iter().filter(|(j, _)| *j != i).map(|(_, p)| *p).collect();
@@ -131,8 +137,68 @@ impl World {
                 f.commit(m);
             }
         }
+        self.start_throws();
         for f in &mut self.fighters {
             f.apply_reaction();
+        }
+    }
+
+    /// What fighter `me` sees of who it could throw: everyone alive except
+    /// the knockdown-resistant and anyone in a wholly invulnerable clip.
+    fn throw_sense(&self, me: usize) -> Option<throw::Sense> {
+        let f = self.fighters.get(me)?;
+        let candidates = self
+            .fighters
+            .iter()
+            .enumerate()
+            .filter(|&(j, o)| {
+                j != me
+                    && o.alive()
+                    && !o.motion.dying
+                    && !o.motion.corpse
+                    && !o.motion.tuning.knockdown_resistant
+                    && !o.motion.current().has_flag(flag::INVULNERABLE)
+            })
+            .map(|(j, o)| throw::Candidate {
+                who: j,
+                offset: o.feet() - f.feet(),
+                facing: o.facing.facing,
+                state: o.motion.state,
+                varient: o.motion.varient,
+                invulnerable: o.motion.invulnerable(),
+            })
+            .collect();
+        Some(throw::Sense {
+            aim: f.facing.aim(),
+            facing: f.facing.facing,
+            candidates,
+        })
+    }
+
+    /// Carries out the throws begun this tick: each victim starts its side of
+    /// the throw, placed where the throw data puts it relative to the thrower
+    /// and turned to match.
+    fn start_throws(&mut self) {
+        for a in 0..self.fighters.len() {
+            let Some(t) = self.fighters[a].motion.throw_started.take() else {
+                continue;
+            };
+            let fa = &self.fighters[a];
+            let c = fa.motion.current();
+            let Some(info) = c.throw else { continue };
+            let fight = c.varient & var::FIGHT != 0;
+            let dest = fa.feet() + glam::Quat::from_rotation_y(fa.facing.facing) * info.target_offset;
+            let facing = fa.facing.facing + info.target_facing;
+            let clip = fa.motion.coll.entries[t.target_clip].name.clone();
+            let victim = &mut self.fighters[t.target];
+            let thrown = victim.alive()
+                && !victim.motion.dying
+                && victim.be_thrown(a, &clip, fight, dest, facing);
+            if thrown {
+                eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
+            } else {
+                self.fighters[a].throwing = None;
+            }
         }
     }
 
@@ -157,6 +223,10 @@ impl World {
             for j in i + 1..n {
                 let (a, b) = (&self.fighters[i], &self.fighters[j]);
                 if a.motion.corpse || b.motion.corpse {
+                    continue;
+                }
+                // A thrower and its victim pass through each other, unhurt.
+                if a.throwing == Some(j) || b.throwing == Some(i) {
                     continue;
                 }
                 if a.feet().distance_squared(b.feet()) > CONTACT_RANGE * CONTACT_RANGE {

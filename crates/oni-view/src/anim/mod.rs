@@ -9,4 +9,5 @@ pub mod input;
 pub mod motion;
 pub mod reaction;
 pub mod rules;
+pub mod throw;
 pub mod types;

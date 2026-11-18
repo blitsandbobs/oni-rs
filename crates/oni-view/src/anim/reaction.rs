@@ -31,6 +31,7 @@ pub fn is_victim(t: u16) -> bool {
             | ty::STAGGER
             | ty::STAGGER_BEHIND
     ) || is_knockdown(t)
+        || ty::is_thrown(t)
 }
 
 /// Reactions that put the character on the ground.

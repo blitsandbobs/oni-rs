@@ -18,7 +18,7 @@ use crate::anim::decide::{self, Controls};
 use crate::anim::input::{key, Buttons};
 use crate::anim::motion::{ClassTuning, Motion};
 use crate::anim::reaction;
-use crate::anim::types::{ty, var};
+use crate::anim::types::{flag, st, ty, var};
 use crate::control::{Facing, MED_TURN, SLOW_TURN};
 use crate::physics::Physics;
 use crate::quirks::Quirks;
@@ -111,6 +111,11 @@ pub struct Fighter {
     down_ticks: u16,
     /// The AI driving this (non-player) character, if any.
     pub brain: Option<crate::ai::Brain>,
+    /// The fighter this one is throwing (until its throw clip ends): the pair
+    /// pass through each other and can't hit each other meanwhile.
+    pub throwing: Option<usize>,
+    /// Who last threw this fighter.
+    pub thrown_by: Option<usize>,
 }
 
 impl Fighter {
@@ -164,6 +169,8 @@ impl Fighter {
             corpse_rest: 0,
             down_ticks: 0,
             brain: None,
+            throwing: None,
+            thrown_by: None,
         }
     }
 
@@ -189,7 +196,12 @@ impl Fighter {
             self.drift_as_corpse();
             return None;
         }
-        let held = if self.motion.dying { 0 } else { held };
+        // The dead, and anyone being thrown, have no control.
+        let held = if self.motion.dying || ty::is_thrown(self.motion.kind) {
+            0
+        } else {
+            held
+        };
         self.buttons.advance(held);
         self.update_sprint();
         self.motion.feet_y = self.physics.feet.y;
@@ -208,6 +220,7 @@ impl Fighter {
         };
         decide::think(&mut self.motion, &ch, &mut self.facing, &controls);
         self.facing.rotate(self.motion.take_facing_change());
+        self.track_throw();
         if std::mem::take(&mut self.motion.attack_began) && self.player && self.motion.air.frames == 0 {
             self.face_opponent(opponents);
         }
@@ -237,7 +250,51 @@ impl Fighter {
 
         self.motion.advance(&ch);
         self.facing.rotate(self.motion.take_facing_change());
+        self.track_throw();
+
+        // A clip can hurt whoever plays it at set frames (a throw's victim
+        // hitting the floor).
+        let wound = self.motion.self_damage();
+        if wound > 0 {
+            self.take_damage(wound, Vec3::ZERO);
+            eprintln!("thrown: {wound} damage (hp {})", self.hp);
+        }
         Some(world)
+    }
+
+    /// Keeps `throwing` in step with the clips: any new clip ends a throw this
+    /// fighter was carrying out, unless it is itself the start of one — which
+    /// also turns the thrower to face its victim squarely.
+    fn track_throw(&mut self) {
+        if self.motion.new_clip {
+            self.throwing = self.motion.throw_started.map(|t| t.target);
+        }
+        if let Some(t) = self.motion.throw_started.as_mut() {
+            let turn = std::mem::take(&mut t.turn);
+            if turn != 0.0 {
+                self.facing.rotate(turn);
+                self.facing.adjust_desired(turn);
+            }
+        }
+    }
+
+    /// Being thrown by fighter `by`: plays the victim clip `clip` (named, as
+    /// the thrower's set may differ from ours), moved to `dest` (sliding
+    /// against walls on the way) and turned to `facing`. Returns false when
+    /// this character has no such clip.
+    pub fn be_thrown(&mut self, by: usize, clip: &str, fight: bool, dest: Vec3, facing: f32) -> bool {
+        let Some(i) = self.motion.coll.entries.iter().position(|e| e.name == clip) else {
+            return false;
+        };
+        let ch = self.character.clone();
+        self.motion.thrown(&ch, i, fight);
+        self.knockback = Vec3::ZERO;
+        self.physics.slide(dest - self.physics.feet);
+        self.facing = Facing::new(facing);
+        self.thrown_by = Some(by);
+        self.throwing = None;
+        self.replace();
+        true
     }
 
     /// The second half of a tick: apply the (possibly adjusted) move against
@@ -438,6 +495,13 @@ impl Fighter {
         self.knockback += knockback;
         if self.hp == 0 {
             self.motion.dying = true;
+            // Killed mid-throw on the way to the floor: the throw plays out.
+            let c = self.motion.current();
+            if c.has_flag(flag::THROW_TARGET) && matches!(c.to_state, st::FALLEN_BACK | st::FALLEN_FRONT) {
+                self.pending_reaction = ty::NONE;
+                eprintln!("fighter died (thrown)");
+                return;
+            }
             let kind = if reaction::is_knockdown(self.pending_reaction) {
                 self.pending_reaction
             } else {

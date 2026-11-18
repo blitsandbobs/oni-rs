@@ -985,6 +985,25 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if clip.first_level != 0 {
         obj.insert("firstLevel".into(), serde_json::json!(clip.first_level));
     }
+    if !clip.self_damage.is_empty() {
+        let list: Vec<_> = clip
+            .self_damage
+            .iter()
+            .map(|&(tick, damage)| serde_json::json!({ "tick": tick, "damage": damage }))
+            .collect();
+        obj.insert("selfDamage".into(), serde_json::json!(list));
+    }
+    if let Some(t) = &clip.throw {
+        obj.insert(
+            "throw".into(),
+            serde_json::json!({
+                "targetOffset": t.target_offset,
+                "targetFacing": t.target_facing,
+                "range": t.range,
+                "targetAnimType": t.target_anim_type,
+            }),
+        );
+    }
     // `vocalizationType` and `actionFrame` default to a "none" sentinel in the
     // original importer (`(UUtUns16)-1` and `-1`); omit those, emit real values.
     if clip.vocalization_type != u16::MAX {

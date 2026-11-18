@@ -67,6 +67,21 @@ pub mod ty {
     pub const CROUCH_WALK_SIDESTEP_RIGHT: u16 = 65;
     pub const RUN_KICK: u16 = 66;
     pub const RUN_PUNCH: u16 = 67;
+    // Throws: the thrower's clips (front = the two face each other).
+    pub const THROW_FORWARD_PUNCH: u16 = 106;
+    pub const THROW_FORWARD_KICK: u16 = 107;
+    pub const THROW_BEHIND_PUNCH: u16 = 108;
+    pub const THROW_BEHIND_KICK: u16 = 109;
+    pub const RUN_THROW_FORWARD_PUNCH: u16 = 110;
+    pub const RUN_THROW_BEHIND_PUNCH: u16 = 111;
+    pub const RUN_THROW_FORWARD_KICK: u16 = 112;
+    pub const RUN_THROW_BEHIND_KICK: u16 = 113;
+
+    /// The victim's clips ("thrown 1–17"): generic slots, paired with a
+    /// thrower's clip by its throw data, not by number.
+    pub fn is_thrown(t: u16) -> bool {
+        matches!(t, 96..=101 | 114..=119 | 128..=132)
+    }
     pub const RUN_BACK_PUNCH: u16 = 68;
     pub const RUN_BACK_KICK: u16 = 69;
     pub const SIDESTEP_LEFT_KICK: u16 = 70;

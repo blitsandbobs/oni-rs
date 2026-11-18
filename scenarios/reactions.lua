@@ -35,11 +35,29 @@ show("behind punch", d)
 assert(hp(d) < hp0, "the punch from behind hurt (" .. hp0 .. " -> " .. hp(d) .. ")")
 assert(reacted, "the dummy played a from-behind hit reaction")
 
+-- Close in on the dummy, then a plain punch. (Punching with forward held
+-- would be a forward punch, which turns into a throw within reach.)
+local function gap()
+    local x, _, z = pos()
+    local dx, _, dz = pos_of(d)
+    return math.sqrt((dx - x)^2 + (dz - z)^2)
+end
+local function close_in_and_punch()
+    local x, _, z = pos()
+    local dx, _, dz = pos_of(d)
+    set_facing(0, math.deg(math.atan(dx - x, dz - z)))
+    if gap() > 8.5 then
+        input(true, false); step(2)
+    else
+        input(false, false); punch(); step(2)
+    end
+end
+
 -- Chase it with a punch combo until it goes down (the third punch knocks down).
 step(60)
 local floored = false
 for _ = 1, 120 do
-    input(true, false); punch(); step(2)
+    close_in_and_punch()
     if down(d) then floored = true; break end
 end
 input(false, false)
@@ -74,7 +92,7 @@ step(60)
 set_hp(d, 1)
 local died = false
 for _ = 1, 120 do
-    input(true, false); punch(); step(2)
+    close_in_and_punch()
     if dead(d) then died = true; break end
 end
 input(false, false)

@@ -124,6 +124,24 @@ pub struct Clip {
     /// Frames `[invulnerable_start, +invulnerable_length)` are immune to hits.
     pub invulnerable_start: u8,
     pub invulnerable_length: u8,
+    /// For a throw: where the victim goes and what it plays (`extras.throw`).
+    pub throw: Option<Throw>,
+    /// `(frame, damage)`: damage the clip deals whoever plays it
+    /// (`extras.selfDamage`; how a throw hurts its victim).
+    pub self_damage: Vec<(u16, u16)>,
+}
+
+/// How a throw clip places and animates its victim.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Throw {
+    /// The victim's position in the thrower's local frame.
+    pub target_offset: Vec3,
+    /// The victim's facing relative to the thrower's (radians).
+    pub target_facing: f32,
+    /// How far away the victim may be.
+    pub range: f32,
+    /// The victim's animation type.
+    pub target_anim_type: u16,
 }
 
 /// A clip's alternate entry state (`TRtShortcut`, from `extras.shortcuts`).
@@ -495,6 +513,27 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         soft_pause: u16_field("softPause"),
         invulnerable_start: u16_field("invulnerableStart") as u8,
         invulnerable_length: u16_field("invulnerableLength") as u8,
+        throw: ex["throw"].is_object().then(|| {
+            let t = &ex["throw"];
+            let o = |i: usize| t["targetOffset"][i].as_f64().unwrap_or(0.0) as f32;
+            Throw {
+                target_offset: Vec3::new(o(0), o(1), o(2)),
+                target_facing: t["targetFacing"].as_f64().unwrap_or(0.0) as f32,
+                range: t["range"].as_f64().unwrap_or(0.0) as f32,
+                target_anim_type: t["targetAnimType"].as_u64().unwrap_or(0) as u16,
+            }
+        }),
+        self_damage: ex["selfDamage"]
+            .as_array()
+            .map(|arr| {
+                arr.iter()
+                    .map(|d| {
+                        let k = |n: &str| d[n].as_u64().unwrap_or(0) as u16;
+                        (k("tick"), k("damage"))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default(),
     })
 }
 

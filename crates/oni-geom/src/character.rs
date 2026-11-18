@@ -177,7 +177,9 @@ pub const TAG_TRAM: FourCc = FourCc(0x5452_414D);
 const PTR_HEIGHTS: usize = 1; // per-frame pelvis-height track
 const PTR_POSITIONS: usize = 2; // root-motion track
 const PTR_ATTACKS: usize = 3; // TRtAttack[]
+const PTR_SELF_DAMAGE: usize = 4; // TRtTakeDamage[] (damage u16, frame u16)
 const PTR_SHORTCUTS: usize = 6; // TRtShortcut[]
+const PTR_THROW: usize = 7; // TRtThrowInfo (one, or none)
 const PTR_DATA: usize = 11; // keyframe data
 const TRAM_NUM_PTRS: usize = 13;
 // Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
@@ -205,11 +207,25 @@ const TRAM_ACTION_FRAME: usize = 372; // `actionFrame` i16 (weapon swap, pickup,
 const TRAM_FIRST_LEVEL: usize = 374; // `firstLevel`: clip unavailable before this level
 const TRAM_INVULN_START: usize = 376; // `invulnerableStart` u8
 const TRAM_INVULN_LENGTH: usize = 377; // `invulnerableLength` u8 (0 = none)
+const TRAM_NUM_SELF_DAMAGE: usize = 379; // `numTakeDamages` u8
 const TRAM_NUM_SHORTCUTS: usize = 381; // `numShortcuts` u8
 const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
 const SHORTCUT_SIZE: usize = 8; // sizeof(TRtShortcut)
 const MAX_SHORTCUTS: usize = 8; // TRcMaxShortcuts
+
+/// How a throw places its victim (`TRtThrowInfo`), for a clip that throws.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Throw {
+    /// Where the victim stands, in the thrower's local frame (units).
+    pub target_offset: [f32; 3],
+    /// The victim's facing relative to the thrower's (radians).
+    pub target_facing: f32,
+    /// How far away the victim may be for the throw to take (units).
+    pub range: f32,
+    /// The animation type the victim plays (one of the "thrown" types).
+    pub target_anim_type: u16,
+}
 
 /// A clip's alternate entry state (`TRtShortcut`): the clip may also be
 /// selected from `state` (not just its own `fromState`), blending in over
@@ -395,6 +411,11 @@ pub struct Clip {
     pub atomic_end: u16,
     /// The clip is unavailable on levels before this one (`firstLevel`).
     pub first_level: u16,
+    /// For a throw clip: how the victim is placed and what it plays.
+    pub throw: Option<Throw>,
+    /// Damage the character playing this clip takes, as `(frame, damage)`
+    /// pairs — how a thrown victim gets hurt.
+    pub self_damage: Vec<(u16, u16)>,
 }
 
 /// Resolves a reference-form word (`v & 1`, index `v >> 8`) to an instance name.
@@ -531,6 +552,37 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
     let attacks = decode_attacks(raw, &ptrs);
     let num_shortcuts = read_u8(d, TRAM_NUM_SHORTCUTS).unwrap_or(0) as usize;
     let shortcuts = decode_shortcuts(raw, &ptrs, num_shortcuts);
+    let throw = (ptrs.get(PTR_THROW).copied().unwrap_or(0) != 0)
+        .then(|| {
+            let o = ptrs[PTR_THROW] as usize;
+            Some(Throw {
+                target_offset: [read_f32(raw, o)?, read_f32(raw, o + 4)?, read_f32(raw, o + 8)?],
+                target_facing: read_f32(raw, o + 12)?,
+                range: read_f32(raw, o + 16)?,
+                target_anim_type: read_u16(raw, o + 20)?,
+            })
+        })
+        .flatten();
+    let self_damage = {
+        let off = ptrs.get(PTR_SELF_DAMAGE).copied().unwrap_or(0) as usize;
+        let count = read_u8(d, TRAM_NUM_SELF_DAMAGE).unwrap_or(0) as usize;
+        let bound = ptrs
+            .iter()
+            .map(|&p| p as usize)
+            .filter(|&p| p > off)
+            .min()
+            .unwrap_or(off + count * 4);
+        if off == 0 {
+            Vec::new()
+        } else {
+            (0..count.min((bound - off) / 4))
+                .filter_map(|k| {
+                    let o = off + k * 4;
+                    Some((read_u16(raw, o + 2)?, read_u16(raw, o)?))
+                })
+                .collect()
+        }
+    };
     let direct = (0..2)
         .filter_map(|k| read_u32(d, TRAM_DIRECT_ANIM + k * 4))
         .filter_map(|v| ref_name(dat, v))
@@ -565,6 +617,8 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         atomic_start: read_u16(d, TRAM_ATOMIC_START).unwrap_or(1),
         atomic_end: read_u16(d, TRAM_ATOMIC_END).unwrap_or(0),
         first_level: read_u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
+        throw,
+        self_damage,
     })
 }
 

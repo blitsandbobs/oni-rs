@@ -25,6 +25,7 @@ use glam::{Quat, Vec3};
 
 use crate::anim::collection::AnimCollection;
 use crate::anim::reaction::{self, Victim};
+use crate::anim::throw;
 use crate::anim::types::{flag, shortcut, st, ty, var};
 use crate::quirks::Quirks;
 use crate::skel::{self, Character, Clip};
@@ -172,6 +173,11 @@ pub struct Motion {
     last_active: u64,
     /// A clip started since the owner last checked (clears per-swing hit sets).
     pub new_clip: bool,
+    /// Who this character could throw this tick (set by the world for
+    /// characters whose strikes turn into throws: the player).
+    pub throw_sense: Option<throw::Sense>,
+    /// A throw this character began this tick (for the world to carry out).
+    pub throw_started: Option<throw::Started>,
     /// An attack clip started since the owner last checked (auto-facing).
     pub attack_began: bool,
     /// How many attack clips have started (an AI watches its combo progress).
@@ -275,6 +281,8 @@ impl Motion {
             idle_delay: tuning.idle_delay,
             last_active: 0,
             new_clip: false,
+            throw_sense: None,
+            throw_started: None,
             attack_began: false,
             attacks_started: 0,
             dying: false,
@@ -448,6 +456,7 @@ impl Motion {
         }
 
         // Interrupt: blend in over the default length, or the shortcut's.
+        let clip = self.maybe_throw(clip);
         let from = self.state;
         let mut n = BLEND_FRAMES.max(self.min_blend);
         if let Some(s) = self.clip_of(clip).shortcut_from(from) {
@@ -587,12 +596,56 @@ impl Motion {
                 .or_else(|| self.coll.lookup(ty::STAND, st::STANDING, self.varient))
                 .unwrap_or(self.clip)
         };
+        let next = if self.lock_frames > 0 { next } else { self.maybe_throw(next) };
         self.soft_pause = self.soft_pause.max(self.coll.soft_pause(self.clip, next));
         self.hard_pause = self.hard_pause.max(self.coll.hard_pause(self.clip, next));
         let n = self.coll.end_interpolation(self.clip, next);
         let turn = self.leave_clip(true);
         let from = self.state;
         self.enter(ch, from, next, n, turn);
+    }
+
+    /// A strike about to start may become a throw instead (see
+    /// [`throw`]). Returns the clip to start.
+    fn maybe_throw(&mut self, clip: usize) -> usize {
+        let Some(sense) = &self.throw_sense else {
+            return clip;
+        };
+        let strike = self.clip_of(clip).anim_type;
+        match throw::attempt(&self.coll, strike, self.state, self.varient, sense) {
+            Some((throw_clip, started)) => {
+                self.throw_started = Some(started);
+                self.fight_mode();
+                throw_clip
+            }
+            None => clip,
+        }
+    }
+
+    /// Being thrown: plays the victim's side of a throw (`clip`, an index into
+    /// the thrower's collection — the same set for our characters), cutting
+    /// off whatever was playing. Takes the fight stance if the throw does.
+    pub fn thrown(&mut self, ch: &Character, clip: usize, fight: bool) {
+        if fight {
+            self.fight_mode();
+        }
+        self.last_attack = ty::NONE;
+        self.attack_ended = Some(0);
+        self.lock_frames = 0;
+        self.leave_clip(false);
+        let from = self.state;
+        self.enter(ch, from, clip, throw::VICTIM_BLEND, 0.0);
+        self.queued = ty::STAND;
+    }
+
+    /// Damage the current clip deals its own player at this frame.
+    pub fn self_damage(&self) -> i32 {
+        self.current()
+            .self_damage
+            .iter()
+            .filter(|&&(f, _)| f == self.frame)
+            .map(|&(_, d)| i32::from(d))
+            .sum()
     }
 
     /// Forces the airborne clip after walking off a ledge mid-stride.

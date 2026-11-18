@@ -323,6 +323,23 @@ impl AnimCollection {
         result
     }
 
+    /// Every clip filed under exactly `(anim_type, from_state)` — shortcut
+    /// entries included — through the whole chain, in chain order, with no
+    /// variant or level filtering (the caller judges each one).
+    pub fn all(&self, anim_type: u16, from_state: u16) -> Vec<usize> {
+        let key = (u32::from(anim_type) << 16) | u32::from(from_state);
+        self.links
+            .iter()
+            .flat_map(|link| {
+                let start = link.parts.partition_point(|p| self.key(p) < key);
+                link.parts[start..]
+                    .iter()
+                    .take_while(move |p| self.key(p) == key)
+                    .map(|p| p.clip)
+            })
+            .collect()
+    }
+
     /// Whether `to` is one of `from`'s direct follow-ups (`TRrAnimation_IsDirect`).
     pub fn is_direct(&self, from: usize, to: usize) -> bool {
         self.entries[from].direct.contains(&to)
