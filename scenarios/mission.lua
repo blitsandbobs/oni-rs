@@ -201,6 +201,27 @@ took = wait_for(function() return (laser_state(1)) == true end, 200)
 print("lasers on after", took, "beams", #beams())
 assert(took and (laser_state(3)) and (laser_state(2)), "the training switches the three lasers on")
 
+-- A flip (jump, then crouch in the air); the training lowers the next
+-- barrier and the fighting lessons begin in the next room — the lasers go
+-- off, and it asks for a punch, then a kick.
+took = wait_for(function() return showing("c01_50_19") end, 1500)
+assert(took, "asked to flip")
+away_from_walls()
+jump() step(8) crouch_tap() step(60)
+took = wait_for(function() return showing("c01_50_23") end, 600)
+assert(took, "the flip is recognised")
+teleport(0, -1011, -296, -505)
+took = wait_for(function() return showing("xpunch") end, 600)
+assert(took, "the fighting lessons")
+assert(laser_state(1) == false and laser_state(2) == false and laser_state(3) == false, "the lasers are off")
+punch()
+took = wait_for(function() return showing("xkick") end, 300)
+assert(took, "a punch")
+kick()
+took = wait_for(function() return not showing("xkick") end, 300)
+print("punched and kicked; the fighting lessons go on")
+assert(took, "a kick")
+
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
 for _, e in ipairs(info.errors) do print("  " .. e) end
