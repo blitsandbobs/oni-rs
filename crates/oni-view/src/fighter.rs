@@ -121,6 +121,15 @@ pub struct Fighter {
     pub daze: (u32, u32),
     /// Its movement last tick (world).
     pub velocity: Vec3,
+    /// A noise it made this tick (kind, volume), for the world to spread.
+    pub noise: Option<(crate::ai::perception::Stimulus, f32)>,
+    /// What it sees, hears and remembers (AI characters).
+    pub perception: Option<crate::ai::perception::Perception>,
+    /// Glancing toward a point until a tick (no brain to steer it).
+    pub glance: Option<(Vec3, u64)>,
+    /// Startled: the facing it started from and the turn it makes over the
+    /// startle clip (nothing else happens meanwhile).
+    pub startling: Option<(f32, f32)>,
 }
 
 impl Fighter {
@@ -179,6 +188,10 @@ impl Fighter {
             melee_profile: None,
             daze: (60, 100),
             velocity: Vec3::ZERO,
+            noise: None,
+            perception: None,
+            glance: None,
+            startling: None,
         }
     }
 
@@ -262,6 +275,25 @@ impl Fighter {
         self.facing.rotate(self.motion.take_facing_change());
         self.track_throw();
 
+        // Noises: crouch-moving or sliding (faint) and taunting (interesting),
+        // at the clip's half-way point.
+        if self.motion.frame == self.motion.length() / 2 {
+            use crate::ai::perception::Stimulus;
+            self.noise = match self.motion.kind {
+                ty::CROUCH_RUN
+                | ty::CROUCH_WALK
+                | ty::CROUCH_RUN_BACKWARDS
+                | ty::CROUCH_WALK_BACKWARDS
+                | ty::CROUCH_RUN_SIDESTEP_LEFT
+                | ty::CROUCH_RUN_SIDESTEP_RIGHT
+                | ty::CROUCH_WALK_SIDESTEP_LEFT
+                | ty::CROUCH_WALK_SIDESTEP_RIGHT
+                | ty::SLIDE => Some((Stimulus::SoundIgnore, 60.0)),
+                ty::TAUNT => Some((Stimulus::SoundInteresting, 150.0)),
+                _ => None,
+            };
+        }
+
         // A clip can hurt whoever plays it at set frames (a throw's victim
         // hitting the floor).
         let wound = self.motion.self_damage();
@@ -270,6 +302,72 @@ impl Fighter {
             eprintln!("thrown: {wound} damage (hp {})", self.hp);
         }
         Some(world)
+    }
+
+    /// Its team (the player's is Konoko).
+    pub fn team(&self) -> crate::ai::perception::Team {
+        match &self.perception {
+            Some(p) => p.team,
+            None if self.player => crate::ai::perception::Team::Konoko,
+            None => crate::ai::perception::Team::Syndicate,
+        }
+    }
+
+    /// Where others look for it: pelvis, head, feet (+1).
+    pub fn sight_points(&self) -> [Vec3; 3] {
+        let spheres = self.body_spheres();
+        let part = |k: usize, or: Vec3| spheres.iter().find(|s| s.0 == k).map_or(or, |s| s.1);
+        let feet = self.feet();
+        [part(0, feet + Vec3::Y * 8.0), part(10, feet + Vec3::Y * 15.0), feet + Vec3::Y]
+    }
+
+    /// A startled jump toward something at `at`: the startle animation for
+    /// its quadrant (forward, left, back, right of the facing).
+    pub fn startle(&mut self, at: Vec3) {
+        use crate::ai::melee::tables::ty;
+        let d = at - self.feet();
+        let off = (d.x.atan2(d.z) - self.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            - std::f32::consts::PI;
+        let q = std::f32::consts::FRAC_PI_4;
+        let kind = if off.abs() <= q {
+            "startleForward"
+        } else if off.abs() >= 3.0 * q {
+            "startleBack"
+        } else if off > 0.0 {
+            "startleLeft"
+        } else {
+            "startleRight"
+        };
+        // Into the fight stance (the startle clips are fight-stance ones).
+        self.motion.fight_mode();
+        let ch = self.character.clone();
+        if let Some(clip) = self.motion.request(&ch, crate::anim::motion::Urge::Force, false, ty(kind)) {
+            // Over the clip the body turns to face the contact.
+            let rotation = self.motion.clip_of(clip).final_rotation;
+            let want = d.x.atan2(d.z);
+            let delta = (want - self.facing.facing - rotation + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
+            self.startling = Some((self.facing.facing, delta));
+            eprintln!("perception: startled ({kind})");
+        }
+    }
+
+    /// While startled: turn by the startle's share for this frame. Returns
+    /// whether it is still startled.
+    pub fn startle_turn(&mut self) -> bool {
+        let Some((start, delta)) = self.startling else { return false };
+        let startle = matches!(
+            oni_schema::name(&oni_schema::ANIM_TYPES, self.motion.kind),
+            Some("startleForward" | "startleLeft" | "startleBack" | "startleRight")
+        );
+        if !startle {
+            self.startling = None;
+            return false;
+        }
+        let t = f32::from(self.motion.frame) / f32::from(self.motion.length().max(1));
+        self.facing.facing = (start + delta * t).rem_euclid(std::f32::consts::TAU);
+        self.facing.desired_facing = self.facing.facing;
+        true
     }
 
     /// Applies a melee AI's decision: turns toward where it wants to face (at
@@ -623,7 +721,24 @@ impl Fighter {
         match self.brain.as_mut() {
             Some(brain) => brain.think(&senses, &mut self.facing),
             None if self.passive => self.dummy_controls(),
-            None => 0,
+            None => {
+                // Glancing toward something it noticed: turn the body there.
+                if let Some((at, until)) = self.glance {
+                    if self.motion.now >= until {
+                        self.glance = None;
+                    } else {
+                        let d = at - self.feet();
+                        let want = d.x.atan2(d.z);
+                        let cap = crate::ai::MAX_TURN;
+                        let delta = (want - self.facing.facing + std::f32::consts::PI)
+                            .rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI;
+                        self.facing.rotate(delta.clamp(-cap, cap));
+                        self.facing.desired_facing = self.facing.facing;
+                    }
+                }
+                0
+            }
         }
     }
 

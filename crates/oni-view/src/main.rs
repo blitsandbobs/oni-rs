@@ -270,6 +270,18 @@ fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     (verts, indices)
 }
 
+/// The scene's opaque triangles (what blocks sight: not glass).
+fn opaque_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
+    let mut verts: Vec<[f32; 3]> = Vec::new();
+    let mut indices: Vec<u32> = Vec::new();
+    for p in scene.prims.iter().filter(|p| !p.blend) {
+        let base = verts.len() as u32;
+        verts.extend(p.vertices.iter().map(|v| v.pos));
+        indices.extend(p.indices.iter().map(|i| base + i));
+    }
+    (verts, indices)
+}
+
 /// The converted-asset root (`…/oni`) for a scene at `…/oni/levels/NN/x.glb`.
 fn oni_root_from(scene: &std::path::Path) -> PathBuf {
     scene

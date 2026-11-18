@@ -198,6 +198,8 @@ impl ApplicationHandler for App {
                         world.difficulty = c.difficulty(&self.cast.difficulty);
                     }
                     world.nav = crate::nav::Navigation::load(&self.cast.level_dir).ok().map(std::rc::Rc::new);
+                    let (ov, oi) = crate::opaque_mesh(&scene);
+                    world.sight = Some(crate::physics::Sight::new(&ov, &oi));
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);

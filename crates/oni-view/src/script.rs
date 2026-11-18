@@ -40,6 +40,7 @@
 //! - `spawn(x, y, z [, facing_deg [, class]])` — spawn a training dummy of a
 //!   character class (default: `--opponent`, else the player's), returns its id
 //! - `class_of(id)` — a fighter's character class name
+//! - `watch(id)` / `alert_of(id)` / `contact_of(id, other)` / `team(id, name)` / `noise(x, y, z, kind, volume [, maker])` — perception
 //! - `probe(id, deg, dist)` — free distance before a wall, distance to a ledge (or nil)
 //! - `count()` — number of fighters (player + dummies)
 //! - `hp(id)` — a fighter's hit points (0 = player)
@@ -111,6 +112,8 @@ impl ScriptHost {
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
+        let (ov, oi) = crate::opaque_mesh(&scene);
+        world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }
@@ -710,6 +713,66 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 },
                 _ => "none".to_string(),
             })
+        })?,
+    )?;
+
+    // Perception: make a placed character an AI that watches and listens
+    // (not a passive dummy); its alert; what it knows about another; teams;
+    // making a noise.
+    let h = host.clone();
+    g.set(
+        "watch",
+        lua.create_function(move |_, id: usize| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.passive = false;
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "alert_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).and_then(|f| f.perception.as_ref()).map(|p| p.alert.name()))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "contact_of",
+        lua.create_function(move |_, (id, other): (usize, usize)| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.perception.as_ref())
+                .and_then(|p| p.about(other))
+                .map(|c| c.strength.name()))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "team",
+        lua.create_function(move |_, (id, name): (usize, String)| {
+            if let Some(p) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.perception.as_mut()) {
+                p.team = crate::ai::perception::Team::from_name(&name);
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "noise",
+        lua.create_function(move |_, (x, y, z, kind, volume, maker): (f32, f32, f32, String, f32, Option<usize>)| {
+            use crate::ai::perception::Stimulus;
+            let stimulus = match kind.as_str() {
+                "interesting" => Stimulus::SoundInteresting,
+                "danger" => Stimulus::SoundDanger,
+                "melee" => Stimulus::SoundMelee,
+                "gunshot" => Stimulus::SoundGunshot,
+                _ => Stimulus::SoundIgnore,
+            };
+            h.borrow_mut().world.sound(stimulus, Vec3::new(x, y, z), volume, maker, None);
+            Ok(())
         })?,
     )?;
 

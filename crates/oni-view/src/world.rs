@@ -29,6 +29,36 @@ const BLOCK_ANGLE: f32 = 20.0 * std::f32::consts::PI / 180.0;
 /// per tick (see `Fighter::tick`). A feel knob to revisit at playtest.
 const KNOCKBACK_SCALE: f32 = 1.0;
 
+/// A noise (behaviour per `docs/PERCEPTION.md`, *Hearing*): its kind, where,
+/// how far it carries for a hearer of acuity 1, who made it and whom it
+/// concerns.
+#[derive(Clone, Copy, Debug)]
+pub struct Sound {
+    pub stimulus: crate::ai::perception::Stimulus,
+    pub at: Vec3,
+    pub volume: f32,
+    pub maker: Option<usize>,
+    pub other: Option<usize>,
+}
+
+/// The length of the way between two points through the level's rooms
+/// (straight within a room; through portal midpoints across rooms).
+fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f32> {
+    let (a, b) = (nav.room_at(from)?, nav.room_at(to)?);
+    if a == b {
+        return Some(from.distance(to));
+    }
+    let portals = crate::nav::plan::route(nav, a, from, b, to)?;
+    let mut at = from;
+    let mut len = 0.0;
+    for (r, k) in portals {
+        let mid = nav.rooms[r].portals[k].mid;
+        len += at.distance(mid);
+        at = mid;
+    }
+    Some(len + at.distance(to))
+}
+
 /// A spawnable character: its uploaded render model and the shared data a new
 /// instance needs. Clone-cheap (two `Rc`s + an index).
 #[derive(Clone)]
@@ -41,6 +71,8 @@ pub struct CharKind {
     /// How its AI fights hand to hand, and how long it lies dazed (ticks).
     pub melee: Option<Rc<crate::ai::melee::profile::Profile>>,
     pub daze: (u32, u32),
+    /// How it sees, hears and remembers.
+    pub perception: crate::ai::perception::Tuning,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -55,6 +87,10 @@ pub struct World {
     pub difficulty: crate::ai::melee::brain::Difficulty,
     /// The level's navigation data (rooms, portals, grids), if it has any.
     pub nav: Option<Rc<crate::nav::Navigation>>,
+    /// Line of sight through the level's opaque geometry.
+    pub sight: Option<crate::physics::Sight>,
+    /// Noises made since the last perception pass.
+    pub sounds: Vec<Sound>,
     now: i64,
     rng: u32,
     level_positions: Vec<[f32; 3]>,
@@ -70,6 +106,8 @@ impl World {
             fights: Default::default(),
             difficulty: Default::default(),
             nav: None,
+            sight: None,
+            sounds: Vec::new(),
             now: 0,
             rng: 0x9E37_79B9,
             level_positions,
@@ -98,6 +136,12 @@ impl World {
         let mut f = f;
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
+        if !player {
+            f.perception = Some(crate::ai::perception::Perception::new(
+                kind.perception,
+                crate::ai::perception::Team::Syndicate,
+            ));
+        }
         self.fighters.push(f);
         self.fighters.len() - 1
     }
@@ -109,6 +153,12 @@ impl World {
         let Some(profile) = f.melee_profile.clone() else { return false };
         let m = crate::ai::melee::brain::Melee::new(profile, target, f.daze, id as u32 * 7919 + 1);
         f.brain = Some(crate::ai::Brain::Melee(Box::new(m)));
+        // It knows exactly where its target is (the original's "magic
+        // awareness" of an ordered attack).
+        let (team, now) = (self.fighters.get(target).map(|t| (t.team(), t.feet())), self.now as u64);
+        if let (Some((team, feet)), Some(p)) = (team, self.fighters[id].perception.as_mut()) {
+            p.force_target(target, team, feet, now);
+        }
         true
     }
 
@@ -120,6 +170,151 @@ impl World {
         x ^= x << 5;
         self.rng = x;
         (x % 100) as f32
+    }
+
+    /// A noise someone made: who hears it is worked out at the next
+    /// perception pass.
+    pub fn sound(&mut self, stimulus: crate::ai::perception::Stimulus, at: Vec3, volume: f32, maker: Option<usize>, other: Option<usize>) {
+        self.sounds.push(Sound { stimulus, at, volume, maker, other });
+    }
+
+    /// Perception (behaviour per `docs/PERCEPTION.md`): noises, sight, memory
+    /// fading and alert easing for every perceiving character; then each
+    /// acts on what it noticed.
+    fn perceive(&mut self) {
+        use crate::ai::perception::{forward, Notice, Strength, Stimulus};
+        let now = self.now as u64;
+        let n = self.fighters.len();
+        let alive: Vec<bool> = self.fighters.iter().map(|f| f.alive() && !f.motion.dying).collect();
+        let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
+        let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
+        let points: Vec<[Vec3; 3]> = self.fighters.iter().map(|f| f.sight_points()).collect();
+        let faithful = self.quirks.faithful;
+
+        // Deaths.
+        for (d, &living) in alive.iter().enumerate() {
+            if !living {
+                for f in &mut self.fighters {
+                    if let Some(p) = f.perception.as_mut() {
+                        if p.about(d).is_some_and(|c| c.strength > Strength::Dead) {
+                            p.died(d);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Noises.
+        let sounds = std::mem::take(&mut self.sounds);
+        for s in &sounds {
+            for i in 0..n {
+                if !alive[i] || self.fighters[i].passive {
+                    continue;
+                }
+                let Some(p) = self.fighters[i].perception.as_ref() else { continue };
+                let combat = s.stimulus.combat_sound();
+                let ignored = |w: Option<usize>| {
+                    w.is_some_and(|w| !alive[w] || p.ignores(i, w, teams[w], self.fighters[w].player, combat))
+                };
+                let (ig1, ig2) = (ignored(s.maker), s.other.is_none() || ignored(s.other));
+                if s.maker.is_some() && ig1 && ig2 {
+                    continue;
+                }
+                let range = s.volume * p.tuning.hearing;
+                if s.at.distance(feet[i]) > range {
+                    continue;
+                }
+                let eye = points[i][1];
+                let heard = self.sight.as_ref().is_none_or(|sg| sg.clear(s.at, eye))
+                    || self.nav.as_ref().is_some_and(|nav| route_length(nav, s.at, feet[i]).is_some_and(|d| d <= range));
+                if !heard {
+                    continue;
+                }
+                let p = self.fighters[i].perception.as_mut().expect("perceiving");
+                match s.maker {
+                    Some(m) if !ig1 => {
+                        let strength = if s.stimulus as u8 >= Stimulus::SoundMelee as u8 && s.at.distance(eye) <= 40.0 {
+                            Strength::Definite
+                        } else {
+                            Strength::Strong
+                        };
+                        p.perceive(Some(m), Some(teams[m]), s.stimulus, strength, feet[m], 0, now);
+                    }
+                    None => p.perceive(None, None, s.stimulus, Strength::Strong, s.at, 0, now),
+                    _ => {}
+                }
+                if let Some(o) = s.other.filter(|_| !ig2) {
+                    let p = self.fighters[i].perception.as_mut().expect("perceiving");
+                    p.perceive(Some(o), Some(teams[o]), s.stimulus, Strength::Strong, feet[o], 0, now);
+                }
+            }
+        }
+
+        // Sight.
+        for i in 0..n {
+            if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.is_none() {
+                continue;
+            }
+            let every = self.fighters[i].perception.as_ref().map_or(59, |p| p.look_every(now));
+            if (i as u64 * 13) % every != now % every {
+                continue;
+            }
+            let eye = points[i][1];
+            let look = forward(self.fighters[i].facing.facing);
+            for j in 0..n {
+                if j == i || !alive[j] {
+                    continue;
+                }
+                let p = self.fighters[i].perception.as_ref().expect("perceiving");
+                if p.ignores(i, j, teams[j], self.fighters[j].player, false) {
+                    continue;
+                }
+                let known = p.about(j).is_some_and(|c| c.strength == Strength::Definite);
+                let aim = feet[j] + Vec3::Y * self.fighters[j].motion.height();
+                let Some(stimulus) = p.tuning.sees(aim - eye, look, known, faithful) else { continue };
+                let seen = points[j].iter().find(|&&pt| self.sight.as_ref().is_none_or(|s| s.clear(eye, pt)));
+                let Some(&at) = seen else { continue };
+                let strength = if stimulus == Stimulus::SightDefinite { Strength::Definite } else { Strength::Weak };
+                let p = self.fighters[i].perception.as_mut().expect("perceiving");
+                p.perceive(Some(j), Some(teams[j]), stimulus, strength, at, 0, now);
+            }
+        }
+
+        // Memory fades (every 60 ticks); the alert eases when not fighting.
+        for f in &mut self.fighters {
+            let fighting = matches!(f.brain, Some(crate::ai::Brain::Melee(_)));
+            if let Some(p) = f.perception.as_mut() {
+                if now.is_multiple_of(60) {
+                    p.decay(now, &|_| true);
+                }
+                if !fighting {
+                    p.calm();
+                }
+            }
+        }
+
+        // Acting on it.
+        for i in 0..n {
+            let notices = match self.fighters[i].perception.as_mut() {
+                Some(p) => std::mem::take(&mut p.notices),
+                None => continue,
+            };
+            for notice in notices {
+                match notice {
+                    Notice::Combat(who) => {
+                        // (Switching targets mid-fight is the combat layer's
+                        // call, #4: a fighter keeps its fight.)
+                        let fighting = matches!(&self.fighters[i].brain, Some(crate::ai::Brain::Melee(_)));
+                        if !fighting && !self.fighters[i].passive && alive[who] {
+                            eprintln!("perception: fighter {i} engages {who}");
+                            self.fight(i, who);
+                        }
+                    }
+                    Notice::Startle(at) => self.fighters[i].startle(at),
+                    Notice::Glance(at, ticks) => self.fighters[i].glance = Some((at, now + u64::from(ticks))),
+                }
+            }
+        }
     }
 
     /// Plans a path for every navigator that needs one. Other characters'
@@ -176,6 +371,10 @@ impl World {
                 Some(crate::ai::Brain::Melee(m)) if m.target < n && m.target != i => m.target,
                 _ => continue,
             };
+            if self.fighters[i].startle_turn() {
+                *out = Some(Default::default()); // startled: just the turn
+                continue;
+            }
             let Some(crate::ai::Brain::Melee(mut m)) = self.fighters[i].brain.take() else {
                 continue;
             };
@@ -207,6 +406,7 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
+        self.perceive();
         self.plan_paths();
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
@@ -267,6 +467,13 @@ impl World {
         for f in &mut self.fighters {
             f.apply_reaction();
         }
+        // Noises made this tick.
+        for i in 0..self.fighters.len() {
+            if let Some((stimulus, volume)) = self.fighters[i].noise.take() {
+                let at = self.fighters[i].feet();
+                self.sound(stimulus, at, volume, Some(i), None);
+            }
+        }
     }
 
     /// What fighter `me` sees of who it could throw: everyone alive except
@@ -322,6 +529,8 @@ impl World {
             if victim.alive() && !victim.motion.dying {
                 victim.be_thrown(a, coll, t.target_clip, fight, dest, facing);
                 eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
+                let at = self.fighters[a].feet();
+                self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0, Some(a), Some(t.target));
             } else {
                 self.fighters[a].throwing = None;
             }
@@ -475,6 +684,7 @@ impl World {
             return;
         }
 
+        let (attacker_team, attacker_feet) = (self.fighters[a].team(), self.fighters[a].feet());
         // Blocking: automatic for a defensive character facing the attacker
         // (an AI also has to pass its block-skill roll).
         let skill = self.block_skill(b);
@@ -548,6 +758,14 @@ impl World {
             }
         }
         fb.take_damage(damage, attack_dir * shove);
+        // The victim knows who hit it.
+        let now = self.now as u64;
+        if let Some(p) = fb.perception.as_mut() {
+            if p.team.regards(attacker_team) != crate::ai::perception::Relation::Friend || p.about(a).is_some() {
+                use crate::ai::perception::{Stimulus, Strength};
+                p.perceive(Some(a), Some(attacker_team), Stimulus::HitMelee, Strength::Definite, attacker_feet, damage, now);
+            }
+        }
         self.fights.damage(a, damage, true);
         self.fights.damage(b, damage, false);
         let fb = &mut self.fighters[b];

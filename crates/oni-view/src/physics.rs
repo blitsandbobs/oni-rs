@@ -184,6 +184,41 @@ impl Physics {
     }
 }
 
+/// Line of sight through the level: the opaque geometry only (glass and
+/// other transparent surfaces don't block sight, as in the original).
+pub struct Sight {
+    bodies: RigidBodySet,
+    colliders: ColliderSet,
+    query: QueryPipeline,
+}
+
+impl Sight {
+    pub fn new(positions: &[[f32; 3]], indices: &[u32]) -> Sight {
+        let mut colliders = ColliderSet::new();
+        let verts: Vec<Point3<f32>> = positions.iter().map(|v| Point3::new(v[0], v[1], v[2])).collect();
+        let idx: Vec<[u32; 3]> = indices.chunks_exact(3).map(|c| [c[0], c[1], c[2]]).collect();
+        if !idx.is_empty() {
+            colliders.insert(ColliderBuilder::trimesh(verts, idx).build());
+        }
+        let mut query = QueryPipeline::new();
+        query.update(&colliders);
+        Sight { bodies: RigidBodySet::new(), colliders, query }
+    }
+
+    /// Whether nothing opaque lies between `from` and `to`.
+    pub fn clear(&self, from: Vec3, to: Vec3) -> bool {
+        let d = to - from;
+        let len = d.length();
+        if len < 1e-3 {
+            return true;
+        }
+        let ray = Ray::new(Point3::new(from.x, from.y, from.z), Vector3::new(d.x / len, d.y / len, d.z / len));
+        self.query
+            .cast_ray(&self.bodies, &self.colliders, &ray, len, true, QueryFilter::default())
+            .is_none()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

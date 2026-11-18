@@ -116,6 +116,7 @@ impl Classes {
             tuning: tuning(&c),
             melee: c["meleeProfile"].as_str().and_then(|n| self.melee.get(n)).cloned(),
             daze,
+            perception: crate::ai::perception::Tuning::from_json(&c["perception"]),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

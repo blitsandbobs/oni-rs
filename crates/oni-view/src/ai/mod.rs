@@ -11,6 +11,7 @@
 
 pub mod melee;
 pub mod navigate;
+pub mod perception;
 
 use std::f32::consts::{PI, TAU};
 
