@@ -162,6 +162,13 @@ impl MeleeState {
         }
     }
 
+    pub fn is_jumping(self) -> bool {
+        matches!(
+            self,
+            S::Jumping | S::JumpingForwards | S::JumpingBack | S::JumpingLeft | S::JumpingRight
+        )
+    }
+
     /// The animation state an attack from this melee state starts in.
     pub fn anim_state(self) -> u16 {
         anim_state(match self {
@@ -306,6 +313,7 @@ pub const ATTACKS: [AttackMove; 84] = {
 
 /// How a position move jumps, if it does.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(usize)]
 pub enum JumpKind {
     None,
     Vertical,

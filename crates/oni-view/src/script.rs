@@ -616,6 +616,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         )?,
     )?;
 
+    // Test hook: make melee AI `id` use technique `name` next (once usable).
+    let h = host.clone();
+    g.set(
+        "technique",
+        lua.create_function(move |_, (id, name): (usize, String)| {
+            if let Some(crate::ai::Brain::Melee(m)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+                m.force = Some(name);
+            }
+            Ok(())
+        })?,
+    )?;
+
     let h = host.clone();
     g.set(
         "class_of",

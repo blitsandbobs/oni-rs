@@ -67,6 +67,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `patrol(id, {{x,z},…} [, pace, loop])` / `route_done(id)` | AI: walk a waypoint route (`"run"`/`"walk"`/`"creep"`) / read whether it finished. |
 | `ai_order(id, dir [, pace, face_deg])` | AI: hold fixed orders — `"forward"`, `"backpedal"`, `"left"`, `"right"`, `"stop"`. |
 | `spar(id, target)` | Make a fighter fight another with its class's melee AI. |
+| `technique(id, name)` | Make melee AI `id` use its profile's technique `name` next (once it can). |
 | `facing(deg)` | Snap the body + target to an absolute yaw. |
 | `turn(delta_deg)` | Nudge the facing *target*; the body slews toward it over ticks. |
 | `facing_deg()` / `desired_deg()` | Read the body yaw / the target yaw. |

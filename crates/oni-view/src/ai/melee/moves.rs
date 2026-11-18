@@ -43,6 +43,8 @@ pub struct MoveState {
     pub delay_ticks: u32,
     pub last_keys: u32,
     pub not_facing: u32,
+    /// Ticks to wait after letting go of jump (we'd have overshot).
+    pub miss_by_height: u32,
     /// Maneuver: when it ends.
     pub until: Option<i64>,
 }
@@ -281,6 +283,26 @@ fn position(
         m.positioned = true;
         return Step::Done;
     };
+    // In the air on a jump-in: keep flying (holding jump for lift) until the
+    // strike would land soon enough, then strike.
+    // (Any jump counts: the original resolves a directionless jump from the
+    // keys held.)
+    let jumping = cur.is_jumping() || me.airborne || me.motion.kind == tables::ty("jump");
+    if p.jump != tables::JumpKind::None && goal.is_jumping() && jumping {
+        if me.airborne && air_strike_ready(m, me, target, p) {
+            m.mv.state_index = p.states.len();
+            m.positioned = true;
+            return Step::Done;
+        }
+        if !me.airborne && cur == goal {
+            m.mv.delay_ticks += 1;
+            if m.mv.delay_ticks > MAX_RUN_IN_TICKS {
+                return Step::Abort;
+            }
+        }
+        out.held = m.mv.last_keys;
+        return Step::Going;
+    }
     if cur == goal {
         // Running in: until the strike would connect from here.
         if m.mv.state_index == 0 && p.can_delay && run_in.is_some() {
@@ -323,12 +345,75 @@ fn position(
     Step::Going
 }
 
+/// Airborne on a jump-in: strike now? Yes when right next to the target, or
+/// when the strike would land by two thirds of its strike window. A strike
+/// passing over the target's head lets go of jump (and waits a moment).
+fn air_strike_ready(m: &mut Melee, me: &View, target: &View, p: &tables::PositionMove) -> bool {
+    const MISS_BY_HEIGHT_TICKS: u32 = 4;
+    let Some(t) = m.technique else { return true };
+    let info = &m.info[t];
+    let Some((_, _, clip)) = info.attack else { return true };
+    let (rel, vel) = relative_turned(me, target, 0.0);
+    let along = match p.dir {
+        Dir::Forward => rel.z,
+        Dir::Left => rel.x,
+        Dir::Right => -rel.x,
+        Dir::Back => -rel.z,
+        Dir::None => (rel.x * rel.x + rel.z * rel.z).sqrt(),
+    };
+    if along < target.planning.0 + info.ideal_range {
+        return true;
+    }
+    let c = &me.motion.coll.entries[clip].clip;
+    let air = geometry::Air {
+        velocity: me.motion.air.velocity,
+        gravity: me.motion.tuning.jump_gravity,
+        expected_ticks: 0,
+    };
+    let attacker = Attacker { clip: c, tick: 0, air: Some(air), sphere: 3.0 };
+    let victim = Target {
+        pos: rel,
+        velocity: vel,
+        radius: target.planning.0,
+        height: target.planning.1,
+        clip: Some(target.motion.current()),
+        tick: target.motion.frame,
+    };
+    match geometry::intersect(&attacker, &victim) {
+        Ok(ticks) => {
+            if m.mv.miss_by_height > 0 {
+                m.mv.miss_by_height -= 1;
+                return false;
+            }
+            let strikes = c.reach.as_ref().map(|r| &r.strikes);
+            let first = strikes.and_then(|s| s.first()).map_or(0, |s| s.tick);
+            let last = strikes.and_then(|s| s.last()).map_or(0, |s| s.tick);
+            ticks <= last - (last - first) / 3
+        }
+        Err(Miss::AboveHead) if m.mv.last_keys & k::JUMP != 0 => {
+            m.mv.last_keys &= !k::JUMP;
+            m.mv.miss_by_height = MISS_BY_HEIGHT_TICKS;
+            false
+        }
+        Err(_) => false,
+    }
+}
+
 /// Whether, running in, the technique's strike (or throw) would connect if
 /// the AI stopped and struck now.
 fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
     let Some(t) = m.technique else { return true };
     let info = &m.info[t];
     let dist = distance(me, target) - target.planning.0;
+    // Running in to jump: take off once the jump would carry us there.
+    let jump = m.profile.techniques[t].moves.iter().find_map(|mv| match mv {
+        Move::Position { index, .. } if POSITIONS[*index].jump != tables::JumpKind::None => Some(POSITIONS[*index].jump),
+        _ => None,
+    });
+    if let Some(kind) = jump {
+        let j = m.jumps;
+        return dist <= j.vel(kind) * 0.5 * (j.min + j.max);
+    }
     if let Some((_, _, clip)) = info.attack {
         let dir = info.dir.and_then(Dir::offset).unwrap_or(0.0);
         let turn = {

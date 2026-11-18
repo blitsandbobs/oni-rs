@@ -1,5 +1,6 @@
 -- The melee AI (issue #5): a character fights with its class's melee
--- profile — it picks techniques (run in and combo, kicks, throws…), lands
+-- profile — it picks techniques (run in and combo, kicks, throws, flying
+-- kicks…), lands
 -- hits on a training dummy, and after a knockdown lies dazed for its class's
 -- daze time before getting up by itself.
 --
@@ -46,4 +47,20 @@ end
 print(string.format("striker AI knocked down at t=%s, up at t=%s", tostring(t_down), tostring(t_up)))
 assert(t_down and t_up, "the AI got back up by itself")
 assert(t_up - t_down >= 96, "it lay dazed for at least its class's minimum")
-print("melee AI ok: profile techniques land hits; daze then get up")
+-- A Ninja's flying kick: it runs in, jumps, and kicks in the air when the
+-- kick will land (Lua `technique` asks for a profile technique by name).
+local nd = spawn(px - 30, py + 5, pz + 30, 0, "ninja_med_1")
+local na = spawn(px - 30, py + 5, pz - 5, 0, "ninja_med_1")
+step(20)
+spar(na, nd)
+technique(na, "Jump Kick/Circle Rt")
+local hp1, flew = hp(nd), false
+for _ = 1, 200 do
+    step(1)
+    if type_of(na) == 12 and anim_of(na):find("jump") then flew = true end
+    if flew and hp(nd) < hp1 then break end
+end
+print(string.format("ninja flying kick: kicked in the air=%s, dummy hp %d -> %d", tostring(flew), hp1, hp(nd)))
+assert(flew, "the ninja kicked in mid-air")
+assert(hp(nd) < hp1, "the flying kick landed")
+print("melee AI ok: profile techniques land hits; flying kicks; daze then get up")

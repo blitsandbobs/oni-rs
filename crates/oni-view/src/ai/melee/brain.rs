@@ -108,6 +108,7 @@ pub struct Melee {
     pub profile: Rc<Profile>,
     pub target: usize,
     pub(super) info: Vec<TechInfo>,
+    pub(super) jumps: Jumps,
     pub(super) technique: Option<usize>,
     pub(super) move_index: usize,
     pub(super) committed: bool,
@@ -133,6 +134,8 @@ pub struct Melee {
     daze_range: (u32, u32),
     no_technique: u32,
     pub(super) now: i64,
+    /// Test hook: use this technique next (by name), if it can be used.
+    pub force: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -149,6 +152,7 @@ impl Melee {
             profile,
             target,
             info: Vec::new(),
+            jumps: Jumps::default(),
             technique: None,
             move_index: 0,
             committed: false,
@@ -169,6 +173,7 @@ impl Melee {
             daze_range,
             no_technique: 0,
             now: 0,
+            force: None,
         }
     }
 
@@ -202,6 +207,7 @@ impl Melee {
         self.now = now;
         if self.info.is_empty() {
             self.info = self.profile.techniques.iter().map(|t| tech_info(t, me.motion)).collect();
+            self.jumps = Jumps::of(me.motion);
         }
         if !me.alive || me.motion.dying || crate::anim::reaction::is_victim(me.motion.kind) {
             // Hit (or dead): the plan is off.
@@ -255,9 +261,9 @@ impl Melee {
         let mut mid_move = false;
         if self.technique.is_some() {
             mid_move = super::moves::update(self, me, target, &mut out);
-            if busy && self.technique.is_some() {
-                return out; // let the attack / jump play out
-            }
+        }
+        if busy {
+            return out; // let the attack / throw / jump play out: no new decisions
         }
         if self.technique.is_some() && !mid_move && !busy {
             self.finish_technique();
@@ -496,6 +502,13 @@ impl Melee {
             if info.start != Some(state) && !info.allow_transition {
                 continue;
             }
+            // A technique opening with a move from another state must be able
+            // to get there (nothing leads into lying down, say).
+            if let Some(s) = info.start {
+                if s != state && path_cost(me, state, s).is_none() {
+                    continue;
+                }
+            }
             w *= if kind == Kind::Action {
                 self.weigh_action(t, info, me, target)
             } else {
@@ -510,6 +523,12 @@ impl Melee {
                 }
                 weights.push((i, w));
             }
+        }
+        if let Some(name) = self.force.take() {
+            if let Some(&(i, _)) = weights.iter().find(|(i, _)| self.profile.techniques[*i].name == name) {
+                return Some(i);
+            }
+            self.force = Some(name); // not usable yet: keep asking
         }
         // With a slot, never prefer a harmless technique over the best attack.
         if slot && !me.fallen() {
@@ -594,13 +613,17 @@ impl Melee {
         // Walk the moves up to the first attack / throw.
         let mut run_in: Option<super::profile::RunIn> = None;
         let mut skippable = false;
+        let mut jump: Option<(tables::JumpKind, Dir)> = None;
         for m in &t.moves {
             match *m {
                 Move::Position { index, run_in: ri } => {
                     let p = &POSITIONS[index];
                     f *= transition_cost(me, p.states);
+                    if p.jump == tables::JumpKind::Vertical && target.feet.y - me.feet.y < STANDING_JUMP_HEIGHT {
+                        return 0.0; // a jump straight up only for a target well above
+                    }
                     if p.jump != tables::JumpKind::None {
-                        return 0.0; // jumping in isn't modelled yet
+                        jump = Some((p.jump, p.dir));
                     }
                     let last = *p.states.last().unwrap_or(&MeleeState::Standing);
                     if me.state() == last && (!p.can_delay || ri.is_none_or(|r| r.min < 1.0)) {
@@ -652,8 +675,13 @@ impl Melee {
             }
         }
         // How far there is to run in before striking.
+        let jumps = self.jumps;
         let reach = match (info.attack, info.throw) {
-            (Some(_), _) => info.ideal_range,
+            // Jumping in, the jump itself covers the ground.
+            (Some(_), _) => match jump {
+                Some((kind, _)) => jumps.vel(kind) * 0.5 * (jumps.min + jumps.max),
+                None => info.ideal_range,
+            },
             (None, Some(ti)) => match t.moves[ti] {
                 Move::Throw(i) => self.throw_range(i, me) * THROW_DIST_SAFETY,
                 _ => 0.0,
@@ -686,6 +714,11 @@ impl Melee {
             }
         } else if info.throw.is_some() && info.attack.is_none() && target_dist > reach / THROW_DIST_SAFETY {
             return 0.0;
+        } else if let Some((kind, _)) = jump {
+            // Too close to jump at.
+            if target_dist < 0.5 * jumps.vel(kind) * jumps.min + target.planning.0 {
+                return 0.0;
+            }
         }
         // The attack itself must reach, turned toward the target.
         if let Some((_, _, clip)) = info.attack {
@@ -700,9 +733,15 @@ impl Melee {
                 }
             }
             let c = &me.motion.coll.entries[clip].clip;
-            let (rel, vel) = relative_turned(me, target, turn);
+            let (rel, mut vel) = relative_turned(me, target, turn);
             let along = dir.map_or(Vec3::Z, |d| Vec3::new(d.sin(), 0.0, d.cos()));
-            let attacker = Attacker { clip: c, tick: 0, air: None, sphere: 3.0 };
+            let air = jump.map(|(kind, jdir)| {
+                if matches!(kind, tables::JumpKind::Standing | tables::JumpKind::Vertical) {
+                    vel = Vec3::ZERO; // these don't lead a moving target
+                }
+                jumps.air(me, kind, jdir)
+            });
+            let attacker = Attacker { clip: c, tick: 0, air, sphere: 3.0 };
             let victim = Target {
                 pos: rel - along * offset,
                 velocity: vel,
@@ -791,6 +830,71 @@ pub fn view(fighters: &[crate::fighter::Fighter], i: usize, observer: usize) -> 
         could_block,
         knockdown_resistant: f.motion.tuning.knockdown_resistant,
         player: f.player,
+    }
+}
+
+/// A class's jumping, for planning jump-ins: how long a jump lasts (ticks,
+/// without and with holding jump the whole way) and how fast each kind of
+/// jump travels.
+#[derive(Clone, Copy, Debug, Default)]
+pub(super) struct Jumps {
+    pub min: f32,
+    pub max: f32,
+    vel: [f32; 7],
+    amount: f32,
+    gravity: f32,
+}
+
+/// How much higher a target must be to jump straight up at it.
+const STANDING_JUMP_HEIGHT: f32 = 7.0;
+
+impl Jumps {
+    fn of(motion: &Motion) -> Jumps {
+        let t = motion.tuning;
+        let g = t.jump_gravity.max(1e-3);
+        let min = 2.0 * t.jump_amount / g;
+        let max = min + 2.0 * t.jump_accel_amount * f32::from(t.num_jump_accel_frames) / g;
+        // A running jump keeps the run's speed: the first tick of each run.
+        let first = |anim: &str, state: MeleeState, axis: usize, sign: f32| {
+            motion
+                .coll
+                .lookup(tables::ty(anim), state.anim_state(), var::FIGHT)
+                .and_then(|c| motion.coll.entries[c].clip.root_motion.first().map(|m| m[axis] * sign))
+                .unwrap_or(0.0)
+        };
+        let mut vel = [0.0; 7];
+        vel[3] = first("run", MeleeState::Running, 1, 1.0);
+        vel[4] = first("runBackwards", MeleeState::RunningBack, 1, -1.0);
+        vel[5] = first("runSidestepLeft", MeleeState::RunningLeft, 0, 1.0);
+        vel[6] = first("runSidestepRight", MeleeState::RunningRight, 0, -1.0);
+        // Any jump goes sideways at least half as fast as it goes up.
+        for v in &mut vel[2..] {
+            *v = v.max(0.5 * t.jump_amount);
+        }
+        Jumps { min, max, vel, amount: t.jump_amount, gravity: g }
+    }
+
+    pub fn vel(&self, kind: tables::JumpKind) -> f32 {
+        self.vel[kind as usize]
+    }
+
+    /// The flight to plan a jump attack with: our current motion plus the
+    /// jump, at least the jump's speed along its direction.
+    pub fn air(&self, me: &View, kind: tables::JumpKind, dir: Dir) -> geometry::Air {
+        let mut v = me.motion.velocity_estimate();
+        v.y = self.amount;
+        if let Some(off) = dir.offset() {
+            let d = Vec3::new(off.sin(), 0.0, off.cos());
+            let along = v.dot(d);
+            if along < self.vel(kind) {
+                v += d * (self.vel(kind) - along);
+            }
+        }
+        geometry::Air {
+            velocity: v,
+            gravity: self.gravity,
+            expected_ticks: (0.5 * (self.min + self.max)).round() as u16,
+        }
     }
 }
 
@@ -891,6 +995,44 @@ fn weigh_spacing(
         }
     }
     f
+}
+
+/// The cost of getting from `from` to `goal` through the transition graph
+/// (the product of the steps' weights), if the body can.
+pub(super) fn path_cost(me: &View, from: MeleeState, goal: MeleeState) -> Option<f32> {
+    let mo = me.motion;
+    let mut cur = from;
+    let mut cost = 1.0;
+    for _ in 0..4 {
+        if cur == goal {
+            return Some(cost);
+        }
+        let usable = |t: &&tables::Transition| {
+            t.from == cur
+                && t.anims
+                    .iter()
+                    .any(|a| mo.coll.lookup(tables::ty(a), cur.anim_state(), mo.varient | var::FIGHT).is_some())
+        };
+        // Straight to the goal, or else via standing.
+        let step = tables::TRANSITIONS
+            .iter()
+            .filter(usable)
+            .find(|t| t.to.contains(&goal))
+            .map(|t| (t.weight, goal))
+            .or_else(|| {
+                tables::TRANSITIONS
+                    .iter()
+                    .filter(usable)
+                    .find(|t| t.to.contains(&MeleeState::Standing))
+                    .map(|t| (t.weight, MeleeState::Standing))
+            })?;
+        cost *= step.0;
+        if step.1 == cur {
+            return None;
+        }
+        cur = step.1;
+    }
+    (cur == goal).then_some(cost)
 }
 
 /// The preference cost of getting from the current state through `states`
