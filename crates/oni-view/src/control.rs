@@ -18,6 +18,22 @@ pub const SLOW_TURN: f32 = PI * 1.5 / 120.0;
 /// (Oni `ONgAimingWidth` = 70°); smaller turns just slew.
 pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
 
+/// The world-movement yaw offset for a diagonal strafe: forward/back combined
+/// with exactly one step key moves at ±45° toward the step side (Oni applies a
+/// ±π/4 `facingModifier` here). 0 for non-diagonal input.
+pub fn diagonal_strafe_offset(forward: bool, backward: bool, left: bool, right: bool) -> f32 {
+    if (forward ^ backward) && (left ^ right) {
+        let s = if right { PI / 4.0 } else { -PI / 4.0 };
+        if backward {
+            -s
+        } else {
+            s
+        }
+    } else {
+        0.0
+    }
+}
+
 /// Wraps an angle into `[0, 2π)` (Oni's `UUmTrig_Clip`).
 fn wrap_2pi(a: f32) -> f32 {
     let m = a % TAU;
@@ -139,6 +155,21 @@ mod tests {
         f.turn_toward(0.05);
         // Moved negative (wrapped), toward the target the short way.
         assert!(approx(f.facing, 0.05), "facing {}", f.facing);
+    }
+
+    #[test]
+    fn diagonal_offset_only_for_fwd_back_plus_one_step() {
+        let q = PI / 4.0;
+        // Pure forward or pure strafe → no offset.
+        assert_eq!(diagonal_strafe_offset(true, false, false, false), 0.0);
+        assert_eq!(diagonal_strafe_offset(false, false, false, true), 0.0);
+        // Forward + a step → ±45°, opposite signs for left vs right.
+        assert!((diagonal_strafe_offset(true, false, false, true) - q).abs() < 1e-6);
+        assert!((diagonal_strafe_offset(true, false, true, false) + q).abs() < 1e-6);
+        // Backward negates.
+        assert!((diagonal_strafe_offset(false, true, false, true) + q).abs() < 1e-6);
+        // Both steps cancel → no diagonal.
+        assert_eq!(diagonal_strafe_offset(true, false, true, true), 0.0);
     }
 
     #[test]

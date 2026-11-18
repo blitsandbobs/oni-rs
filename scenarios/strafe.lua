@@ -27,3 +27,17 @@ assert(grounded(), "still on the ground")
 
 cam(x1 + 2, 10, z1 - 14,  x1, 6, z1)
 screenshot("/tmp/oni_strafe.png", 760, 900)
+
+-- Diagonal strafe: forward + step-right travels into BOTH +X and +Z (45°),
+-- playing the forward run clip, body still facing forward.
+facing(0)
+input(true, false)      -- forward
+strafe(false, true)     -- + step-right
+local dx0, _, dz0 = pos()
+step(40)
+local dx2, _, dz2 = pos()
+local ddx, ddz = dx2 - dx0, dz2 - dz0
+print(string.format("diagonal fwd+right: dX=%.1f dZ=%.1f anim=%s", ddx, ddz, anim()))
+assert(ddx > 3.0 and ddz > 3.0, "travels diagonally (+X and +Z): dX=" .. ddx .. " dZ=" .. ddz)
+assert(anim():find("run") ~= nil, "diagonal uses a run clip, got " .. anim())
+assert(math.abs(facing_deg()) < 5.0, "body still faces forward during diagonal")

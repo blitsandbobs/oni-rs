@@ -105,6 +105,12 @@ impl ScriptHost {
         } else {
             crate::control::MED_TURN
         };
+        let diag = crate::control::diagonal_strafe_offset(
+            self.input.forward,
+            self.input.backward,
+            self.input.step_left,
+            self.input.step_right,
+        );
         for _ in 0..n {
             // Turn-in-place intent, then tick the state machine, then slew the
             // body toward the desired facing (Oni's heartbeat order).
@@ -118,7 +124,7 @@ impl ScriptHost {
                 }
                 None => Vec3::ZERO,
             };
-            let world = Quat::from_rotation_y(self.facing.facing) * local;
+            let world = Quat::from_rotation_y(self.facing.facing + diag) * local;
             self.physics.step(world);
             self.facing.turn_toward(turn_cap);
         }

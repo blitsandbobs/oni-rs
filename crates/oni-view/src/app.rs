@@ -365,6 +365,17 @@ impl State {
         let turn_cap = if walk { SLOW_TURN } else { MED_TURN };
         let tuning = self.tuning;
 
+        // Diagonal strafe: forward/back + one step plays the forward/back run clip
+        // (the running probe wins), with the movement rotated ±45° toward the step
+        // side (Oni's ±π/4 facingModifier). Approximation: the body keeps facing
+        // forward rather than turning into the diagonal.
+        let diag = crate::control::diagonal_strafe_offset(
+            input.forward,
+            input.backward,
+            input.step_left,
+            input.step_right,
+        );
+
         // Step the simulation (character immutably borrowed for stitch capture,
         // play state mutably — disjoint fields).
         {
@@ -397,7 +408,7 @@ impl State {
                 // The animation state machine chooses the clip and yields this
                 // frame's character-local root motion; facing rotates it to world.
                 let local = play.loco.tick(input, Some(&cv.character));
-                let world_move = Quat::from_rotation_y(play.facing.facing)
+                let world_move = Quat::from_rotation_y(play.facing.facing + diag)
                     * Vec3::new(local.x, 0.0, local.y);
                 play.physics.step(world_move);
                 // Then slew the body yaw toward the mouse target (Oni runs
