@@ -200,7 +200,42 @@ fn animation_decodes_all_frames() {
             (atk.last_damage_frame as u32) < a.num_frames,
             "hit window within the clip"
         );
+        // The reaction the victim plays is a TRtAnimType; a heavy kick forces
+        // one (stagger/knockdown). precedence is a small priority rank.
+        assert!(
+            atk.damage_animation < 512,
+            "damageAnimation is a TRtAnimType, got {}",
+            atk.damage_animation
+        );
+        assert!(
+            atk.damage_animation != 0,
+            "a heavy kick forces a reaction clip (damageAnimation set)"
+        );
+        assert!(atk.precedence < 256, "precedence rank, got {}", atk.precedence);
+        eprintln!(
+            "kick attack: dmg {} window [{},{}] reaction-type {} precedence {}",
+            atk.damage,
+            atk.first_damage_frame,
+            atk.last_damage_frame,
+            atk.damage_animation,
+            atk.precedence
+        );
     }
+    // Clip-level combat metadata decodes without going out of bounds.
+    assert!(
+        clip.invulnerable_length == 0
+            || (clip.invulnerable_start as u32) < clip.num_frames + clip.invulnerable_length as u32,
+        "i-frame window plausible"
+    );
+    eprintln!(
+        "clip metadata: vocalization {} hardPause {} softPause {} actionFrame {} invuln [{},{}]",
+        clip.vocalization_type,
+        clip.hard_pause,
+        clip.soft_pause,
+        clip.action_frame,
+        clip.invulnerable_start,
+        clip.invulnerable_length
+    );
     eprintln!(
         "decoded {}-frame clip, {} channels, forward root motion {forward:.1}",
         clip.num_frames,

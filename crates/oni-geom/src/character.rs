@@ -180,11 +180,14 @@ const TRAM_NUM_PTRS: usize = 13; // 13 leading tm_raw pointers
 const TRAM_FLAGS: usize = 52; // `flags` u32, right after the pointer block
 const TRAM_FINAL_ROTATION: usize = 72; // `finalRotation` f32 (radians): net yaw the clip imparts
 const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection): which way the clip moves
+const TRAM_VOCALIZATION: usize = 78; // `vocalizationType` u16: voice/grunt sound this clip triggers
                               // Scalar state-machine fields. Offsets: 52-byte pointer block, then flags(4),
                               // directAnimation[2](8), usedParts(4), replaceParts(4), finalRotation(4),
                               // moveDirection+vocalizationType(4), extentInfo(232), attackName[16],
                               // hardPause+softPause(4), numNewSounds+soundName(8), soundFrame+fps(4),
                               // compressionSize(2), then the contiguous u16 run below.
+const TRAM_HARD_PAUSE: usize = 328; // `hardPause` u16: frames of unblockable pause (stun) after this clip
+const TRAM_SOFT_PAUSE: usize = 330; // `softPause` u16: frames of blockable pause after this clip
 const TRAM_TYPE: usize = 346; // `type` (TRtAnimType)
 const TRAM_AIMING: usize = 348; // `aimingType`
 const TRAM_FROM_STATE: usize = 350; // `fromState` (TRtAnimState)
@@ -194,6 +197,10 @@ const TRAM_VARIENT: usize = 360; // `varient` (variant bits)
                                  // ...varientEnd(362), atomicStart(364), atomicEnd(366), then:
 const TRAM_END_INTERP: usize = 368; // `endInterpolation` (frames to blend when leaving)
 const TRAM_MAX_INTERP: usize = 370; // `maxInterpolation` (cap on blend into this clip)
+const TRAM_ACTION_FRAME: usize = 372; // `actionFrame` i16: frame an action fires (weapon swap, pickup, …)
+                                      // ...firstLevel(374), then two u8s:
+const TRAM_INVULN_START: usize = 376; // `invulnerableStart` u8: first i-frame
+const TRAM_INVULN_LENGTH: usize = 377; // `invulnerableLength` u8: i-frame count (0 = none)
 const ATTACK_SIZE: usize = 32; // sizeof(TRtAttack)
 const MAX_ATTACKS: usize = 16;
 
@@ -209,12 +216,25 @@ pub struct Attack {
     pub hit_stun: u16,
     pub block_stun: u16,
     pub stagger: u16,
+    /// The `TRtAnimType` the victim plays when hit by this attack (`damageAnimation`):
+    /// the stagger / knockdown / stun reaction clip. 0 = no forced reaction.
+    pub damage_animation: u16,
+    /// Attack priority (`precedence`): higher wins when two attacks trade.
+    pub precedence: u16,
     pub damage_bits: u32,
     pub flags: u32,
 }
 
 fn read_u16(b: &[u8], o: usize) -> Option<u16> {
     Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]]))
+}
+
+fn read_i16(b: &[u8], o: usize) -> Option<i16> {
+    Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]]))
+}
+
+fn read_u8(b: &[u8], o: usize) -> Option<u8> {
+    b.get(o).copied()
 }
 
 /// Decodes frame 0's per-part rotation quaternions `[x,y,z,w]` from a `TRAM`
@@ -332,6 +352,18 @@ pub struct Clip {
     pub end_interpolation: u16,
     /// Max frames another clip may blend into this one (`maxInterpolation`).
     pub max_interpolation: u16,
+    /// Voice / grunt sound this clip triggers (`vocalizationType`). 0 = none.
+    pub vocalization_type: u16,
+    /// Unblockable pause (stun) in frames after this clip (`hardPause`). 0 = none.
+    pub hard_pause: u16,
+    /// Blockable pause in frames after this clip (`softPause`). 0 = none.
+    pub soft_pause: u16,
+    /// Frame an action fires — weapon swap, pickup, etc. (`actionFrame`). 0 = none.
+    pub action_frame: i16,
+    /// First invulnerable (i-frame) frame (`invulnerableStart`).
+    pub invulnerable_start: u8,
+    /// Number of invulnerable frames (`invulnerableLength`); 0 = never invulnerable.
+    pub invulnerable_length: u8,
 }
 
 /// Decodes a full `TRAM` animation: every keyframe of every bone.
@@ -448,6 +480,12 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         move_direction: read_u16(d, TRAM_MOVE_DIRECTION).unwrap_or(0),
         end_interpolation: read_u16(d, TRAM_END_INTERP).unwrap_or(0),
         max_interpolation: read_u16(d, TRAM_MAX_INTERP).unwrap_or(0),
+        vocalization_type: read_u16(d, TRAM_VOCALIZATION).unwrap_or(0),
+        hard_pause: read_u16(d, TRAM_HARD_PAUSE).unwrap_or(0),
+        soft_pause: read_u16(d, TRAM_SOFT_PAUSE).unwrap_or(0),
+        action_frame: read_i16(d, TRAM_ACTION_FRAME).unwrap_or(0),
+        invulnerable_start: read_u8(d, TRAM_INVULN_START).unwrap_or(0),
+        invulnerable_length: read_u8(d, TRAM_INVULN_LENGTH).unwrap_or(0),
     })
 }
 
@@ -475,10 +513,12 @@ fn decode_attacks(raw: &[u8], ptrs: &[u32]) -> Vec<Attack> {
                 damage: read_u16(raw, o + 12)?,
                 first_damage_frame: read_u16(raw, o + 14)?,
                 last_damage_frame: read_u16(raw, o + 16)?,
-                // damageAnimation @18 (skipped)
+                damage_animation: read_u16(raw, o + 18)?,
                 hit_stun: read_u16(raw, o + 20)?,
                 block_stun: read_u16(raw, o + 22)?,
                 stagger: read_u16(raw, o + 24)?,
+                precedence: read_u16(raw, o + 26)?,
+                // attackExtentIndex @28, pad @30 (skipped)
             })
         })
         .collect()

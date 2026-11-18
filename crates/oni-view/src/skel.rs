@@ -55,9 +55,14 @@ pub struct Attack {
     pub knockback: f32,
     pub first_damage_frame: u16,
     pub last_damage_frame: u16,
+    /// The `TRtAnimType` the victim plays when hit (`damageAnimation`): the
+    /// stagger / knockdown / stun reaction clip. 0 = no forced reaction.
+    pub damage_animation: u16,
     pub hit_stun: u16,
     pub block_stun: u16,
     pub stagger: u16,
+    /// Attack priority (`precedence`): higher wins when two attacks trade.
+    pub precedence: u16,
     /// Attacker body-part bits that are "live weapons" this move (`damageBits`).
     pub damage_bits: u32,
     /// `ONcAttackFlag` bits (Unblockable/AttackHigh/AttackLow/SpecialMove).
@@ -374,9 +379,11 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
                         knockback: a["knockback"].as_f64().unwrap_or(0.0) as f32,
                         first_damage_frame: u16k("firstDamageFrame"),
                         last_damage_frame: u16k("lastDamageFrame"),
+                        damage_animation: u16k("damageAnimation"),
                         hit_stun: u16k("hitStun"),
                         block_stun: u16k("blockStun"),
                         stagger: u16k("stagger"),
+                        precedence: u16k("precedence"),
                         damage_bits: u32k("damageBits"),
                         flags: u32k("attackFlags"),
                     }

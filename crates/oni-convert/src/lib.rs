@@ -902,6 +902,36 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     if clip.move_direction != 0 {
         obj.insert("moveDirection".into(), serde_json::json!(clip.move_direction));
     }
+    if clip.aiming_type != 0 {
+        obj.insert("aimingType".into(), serde_json::json!(clip.aiming_type));
+    }
+    // `vocalizationType` and `actionFrame` default to a "none" sentinel in the
+    // original importer (`(UUtUns16)-1` and `-1`); omit those, emit real values.
+    if clip.vocalization_type != u16::MAX {
+        obj.insert(
+            "vocalizationType".into(),
+            serde_json::json!(clip.vocalization_type),
+        );
+    }
+    if clip.hard_pause != 0 {
+        obj.insert("hardPause".into(), serde_json::json!(clip.hard_pause));
+    }
+    if clip.soft_pause != 0 {
+        obj.insert("softPause".into(), serde_json::json!(clip.soft_pause));
+    }
+    if clip.action_frame >= 0 {
+        obj.insert("actionFrame".into(), serde_json::json!(clip.action_frame));
+    }
+    if clip.invulnerable_length != 0 {
+        obj.insert(
+            "invulnerableStart".into(),
+            serde_json::json!(clip.invulnerable_start),
+        );
+        obj.insert(
+            "invulnerableLength".into(),
+            serde_json::json!(clip.invulnerable_length),
+        );
+    }
     if clip.end_interpolation != 0 {
         obj.insert(
             "endInterp".into(),
@@ -924,9 +954,11 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
                     "knockback": a.knockback,
                     "firstDamageFrame": a.first_damage_frame,
                     "lastDamageFrame": a.last_damage_frame,
+                    "damageAnimation": a.damage_animation,
                     "hitStun": a.hit_stun,
                     "blockStun": a.block_stun,
                     "stagger": a.stagger,
+                    "precedence": a.precedence,
                     "damageBits": a.damage_bits,
                     "attackFlags": a.flags,
                 })
