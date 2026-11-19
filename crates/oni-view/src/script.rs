@@ -217,6 +217,7 @@ impl ScriptHost {
             .into_iter()
             .chain(self.world.particle_models())
             .chain(self.world.turret_draws())
+            .chain(self.world.object_draws())
             .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
             .collect();
         // (Consoles' screens, textured by their state.)
@@ -860,6 +861,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let Some(f) = host.world.fighters.get(id) else { return Ok((0, 0, 0, 0, 0)) };
             let (r, s) = f.avoid.count();
             Ok((f.collisions.0, f.collisions.1, f.collisions.2, r, s))
+        })?,
+    )?;
+    // objects() → {{name, at={x,y,z}, frame, animating}, …}: the live placed
+    // objects.
+    let h = host.clone();
+    g.set(
+        "objects",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            for (k, (name, at, frame, animating)) in host.world.object_states().into_iter().enumerate() {
+                let o = lua.create_table()?;
+                o.set("name", name)?;
+                o.set("at", vec![at.x, at.y, at.z])?;
+                o.set("frame", frame)?;
+                o.set("animating", animating)?;
+                t.set(k + 1, o)?;
+            }
+            Ok(t)
         })?,
     )?;
     // door_leaves(id) → {{at={x,y,z}, half={x,y,z}, solid, paused}, …}: door

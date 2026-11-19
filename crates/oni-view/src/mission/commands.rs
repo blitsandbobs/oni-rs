@@ -576,6 +576,36 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- placed objects (`world/objects.rs`) -----------------------------
+        "obj_create" | "obj_kill" | "obj_show" | "obj_hide" => {
+            let Some(lo) = int(a(0)) else { return nil() };
+            let hi = int(a(1)).unwrap_or(lo);
+            let (lo, hi) = (lo.max(0) as u32, hi.max(0) as u32);
+            let world = host.world();
+            match name {
+                "obj_create" => world.obj_create(lo, hi),
+                "obj_kill" => world.obj_kill(lo, hi),
+                // (`obj_show` only ever shows, whatever its help says.)
+                "obj_show" => world.obj_show(lo, hi, true),
+                _ => world.obj_show(lo, hi, false),
+            }
+            nil()
+        }
+        "env_anim" | "env_anim_block" => {
+            let Some(lo) = int(a(0)) else { return nil() };
+            let hi = int(a(1)).map(|h| h.max(0) as u32);
+            if host.world().env_anim(lo.max(0) as u32, hi, name == "env_anim_block") {
+                return Ok((Value::Nil, Value::Boolean(true), None, None));
+            }
+            nil()
+        }
+        "env_setanim" | "env_setanim_block" => {
+            let (Some(id), Some(clip)) = (int(a(0)), a(1).and_then(text)) else { return nil() };
+            if !host.world().env_setanim(id.max(0) as u32, &clip, name == "env_setanim_block") {
+                state.warn(format!("{name}: no object {id} or animation {clip}"));
+            }
+            nil()
+        }
         // --- collision and environment animations --------------------------
         "chr_nocollision" => {
             let Some(id) = fighter(host, a(0)) else { return nil() };

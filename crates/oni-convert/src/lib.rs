@@ -31,6 +31,7 @@ mod doors;
 mod lasers;
 mod objects;
 mod patrols;
+mod placed;
 mod particles;
 mod materials;
 mod particle_defs;
@@ -304,6 +305,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 patrols::write(&dat, raw, &root)?;
                 consoles::write(&dat, raw, &root, &console_classes)?;
                 doors::write(&dat, raw, &root)?;
+                placed::write(&dat, &root)?;
                 lasers::write(&dat, raw, &root, &laser_classes)?;
                 weapons::write_items(&dat, raw, &root)?;
                 turrets::write(&dat, raw, &root)?;

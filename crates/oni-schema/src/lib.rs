@@ -318,6 +318,29 @@ pub const LASER_FLAGS: [&str; 6] = ["", "", "", "initialActive", "reverseAnim", 
 
 /// Door flag bits (`OBJcDoorFlag_*`; bit index → name; only the authored
 /// ones are kept).
+/// `OBcFlags_*` (`BFW_Object.h`): a placed object's flags.
+pub const OBJECT_FLAGS: [&str; 16] = [
+    "",
+    "isDoor",
+    "ignoreCharacters",
+    "forceDraw",
+    "lightSource",
+    "",
+    "deleteMe",
+    "notifyCollision",
+    "invisible",
+    "inUse",
+    "noCollision",
+    "noGravity",
+    "faceCollision",
+    "particlesCreated",
+    "jelloObjects",
+    "flatLighting",
+];
+
+/// `PHtPhysicsLevel` (`BFW_Physics.h`).
+pub const PHYSICS_LEVELS: [&str; 5] = ["none", "static", "linear", "animate", "newton"];
+
 /// `OBcAnimFlags_*` (`BFW_Object.h`): an object animation's flags.
 pub const OBJECT_ANIMATION_FLAGS: [&str; 5] = ["loop", "pingpong", "random", "autostart", "localized"];
 

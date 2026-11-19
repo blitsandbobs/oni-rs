@@ -24,6 +24,7 @@ use crate::skel::Character;
 const HEAD_BONE: usize = 10;
 
 mod env_particles;
+mod objects;
 mod objects_sound;
 mod particle_sounds;
 mod turrets;
@@ -135,6 +136,9 @@ pub struct World {
     door_links: Vec<Vec<(usize, usize)>>,
     /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
+    /// The level's placed objects as authored, and those scripts have made.
+    pub object_setups: Vec<objects::Setup>,
+    pub objects: Vec<objects::Object>,
     /// The object animations scripts name (`OBAN`, the level's and the
     /// common ones), by name.
     pub object_anims: std::collections::HashMap<String, Rc<oni_geom::objanim::ObjectAnimation>>,
@@ -235,6 +239,8 @@ impl World {
             door_links: Vec::new(),
             env_hidden: Default::default(),
             object_anims: Default::default(),
+            object_setups: Vec::new(),
+            objects: Vec::new(),
             door_applied: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
@@ -710,6 +716,8 @@ impl World {
         self.consoles = crate::consoles::load(level_dir);
         self.doors = crate::doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
+        self.object_setups = objects::load(level_dir);
+        self.objects.clear();
     }
 
     /// One tick of every laser trigger (behaviour per `docs/LASERS.md`): its
@@ -1491,6 +1499,7 @@ impl World {
             }
         }
         self.doors_tick();
+        self.objects_tick();
         self.lasers_tick();
         for i in 0..self.fighters.len() {
             self.console_tick(i);
@@ -1588,8 +1597,10 @@ impl World {
         self.collide(&mut moves);
         let touched = std::cell::RefCell::new(crate::chrphys::Contacts::default());
         let mut touches = Vec::new();
+        let spheres = self.object_spheres();
         let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         env.touched = Some(&touched);
+        env.spheres = &spheres;
         for (i, (f, m)) in self.fighters.iter_mut().zip(moves).enumerate() {
             if let Some(m) = m {
                 f.commit(m, &env);
@@ -1600,9 +1611,10 @@ impl World {
                 if matches!(f.brain, Some(crate::ai::Brain::Agent(_) | crate::ai::Brain::GoTo(_) | crate::ai::Brain::Route(_))) {
                     let feet = f.feet();
                     for t in &c.touches {
-                        let with = match (t.wall, t.door) {
-                            (Some(p), _) => crate::ai::avoid::With::Wall(p),
-                            (_, Some(k)) => crate::ai::avoid::With::Object(k),
+                        let with = match (t.wall, t.door, t.object) {
+                            (Some(p), _, _) => crate::ai::avoid::With::Wall(p),
+                            (_, Some(k), _) => crate::ai::avoid::With::Object(k),
+                            (_, _, Some(k)) => crate::ai::avoid::With::Object(1 << 20 | k),
                             _ => continue,
                         };
                         f.avoid.notify(with, t.point, t.normal, t.d, feet);

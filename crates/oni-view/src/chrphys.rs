@@ -126,12 +126,43 @@ pub struct Env<'a> {
     pub doors: &'a [DoorBox],
     /// Where to note what it touches, each time it looks.
     pub touched: Option<&'a std::cell::RefCell<Contacts>>,
+    /// The placed objects' collision spheres (centre, radius).
+    pub spheres: &'a [(Vec3, f32)],
 }
 
 impl<'a> Env<'a> {
     pub fn new(quads: &'a Quads, doors: &'a [DoorBox]) -> Env<'a> {
-        Env { quads, doors, touched: None }
+        Env { quads, doors, touched: None, spheres: &[] }
     }
+}
+
+/// `CLrSphere_Sphere`: whether sphere `a` moving along `v` meets `b` — its
+/// centre's path through `b`, or the two overlapping at the start or end.
+fn sphere_sphere(a: &Sphere, v: Vec3, b: (Vec3, f32)) -> bool {
+    let (c, r) = b;
+    let end = a.center + v;
+    let ab = end - a.center;
+    let t = if ab.length_squared() > 0.0 { ((c - a.center).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+    let reach = (a.radius + r) * (a.radius + r);
+    (a.center + ab * t).distance_squared(c) < r * r || a.center.distance_squared(c) < reach || end.distance_squared(c) < reach
+}
+
+/// An object's sphere the stack meets (`PHrCollision_SphereTree_SphereTree`:
+/// the whole body, then a half and one of its leaves), and the plane
+/// halfway between the body's and the object's surfaces, facing the body.
+fn sphere_collider(tree: &Tree, v: Vec3, b: (Vec3, f32)) -> Option<Collider> {
+    if !sphere_sphere(&tree.root, v, b) {
+        return None;
+    }
+    let leaf = (0..2).any(|m| sphere_sphere(&tree.mids[m], v, b) && (0..2).any(|l| sphere_sphere(&tree.leaves[2 * m + l], v, b)));
+    if !leaf {
+        return None;
+    }
+    let (c, r) = b;
+    Some(match (tree.root.center - c).try_normalize() {
+        Some(n) => Collider { normal: n, point: ((c + n * r) + (tree.root.center - n * tree.root.radius)) * 0.5 },
+        None => Collider { normal: Vec3::Y, point: tree.root.center },
+    })
 }
 
 /// Something a character's movement met (`PHtCollider`, for the
@@ -141,6 +172,8 @@ impl<'a> Env<'a> {
 pub struct Touch {
     pub wall: Option<u32>,
     pub door: Option<usize>,
+    /// A placed object's sphere.
+    pub object: Option<usize>,
     pub point: Vec3,
     pub normal: Vec3,
     pub d: f32,
@@ -195,18 +228,26 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
         // (A wall, not a floor: counted once, noted both ways.)
         if let Some(c) = contacts.as_mut().filter(|_| normal.y <= MIN_FLOOR_NORMAL_Y) {
             c.walls += 1;
-            c.touches.push(Touch { wall: Some(q.plane), door: None, point: hit.point, normal, d });
+            c.touches.push(Touch { wall: Some(q.plane), door: None, object: None, point: hit.point, normal, d });
             if two_sided {
-                c.touches.push(Touch { wall: Some(q.plane ^ 0x8000_0000), door: None, point: hit.point, normal: -normal, d: -d });
+                c.touches.push(Touch { wall: Some(q.plane ^ 0x8000_0000), door: None, object: None, point: hit.point, normal: -normal, d: -d });
             }
         }
     }
     let objects = out.len();
+    for (k, &b) in env.spheres.iter().enumerate() {
+        if let Some(c) = sphere_collider(tree, v, b) {
+            out.push(c);
+            if let Some(t) = contacts.as_mut() {
+                t.touches.push(Touch { wall: None, door: None, object: Some(k), point: c.point, normal: c.normal, d: -c.normal.dot(c.point) });
+            }
+        }
+    }
     for (k, door) in env.doors.iter().enumerate().filter(|(_, d)| d.solid) {
         let at = out.len();
         door_colliders(door, tree, v, initial, &mut out);
         if let Some(c) = contacts.as_mut() {
-            c.touches.extend(out[at..].iter().map(|o| Touch { wall: None, door: Some(k), point: o.point, normal: o.normal, d: -o.normal.dot(o.point) }));
+            c.touches.extend(out[at..].iter().map(|o| Touch { wall: None, door: Some(k), object: None, point: o.point, normal: o.normal, d: -o.normal.dot(o.point) }));
         }
     }
     if let Some(c) = contacts.as_mut() {
@@ -723,6 +764,27 @@ mod tests {
         let env = Env::new(&q, &[]);
         let tree = Tree::new(Vec3::new(6.0, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
         assert_eq!(resolve(&env, &tree, Vec3::X, true), Vec3::X);
+    }
+
+    #[test]
+    fn an_objects_sphere_stops_a_walker() {
+        let q = room(&[(floor(0.0, 200.0, Vec3::ZERO), 0)]);
+        let spheres = [(Vec3::new(10.0, 5.0, 0.0), 4.0)];
+        let mut env = Env::new(&q, &[]);
+        env.spheres = &spheres;
+        let mut at = Vec3::ZERO;
+        for _ in 0..40 {
+            let tree = Tree::new(at, at.y, at.y + 18.0, 3.0);
+            at += resolve(&env, &tree, Vec3::new(0.5, 0.0, 0.0), false);
+        }
+        assert!(at.x < 10.0 - 4.0 && at.x > 0.5, "stopped short of it: {at}");
+        let free = Env::new(&q, &[]);
+        let mut at2 = Vec3::ZERO;
+        for _ in 0..40 {
+            let tree = Tree::new(at2, at2.y, at2.y + 18.0, 3.0);
+            at2 += resolve(&free, &tree, Vec3::new(0.5, 0.0, 0.0), false);
+        }
+        assert!(at2.x > 19.0, "without it, on: {at2}");
     }
 
     #[test]
