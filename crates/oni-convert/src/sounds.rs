@@ -155,6 +155,51 @@ pub fn group(version: u32, b: &[u8]) -> Option<Value> {
     Some(g)
 }
 
+/// A level's sound objects: spheres (heard within their own min distance,
+/// placed) and boxes (heard inside, not placed). The record: the ambient's
+/// name, the shape (`SPHR`: max / min distance in feet; `VLME`: min and max
+/// corners relative to the object, unrotated), then right after the shape
+/// pitch (never used) and volume (a sphere's record is padded to a box's
+/// size after them).
+pub fn objects(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+    const SPHERE: u32 = u32::from_be_bytes(*b"SPHR");
+    const BOX: u32 = u32::from_be_bytes(*b"VLME");
+    crate::objects::read(dat, raw, "Sound")
+        .1
+        .iter()
+        .filter(|o| o.data.len() >= NAME + 4 + 8 + 8)
+        .filter_map(|o| {
+            let d = o.data;
+            let (shape, size) = match le_u32(d, NAME) {
+                SPHERE => (json!({ "sphere": { "max": le_f32(d, NAME + 4), "min": le_f32(d, NAME + 8) } }), 8),
+                BOX if d.len() >= NAME + 4 + 24 + 8 => {
+                    let v = |o: usize| [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)];
+                    (json!({ "box": { "min": v(NAME + 4), "max": v(NAME + 16) } }), 24)
+                }
+                _ => return None,
+            };
+            let mut s = json!({
+                "objectId": o.id,
+                "ambient": cstr(d, 0, NAME),
+                "position": o.position,
+                "volume": le_f32(d, NAME + 4 + size + 4),
+            });
+            s.as_object_mut()?.extend(shape.as_object()?.clone());
+            Some(s)
+        })
+        .collect()
+}
+
+/// Writes a level's `sounds.json` (its sound objects), if it has any.
+pub fn write_objects(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
+    let o = objects(dat, raw);
+    if !o.is_empty() {
+        std::fs::create_dir_all(root)?;
+        std::fs::write(root.join("sounds.json"), serde_json::to_string_pretty(&json!({ "objects": o }))?)?;
+    }
+    Ok(o.len())
+}
+
 /// Writes `sounds.json` (ambients and groups) into `common`.
 pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize, usize)> {
     let mut ambients = BTreeMap::new();

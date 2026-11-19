@@ -304,6 +304,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 lasers::write(&dat, raw, &root, &laser_classes)?;
                 weapons::write_items(&dat, raw, &root)?;
                 turrets::write(&dat, raw, &root)?;
+                sounds::write_objects(&dat, raw, &root)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
