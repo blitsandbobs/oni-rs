@@ -33,6 +33,8 @@ struct PlayWorld {
     /// The level's own scripts (`--mission`), and the classes they spawn
     /// from.
     mission: Option<(crate::mission::Mission, crate::classes::Classes)>,
+    /// The sound output (none without a device).
+    _audio: Option<crate::audio::output::Output>,
 }
 
 /// What the level's scripts reach in play mode.
@@ -271,6 +273,11 @@ impl ApplicationHandler for App {
                     // Capture the cursor so mouse motion turns the character
                     // continuously (Oni grabs the mouse in gameplay); Esc releases it.
                     apply_capture(&window, true);
+                    let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
+                    world.audio.realtime = audio.is_some();
+                    if audio.is_none() {
+                        eprintln!("audio: no output device; playing silently");
+                    }
                     (
                         None,
                         Some(PlayWorld {
@@ -280,6 +287,7 @@ impl ApplicationHandler for App {
                             player_height,
                             accum: 0.0,
                             mission,
+                            _audio: audio,
                         }),
                     )
                 }

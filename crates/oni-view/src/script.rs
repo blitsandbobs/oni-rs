@@ -930,6 +930,27 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
         })?,
     )?;
+    // Sound: sounds() → the playing ambients, each {name, stage ("in",
+    // "body", "stopping", "out"), clip (the sound playing now), left,
+    // right (gains)}.
+    let h = host.clone();
+    g.set(
+        "sounds",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let list = lua.create_table()?;
+            for (i, s) in host.world.audio.heard().into_iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("name", s.name)?;
+                t.set("stage", format!("{:?}", s.stage).to_lowercase())?;
+                t.set("clip", s.clip)?;
+                t.set("left", s.gain[0])?;
+                t.set("right", s.gain[1])?;
+                list.set(i + 1, t)?;
+            }
+            Ok(list)
+        })?,
+    )?;
     // Turrets: turret(id, "activate" | "deactivate" | "reset");
     // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
     // (the first turret with that script id; nil: none).

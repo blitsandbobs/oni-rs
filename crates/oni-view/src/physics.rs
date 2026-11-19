@@ -277,6 +277,32 @@ impl Sight {
         }
     }
 
+    /// How many opaque surfaces (at most `max`) lie between `from` and `to`.
+    pub fn hits(&self, from: Vec3, to: Vec3, max: usize) -> usize {
+        let d = to - from;
+        let len = d.length();
+        if len < 1e-3 {
+            return 0;
+        }
+        let dir = d / len;
+        let (mut at, mut n) = (0.0, 0);
+        while n < max {
+            let o = from + dir * at;
+            let ray = Ray::new(Point3::new(o.x, o.y, o.z), Vector3::new(dir.x, dir.y, dir.z));
+            match self.query.cast_ray(&self.bodies, &self.colliders, &ray, len - at, true, QueryFilter::default()) {
+                Some((_, t)) => {
+                    n += 1;
+                    at += t + 0.1;
+                    if at >= len {
+                        break;
+                    }
+                }
+                None => break,
+            }
+        }
+        n
+    }
+
     /// Whether nothing opaque lies between `from` and `to`.
     pub fn clear(&self, from: Vec3, to: Vec3) -> bool {
         let d = to - from;

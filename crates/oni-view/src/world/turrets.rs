@@ -37,6 +37,8 @@ pub struct TurretClass {
     head_pivot: Vec3,
     barrel_pivot: Vec3,
     timeout: u32,
+    /// Its hum while active (an ambient sound).
+    active_sound: Option<String>,
     /// (min, max, speed a tick), radians.
     pitch: (f32, f32, f32),
     yaw: (f32, f32, f32),
@@ -73,6 +75,10 @@ pub struct Turret {
     targeting: Option<Box<crate::ai::ranged::Targeting>>,
     /// Shots fired (for tests).
     pub shots: u32,
+    /// Its hum, while playing (`None` also when out of earshot at the
+    /// start — but `humming` is set either way, as in the original).
+    sound: Option<usize>,
+    humming: bool,
 }
 
 fn wrap(a: f32) -> f32 {
@@ -151,6 +157,7 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
         head_pivot: v3(&c["headPivot"]),
         barrel_pivot: v3(&c["barrelPivot"]),
         timeout: c["timeout"].as_u64().unwrap_or(0) as u32,
+        active_sound: c["activeSound"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
         pitch: limits(&c["pitch"]),
         yaw: limits(&c["yaw"]),
         attachments: c["attachments"]
@@ -225,6 +232,8 @@ pub fn load(level_dir: &Path, common: &Path, particles: &p3::Classes) -> Vec<Tur
                 matrix: Rc::new(Cell::new(Mat4::IDENTITY)),
                 targeting: None,
                 shots: 0,
+                sound: None,
+                humming: false,
             };
             tu.rebuild();
             Some(tu)
@@ -307,6 +316,7 @@ impl World {
                     t.active = true;
                     t.active_time = 0;
                     t.targeting = None;
+                    self.turret_hum(k, true);
                     self.turret_send(k, event::BG_START, -1);
                 }
                 "deactivate" | "reset" if t.active => {
@@ -323,6 +333,7 @@ impl World {
                     // (The background flag stays set: the idle glow stays
                     // dark — as shipped.)
                     self.turret_send(k, event::BG_STOP, -1);
+                    self.turret_hum(k, false);
                 }
                 _ => {}
             }
@@ -381,6 +392,24 @@ impl World {
         }
     }
 
+    /// Starts or stops turret `k`'s hum.
+    fn turret_hum(&mut self, k: usize, on: bool) {
+        let t = &mut self.turrets[k];
+        if on && !t.humming {
+            t.humming = true;
+            if let Some(name) = t.class.active_sound.clone() {
+                let at = t.position;
+                let sound = self.audio.ambient_start(&name, at, self.sight.as_ref());
+                self.turrets[k].sound = sound;
+            }
+        } else if !on && t.humming {
+            t.humming = false;
+            if let Some(h) = t.sound.take() {
+                self.audio.ambient_stop(h);
+            }
+        }
+    }
+
     /// Switches turret `k` off (its time up).
     fn turret_off(&mut self, k: usize) {
         let t = &mut self.turrets[k];
@@ -395,6 +424,7 @@ impl World {
             self.turret_send(k, event::STOP, -1);
         }
         self.turret_send(k, event::BG_STOP, -1);
+        self.turret_hum(k, false);
     }
 
     /// An active turret's target, aim and trigger this tick.

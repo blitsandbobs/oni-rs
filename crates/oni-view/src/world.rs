@@ -20,6 +20,9 @@ use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
 
+/// The head's bone (the listener's ear height).
+const HEAD_BONE: usize = 10;
+
 mod turrets;
 mod weapons;
 pub use weapons::{Armory, Item};
@@ -154,6 +157,8 @@ pub struct World {
     pub turrets: Vec<turrets::Turret>,
     /// Every AI made passive (`ai2_allpassive`): turrets hold fire too.
     pub all_passive: bool,
+    /// Sound (`docs/AUDIO.md`).
+    pub audio: crate::audio::Audio,
 }
 
 /// A breakable glass pane.
@@ -204,6 +209,7 @@ impl World {
             broken_glass: Default::default(),
             turrets: Vec::new(),
             all_passive: false,
+            audio: crate::audio::Audio::empty(),
         }
     }
 
@@ -1479,6 +1485,15 @@ impl World {
                 self.sound(stimulus, at, volume, Some(i), None);
             }
         }
+        // What the player hears: from their ear (feet across, head high),
+        // turned with their facing.
+        if let Some(p) = self.fighters.first() {
+            let feet = p.feet();
+            let head = p.bones().get(HEAD_BONE).map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
+            let f = p.facing.facing;
+            self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
+        }
+        self.audio.tick(self.sight.as_ref());
     }
 
     /// What fighter `me` sees of who it could throw: everyone alive except

@@ -455,6 +455,11 @@ impl World {
         self.armory.weapons.clear();
         self.armory.powerups.clear();
         self.turrets = super::turrets::load(&self.level_dir, common, &self.armory.particles.classes.clone());
+        // (Keeping the mixer an output device may already play.)
+        let (mixer, realtime) = (self.audio.mixer.clone(), self.audio.realtime);
+        self.audio = crate::audio::Audio::load(common, &self.level_dir);
+        self.audio.mixer = mixer;
+        self.audio.realtime = realtime;
         let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         for w in doc["weapons"].as_array().into_iter().flatten() {
