@@ -488,6 +488,10 @@ pub struct Patrol {
     movement_waypoint: Option<usize>,
     shooting: u32,
     scan_course: Option<f32>,
+    /// Shooting at a flag: where, the extra spread, and its aim on it.
+    shoot_at: Option<Vec3>,
+    shoot_spread: f32,
+    shot: Option<Box<crate::ai::ranged::Targeting>>,
 }
 
 impl Patrol {
@@ -512,6 +516,9 @@ impl Patrol {
             fails: 0,
             movement_waypoint: None,
             shooting: 0,
+            shoot_at: None,
+            shoot_spread: 0.0,
+            shot: None,
             scan_course: None,
         }
     }
@@ -731,6 +738,8 @@ pub struct Agent {
     /// A gun it wants to bend for now (the world drops its own and starts
     /// the pickup).
     pub want_pickup: Option<usize>,
+    /// Extra spread on its shots (degrees; a patrol's shoot-at-flag).
+    pub extra_spread: f32,
 }
 
 impl Agent {
@@ -764,6 +773,7 @@ impl Agent {
             aim_speed: 1.0,
             trigger: false,
             want_pickup: None,
+            extra_spread: 0.0,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
     }
@@ -1015,6 +1025,9 @@ impl Agent {
     /// One tick of the current goal.
     pub fn update(&mut self, cx: &mut Ctx) {
         self.press = 0;
+        self.aim = None;
+        self.trigger = false;
+        self.extra_spread = 0.0;
         if let Some((_, t)) = &mut self.glance {
             *t = t.saturating_sub(1);
             if *t == 0 {
@@ -1270,9 +1283,17 @@ impl Agent {
                     }
                 }
             }
-            Waypoint::ShootAt { ticks, .. } => {
-                // No guns yet (#10): it just waits out the shooting.
-                self.patrol().shooting = ticks;
+            Waypoint::ShootAt { at, ticks, inaccuracy } => {
+                // Shoots at the spot for its time (no gun: just waits).
+                let point = match at {
+                    crate::ai::level::Target::Flag(id) => cx.level.flags.get(&id).map(|f| f.at),
+                    crate::ai::level::Target::Point(p) => Some(p),
+                };
+                let p = self.patrol();
+                p.shooting = ticks;
+                p.shoot_at = point;
+                p.shoot_spread = inaccuracy;
+                p.shot = None;
             }
         }
     }
@@ -1321,6 +1342,7 @@ impl Agent {
         }
         if self.patrol().shooting > 0 {
             self.patrol().shooting -= 1;
+            self.shoot_at_spot(cx);
         }
         if self.patrol().scanguard > 0 {
             let p = self.patrol();
@@ -2221,6 +2243,27 @@ impl Agent {
         self.trigger = fire;
     }
 
+    /// A patrol's shoot-at-flag: aim at the spot and fire as targeting
+    /// allows (no startle, nothing to lead), for the waypoint's time.
+    fn shoot_at_spot(&mut self, cx: &mut Ctx) {
+        let shoulder = cx.pelvis;
+        let p = self.patrol();
+        let (Some(at), Some(g)) = (p.shoot_at, cx.gun.filter(|g| g.usable)) else { return };
+        if p.shooting == 0 {
+            p.shot = None;
+            return;
+        }
+        let t = p.shot.get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(g.params, g.ai.aim, g.skill, false, at, shoulder)));
+        t.predict(at, shoulder);
+        let dir = t.aim(shoulder, g.matrix, true);
+        let fire = t.execute(true, g.matrix);
+        let (speed, spread) = (t.aim_speed, p.shoot_spread);
+        self.aim = Some(dir);
+        self.aim_speed = speed;
+        self.trigger = fire;
+        self.extra_spread = spread;
+    }
+
     /// Its gun fired a shot: targeting moves on (new error, the pause).
     pub fn fired(&mut self) {
         let mut rng = std::mem::replace(&mut self.rng, Rng(1));
@@ -2228,6 +2271,14 @@ impl Agent {
             if let Some(t) = k.targeting.as_mut() {
                 t.fired(&mut rng);
             }
+        }
+        let patrol = match (&mut self.goal, &mut self.job) {
+            (Goal::Path(p), _) => Some(p),
+            (_, Job::Patrol(p)) => Some(p),
+            _ => None,
+        };
+        if let Some(t) = patrol.and_then(|p| p.shot.as_mut()) {
+            t.fired(&mut rng);
         }
         self.rng = rng;
     }

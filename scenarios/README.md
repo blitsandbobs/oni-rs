@@ -45,6 +45,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `glass.lua` | A shot breaks a glass pane: level 1's range has 18 targets (references 3001–3018) that `env_broken` counts; `env_show` breaks and mends glass. |
 | `ai_shoot.lua` | An armed enemy that sees the player goes into combat, aims and fires; its shots land; empty, it fights hand to hand. |
 | `ai_gun.lua` | An unarmed enemy that shoots goes for a loaded gun lying near, bends for it and shoots with it. |
+| `patrol_shoot.lua` | Level 4: a patrolling thug shoots at its flag for the waypoint's time (rounds spent), then goes on to its scan. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
 | `env_show.lua` | `env_show`: the training room's barrier (reference 2010) stops Konoko while shown; a script hides it and she runs through. |
 | `script_orders.lua` | Script orders through the real dispatcher: poison doses (5 every 30 calls; a gap restarts it), an unstoppable character takes blows without reacting, `ai2_kill` smites every AI but not the player. |

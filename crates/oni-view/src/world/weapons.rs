@@ -667,7 +667,11 @@ impl World {
                     return 0.0;
                 }
                 let Some(w) = f.hand else { return 0.0 };
-                let skill = f.shooting.get(self.armory.weapons[w].class.ai.skill_index).map_or(0.0, |s| s.gun_inaccuracy);
+                let extra = match f.brain.as_ref() {
+                    Some(crate::ai::Brain::Agent(a)) => a.extra_spread,
+                    _ => 0.0,
+                };
+                let skill = f.shooting.get(self.armory.weapons[w].class.ai.skill_index).map_or(0.0, |s| s.gun_inaccuracy) + extra;
                 let hostile = player_team.is_some_and(|t| f.team().regards(t) == crate::ai::perception::Relation::Hostile);
                 skill * if hostile { self.difficulty.inaccuracy } else { 1.0 }
             })

@@ -32,7 +32,8 @@ pub enum Waypoint {
     Guard { flag: i16, ticks: Option<u32>, angle: f32 },
     Script { name: String, wait: bool },
     Lock(bool),
-    ShootAt { at: Target, ticks: u32 },
+    /// Shoot at a spot for a while, with this much extra spread (degrees).
+    ShootAt { at: Target, ticks: u32, inaccuracy: f32 },
 }
 
 /// Where a waypoint points: a flag (by id) or a point.
@@ -384,7 +385,7 @@ fn waypoint(w: &Value) -> Option<Waypoint> {
         "triggerScript" => Waypoint::Script { name: w["script"].as_str()?.to_string(), wait: false },
         "playScript" => Waypoint::Script { name: w["script"].as_str()?.to_string(), wait: true },
         "lockIntoPatrol" => Waypoint::Lock(w["lock"].as_bool().unwrap_or(false)),
-        "shootAtFlag" => Waypoint::ShootAt { at: flag()?, ticks: ticks() },
+        "shootAtFlag" => Waypoint::ShootAt { at: flag()?, ticks: ticks(), inaccuracy: w["inaccuracy"].as_f64().unwrap_or(0.0) as f32 },
         _ => return None,
     })
 }
