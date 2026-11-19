@@ -92,6 +92,8 @@ pub struct CharKind {
     /// How its AI shoots: skill per weapon slot, and targeting settings.
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
+    /// Its say in its impacts: steps, blows (`docs/AUDIO.md`).
+    pub sounds: Rc<crate::impacts::ClassSounds>,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -159,6 +161,11 @@ pub struct World {
     pub all_passive: bool,
     /// Sound (`docs/AUDIO.md`).
     pub audio: crate::audio::Audio,
+    /// What impacts sound like (`common/impacts.json`).
+    pub impacts: Option<Rc<crate::impacts::Impacts>>,
+    /// Each collision triangle's texture, and its material.
+    pub floor_textures: Vec<String>,
+    floor_materials: Vec<Option<u16>>,
 }
 
 /// A breakable glass pane.
@@ -210,6 +217,9 @@ impl World {
             turrets: Vec::new(),
             all_passive: false,
             audio: crate::audio::Audio::empty(),
+            impacts: None,
+            floor_textures: Vec::new(),
+            floor_materials: Vec::new(),
         }
     }
 
@@ -250,6 +260,7 @@ impl World {
         f.aiming = kind.aiming.clone();
         f.shooting = kind.shooting.clone();
         f.targeting = kind.targeting;
+        f.sounds = kind.sounds.clone();
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,
@@ -1478,6 +1489,18 @@ impl World {
                 Some(t) => f.death_timer = Some(t - 1),
             }
         }
+        // Footsteps, landings, falls this tick: their impact effects.
+        for i in 0..self.fighters.len() {
+            if let Some((kind, at)) = self.fighters[i].step.take() {
+                let f = &self.fighters[i];
+                let impact = f.sounds.anim.get(kind).and_then(|n| self.impacts.as_ref()?.impact(n));
+                let material = f.last_floor.and_then(|t| self.floor_materials.get(t as usize).copied().flatten());
+                if let (Some(impact), Some(material)) = (impact, material) {
+                    let modifier = f.sounds.modifier;
+                    self.impact_effect(impact, material, modifier, at, None, 1.0, Some(i), None);
+                }
+            }
+        }
         // Noises made this tick.
         for i in 0..self.fighters.len() {
             if let Some((stimulus, volume)) = self.fighters[i].noise.take() {
@@ -1494,6 +1517,83 @@ impl World {
             self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
         }
         self.audio.tick(self.sight.as_ref());
+    }
+
+    /// Plays an impact effect (`docs/AUDIO.md`, *Impact effects*): for each
+    /// slot the impact × material × weight finds, its sound at `at` (quieter
+    /// for a slow hit: `velocity`) and the noise the AI hears (its radius ×
+    /// `ai_scale`, credited to `ai1`, `ai2`). (Its particles: not yet.)
+    #[allow(clippy::too_many_arguments)]
+    pub fn impact_effect(
+        &mut self,
+        impact: u16,
+        material: u16,
+        modifier: u8,
+        at: Vec3,
+        velocity: Option<Vec3>,
+        ai_scale: f32,
+        ai1: Option<usize>,
+        ai2: Option<usize>,
+    ) {
+        let Some(impacts) = self.impacts.clone() else { return };
+        for k in impacts.lookup(impact, material, modifier).into_iter().flatten() {
+            let Some(sound) = &impacts.entry(k).sound else { continue };
+            if !sound.impulse.is_empty() {
+                let full = self.audio.impact_velocity(&sound.impulse);
+                let volume = velocity.map(Vec3::length).filter(|&s| full > 0.0 && s < full).map(|s| 0.3 + 0.7 * s * s / (full * full));
+                self.audio.impulse_play(&sound.impulse, Some(at), volume, self.sight.as_ref());
+            }
+            if let Some((stimulus, radius)) = sound.ai {
+                self.sound(stimulus, at, radius * ai_scale, ai1, ai2);
+            }
+        }
+    }
+
+    /// The impact effect of fighter `a`'s blow on `b` — `result` 0 hit, 1
+    /// blocked, 2 killed — by the parts that met: the attack's own impact
+    /// (hit or kill), else the striking part's; on the struck part's
+    /// material (`docs/AUDIO.md`, *Impact effects*).
+    fn blow_effect(&mut self, a: usize, b: usize, result: usize, attack_parts: u32, struck_parts: u32, damage: u16) {
+        let Some(impacts) = self.impacts.clone() else { return };
+        let (fa, fb) = (&self.fighters[a], &self.fighters[b]);
+        let struck = crate::impacts::primary_part(struck_parts);
+        let material = fb
+            .sounds
+            .part_materials
+            .get(struck)
+            .cloned()
+            .flatten()
+            .and_then(|m| impacts.material(&m))
+            .or_else(|| impacts.material("Character"));
+        let mut modifier = crate::impacts::ANY;
+        let special = (result != 1)
+            .then(|| fa.sounds.attacks.get(&fa.motion.current().attack_name))
+            .flatten()
+            .and_then(|(name, m)| Some((impacts.impact(name)?, *m)));
+        let impact = match special {
+            Some((i, m)) => {
+                modifier = m;
+                Some(i)
+            }
+            None => (attack_parts != 0)
+                .then(|| fa.sounds.part_impacts[result].get(crate::impacts::primary_part(attack_parts)).cloned().flatten())
+                .flatten()
+                .and_then(|n| impacts.impact(&n))
+                .or_else(|| impacts.impact("Melee")),
+        };
+        if modifier == crate::impacts::ANY {
+            modifier = crate::impacts::damage_modifier(damage);
+        }
+        let at = fb.bones().get(struck).map_or(fb.feet(), |m| m.w_axis.truncate());
+        let normal = (fb.feet() - fa.feet()).with_y(0.0).normalize_or_zero();
+        let ai_scale = match modifier {
+            crate::impacts::HEAVY => 2.0,
+            crate::impacts::MEDIUM => 1.5,
+            _ => 1.0,
+        };
+        if let (Some(impact), Some(material)) = (impact, material) {
+            self.impact_effect(impact, material, modifier, at, Some(normal), ai_scale, Some(a), Some(b));
+        }
     }
 
     /// What fighter `me` sees of who it could throw: everyone alive except
@@ -1575,7 +1675,7 @@ impl World {
         let n = self.fighters.len();
         let spheres: Vec<Vec<(usize, Vec3, f32)>> =
             self.fighters.iter().map(|f| f.body_spheres()).collect();
-        let mut blows: Vec<(usize, usize, usize, crate::skel::Attack)> = Vec::new();
+        let mut blows: Vec<(usize, usize, usize, crate::skel::Attack, u32, u32)> = Vec::new();
         for i in 0..n {
             for j in i + 1..n {
                 let (a, b) = (&self.fighters[i], &self.fighters[j]);
@@ -1636,21 +1736,21 @@ impl World {
                 let (from_i, prec_i) = landed(i, j, touch_i);
                 let (from_j, prec_j) = landed(j, i, touch_j);
                 if !from_i.is_empty() && prec_i >= prec_j {
-                    blows.extend(from_i.into_iter().map(|(k, atk)| (i, j, k, atk)));
+                    blows.extend(from_i.into_iter().map(|(k, atk)| (i, j, k, atk, atk.damage_bits & touch_i, touch_j)));
                 }
                 if !from_j.is_empty() && prec_j >= prec_i {
-                    blows.extend(from_j.into_iter().map(|(k, atk)| (j, i, k, atk)));
+                    blows.extend(from_j.into_iter().map(|(k, atk)| (j, i, k, atk, atk.damage_bits & touch_j, touch_i)));
                 }
             }
         }
-        for (a, b, k, attack) in blows {
+        for (a, b, k, attack, attack_parts, struck_parts) in blows {
             // Friends' blows pass through each other (not a thrown body's).
             let friends = self.fighters[a].team().regards(self.fighters[b].team()) == crate::ai::perception::Relation::Friend;
             if friends && !self.fighters[a].motion.current().has_flag(flag::THROW_TARGET) {
                 continue;
             }
             self.fighters[a].mark_hit(k, b);
-            self.land_hit(a, b, attack);
+            self.land_hit(a, b, attack, (attack_parts, struck_parts));
         }
     }
 
@@ -1670,8 +1770,9 @@ impl World {
         Some(skill * self.difficulty.block)
     }
 
-    /// Applies one landed attack from fighter `a` to fighter `b`.
-    fn land_hit(&mut self, a: usize, b: usize, attack: crate::skel::Attack) {
+    /// Applies one landed attack from fighter `a` to fighter `b`; `parts`:
+    /// the attacking parts that met, the parts they met.
+    fn land_hit(&mut self, a: usize, b: usize, attack: crate::skel::Attack, parts: (u32, u32)) {
         use crate::anim::reaction::{self, Victim};
         use crate::anim::types::{strike, ty};
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
@@ -1710,15 +1811,6 @@ impl World {
             eprintln!("hit: fighter {a} → {b}: invulnerable");
             return;
         }
-        // A blow landing (or blocked) is a melee noise at the defender,
-        // louder for heavier blows (×2 at 15+ damage, ×1.5 at 10+).
-        let scale = match attack.damage {
-            d if d >= 15 => 2.0,
-            d if d >= 10 => 1.5,
-            _ => 1.0,
-        };
-        let at = fb.feet() + Vec3::Y * 8.0;
-        self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0 * scale, Some(a), Some(b));
 
         let (attacker_team, attacker_feet) = (self.fighters[a].team(), self.fighters[a].feet());
         // Blocking: automatic for a defensive character facing the attacker
@@ -1751,6 +1843,8 @@ impl World {
                     fb.motion.block_stun = attack.block_stun;
                 }
                 eprintln!("hit: fighter {a} → {b}: blocked");
+                // A blocked blow's impact (its sound, the AI's melee noise).
+                self.blow_effect(a, b, 1, parts.0, parts.1, attack.damage);
                 return;
             }
             // A special move breaks through at half strength.
@@ -1822,5 +1916,8 @@ impl World {
             "hit: fighter {a} → {b} for {damage} (hp {}) reaction {}",
             fb.hp, fb.pending_reaction
         );
+        // The blow's impact: its sound, the AI's melee noise.
+        let result = if self.fighters[b].hp <= 0 { 2 } else { 0 };
+        self.blow_effect(a, b, result, parts.0, parts.1, attack.damage);
     }
 }

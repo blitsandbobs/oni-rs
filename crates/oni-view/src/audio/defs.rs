@@ -53,6 +53,8 @@ pub(super) struct ImpulseDef {
     pub min_distance: f32,
     /// Past this many copies of its group playing, play this impulse instead.
     pub alt: Option<(usize, String)>,
+    /// A hit this fast or faster is at full volume (0: always full).
+    pub impact_velocity: f32,
     pub min_occlusion: f32,
 }
 
@@ -143,6 +145,7 @@ impl Defs {
                     max_distance: f(&i["maxVolumeDistance"]),
                     min_distance: f(&i["minVolumeDistance"]),
                     alt: name(&i["alt"]).map(|a| (i["altThreshold"].as_u64().unwrap_or(0) as usize, a)),
+                    impact_velocity: f(&i["impactVelocity"]),
                     min_occlusion: f(&i["minOcclusion"]),
                 },
             );

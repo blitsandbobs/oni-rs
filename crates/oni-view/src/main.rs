@@ -13,6 +13,7 @@
 //!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
+mod impacts;
 mod audio;
 mod ai;
 mod anim;
@@ -290,6 +291,22 @@ fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
         indices.extend(p.indices.iter().map(|i| base + i));
     }
     (verts, indices)
+}
+
+/// Each collision triangle's texture (its file's name), in
+/// `level_collision_mesh`'s order: the floor's material for footsteps.
+fn floor_textures(scene: &gltf::Scene) -> Vec<String> {
+    let mut out = Vec::new();
+    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.env_ref.is_none() && p.glass.is_none() && p.collide) {
+        let name = p
+            .texture
+            .and_then(|t| scene.textures.get(t))
+            .and_then(|t| t.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+            .unwrap_or_default();
+        out.extend(std::iter::repeat_n(name, p.indices.len() / 3));
+    }
+    out
 }
 
 /// The level parts scripts show and hide (`env_show`), by reference: what

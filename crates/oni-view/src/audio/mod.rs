@@ -121,6 +121,12 @@ impl Audio {
         c
     }
 
+    /// How fast a hit must be for impulse `name` to sound at full volume
+    /// (0: always).
+    pub fn impact_velocity(&self, name: &str) -> f32 {
+        self.defs.impulses.get(name).map_or(0.0, |i| i.impact_velocity)
+    }
+
     /// The listener: the player's ear and facing.
     pub fn listen(&mut self, ear: Vec3, facing: Vec3) {
         self.listener = (ear, facing);
@@ -303,7 +309,7 @@ mod tests {
         let mut a = audio(&[("s", 600, 1)]);
         a.defs.impulses.insert(
             "s".into(),
-            ImpulseDef { group: "s".into(), priority: 1, max_distance: 10.0, min_distance: 50.0, alt: None, min_occlusion: 0.0 },
+            ImpulseDef { group: "s".into(), priority: 1, max_distance: 10.0, min_distance: 50.0, alt: None, impact_velocity: 0.0, min_occlusion: 0.0 },
         );
         // Ten at falling volumes fill the mono pool (channels 6..16).
         for k in 0..10 {
@@ -326,6 +332,7 @@ mod tests {
             max_distance: 10.0,
             min_distance: 50.0,
             alt,
+            impact_velocity: 0.0,
             min_occlusion: 0.0,
         };
         a.defs.impulses.insert("s".into(), imp("s", Some((2, "t".into()))));

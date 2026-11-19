@@ -11,6 +11,10 @@
 
 use std::rc::Rc;
 
+/// The feet's bones (footsteps sound at the foot that came down).
+const LEFT_FOOT: usize = 3;
+const RIGHT_FOOT: usize = 6;
+
 use glam::{Mat4, Quat, Vec3};
 
 use crate::anim::collection::AnimCollection;
@@ -153,6 +157,13 @@ pub struct Fighter {
     pub velocity: Vec3,
     /// A noise it made this tick (kind, volume), for the world to spread.
     pub noise: Option<(crate::ai::perception::Stimulus, f32)>,
+    /// A footstep (or landing, or fall) this tick: its impact kind and
+    /// where — the world plays its impact effect.
+    pub step: Option<(usize, Vec3)>,
+    /// The level triangle it last stood on (the floor's material).
+    pub last_floor: Option<u32>,
+    /// Its class's say in its impacts.
+    pub sounds: Rc<crate::impacts::ClassSounds>,
     /// What it sees, hears and remembers (AI characters).
     pub perception: Option<crate::ai::perception::Perception>,
     /// Glancing toward a point until a tick (no brain to steer it).
@@ -292,6 +303,9 @@ impl Fighter {
             class_combat: Default::default(),
             velocity: Vec3::ZERO,
             noise: None,
+            step: None,
+            last_floor: None,
+            sounds: Rc::default(),
             perception: None,
             glance: None,
             startling: None,
@@ -409,12 +423,27 @@ impl Fighter {
             };
         }
 
-        // Footfalls (on the ground): the noise each kind of step makes —
-        // the impact effects' AI-audible part on an ordinary floor
-        // (`docs/PERCEPTION.md`, *Hearing*).
-        if self.motion.air.frames == 0 && self.motion.current().footsteps.contains(&self.motion.frame) {
-            if let Some(n) = footstep_noise(&self.motion) {
-                self.noise = Some(n);
+        // Footfalls (on the ground): an impact effect of the kind its clip
+        // makes — the sound, and the noise the AI hears (`docs/AUDIO.md`,
+        // *Impact effects*) — at the foot that came down.
+        let clip = self.motion.current();
+        if let Some(k) = clip.footsteps.iter().position(|&f| f == self.motion.frame).filter(|_| self.motion.air.frames == 0) {
+            let kind_name = oni_schema::name(&oni_schema::ANIM_TYPES, self.motion.kind).unwrap_or("");
+            if let Some(mut kind) = crate::impacts::anim_impact(kind_name) {
+                if kind == crate::impacts::anim::RUN && clip.varient & crate::anim::types::var::SPRINT != 0 {
+                    kind = crate::impacts::anim::SPRINT;
+                }
+                let feet = self.feet();
+                let foot = match clip.footstep_kinds.get(k) {
+                    Some(1) => Some(LEFT_FOOT),
+                    Some(2) => Some(RIGHT_FOOT),
+                    _ => None,
+                };
+                let at = match foot.and_then(|b| self.bones().get(b).map(|m| m.w_axis.truncate())) {
+                    Some(p) => Vec3::new(p.x, feet.y + 0.5, p.z),
+                    None => feet,
+                };
+                self.step = Some((kind, at));
             }
         }
 
@@ -557,6 +586,11 @@ impl Fighter {
     pub fn commit(&mut self, world: Vec3) {
         let before = self.physics.feet;
         let grounded = self.physics.slide(world);
+        if grounded {
+            if let Some(t) = self.physics.floor_triangle(2.0) {
+                self.last_floor = Some(t);
+            }
+        }
         self.velocity = self.physics.feet - before;
         if world.y < 0.0 {
             self.touch_ground(grounded);
@@ -1030,35 +1064,6 @@ impl Fighter {
     pub fn alive(&self) -> bool {
         self.hp > 0 && !self.motion.dying && !self.gone
     }
-}
-
-/// The noise a footfall in the current clip makes (kind, radius) — by the
-/// clip's kind, as the original's animation-impact table and the impact
-/// data give it on an ordinary floor; none for crouching and sliding.
-fn footstep_noise(m: &crate::anim::motion::Motion) -> Option<(crate::ai::perception::Stimulus, f32)> {
-    use crate::ai::perception::Stimulus::{SoundIgnore as Faint, SoundInteresting as Notable};
-    let kind = oni_schema::name(&oni_schema::ANIM_TYPES, m.kind).unwrap_or("");
-    let sprint = m.varient & crate::anim::types::var::SPRINT != 0;
-    Some(match kind {
-        "standingTurnLeft" | "standingTurnRight" | "runStart" | "runBackwardsStart" | "runSidestepLeftStart"
-        | "runSidestepRightStart" | "oneStepStop" => (Faint, 20.0),
-        "walk" | "walkStart" | "walkSidestepLeft" | "walkSidestepRight" | "walkBackwards" | "consoleWalk"
-        | "walkStop" => (Faint, 25.0),
-        "run" | "runBackwards" | "runSidestepLeft" | "runSidestepRight" if sprint => (Notable, 100.0),
-        "run" | "runBackwards" | "runSidestepLeft" | "runSidestepRight" | "runStop" => (Faint, 80.0),
-        k if k.starts_with("knockdown")
-            || k.starts_with("blownup")
-            || k.starts_with("thrown")
-            || k.starts_with("land")
-            || k.starts_with("throw")
-            || k.starts_with("runThrow") =>
-        {
-            (Notable, 150.0)
-        }
-        // Attacks land a flying attacker.
-        _ if !m.current().attacks.is_empty() => (Notable, 150.0),
-        _ => return None,
-    })
 }
 
 /// Someone an attack may turn toward: not a friend (`hostile`: an enemy —

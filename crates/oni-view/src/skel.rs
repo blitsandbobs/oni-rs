@@ -134,8 +134,16 @@ pub struct Clip {
     /// `(frame, damage)`: damage the clip deals whoever plays it
     /// (`extras.selfDamage`; how a throw hurts its victim).
     pub self_damage: Vec<(u16, u16)>,
-    /// Frames a foot comes down (`extras.footsteps`).
+    /// Frames a foot comes down (`extras.footsteps`), and each one's foot
+    /// (1 left, 2 right, 3 single).
     pub footsteps: Vec<u16>,
+    pub footstep_kinds: Vec<u16>,
+    /// Its special attack's name (its impact, by the class: `attackName`).
+    pub attack_name: String,
+    /// Where its own animation sound plays (`soundFrame`), and impulses it
+    /// plays on given frames (`sounds`).
+    pub sound_frame: u16,
+    pub sounds: Vec<(String, u16)>,
     /// Where the clip's strikes reach (`extras.reach`), for attacks.
     pub reach: Option<Reach>,
     /// Body parts the clip moves (bit = part), and — played as an overlay —
@@ -705,6 +713,16 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         footsteps: ex["footsteps"]
             .as_array()
             .map(|a| a.iter().filter_map(|v| v.as_u64().map(|v| v as u16)).collect())
+            .unwrap_or_default(),
+        footstep_kinds: ex["footstepKinds"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|v| v.as_u64().map(|v| v as u16)).collect())
+            .unwrap_or_default(),
+        attack_name: ex["attackName"].as_str().unwrap_or("").to_string(),
+        sound_frame: ex["soundFrame"].as_u64().unwrap_or(0) as u16,
+        sounds: ex["sounds"]
+            .as_array()
+            .map(|a| a.iter().filter_map(|s| Some((s["impulse"].as_str()?.to_string(), s["frame"].as_u64()? as u16))).collect())
             .unwrap_or_default(),
         self_damage: ex["selfDamage"]
             .as_array()

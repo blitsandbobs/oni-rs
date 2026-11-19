@@ -460,6 +460,11 @@ impl World {
         self.audio = crate::audio::Audio::load(common, &self.level_dir);
         self.audio.mixer = mixer;
         self.audio.realtime = realtime;
+        self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
+        self.floor_materials = match &self.impacts {
+            Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
+            None => Vec::new(),
+        };
         let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         for w in doc["weapons"].as_array().into_iter().flatten() {

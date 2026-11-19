@@ -125,6 +125,7 @@ impl ScriptHost {
 
         let (verts, idx) = crate::level_collision_mesh(&scene);
         let mut world = World::new(verts, idx);
+        world.floor_textures = crate::floor_textures(&scene);
         if faithful {
             world.set_quirks(Quirks::FAITHFUL);
         }

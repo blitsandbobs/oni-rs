@@ -127,6 +127,7 @@ impl Classes {
                 c["perception"]["shootingSkill"].as_array().map(|a| a.iter().map(crate::ai::ranged::Skill::from_json).collect()).unwrap_or_default(),
             ),
             targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
+            sounds: Rc::new(crate::impacts::ClassSounds::from_json(&c)),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

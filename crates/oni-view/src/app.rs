@@ -228,6 +228,7 @@ impl ApplicationHandler for App {
                     let player_height = (mx.y - mn.y).max(2.0);
                     let (verts, idx) = crate::level_collision_mesh(&scene);
                     let mut world = crate::world::World::new(verts, idx);
+                    world.floor_textures = crate::floor_textures(&scene);
                     if self.faithful {
                         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
                     }

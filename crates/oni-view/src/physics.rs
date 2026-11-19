@@ -36,6 +36,8 @@ pub struct Physics {
     pub grounded: bool,
     /// The level's doors' closed leaves (solid only while closed).
     doors: Vec<Option<rapier3d::geometry::ColliderHandle>>,
+    /// The level's own collider, and its triangle count.
+    level: (rapier3d::geometry::ColliderHandle, u32),
 }
 
 impl Physics {
@@ -59,7 +61,8 @@ impl Physics {
             .chunks_exact(3)
             .map(|c| [c[0], c[1], c[2]])
             .collect();
-        colliders.insert(ColliderBuilder::trimesh(verts, idx).build());
+        let triangles = idx.len() as u32;
+        let level = (colliders.insert(ColliderBuilder::trimesh(verts, idx).build()), triangles);
 
         let mut query = QueryPipeline::new();
         query.update(&colliders);
@@ -91,6 +94,7 @@ impl Physics {
             feet,
             grounded: false,
             doors: Vec::new(),
+            level,
         }
     }
 
@@ -214,6 +218,18 @@ impl Physics {
                 let part = self.doors.iter().position(|d| *d == Some(h));
                 (hit.time_of_impact / len, Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z), part)
             })
+    }
+
+    /// The level triangle straight under the feet (within `max`), if the
+    /// floor there is the level's own (not a door, glass or a part).
+    pub fn floor_triangle(&self, max: f32) -> Option<u32> {
+        let lift = 0.5;
+        let ray = Ray::new(Point3::new(self.feet.x, self.feet.y + lift, self.feet.z), Vector3::new(0.0, -1.0, 0.0));
+        let (h, hit) = self.query.cast_ray_and_get_normal(&self.bodies, &self.colliders, &ray, max + lift, true, QueryFilter::default())?;
+        match hit.feature {
+            rapier3d::geometry::FeatureId::Face(f) if h == self.level.0 && self.level.1 > 0 => Some(f % self.level.1),
+            _ => None,
+        }
     }
 
     /// Distance from the feet straight down to the level, if within `max`.
