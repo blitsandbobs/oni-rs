@@ -121,6 +121,9 @@ pub struct Fighter {
     /// Its class's shadow, and whether a script took it away (`chr_shadow`).
     pub shadow: Option<Rc<crate::decal::Shadow>>,
     pub no_shadow: bool,
+    /// Its body parts' matrices, shared with what rides them (effects
+    /// attached where a shot struck), kept up to date while any is ridden.
+    pub part_cells: Vec<Rc<std::cell::Cell<Mat4>>>,
     /// Dead and settled (`ONcCharacterFlag_Dead_3_Cosmetic`): its body has
     /// lain on the ground for over 120 ticks (or died for 15 s); it casts
     /// no shadow. With the ticks it has lain still and been dying.
@@ -304,6 +307,7 @@ impl Fighter {
             death_lock: false,
             shadow: None,
             no_shadow: false,
+            part_cells: Vec::new(),
             settled: false,
             death_still: 0,
             death_moving: 0,
@@ -1005,6 +1009,29 @@ impl Fighter {
                 (bone, m.transform_point3(c), r)
             })
             .collect()
+    }
+
+    /// Body part `part`'s matrix, shared (it follows the part each tick).
+    pub fn part_matrix(&mut self, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
+        if self.part_cells.is_empty() {
+            self.part_cells = self.bones().into_iter().map(|m| Rc::new(std::cell::Cell::new(m))).collect();
+        }
+        self.part_cells.get(part).cloned()
+    }
+
+    /// Moves the shared part matrices to this tick's pose (or lets them go
+    /// once nothing rides them).
+    pub fn update_part_cells(&mut self) {
+        if self.part_cells.is_empty() {
+            return;
+        }
+        if self.part_cells.iter().all(|c| Rc::strong_count(c) == 1) {
+            self.part_cells.clear();
+            return;
+        }
+        for (c, m) in self.part_cells.iter().zip(self.bones()) {
+            c.set(m);
+        }
     }
 
     /// Whether the fighter is in the air.

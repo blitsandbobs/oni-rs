@@ -415,9 +415,9 @@ impl System {
                     Value::Enum(e) => Some(*e),
                     _ => None,
                 };
-                // (Attaching to a character struck is not modelled.)
+                let attach = matches!(a.param(3), Value::Enum(e) if *e != 0);
                 let quad = hit.filter(|k| k.env).and_then(|k| host.struck_quad(k.point, k.normal));
-                self.collision_effect(p, class, offset, orient, hit, quad, t, host);
+                self.collision_effect(p, class, offset, orient, attach, hit, quad, t, host);
             }
             Kind::Bounce => {
                 let Some(k) = hit else { return none };

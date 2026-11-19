@@ -66,6 +66,10 @@ impl World {
                         };
                         if let Some(k) = hit {
                             data.normal = k.normal;
+                            // (What it struck, for effects that ride it.)
+                            if !k.env {
+                                data.struck = k.part.and_then(|p| self.fighters.get_mut(k.id as usize)?.part_matrix(p as usize));
+                            }
                         }
                         self.impact_effect(impact, material, modifier as u8, data, 1.0, who, None);
                     }

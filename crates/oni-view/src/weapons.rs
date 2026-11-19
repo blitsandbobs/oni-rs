@@ -697,7 +697,7 @@ mod tests {
             let r = 6.0 + radius;
             let oc = from - self.at;
             if oc.length() <= r {
-                return Some(CharHit { fraction: 0.0, who: 1, normal: Vec3::Y });
+                return Some(CharHit { fraction: 0.0, who: 1, normal: Vec3::Y, part: 0 });
             }
             let a = ray.length_squared();
             if a < 1e-12 {
@@ -709,7 +709,7 @@ mod tests {
                 return None;
             }
             let t = (-b - disc.sqrt()) / a;
-            (0.0..=1.0).contains(&t).then(|| CharHit { fraction: t, who: 1, normal: (oc + ray * t).normalize() })
+            (0.0..=1.0).contains(&t).then(|| CharHit { fraction: t, who: 1, normal: (oc + ray * t).normalize(), part: 0 })
         }
         fn hit_char(&mut self, _w: usize, _p: Vec3, _d: Vec3, _k: u32, _dm: f32, _s: f32, _kb: f32, _o: u32, _st: Option<u64>, _si: bool) -> bool {
             self.hits += 1;

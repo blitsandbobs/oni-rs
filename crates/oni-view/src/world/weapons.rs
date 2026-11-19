@@ -291,6 +291,10 @@ impl ShotHost<'_> {
 }
 
 impl Host for ShotHost<'_> {
+    fn part_matrix(&mut self, who: usize, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
+        self.fighters.get_mut(who)?.part_matrix(part)
+    }
+
     fn struck_quad(&mut self, point: Vec3, normal: Vec3) -> Option<u32> {
         super::particle_sounds::struck_quad(self.quads?, point, normal)
     }
@@ -366,7 +370,7 @@ impl Host for ShotHost<'_> {
                     continue;
                 }
                 if best.is_none_or(|b| t < b.fraction) {
-                    best = Some(CharHit { fraction: t, who: i, normal });
+                    best = Some(CharHit { fraction: t, who: i, normal, part: part.bone });
                 }
             }
         }
@@ -1591,6 +1595,9 @@ impl World {
         host.set_spread(inaccuracy, spread);
         host.panes = panes;
         host.quads = Some(&self.quads);
+        for f in host.fighters.iter_mut() {
+            f.update_part_cells();
+        }
         self.armory.particles.update(tick, &mut host);
         let sounds = std::mem::take(&mut host.sounds);
         let broke = std::mem::take(&mut host.broke);

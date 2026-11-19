@@ -26,7 +26,7 @@ impl Host for Fake {
         let r = 5.0 + radius;
         let l = ray.length();
         if l < 1e-9 {
-            return (from.distance(self.target) <= r).then_some(CharHit { fraction: 0.0, who: 7, normal: Vec3::Y });
+            return (from.distance(self.target) <= r).then_some(CharHit { fraction: 0.0, who: 7, normal: Vec3::Y, part: 0 });
         }
         let d = ray / l;
         let oc = from - self.target;
@@ -37,7 +37,7 @@ impl Host for Fake {
             return None;
         }
         let s = -b - disc.sqrt();
-        (0.0..=l).contains(&s).then(|| CharHit { fraction: s / l, who: 7, normal: (from + d * s - self.target).normalize() })
+        (0.0..=l).contains(&s).then(|| CharHit { fraction: s / l, who: 7, normal: (from + d * s - self.target).normalize(), part: 0 })
     }
     fn hit_char(&mut self, who: usize, _p: Vec3, _d: Vec3, kind: u32, damage: f32, _s: f32, _k: f32, _o: u32, stamp: Option<u64>, _si: bool) -> bool {
         self.hits.push((who, damage, kind, stamp));

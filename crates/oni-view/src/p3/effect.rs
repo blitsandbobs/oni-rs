@@ -98,7 +98,12 @@ pub struct Data {
     /// The parent's flags (temporary, cut by a cutscene).
     pub parent_flags: u32,
     pub cause: Cause,
+    /// A matrix the particle rides (with a dynamic matrix), placed in the
+    /// world.
     pub attach: Option<Rc<Cell<Mat4>>>,
+    /// What the parent struck (a body part's matrix): an effect attached to
+    /// the object rides it, placed relative to it.
+    pub struck: Option<Rc<Cell<Mat4>>>,
 }
 
 impl Data {
@@ -116,6 +121,7 @@ impl Data {
             parent_flags: 0,
             cause: Cause::None,
             attach: None,
+            struck: None,
         }
     }
 }
@@ -244,10 +250,21 @@ impl System {
         }
         p.velocity = data.velocity;
         p.owner = data.owner;
-        if let Some(m) = &data.attach {
-            // Made local to what it rides.
-            position = m.get().inverse().transform_point3(position);
-            p.matrix = Some(m.clone());
+        // What it rides (a class with a dynamic matrix): the attach matrix,
+        // or, attached to what its parent struck, that — its place made
+        // relative to it (its turn stays as worked out above).
+        let mut matrix = data.attach.clone();
+        let mut relative = false;
+        if spec.location == Location::AttachedToObject && data.cause == Cause::HitPhysics && data.struck.is_some() {
+            matrix = data.struck.clone();
+            relative = true;
+        }
+        if c.has(cflag::DYNAMIC_MATRIX) {
+            if let (true, Some(m)) = (relative, &matrix) {
+                let m = m.get();
+                position = Mat3::from_mat4(m).transpose() * (position - m.w_axis.truncate());
+            }
+            p.matrix = matrix;
         }
         p.position = position;
         let decal = if c.has(cflag::DECAL) { Some(self.lay_decal(&mut p, spec, data, host)?) } else { None };
@@ -408,6 +425,7 @@ impl System {
         class: ClassId,
         offset: f32,
         orient: Option<u32>,
+        attach: bool,
         hit: Option<super::Collision>,
         quad: Option<u32>,
         t: f64,
@@ -428,6 +446,11 @@ impl System {
                 data.position = k.point;
                 data.normal = k.normal;
                 data.cause = if k.env { Cause::HitWall(quad) } else { Cause::HitPhysics };
+                // Riding what it struck (never a wall).
+                if attach && !k.env {
+                    location = Location::AttachedToObject;
+                    data.struck = k.part.and_then(|part| host.part_matrix(k.id as usize, part as usize));
+                }
             }
             None => {
                 data.cause = if parent.flags & pflag::CUTSCENE_KILLED != 0 { Cause::CutsceneKilled } else { Cause::None };

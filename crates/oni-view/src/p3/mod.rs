@@ -149,6 +149,8 @@ pub struct Collision {
     pub t: f64,
     /// A level hit's triangle (its material), when known.
     pub triangle: Option<u32>,
+    /// A character hit's body part.
+    pub part: Option<u32>,
 }
 
 /// A level hit: how far along the ray (0–1), the surface normal and an id.
@@ -186,6 +188,8 @@ pub struct CharHit {
     pub fraction: f32,
     pub who: usize,
     pub normal: Vec3,
+    /// The body part struck.
+    pub part: usize,
 }
 
 /// A character an attractor can pick.
@@ -229,6 +233,11 @@ pub trait Host {
     /// Extra degrees of aim error for shots from `owner` (an AI's skill).
     fn inaccuracy(&self, _owner: u32) -> f32 {
         0.0
+    }
+    /// Character `who`'s body part `part`, as a matrix that follows it (for
+    /// effects riding what they struck).
+    fn part_matrix(&mut self, _who: usize, _part: usize) -> Option<Rc<Cell<Mat4>>> {
+        None
     }
     /// The level quad struck at `point` facing `normal` (for decals).
     fn struck_quad(&mut self, _point: Vec3, _normal: Vec3) -> Option<u32> {
@@ -812,6 +821,7 @@ impl System {
                     id: k.surface,
                     t: cur + dt * f64::from(k.fraction),
                     triangle: k.triangle,
+                    part: None,
                 });
             }
         }
@@ -827,6 +837,7 @@ impl System {
                     id: k.who as u32,
                     t: cur + dt * f64::from(limit * k.fraction),
                     triangle: None,
+                    part: Some(k.part as u32),
                 });
             }
         }
