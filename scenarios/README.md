@@ -48,6 +48,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
+| `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `glass.lua` | A shot breaks a glass pane: level 1's range has 18 targets (references 3001–3018) that `env_broken` counts; `env_show` breaks and mends glass. |
 | `ai_shoot.lua` | An armed enemy that sees the player goes into combat, aims and fires; its shots land; empty, it fights hand to hand. |
 | `ai_gun.lua` | An unarmed enemy that shoots goes for a loaded gun lying near, bends for it and shoots with it. |
@@ -117,6 +118,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
 | `powerup(id, kind [, amount])` | Give a powerup the game's way (`ammo`, `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took. |
+| `shadow(id)` | Fighter `id`'s shadow this frame: `{alpha, quad, vertices, positions}`, or nil. |
 | `decals([class])` / `quad_plane(q)` / `particles_of(class)` / `health_shade(id)` / `show_decals(on)` | The live decals (of a class), the level's first, oldest first: `class`, `static`, `alpha` (0–255), `vertices`, `triangles`, `positions`, `quad` made on; a level quad's plane (`a, b, c, d`); where each particle of a class is (`{x, y, z, dx, dy, dz [, tint]}`: its forward axis, its colour when a variable); a fighter's health colour; whether screenshots draw decals. |
 | `env_particles(tag)` / `particle(tag, command [, event])` / `console_screen(id)` | How many of the level's environmental particles with that tag are alive; send them a command as scripts do; the texture a console's screen shows now. |
 | `dialog()` | Whether a scripted dialogue line is on. |

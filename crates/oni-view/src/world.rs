@@ -99,6 +99,8 @@ pub struct CharKind {
     pub targeting: crate::ai::ranged::Params,
     /// Its say in its impacts: steps, blows (`docs/AUDIO.md`).
     pub sounds: Rc<crate::impacts::ClassSounds>,
+    /// The class's shadow.
+    pub shadow: Option<Rc<crate::decal::Shadow>>,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -299,6 +301,7 @@ impl World {
         f.shooting = kind.shooting.clone();
         f.targeting = kind.targeting;
         f.sounds = kind.sounds.clone();
+        f.shadow = kind.shadow.clone();
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,
@@ -1539,6 +1542,19 @@ impl World {
             *c = controls;
         }
         self.weapons_tick(&gun_controls);
+        // The dead settle (`Die_3_Cosmetic`): on the ground for over 120
+        // ticks running, or dying for 15 s.
+        for f in &mut self.fighters {
+            if f.motion.corpse && !f.settled {
+                if !f.airborne() && f.motion.air.off_ground == 0 {
+                    f.death_still += 1;
+                } else {
+                    f.death_still = 0;
+                }
+                f.death_moving += 1;
+                f.settled = f.death_still > 120 || f.death_moving > 60 * 15;
+            }
+        }
         // Bodies of classes that delete their dead go after the delay.
         for i in 1..self.fighters.len() {
             let f = &mut self.fighters[i];

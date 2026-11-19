@@ -128,6 +128,7 @@ impl Classes {
             ),
             targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
             sounds: Rc::new(crate::impacts::ClassSounds::from_json(&c)),
+            shadow: crate::decal::Shadow::from_json(&c["shadow"]).map(Rc::new),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

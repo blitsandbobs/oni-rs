@@ -717,6 +717,28 @@ fn collect_character_classes(
                 entry["dazed"] = serde_json::json!({ "min": min, "max": max });
             }
             entry["perception"] = perception_json(&rec);
+            // Its shadow (`ONtShadowConstants`): texture, heights (fade
+            // begins, none above), sizes (half-widths: on the ground, at the
+            // fade, at the top), opacities (0–255: on the ground, at the
+            // fade).
+            let float = |n: &str| match rec.get(&format!("shadowConstants.{n}")).map(|e| &e.value) {
+                Some(oni_template::Value::Float(v)) => *v,
+                _ => 0.0,
+            };
+            let texture = match rec.get("shadowConstants.shadow_texture").map(|e| &e.value) {
+                Some(oni_template::Value::Ref(_, r)) if r & 1 != 0 => dat.instances.get((r >> 8) as usize).map(|i| asset_name(dat, i)),
+                _ => None,
+            };
+            entry["shadow"] = serde_json::json!({
+                "texture": texture,
+                "heightMax": float("height_max"),
+                "heightFade": float("height_fade"),
+                "sizeMax": float("size_max"),
+                "sizeFade": float("size_fade"),
+                "sizeMin": float("size_min"),
+                "alphaMax": rec.int("shadowConstants.alpha_max").unwrap_or(0),
+                "alphaFade": rec.int("shadowConstants.alpha_fade").unwrap_or(0),
+            });
         }
     }
 }

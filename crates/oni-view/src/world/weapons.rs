@@ -853,17 +853,42 @@ impl World {
     /// full (the original's draw doubles it).
     pub fn decal_draws(&self) -> Vec<crate::render::DecalDraw> {
         let textures = self.level_dir.join("../../common/textures");
-        self.armory
-            .particles
-            .decals
-            .iter()
-            .map(|d| crate::render::DecalDraw {
-                positions: d.mesh.clone(),
-                alpha: ((u32::from(d.alpha) * 255 * 2) >> 8).min(255) as f32 / 255.0,
-                texture: textures.join(format!("{}.png", d.texture)),
-                additive: self.additive_textures.contains(d.texture.as_ref()),
-            })
-            .collect()
+        let draw = |mesh: Rc<crate::decal::Mesh>, alpha: u16, texture: &str| crate::render::DecalDraw {
+            positions: mesh,
+            alpha: ((u32::from(alpha) * 255 * 2) >> 8).min(255) as f32 / 255.0,
+            texture: textures.join(format!("{texture}.png")),
+            additive: self.additive_textures.contains(texture),
+        };
+        let decals = &self.armory.particles.decals;
+        // The level's, then the characters' shadows (laid again each frame,
+        // so after them), then the rest.
+        let mut out: Vec<_> = decals.fixed.iter().map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)).collect();
+        for k in 0..self.fighters.len() {
+            if let Some((mesh, alpha, texture)) = self.shadow(k) {
+                out.push(draw(Rc::new(mesh), alpha, &texture));
+            }
+        }
+        out.extend(decals.dynamic.iter().map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)));
+        out
+    }
+
+    /// Fighter `k`'s shadow this frame: its decal, opacity and texture.
+    pub fn shadow(&self, k: usize) -> Option<(crate::decal::Mesh, u16, String)> {
+        let f = self.fighters.get(k)?;
+        let s = f.shadow.as_ref()?;
+        if f.gone || f.no_shadow || f.settled {
+            return None;
+        }
+        let pelvis = f.bones().first()?.w_axis.truncate();
+        let feet = f.feet();
+        // Standing: on the floor underfoot.
+        let floor = (!f.airborne())
+            .then(|| self.quads.ray(feet + Vec3::Y, Vec3::Y * -2.0, crate::quads::flag::OBJ_COL_SKIP))
+            .flatten()
+            .map(|h| h.quad);
+        let (at, quad, size, alpha) = s.place(&self.quads, pelvis, feet.y, floor)?;
+        let mesh = crate::decal::Shadow::build(&self.quads, quad, at, size)?;
+        Some((mesh, alpha, s.texture.clone()))
     }
 
     pub fn sprites(&self) -> Vec<crate::render::Sprite> {

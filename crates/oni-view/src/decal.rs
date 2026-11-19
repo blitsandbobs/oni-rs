@@ -45,6 +45,88 @@ const EPSILON: f32 = 1.0 / 1024.0;
 pub const SKIP: u32 = flag::OBJ_COL_SKIP | flag::INVISIBLE | flag::NO_DECAL;
 const NONE: usize = usize::MAX;
 
+/// A character class's shadow (`ONtShadowConstants`): its texture; the
+/// heights where it starts to fade and where it is gone; its half-size on
+/// the ground, at the fade and at the top; its opacity (0–255) on the
+/// ground and at the fade.
+#[derive(Clone, Debug, Default)]
+pub struct Shadow {
+    pub texture: String,
+    pub height_max: f32,
+    pub height_fade: f32,
+    pub size_max: f32,
+    pub size_fade: f32,
+    pub size_min: f32,
+    pub alpha_max: u16,
+    pub alpha_fade: u16,
+}
+
+impl Shadow {
+    pub fn from_json(j: &serde_json::Value) -> Option<Shadow> {
+        let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
+        let u = |k: &str| j[k].as_u64().unwrap_or(0) as u16;
+        Some(Shadow {
+            texture: j["texture"].as_str()?.to_string(),
+            height_max: f("heightMax"),
+            height_fade: f("heightFade"),
+            size_max: f("sizeMax"),
+            size_fade: f("sizeFade"),
+            size_min: f("sizeMin"),
+            alpha_max: u("alphaMax"),
+            alpha_fade: u("alphaFade"),
+        })
+    }
+
+    /// Where and how big and dark a character's shadow is (the original's
+    /// character display): flat under the pelvis on the floor it stands on
+    /// (`floor`), else on whatever a sphere swept down from the feet meets
+    /// — smaller and fainter the higher, gone above the top height. `None`:
+    /// no shadow.
+    pub fn place(&self, quads: &Quads, pelvis: Vec3, feet_y: f32, floor: Option<u32>) -> Option<(Vec3, u32, f32, u16)> {
+        let at = Vec3::new(pelvis.x, feet_y, pelvis.z);
+        if let Some(q) = floor {
+            return Some((at, q, self.size_max, self.alpha_max));
+        }
+        let r = self.size_max;
+        let hit = *quads.sphere(at - Vec3::Y * r, r, Vec3::Y * -(self.height_max + r), flag::OBJ_COL_SKIP | flag::INVISIBLE).first()?;
+        let height = (at.y - hit.point.y).max(0.0);
+        let round = |a: f32| a.max(0.0).round_ties_even() as u16;
+        if height < self.height_fade {
+            let t = height / self.height_fade;
+            let size = self.size_max + (self.size_fade - self.size_max) * t;
+            let alpha = f32::from(self.alpha_max) + (f32::from(self.alpha_fade) - f32::from(self.alpha_max)) * t;
+            Some((hit.point, hit.quad, size, round(alpha)))
+        } else if height < self.height_max {
+            let t = (self.height_max - height) / (self.height_max - self.height_fade);
+            let size = self.size_min + (self.size_fade - self.size_min) * t;
+            Some((hit.point, hit.quad, size, round(f32::from(self.alpha_fade) * t)))
+        } else {
+            None
+        }
+    }
+
+    /// The shadow's decal: laid straight down onto every floor around (no
+    /// wrapping), unlit; none if it would overflow the original's 2 KB
+    /// buffer.
+    pub fn build(quads: &Quads, quad: u32, at: Vec3, size: f32) -> Option<Mesh> {
+        let p = Params {
+            flags: dflag::IGNORE_ADJACENCY | dflag::CULL_BACK_FACING | dflag::FULL_BRIGHT,
+            wrap: 80f32.to_radians(),
+            direction: None,
+            position: at,
+            fwd: Vec3::Y,
+            up: Vec3::Z,
+            right: Vec3::X,
+            xscale: size,
+            yscale: size,
+        };
+        build(quads, Some(quad), &p).filter(|m| m.bytes() <= SHADOW_BUFFER)
+    }
+}
+
+/// The character shadow's decal buffer (`ONcShadowDecalStaticBufferSize`).
+const SHADOW_BUFFER: usize = 2048;
+
 /// What to build: where, which way, how big.
 #[derive(Clone, Copy, Debug)]
 pub struct Params {

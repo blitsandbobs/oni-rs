@@ -118,6 +118,15 @@ pub struct Fighter {
     /// Death-locked (a script's order): it can die, but its body is never
     /// removed.
     pub death_lock: bool,
+    /// Its class's shadow, and whether a script took it away (`chr_shadow`).
+    pub shadow: Option<Rc<crate::decal::Shadow>>,
+    pub no_shadow: bool,
+    /// Dead and settled (`ONcCharacterFlag_Dead_3_Cosmetic`): its body has
+    /// lain on the ground for over 120 ticks (or died for 15 s); it casts
+    /// no shadow. With the ticks it has lain still and been dying.
+    pub settled: bool,
+    pub death_still: u32,
+    pub death_moving: u32,
     /// Poison (a script calling `chr_poison` each tick): when it was last
     /// poisoned and its count toward the next dose.
     poison_last: u64,
@@ -293,6 +302,11 @@ impl Fighter {
             death_timer: None,
             unstoppable: false,
             death_lock: false,
+            shadow: None,
+            no_shadow: false,
+            settled: false,
+            death_still: 0,
+            death_moving: 0,
             poison_last: 0,
             poison_count: 0,
             passive,

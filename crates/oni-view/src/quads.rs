@@ -164,10 +164,13 @@ impl Quads {
     /// the hit's x + y + z distance from the start, in 1/256ths.
     pub fn ray(&self, start: Vec3, vector: Vec3, skip: u32) -> Option<Hit> {
         let end = start + vector;
+        // (A quick reject on the boxes, wide enough never to change the
+        // answer.)
+        let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
         self.quads
             .iter()
             .enumerate()
-            .filter(|(_, q)| q.flags & skip == 0)
+            .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())
             .filter_map(|(k, q)| {
                 let point = self.quad_line(q, start, end)?;
                 let d = point - start;

@@ -1114,6 +1114,26 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
+    // shadow(id) → {alpha, quad, vertices, positions} or nil: fighter
+    // `id`'s shadow this frame (and the quad it was placed by).
+    let h = host.clone();
+    g.set(
+        "shadow",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let Some((mesh, alpha, _)) = host.world.shadow(id) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("alpha", alpha)?;
+            t.set("quad", mesh.quad)?;
+            t.set("vertices", mesh.positions.len())?;
+            let ps = lua.create_table()?;
+            for (i, v) in mesh.positions.iter().enumerate() {
+                ps.set(i + 1, vec![v.x, v.y, v.z])?;
+            }
+            t.set("positions", ps)?;
+            Ok(Some(t))
+        })?,
+    )?;
     // show_decals(on): whether screenshots draw the decals (to compare).
     let h = host.clone();
     g.set("show_decals", lua.create_function(move |_, on: bool| {
