@@ -584,6 +584,8 @@ impl World {
             skill: f.shooting.get(ai.skill_index).copied().unwrap_or_default(),
             params: f.targeting,
             usable: gun.ammo > 0 || self.has_reload(who, w) || f.reloading(),
+            stuns: gun.class.has(flag::AI_STUN),
+            knocks_down: gun.class.has(flag::AI_KNOCKDOWN),
         })
     }
 

@@ -31,8 +31,11 @@ pub mod flag {
     pub const USE_AMMO_CONTINUOUSLY: u32 = 1 << 13;
     /// The AI fires it one press at a time.
     pub const AI_SINGLE_SHOT: u32 = 1 << 14;
+    /// Hints to the AI: the gun stuns / knocks down.
+    pub const AI_STUN: u32 = 1 << 15;
+    pub const AI_KNOCKDOWN: u32 = 1 << 16;
 }
-const FLAG_NAMES: [(&str, u32); 15] = [
+const FLAG_NAMES: [(&str, u32); 17] = [
     ("big", flag::BIG),
     ("unstorable", flag::UNSTORABLE),
     ("energy", flag::ENERGY),
@@ -48,6 +51,8 @@ const FLAG_NAMES: [(&str, u32); 15] = [
     ("dontFadeOut", flag::DONT_FADE_OUT),
     ("useAmmoContinuously", flag::USE_AMMO_CONTINUOUSLY),
     ("aiSingleShot", flag::AI_SINGLE_SHOT),
+    ("aiStun", flag::AI_STUN),
+    ("aiKnockdown", flag::AI_KNOCKDOWN),
 ];
 
 /// A dropped gun lies this long before fading (ticks), and fades this long.
@@ -206,9 +211,7 @@ pub struct AiGun {
     pub max_range: f32,
     /// Which of the class's shooting skills applies.
     pub skill_index: usize,
-    /// Ticks of melee after this gun stuns or floors the target (not acted
-    /// on yet).
-    #[allow(dead_code)]
+    /// Ticks of melee after this gun stuns or floors the target.
     pub melee_assist: u32,
 }
 

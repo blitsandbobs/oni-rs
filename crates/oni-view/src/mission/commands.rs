@@ -223,8 +223,10 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         let combat = matches!(a.goal, crate::ai::goals::Goal::Combat(_));
         let name = a.name.clone();
         let alarmed = std::mem::take(&mut host.world().fighters[id].alarmed);
+        // (Its gun empty with nothing to reload it.)
+        let dry = host.world().has_empty_weapon(id);
         let fired = state.fired.entry(id).or_default();
-        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("defeated", dying), ("die", dying)] {
+        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("outOfAmmo", dry), ("defeated", dying), ("die", dying)] {
             if now && fired.insert(event) {
                 if let Some(s) = scripts.get(event) {
                     out.push((s.clone(), vec![name.clone()]));

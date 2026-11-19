@@ -467,6 +467,8 @@ impl World {
                 pelvis: f.feet() + Vec3::Y * f.motion.height(),
                 height: f.motion.height() * 2.0,
                 friend: f.team().regards(me_team) != crate::ai::perception::Relation::Hostile,
+                dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
+                fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
             })
             .collect();
         let gun = self.gun_view(i);

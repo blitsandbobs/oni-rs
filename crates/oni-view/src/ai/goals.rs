@@ -302,6 +302,9 @@ pub struct Other {
     pub pelvis: Vec3,
     pub height: f32,
     pub friend: bool,
+    /// Reeling from a stun, or lying on the ground.
+    pub dizzy: bool,
+    pub fallen: bool,
 }
 
 /// The gun in an AI's hand, as targeting sees it.
@@ -314,6 +317,10 @@ pub struct GunView {
     pub params: crate::ai::ranged::Params,
     /// Loaded, or with something to reload it.
     pub usable: bool,
+    /// The gun stuns, or knocks down (its shots set the AI on to melee the
+    /// reeling / fallen target).
+    pub stuns: bool,
+    pub knocks_down: bool,
 }
 
 /// What a goal can see and use this tick.
@@ -688,6 +695,8 @@ pub struct Combat {
     gun_target: Option<usize>,
     gun_roll: Option<bool>,
     unreachable: Vec<usize>,
+    /// Decisions left of the melee its gun earned (the target is down).
+    weapon_melee: u32,
 }
 
 /// An AI character's goals (behaviour per `docs/GOALS.md`).
@@ -1902,6 +1911,7 @@ impl Agent {
             gun_target: None,
             gun_roll: None,
             unreachable: Vec::new(),
+            weapon_melee: 0,
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
@@ -2383,11 +2393,26 @@ impl Agent {
                     }
                 }
             }
+            // Its gun put the target down: in to finish it hand to hand.
+            let t = cx.others.get(k.target);
+            if let Some(g) = cx.gun.filter(|_| armed && has_melee && profile.melee_when != "never") {
+                let earned = t.is_some_and(|t| (g.stuns && (t.dizzy || t.fallen)) || (g.knocks_down && t.fallen));
+                if earned && k.weapon_melee == 0 {
+                    k.weapon_melee = g.ai.melee_assist / COMBAT_PERIOD as u32;
+                }
+            }
+            let weapon_melee = k.weapon_melee > 0;
+            if weapon_melee {
+                k.weapon_melee -= 1;
+                w[MELEE] = 1.2;
+                w[HOLD] = w[HOLD].max(0.2);
+                k.have_los = true;
+            }
             // Too close for the gun (`docs/AI.md`, *Shooting*): back off — or,
             // if it would fight back hand to hand, melee.
             let min_safe = cx.gun.map_or(0.0, |g| g.ai.min_safe_distance);
             k.too_close = 0.0;
-            if armed && min_safe > 0.0 && dist < min_safe {
+            if armed && !weapon_melee && min_safe > 0.0 && dist < min_safe {
                 let tc = (1.5 * (1.0 - dist / min_safe)).min(1.0);
                 k.too_close = tc;
                 if tc >= 0.75 {
@@ -2402,7 +2427,7 @@ impl Agent {
                 }
             }
             // A gun with no line of fire (or out of range): close in.
-            if armed {
+            if armed && !weapon_melee {
                 k.have_los = line_of_fire(target_feet, cx);
                 if !k.have_los && w[MELEE] < 1.0 {
                     w[ADVANCE] = 1.2;
