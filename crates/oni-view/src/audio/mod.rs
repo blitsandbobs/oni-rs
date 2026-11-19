@@ -9,6 +9,7 @@
 mod defs;
 mod game;
 pub mod mixer;
+mod objects;
 pub mod output;
 mod system;
 
@@ -34,6 +35,7 @@ pub struct Audio {
     chans: [system::Chan; CHANNELS],
     playing: Vec<system::Playing>,
     handles: Vec<Option<game::Handle>>,
+    objects: Vec<objects::SoundObject>,
     next_id: u32,
     listener: (Vec3, Vec3),
     tick: u64,
@@ -76,6 +78,7 @@ impl Audio {
             chans: Default::default(),
             playing: Vec::new(),
             handles: Vec::new(),
+            objects: Vec::new(),
             next_id: 1,
             listener: (Vec3::ZERO, Vec3::Z),
             tick: 0,
@@ -92,6 +95,7 @@ impl Audio {
         let mut a = Audio::empty();
         a.dirs = vec![common.join("audio"), level_dir.join("audio")];
         a.defs = defs::Defs::load(common);
+        a.objects = objects::load(level_dir);
         a
     }
 
@@ -140,6 +144,7 @@ impl Audio {
         }
         self.overall += (self.desired - self.overall).clamp(-OVERALL_ADJUST, OVERALL_ADJUST);
         self.update_handles(sight);
+        self.update_objects(sight);
         let mut k = 0;
         while k < self.playing.len() {
             self.update_one(k);
@@ -363,6 +368,75 @@ mod tests {
             clips.extend(a.heard()[0].clip.clone());
         }
         assert!(clips.contains("x") && clips.contains("y"), "both permutations heard: {clips:?}");
+    }
+
+    /// `hum` (no in or out sound here: its body only) as sound objects.
+    fn with_objects(test: &str, json: &str) -> Audio {
+        let mut a = audio(&[("b", 12, 1)]);
+        let mut def = ambient(0, None, Some("b"));
+        (def.in_sound, def.out_sound) = (None, None);
+        a.defs.ambients.insert("hum".into(), def);
+        let dir = std::env::temp_dir().join(format!("oni-sound-objects-{}-{test}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("sounds.json"), json).unwrap();
+        a.objects = objects::load(&dir);
+        a
+    }
+
+    #[test]
+    fn a_sphere_fades_up_while_inside_and_stops_outside() {
+        // Heard within 18 ft (54 units), full within 6.
+        let mut a = with_objects("sphere", r#"{"objects":[{"ambient":"hum","position":[0,0,0],"volume":0.8,"sphere":{"max":6,"min":18}}]}"#);
+        a.listen(Vec3::new(0.0, 0.0, 100.0), Vec3::Z);
+        a.tick(None);
+        assert!(a.heard().is_empty(), "outside: silent");
+        a.listen(Vec3::new(0.0, 0.0, 10.0), Vec3::Z);
+        a.tick(None);
+        let v = |a: &Audio| a.channels().iter().map(|c| c.volume).fold(0.0, f32::max);
+        assert_eq!(a.heard().len(), 1, "inside: it starts");
+        // Its muffled volume climbs 0.05 an update; × 0.8.
+        for _ in 0..40 {
+            a.tick(None);
+        }
+        assert!((v(&a) - 0.8).abs() < 1e-4, "{}", v(&a));
+        a.listen(Vec3::new(0.0, 0.0, 100.0), Vec3::Z);
+        a.tick(None);
+        assert_eq!(a.heard()[0].stage, Stage::Stopping, "left: it plays out");
+    }
+
+    #[test]
+    fn boxes_ease_in_and_out_and_hand_over() {
+        let mut a = with_objects(
+            "boxes",
+            r#"{"objects":[
+                {"ambient":"hum","position":[0,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}},
+                {"ambient":"hum","position":[20,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}}]}"#,
+        );
+        let obj = |a: &Audio, k: usize| {
+            let o = &a.sound_objects()[k];
+            (o.3, o.4)
+        };
+        a.listen(Vec3::ZERO, Vec3::Z);
+        a.tick(None);
+        assert_eq!(obj(&a, 0).0, objects::State::Starting);
+        for _ in 0..60 {
+            a.tick(None);
+        }
+        assert!((obj(&a, 0).1 - 0.75).abs() < 0.03, "an ease-in, three quarters up after a second: {:?}", obj(&a, 0));
+        // Into the next box (same ambient) while the first fades out: it
+        // takes the sound over rather than starting another.
+        a.listen(Vec3::new(25.0, 0.0, 0.0), Vec3::Z);
+        a.tick(None);
+        a.tick(None);
+        assert_eq!(a.heard().len(), 1, "one sound");
+        assert_eq!(obj(&a, 1).0, objects::State::Starting);
+        assert_eq!(obj(&a, 0).0, objects::State::Off);
+        // Out of both: a 2-second ease-out, then halted.
+        a.listen(Vec3::new(100.0, 0.0, 0.0), Vec3::Z);
+        for _ in 0..125 {
+            a.tick(None);
+        }
+        assert!(a.heard().is_empty(), "faded out and halted");
     }
 
     #[test]

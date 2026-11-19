@@ -13,6 +13,8 @@ const CHANNEL_PRIORITY: u8 = 1;
 pub(super) const LOW: u8 = 0;
 /// Playing ambients at once.
 const AMBIENT_SLOTS: usize = 16;
+/// A volume fade slower than this a tick never moves (as shipped).
+const VOLUME_ADJUST_EPSILON: f32 = 0.001;
 /// World units → the definitions' distances ("feet").
 const FOOT_TO_DIST: f32 = 1.0 / 3.0;
 /// Closer than this (squared, world units, flat) a sound isn't panned.
@@ -60,6 +62,12 @@ pub(super) struct Playing {
     pub channel_volume: f32,
     /// Its channels take `channel_volume` at the next update.
     pub volume_set: bool,
+    /// A volume fade: where it heads, and by how much a tick.
+    pub final_volume: f32,
+    pub adjust: f32,
+    /// Its distances (feet): its definition's, or its starter's.
+    pub max: f32,
+    pub min: f32,
     pub detail_at: Option<u64>,
     /// Base 2 still loops.
     pub ch2_looping: bool,
@@ -271,10 +279,12 @@ impl Audio {
         Some(c)
     }
 
-    /// Starts a playing ambient (`None`: its threshold of copies, or all 16
+    /// Starts a playing ambient, at `volume`, heard over its definition's
+    /// distances or `distances` (`None`: its threshold of copies, or all 16
     /// slots, taken).
-    pub(super) fn start(&mut self, name: &str, position: Option<Vec3>, volume: f32) -> Option<u32> {
+    pub(super) fn start(&mut self, name: &str, position: Option<Vec3>, volume: f32, distances: Option<(f32, f32)>) -> Option<u32> {
         let def = self.defs.ambients.get(name)?;
+        let (max, min) = distances.unwrap_or((def.max_distance, def.min_distance));
         let copies = self.playing.iter().filter(|p| p.name == name && p.stage < Stage::Out).count();
         if copies >= def.threshold || self.playing.len() >= AMBIENT_SLOTS {
             return None;
@@ -295,6 +305,10 @@ impl Audio {
             position,
             channel_volume: volume,
             volume_set: false,
+            final_volume: volume,
+            adjust: 0.0,
+            max,
+            min,
             detail_at: None,
             ch2_looping: false,
         };
@@ -416,6 +430,28 @@ impl Audio {
         self.playing[k].stage = Stage::Stopping;
     }
 
+    /// Whether playing ambient `id` still plays.
+    pub(super) fn active(&self, id: u32) -> bool {
+        self.playing.iter().any(|p| p.id == id && p.stage != Stage::Done)
+    }
+
+    /// Fades playing ambient `id` to `volume` over `seconds` (0: at once).
+    /// Asked for the volume it already heads for, nothing changes.
+    pub(super) fn ambient_volume(&mut self, id: u32, volume: f32, seconds: f32) {
+        let volume = volume.clamp(0.0, 1.0);
+        let Some(p) = self.playing.iter_mut().find(|p| p.id == id && p.stage != Stage::Done) else { return };
+        if p.final_volume == volume {
+            return;
+        }
+        p.final_volume = volume;
+        if seconds > 0.0 {
+            p.adjust = (volume - p.channel_volume) / (seconds * 60.0);
+        } else {
+            p.channel_volume = volume;
+            p.volume_set = true;
+        }
+    }
+
     /// Halts playing ambient `id` at once: no out sound.
     pub(super) fn halt(&mut self, id: u32) {
         if let Some(k) = self.playing.iter().position(|p| p.id == id) {
@@ -450,8 +486,19 @@ impl Audio {
             (p.ch1, p.ch2) = (None, None);
             return;
         }
-        let def = &self.defs.ambients[&p.name];
-        let (max, min) = (def.max_distance, def.min_distance);
+        // Its fade.
+        let p = &mut self.playing[k];
+        if p.final_volume != p.channel_volume && p.adjust.abs() >= VOLUME_ADJUST_EPSILON {
+            p.channel_volume += p.adjust;
+            p.channel_volume = if p.adjust > 0.0 {
+                p.channel_volume.clamp(0.0, p.final_volume)
+            } else {
+                p.channel_volume.clamp(p.final_volume, 1.0)
+            };
+            p.volume_set = true;
+        }
+        let p = &self.playing[k];
+        let (max, min) = (p.max, p.min);
         let (ch1, ch2, at, cv, set) = (p.ch1, p.ch2, p.position, p.channel_volume, p.volume_set);
         for c in [ch1, ch2].into_iter().flatten() {
             if set {

@@ -42,23 +42,38 @@ impl Audio {
         }
     }
 
-    /// Whether `h` is in earshot, and its muffled volume (`cached`: reuse the
-    /// last ray until its next turn).
-    fn earshot(&self, h: &mut Handle, cached: bool, sight: Option<&Sight>) -> Option<f32> {
-        let def = self.defs.ambients.get(&h.name)?;
-        if h.position.distance(self.listener.0) * FOOT_TO_DIST > def.min_distance {
+    /// The muffled volume of a sound at `at` heard within `min` feet
+    /// (`None`: out of earshot), its ray cast only on its turn when `cached`
+    /// (`cache`: phase, last ray tick, last volume).
+    pub(super) fn earshot_at(
+        &self,
+        at: Vec3,
+        min: f32,
+        min_occlusion: f32,
+        cache: &mut (u64, u64, f32),
+        cached: bool,
+        sight: Option<&Sight>,
+    ) -> Option<f32> {
+        if at.distance(self.listener.0) * FOOT_TO_DIST > min {
             return None;
         }
-        let (offset, last, cached_volume) = h.occlusion;
+        let (offset, last, cached_volume) = *cache;
         let due = last - last % OCCLUSION_INTERVAL + OCCLUSION_INTERVAL + offset;
-        let volume = if cached && self.tick < due && def.min_occlusion <= 0.99 {
+        let volume = if cached && self.tick < due && min_occlusion <= 0.99 {
             cached_volume
         } else {
-            h.occlusion.1 = self.tick;
-            self.occlusion(h.position, def.min_occlusion, sight)
+            cache.1 = self.tick;
+            self.occlusion(at, min_occlusion, sight)
         };
-        h.occlusion.2 = volume;
+        cache.2 = volume;
         Some(volume)
+    }
+
+    /// Whether `h` is in earshot, and its muffled volume.
+    fn earshot(&self, h: &mut Handle, cached: bool, sight: Option<&Sight>) -> Option<f32> {
+        let def = self.defs.ambients.get(&h.name)?;
+        let (min, min_occlusion) = (def.min_distance, def.min_occlusion);
+        self.earshot_at(h.position, min, min_occlusion, &mut h.occlusion, cached, sight)
     }
 
     /// Starts an ambient at `position` (the game side); `None`: unknown, or
@@ -71,7 +86,7 @@ impl Audio {
         match self.earshot(&mut h, false, sight) {
             Some(volume) => {
                 if !self.script_only {
-                    h.play = self.start(name, Some(position), volume);
+                    h.play = self.start(name, Some(position), volume, None);
                 }
                 h.volume = volume;
             }
@@ -123,7 +138,7 @@ impl Audio {
                     }
                     Some(_) if play_once => continue,
                     _ => {
-                        h.play = if self.script_only { None } else { self.start(&h.name, Some(h.position), target) };
+                        h.play = if self.script_only { None } else { self.start(&h.name, Some(h.position), target, None) };
                         h.volume = target;
                     }
                 },

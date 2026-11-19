@@ -986,6 +986,30 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(list)
         })?,
     )?;
+    // sound_objects() → the level's sound objects, each {ambient, x, y, z,
+    // box (else a sphere), state ("Off", "Starting", "Playing",
+    // "Stopping"), volume, playing}.
+    let h = host.clone();
+    g.set(
+        "sound_objects",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let list = lua.create_table()?;
+            for (i, (ambient, at, is_box, state, volume, playing)) in host.world.audio.sound_objects().into_iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("ambient", ambient)?;
+                t.set("x", at.x)?;
+                t.set("y", at.y)?;
+                t.set("z", at.z)?;
+                t.set("box", is_box)?;
+                t.set("state", format!("{state:?}"))?;
+                t.set("volume", volume)?;
+                t.set("playing", playing)?;
+                list.set(i + 1, t)?;
+            }
+            Ok(list)
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "sound_volume",
