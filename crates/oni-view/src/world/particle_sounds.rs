@@ -37,7 +37,7 @@ impl World {
                         self.audio.ambient_stop(a);
                     }
                 }
-                SoundEvent::Impact { impact, modifier, at, velocity, hit, owner } => {
+                SoundEvent::Impact { impact, modifier, at, velocity, orientation, hit, owner, flags } => {
                     let Some(impacts) = self.impacts.clone() else { continue };
                     let Some(impact) = impacts.impact(&impact) else { continue };
                     let material = match hit {
@@ -48,8 +48,26 @@ impl World {
                     }
                     .or_else(|| impacts.material("Default"));
                     if let Some(material) = material {
+                        use p3::effect::{Cause, Data};
                         let who = p3::owner::character(owner);
-                        self.impact_effect(impact, material, modifier as u8, at, velocity, 1.0, who, None);
+                        let mut data = Data::new(self.armory.particles.tick, at);
+                        data.owner = owner;
+                        data.parent_velocity = velocity;
+                        data.parent_orientation = orientation;
+                        data.parent_flags = flags;
+                        // (A particle's impact lays decals at their class's
+                        // size.)
+                        data.decal_scale = [1.0, 1.0];
+                        data.cause = match hit {
+                            Some(k) if k.env => Cause::HitWall(self.struck_quad(k.point, k.normal)),
+                            Some(_) => Cause::HitPhysics,
+                            None if flags & p3::pflag::CUTSCENE_KILLED != 0 => Cause::CutsceneKilled,
+                            None => Cause::None,
+                        };
+                        if let Some(k) = hit {
+                            data.normal = k.normal;
+                        }
+                        self.impact_effect(impact, material, modifier as u8, data, 1.0, who, None);
                     }
                 }
                 SoundEvent::Flyby { particle } => {
@@ -93,6 +111,12 @@ impl World {
         }
     }
 
+    /// The level quad a particle struck at `point` (facing `normal`): what
+    /// objects collide with, just behind the point.
+    pub(super) fn struck_quad(&self, point: Vec3, normal: Vec3) -> Option<u32> {
+        struck_quad(&self.quads, point, normal)
+    }
+
     /// The material a shot struck on fighter `who` at `point`: its shield's,
     /// else the closest body part's.
     fn struck_material(&self, who: usize, point: Vec3) -> Option<u16> {
@@ -109,6 +133,12 @@ impl World {
             .map_or(0, |(k, _)| k);
         f.sounds.part_materials.get(part).cloned().flatten().and_then(|m| impacts.material(&m)).or_else(|| impacts.material("Character"))
     }
+}
+
+/// The quad just behind `point` along `-normal` (skipping what objects
+/// pass through).
+pub(super) fn struck_quad(quads: &crate::quads::Quads, point: Vec3, normal: Vec3) -> Option<u32> {
+    quads.ray(point + normal * 0.5, normal * -1.0, crate::quads::flag::OBJ_COL_SKIP).map(|h| h.quad)
 }
 
 #[cfg(test)]

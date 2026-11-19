@@ -10,6 +10,7 @@
 pub mod class;
 mod emit;
 mod actions;
+pub mod effect;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -58,6 +59,9 @@ pub mod pflag {
     pub const CUTSCENE_KILLED: u32 = 1 << 11;
     /// It plays an ambient sound.
     pub const PLAYING_SOUND: u32 = 1 << 12;
+    /// It owns a decal (dynamic, or static: a level's).
+    pub const DECAL: u32 = 1 << 13;
+    pub const DECAL_STATIC: u32 = 1 << 14;
 }
 
 /// A reference to a particle that goes stale when the particle dies.
@@ -127,6 +131,8 @@ pub struct Particle {
     pub attractor: Option<usize>,
     pub attractor_check: u32,
     pub vars: Vec<Val>,
+    /// When it was made, among all particles.
+    pub serial: u64,
 }
 
 /// What a particle collided with in this step.
@@ -167,7 +173,9 @@ pub enum SoundEvent {
     AmbientStop { particle: Handle },
     /// An impact effect (`docs/AUDIO.md`, *Impact effects*): by name and
     /// weight, where, how fast, what it hit, whose.
-    Impact { impact: Rc<str>, modifier: u32, at: Vec3, velocity: Option<Vec3>, hit: Option<Collision>, owner: u32 },
+    /// (With the particle's orientation and flags, for the effect's
+    /// particles.)
+    Impact { impact: Rc<str>, modifier: u32, at: Vec3, velocity: Option<Vec3>, orientation: Option<Mat3>, hit: Option<Collision>, owner: u32, flags: u32 },
     /// A projectile with a flyby sound is out.
     Flyby { particle: Handle },
 }
@@ -222,6 +230,14 @@ pub trait Host {
     fn inaccuracy(&self, _owner: u32) -> f32 {
         0.0
     }
+    /// The level quad struck at `point` facing `normal` (for decals).
+    fn struck_quad(&mut self, _point: Vec3, _normal: Vec3) -> Option<u32> {
+        None
+    }
+    /// Lays a decal on the level (`crate::decal::build`).
+    fn build_decal(&mut self, _quad: Option<u32>, _params: &crate::decal::Params) -> Option<crate::decal::Mesh> {
+        None
+    }
 }
 
 struct Slot {
@@ -239,6 +255,13 @@ pub struct System {
     pub tick: u32,
     /// Sounds the particles want heard, for the world to play.
     pub sounds: Vec<SoundEvent>,
+    /// The colour new particles of global-tint classes take (melee flashes
+    /// by the victim's health), while set.
+    pub global_tint: Option<u32>,
+    /// The decals the particles own.
+    pub decals: effect::Decals,
+    /// Particles made so far (each one's creation order).
+    serial: u64,
 }
 
 /// The outcome of running an action list.
@@ -253,7 +276,17 @@ const NORMAL: [f32; 11] = [0.0, 0.1257, 0.2533, 0.3853, 0.5244, 0.6745, 0.8416, 
 
 impl System {
     pub fn new(classes: Rc<Classes>) -> System {
-        System { classes, slots: Vec::new(), free: Vec::new(), rng: 0x2545_F491, tick: 0, sounds: Vec::new() }
+        System {
+            classes,
+            slots: Vec::new(),
+            free: Vec::new(),
+            rng: 0x2545_F491,
+            tick: 0,
+            sounds: Vec::new(),
+            global_tint: None,
+            decals: effect::Decals::default(),
+            serial: 0,
+        }
     }
 
     /// Live particles (for drawing and tests).
@@ -388,11 +421,18 @@ impl System {
         let lifetime = self.eval_f(&c.lifetime, &[]).unwrap_or(0.0).max(0.0);
         let inits: Vec<Value> = c.vars.iter().map(|v| v.init.clone()).collect();
         let kinds: Vec<VarKind> = c.vars.iter().map(|v| v.kind).collect();
-        let vars = inits
+        let mut vars: Vec<Val> = inits
             .iter()
             .zip(kinds)
             .map(|(v, k)| self.eval(v, &[]).unwrap_or(if k == VarKind::Float { Val::F(0.0) } else { Val::U(0) }))
             .collect();
+        // The global tint, into a tint variable.
+        if let (Some(tint), Value::Var(k), true) = (self.global_tint, &c.tint, c.has(cflag::USE_GLOBAL_TINT)) {
+            if let Some(v) = vars.get_mut(*k) {
+                *v = Val::U(tint);
+            }
+        }
+        self.serial += 1;
         Particle {
             class,
             flags,
@@ -412,6 +452,7 @@ impl System {
             attractor: None,
             attractor_check: 0,
             vars,
+            serial: self.serial,
         }
     }
 
@@ -467,6 +508,7 @@ impl System {
     /// handle to it goes stale).
     fn die(&mut self, mut p: Particle, h: Handle, t: f64, host: &mut dyn Host) {
         self.run(&mut p, h, event::DIE, t, 0.0, None, false, host);
+        self.drop_decal(&p, h);
         // (Its ambient sound stops with it.)
         if p.flags & pflag::PLAYING_SOUND != 0 {
             self.sounds.push(SoundEvent::AmbientStop { particle: h });
@@ -555,8 +597,12 @@ impl System {
                 let generation = self.slots[i].generation;
                 let h = Handle { slot: i as u32, generation };
                 i += 1;
+                // (Decals have their own update.)
                 let is = match &self.slots[i - 1].particle {
-                    Some(p) => self.classes.list[p.class].has(cflag::DECORATIVE) == decorative,
+                    Some(p) => {
+                        let c = &self.classes.list[p.class];
+                        c.has(cflag::DECORATIVE) == decorative && !c.has(cflag::DECAL)
+                    }
                     None => false,
                 };
                 if is {
@@ -564,6 +610,7 @@ impl System {
                 }
             }
         }
+        self.update_decals(tick, host);
     }
 
     fn update_particle(&mut self, h: Handle, final_t: f64, tick: u32, host: &mut dyn Host) {

@@ -85,12 +85,18 @@ fn table(b: &[u8]) -> Option<Vec<Value>> {
     }
     let particle = |k: usize| {
         let o = particle_at + k * 84;
-        json!({
-            "class": cstr(b, o, 64),
-            "orientation": le_u32(b, o + 68),
-            "location": le_u32(b, o + 72),
-            "locationData": [le_f32(b, o + 76), le_f32(b, o + 80)],
-        })
+        // Its orientation (`P3tEnumCollisionOrientation`), where it goes
+        // (`P3tEffectLocationType`) and that place's parameters.
+        let orientation = ["unchanged", "reversed", "reflected", "normal"].get(le_u32(b, o + 68) as usize).copied().unwrap_or("unchanged");
+        let mut p = json!({ "class": cstr(b, o, 64), "orientation": orientation });
+        match le_u32(b, o + 72) {
+            1 => p["location"] = json!({ "type": "collisionOffset", "offset": le_f32(b, o + 76) }),
+            3 => p["location"] = json!({ "type": "findWall", "radius": le_f32(b, o + 76), "lookAlong": b[o + 80] != 0 }),
+            4 => p["location"] = json!({ "type": "decal", "static": b[o + 76] != 0, "randomRotation": b[o + 77] != 0 }),
+            5 => p["location"] = json!({ "type": "attachedToObject" }),
+            _ => p["location"] = json!({ "type": "default" }),
+        }
+        p
     };
     Some(
         (0..entries)

@@ -298,6 +298,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         if let Some(raw) = raw.as_deref() {
             convert_messages(&dat, raw, &root)?;
             convert_navigation(&dat, raw, &root)?;
+            convert_quads(&dat, &root)?;
             if f.level != 0 {
                 characters::write(&dat, raw, &root)?;
                 patrols::write(&dat, raw, &root)?;
@@ -408,6 +409,19 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         std::fs::write(dir.join("game_settings.json"), serde_json::to_string_pretty(&gs)?)?;
     }
 
+    // The textures drawn additively / self-lit (by file name).
+    {
+        let pick = |k: usize| -> Vec<String> {
+            texture_flags.iter().filter(|(_, f)| if k == 0 { f.0 } else { f.1 }).map(|(n, _)| sanitize(n)).collect()
+        };
+        let dir = output_dir.join("common");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(
+            dir.join("texture_flags.json"),
+            serde_json::to_string_pretty(&serde_json::json!({ "additive": pick(0), "selfIlluminated": pick(1) }))?,
+        )?;
+    }
+
     // Every particle class, decoded in full (`particle_defs`).
     let defs: BTreeMap<String, &[u8]> = particle_classes.iter().map(|(n, c)| (n.clone(), c.def.as_slice())).collect();
     particle_defs::write(&defs, &output_dir.join("common"))?;
@@ -449,7 +463,23 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
         keys.iter().enumerate().map(|(k, n)| (n.to_string(), serde_json::json!(cstr(d, at + k * 32, 32)))).collect()
     };
     let (events, conditions) = if d.len() >= 2576 + 5 * 32 { (names(2000, &EVENTS), names(2576, &CONDITIONS)) } else { Default::default() };
+    // The colour ramp of a character's health (melee flashes, the HUD):
+    // health fractions and their colours (ARGB hex).
+    let points = rec.int("healthcolor_numpoints").unwrap_or(0).clamp(0, 16) as usize;
+    let colors: Vec<String> = match rec.get("healthcolor_colors").map(|e| &e.value) {
+        Some(oni_template::Value::Array(items)) => {
+            items.iter().filter_map(|r| r.entries.first()?.value.as_int()).map(|c| format!("#{:08x}", c as u32)).collect()
+        }
+        _ => Vec::new(),
+    };
+    let health_color: Vec<serde_json::Value> = floats("healthcolor_values")
+        .into_iter()
+        .zip(colors)
+        .take(points)
+        .map(|(v, c)| serde_json::json!({ "health": v, "color": c }))
+        .collect();
     Some(serde_json::json!({
+        "healthColor": health_color,
         "eventSounds": events,
         "conditionSounds": conditions,
         "boostedHealth": match rec.get("boosted_health").map(|e| &e.value) {
@@ -913,6 +943,41 @@ fn env_texture_flags(
 /// world (one material-bound node per texture) plus every placed object as its
 /// own pivot node (doors, consoles, furniture — separate, transformable). The
 /// object list is returned for cross-linking in `level.json`.
+/// Writes `quads.bin` (`docs/ASSET_FORMAT.md`): every quad of the level
+/// with its corners, flags, plane, corner shades and texture — what decals
+/// are built on and particles hit.
+fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
+    let Some(akev) = dat.instances.iter().find(|i| i.tag == oni_geom::level::TAG_AKEV) else {
+        return Ok(());
+    };
+    let Some(q) = oni_geom::gq::extract_quads(dat, akev) else {
+        return Ok(());
+    };
+    let mut b: Vec<u8> = b"ONIQ".to_vec();
+    let u = |b: &mut Vec<u8>, v: u32| b.extend_from_slice(&v.to_le_bytes());
+    for n in [q.points.len(), q.planes.len(), q.textures.len(), q.quads.len()] {
+        u(&mut b, n as u32);
+    }
+    for v in q.points.iter().flatten().chain(q.planes.iter().flatten()) {
+        b.extend_from_slice(&v.to_le_bytes());
+    }
+    for t in &q.textures {
+        let name = t.and_then(|i| dat.instances.get(i)).map(|i| asset_name(dat, i)).unwrap_or_default();
+        b.push(name.len().min(255) as u8);
+        b.extend_from_slice(&name.as_bytes()[..name.len().min(255)]);
+    }
+    for g in &q.quads {
+        for v in g.points.iter().chain([g.flags, g.plane].iter()).chain(g.shades.iter()).chain([g.texture as u32, g.object_tag].iter()) {
+            u(&mut b, *v);
+        }
+        for v in g.bbox.iter().flatten() {
+            b.extend_from_slice(&v.to_le_bytes());
+        }
+    }
+    std::fs::create_dir_all(root)?;
+    std::fs::write(root.join("quads.bin"), b)
+}
+
 /// Writes the level's navigation data (`docs/PATHFINDING.md`,
 /// `docs/ASSET_FORMAT.md`): `navigation.json` (rooms, their hulls, links and
 /// portals) and `navigation.bin` (every room's grid, one byte per square).

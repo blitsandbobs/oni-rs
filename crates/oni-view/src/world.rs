@@ -173,6 +173,12 @@ pub struct World {
     /// Each collision triangle's texture, and its material.
     pub floor_textures: Vec<String>,
     floor_materials: Vec<Option<u16>>,
+    /// The level's quads (decals are laid on them; `levels/NN/quads.bin`).
+    pub quads: crate::quads::Quads,
+    /// Health → colour (`game_settings.json`): melee flashes' tint.
+    health_color: Vec<(f32, u32)>,
+    /// The textures drawn glowing (`texture_flags.json`).
+    additive_textures: std::collections::HashSet<String>,
     /// Particles' ambient sounds (their audio handles), and projectiles
     /// followed for flybys (where each was last).
     particle_ambients: std::collections::HashMap<crate::p3::Handle, usize>,
@@ -242,6 +248,9 @@ impl World {
             anim_sounds: None,
             floor_textures: Vec::new(),
             floor_materials: Vec::new(),
+            quads: Default::default(),
+            health_color: Vec::new(),
+            additive_textures: Default::default(),
             particle_ambients: Default::default(),
             flybys: Vec::new(),
             game_sounds: Default::default(),
@@ -852,6 +861,9 @@ impl World {
             self.broken_glass.insert(p.quad);
         } else {
             self.broken_glass.remove(&p.quad);
+        }
+        if let Some(q) = self.quads.quads.get_mut(p.quad as usize) {
+            q.flags = if broken { q.flags | crate::quads::flag::BROKEN_GLASS } else { q.flags & !crate::quads::flag::BROKEN_GLASS };
         }
         for f in &mut self.fighters {
             f.physics.set_door(base + k, !broken);
@@ -1554,7 +1566,8 @@ impl World {
                 let material = f.last_floor.and_then(|t| self.floor_materials.get(t as usize).copied().flatten());
                 if let (Some(impact), Some(material)) = (impact, material) {
                     let modifier = f.sounds.modifier;
-                    self.impact_effect(impact, material, modifier, at, None, 1.0, Some(i), None);
+                    let data = crate::p3::effect::Data::new(self.armory.particles.tick, at);
+                    self.impact_effect(impact, material, modifier, data, 1.0, Some(i), None);
                 }
             }
         }
@@ -1607,29 +1620,80 @@ impl World {
     /// for a slow hit: `velocity`) and the noise the AI hears (its radius ×
     /// `ai_scale`, credited to `ai1`, `ai2`). (Its particles: not yet.)
     #[allow(clippy::too_many_arguments)]
+    /// `ONrImpactEffect`: each slot's entry plays its sound (louder the
+    /// faster the parent was going), raises its noise, then makes its
+    /// particles in turn from `data`.
     pub fn impact_effect(
         &mut self,
         impact: u16,
         material: u16,
         modifier: u8,
-        at: Vec3,
-        velocity: Option<Vec3>,
+        data: crate::p3::effect::Data,
         ai_scale: f32,
         ai1: Option<usize>,
         ai2: Option<usize>,
     ) {
         let Some(impacts) = self.impacts.clone() else { return };
+        let at = data.position;
         for k in impacts.lookup(impact, material, modifier).into_iter().flatten() {
-            let Some(sound) = &impacts.entry(k).sound else { continue };
-            if !sound.impulse.is_empty() {
-                let full = self.audio.impact_velocity(&sound.impulse);
-                let volume = velocity.map(Vec3::length).filter(|&s| full > 0.0 && s < full).map(|s| 0.3 + 0.7 * s * s / (full * full));
-                self.audio.impulse_play(&sound.impulse, Some(at), volume, self.sight.as_ref());
+            let entry = impacts.entry(k);
+            if let Some(sound) = &entry.sound {
+                if !sound.impulse.is_empty() {
+                    let full = self.audio.impact_velocity(&sound.impulse);
+                    let volume = data.parent_velocity.map(Vec3::length).filter(|&s| full > 0.0 && s < full).map(|s| 0.3 + 0.7 * s * s / (full * full));
+                    self.audio.impulse_play(&sound.impulse, Some(at), volume, self.sight.as_ref());
+                }
+                if let Some((stimulus, radius)) = sound.ai {
+                    self.sound(stimulus, at, radius * ai_scale, ai1, ai2);
+                }
             }
-            if let Some((stimulus, radius)) = sound.ai {
-                self.sound(stimulus, at, radius * ai_scale, ai1, ai2);
+            for p in &entry.particles {
+                let Some(class) = self.armory.particles.classes.get(&p.class) else { continue };
+                let spec = crate::p3::effect::Spec { class, orientation: p.orientation, location: p.location };
+                self.create_effect(&spec, &data);
             }
         }
+    }
+
+    /// Makes an effect's particle (`docs/PARTICLES.md`, *Effects*).
+    pub(crate) fn create_effect(&mut self, spec: &crate::p3::effect::Spec, data: &crate::p3::effect::Data) -> Option<crate::p3::Handle> {
+        let now = self.now as u64;
+        let weapons::Armory { particles, .. } = &mut self.armory;
+        let mut host = weapons::ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        host.quads = Some(&self.quads);
+        particles.create_effect(spec, data, &mut host)
+    }
+
+    /// A character's health as a colour (`ONrCharacter_GetHealthShade`):
+    /// along the game's ramp.
+    pub(crate) fn health_shade(&self, hp: i32, max: i32) -> u32 {
+        let ramp = &self.health_color;
+        let (Some(first), Some(last)) = (ramp.first(), ramp.last()) else { return 0xFFFF_FFFF };
+        let v = hp as f32 / max.max(1) as f32;
+        if v <= first.0 {
+            return first.1;
+        }
+        if v >= last.0 {
+            return last.1;
+        }
+        let k = (1..ramp.len()).find(|&k| v < ramp[k].0).unwrap_or(ramp.len() - 1);
+        let t = ((v - ramp[k - 1].0) / (ramp[k].0 - ramp[k - 1].0)).clamp(0.0, 1.0);
+        crate::decal::shade_lerp(ramp[k - 1].1, ramp[k].1, t)
+    }
+
+    /// The way fighter `a`'s current move strikes (`ONrCharacter_GetAttackVector`):
+    /// its facing, turned by the move's direction.
+    fn attack_vector(&self, a: usize) -> Vec3 {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        let fa = &self.fighters[a];
+        let offset = match fa.motion.current().move_direction {
+            2 => PI,
+            3 => FRAC_PI_2,
+            4 => -FRAC_PI_2,
+            _ => 0.0,
+        };
+        let yaw = fa.facing.facing + offset;
+        Vec3::new(yaw.sin(), 0.0, yaw.cos())
     }
 
     /// The impact effect of fighter `a`'s blow on `b` — `result` 0 hit, 1
@@ -1668,14 +1732,23 @@ impl World {
             modifier = crate::impacts::damage_modifier(damage);
         }
         let at = fb.bones().get(struck).map_or(fb.feet(), |m| m.w_axis.truncate());
-        let normal = (fb.feet() - fa.feet()).with_y(0.0).normalize_or_zero();
+        let (hp, max_hp) = (fb.hp, fb.max_hp);
         let ai_scale = match modifier {
             crate::impacts::HEAVY => 2.0,
             crate::impacts::MEDIUM => 1.5,
             _ => 1.0,
         };
         if let (Some(impact), Some(material)) = (impact, material) {
-            self.impact_effect(impact, material, modifier, at, Some(normal), ai_scale, Some(a), Some(b));
+            // Back toward the attacker; flashes tinted by the victim's health.
+            let normal = -self.attack_vector(a);
+            let mut data = crate::p3::effect::Data::new(self.armory.particles.tick, at);
+            data.cause = crate::p3::effect::Cause::MeleeHit;
+            data.owner = crate::p3::owner::CHARACTER_MELEE | a as u32;
+            data.normal = normal;
+            data.parent_velocity = Some(normal);
+            self.armory.particles.global_tint = Some(self.health_shade(hp, max_hp));
+            self.impact_effect(impact, material, modifier, data, ai_scale, Some(a), Some(b));
+            self.armory.particles.global_tint = None;
         }
     }
 
@@ -1861,17 +1934,7 @@ impl World {
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
         let wrap = |x: f32| (x + PI).rem_euclid(TAU) - PI;
-        let (attacker_feet, attack_dir) = {
-            let fa = &self.fighters[a];
-            let offset = match fa.motion.current().move_direction {
-                2 => PI,
-                3 => FRAC_PI_2,
-                4 => -FRAC_PI_2,
-                _ => 0.0,
-            };
-            let yaw = fa.facing.facing + offset;
-            (fa.feet(), Vec3::new(yaw.sin(), 0.0, yaw.cos()))
-        };
+        let (attacker_feet, attack_dir) = (self.fighters[a].feet(), self.attack_vector(a));
         let quirks = self.quirks;
         let fb = &mut self.fighters[b];
         let to_attacker = {

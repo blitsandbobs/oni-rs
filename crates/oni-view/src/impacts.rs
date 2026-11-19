@@ -47,6 +47,37 @@ pub struct Entry {
     component: usize,
     modifier: u8,
     pub sound: Option<Sound>,
+    /// The particles it makes, in turn (`docs/PARTICLES.md`, *Effects*).
+    pub particles: Vec<EffectParticle>,
+}
+
+/// One of an entry's particles: its class (by name: three named in the
+/// shipped table don't exist, and are skipped), how it is turned and where
+/// it goes.
+pub struct EffectParticle {
+    pub class: String,
+    pub orientation: crate::p3::effect::Orientation,
+    pub location: crate::p3::effect::Location,
+}
+
+fn effect_particle(p: &Value) -> EffectParticle {
+    use crate::p3::effect::{Location, Orientation};
+    let l = &p["location"];
+    let location = match l["type"].as_str().unwrap_or("") {
+        "collisionOffset" => Location::CollisionOffset(l["offset"].as_f64().unwrap_or(0.0) as f32),
+        "findWall" => Location::FindWall,
+        "decal" => Location::Decal {
+            is_static: l["static"].as_bool().unwrap_or(false),
+            random_rotation: l["randomRotation"].as_bool().unwrap_or(false),
+        },
+        "attachedToObject" => Location::AttachedToObject,
+        _ => Location::Default,
+    };
+    EffectParticle {
+        class: p["class"].as_str().unwrap_or("").to_string(),
+        orientation: Orientation::from_name(p["orientation"].as_str().unwrap_or("")),
+        location,
+    }
 }
 
 #[derive(Default)]
@@ -133,7 +164,8 @@ impl Impacts {
                 _ => 0,
             };
             pairs.entry((impact, material)).or_default().push(entries.len());
-            entries.push(Entry { material, component, modifier: modifier(e["modifier"].as_str().unwrap_or("")), sound });
+            let particles = e["particles"].as_array().into_iter().flatten().map(effect_particle).collect();
+            entries.push(Entry { material, component, modifier: modifier(e["modifier"].as_str().unwrap_or("")), sound, particles });
         }
         Impacts { impacts, materials, by_material, textures, entries, pairs }
     }

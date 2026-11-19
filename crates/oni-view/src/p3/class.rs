@@ -273,6 +273,8 @@ pub mod eflag {
     pub const ONE_PER_ATTRACTOR: u32 = 1 << 8;
     pub const AT_LEAST_ONE: u32 = 1 << 9;
     pub const ROTATE_ATTRACTORS: u32 = 1 << 10;
+    /// The child takes the parent's colour.
+    pub const INHERIT_TINT: u32 = 1 << 7;
 }
 const EMITTER_FLAGS: [&str; 11] = [
     "initiallyActive",
@@ -378,8 +380,13 @@ pub mod cflag {
     pub const LOCK_TO_LINKED: u32 = 1 << 21;
     /// Painted onto a surface (a decal).
     pub const DECAL: u32 = 1 << 23;
+    /// Its colour comes from the global tint while one is set.
+    pub const USE_GLOBAL_TINT: u32 = 1 << 24;
+    /// A decal unlit by the level / not laid on faces turned away.
+    pub const DECAL_FULL_BRIGHT: u32 = 1 << 25;
+    pub const DECAL_CULL_BACKFACING: u32 = 1 << 26;
 }
-const CLASS_FLAGS: [(&str, u32); 18] = [
+const CLASS_FLAGS: [(&str, u32); 21] = [
     ("decorative", cflag::DECORATIVE),
     ("geometry", cflag::GEOMETRY),
     ("collideEnv", cflag::COLLIDE_ENV),
@@ -398,6 +405,9 @@ const CLASS_FLAGS: [(&str, u32); 18] = [
     ("invisible", cflag::INVISIBLE),
     ("lockToLinkedParticle", cflag::LOCK_TO_LINKED),
     ("decal", cflag::DECAL),
+    ("useGlobalTint", cflag::USE_GLOBAL_TINT),
+    ("decalFullBright", cflag::DECAL_FULL_BRIGHT),
+    ("decalCullBackfacing", cflag::DECAL_CULL_BACKFACING),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -448,6 +458,11 @@ pub struct Class {
     pub tint: Value,
     /// Texture (sprite) or model (geometry) name.
     pub instance: String,
+    /// Decals: how many may live at once, frames to fade out, how far they
+    /// wrap round corners (degrees).
+    pub max_decals: u16,
+    pub decal_fade_frames: u16,
+    pub decal_wrap: Value,
     pub attractor: Option<AttractorDef>,
     pub vars: Vec<VarDef>,
     pub actions: Vec<Action>,
@@ -571,6 +586,10 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         if let Some((_, b)) = CLASS_FLAGS.iter().find(|(k, _)| k == n) {
             flags |= b;
         }
+    }
+    // Decals are always decorative (`P3.c`'s class load).
+    if flags & cflag::DECAL != 0 {
+        flags |= cflag::DECORATIVE;
     }
     // Variables first: values refer to them by name.
     let mut vars: Vec<VarDef> = c["variables"]
@@ -726,6 +745,9 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         alpha: value(&c["appearance"]["alpha"], &vars),
         tint: value(&c["appearance"]["tint"], &vars),
         instance: c["appearance"]["instance"].as_str().unwrap_or("").to_string(),
+        max_decals: c["appearance"]["maxDecals"].as_u64().unwrap_or(100) as u16,
+        decal_fade_frames: c["appearance"]["decalFadeFrames"].as_u64().unwrap_or(60) as u16,
+        decal_wrap: value(&c["appearance"]["decalWrap"], &vars),
         attractor,
         vars,
         actions,

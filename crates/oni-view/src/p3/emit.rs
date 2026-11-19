@@ -208,6 +208,17 @@ impl System {
             };
 
             let mut child = self.create(child_class, tick);
+            // The parent's colour, into the child's tint variable.
+            if def.flags & eflag::INHERIT_TINT != 0 {
+                let classes = self.classes.clone();
+                if let class::Value::Var(k) = classes.list[child_class].tint {
+                    if let Some(t) = self.eval(&classes.list[parent.class].tint, &parent.vars) {
+                        if let Some(v) = child.vars.get_mut(k) {
+                            *v = t;
+                        }
+                    }
+                }
+            }
             if def.flags & eflag::ORIENT_TO_VELOCITY != 0 {
                 child.flags |= super::pflag::ORIENT_TO_VELOCITY;
             }

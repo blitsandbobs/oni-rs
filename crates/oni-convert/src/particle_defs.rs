@@ -62,8 +62,8 @@ const CLASS_FLAGS2: [(u32, &str); 21] = [
     (5, "lowDetailDisable"),
     (6, "mediumDetailDisable"),
     (20, "sky"),
-    (21, "decalStatic"),
-    (22, "decalFullBright"),
+    (21, "decalFullBright"),
+    (22, "decalCullBackfacing"),
     (23, "decal"),
     (24, "initiallyHidden"),
     (25, "invisible"),
@@ -342,6 +342,15 @@ pub fn decode(d: &[u8]) -> Option<Value> {
         if !v.is_null() {
             app.insert(key.into(), v);
         }
+    }
+    // Decals: how many may live at once, frames to fade out, how far (in
+    // degrees) one wraps round a corner.
+    for (key, off) in [("maxDecals", 512), ("decalFadeFrames", 514)] {
+        app.insert(key.into(), json!(le_u16(d, off)));
+    }
+    let wrap = value(d, 516);
+    if !wrap.is_null() {
+        app.insert("decalWrap".into(), wrap);
     }
     let inst = cstr(d, 280, 32);
     if !inst.is_empty() {

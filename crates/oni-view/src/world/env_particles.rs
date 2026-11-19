@@ -34,10 +34,15 @@ const EVENT_NAMES: [&str; 16] = [
     "delay_stop",
 ];
 
+/// How far behind a level decal its wall may be (`EPcDecal_FindWallDistance`).
+const DECAL_FIND_WALL: f32 = 10.0;
+
 pub(crate) struct EnvParticle {
     class: Option<p3::ClassId>,
     pub tag: String,
     matrix: Mat4,
+    /// A decal's size (× its class's).
+    decal_scale: [f32; 2],
     not_initially: bool,
     /// Its live particle, while created.
     handle: Option<Handle>,
@@ -62,6 +67,7 @@ pub(crate) fn load(level_dir: &Path, classes: &p3::Classes) -> Vec<EnvParticle> 
                 class: p["class"].as_str().and_then(|n| classes.get(n)),
                 tag: p["tag"].as_str().unwrap_or("").to_string(),
                 matrix: Mat4::from_mat3_translation(Mat3::from_cols(c(0), c(1), c(2)), c(3)),
+                decal_scale: [f(&p["decalScale"][0]), f(&p["decalScale"][1])],
                 not_initially: p["notInitiallyCreated"].as_bool().unwrap_or(false),
                 handle: None,
             }
@@ -75,8 +81,8 @@ impl World {
     fn env_new(&mut self, k: usize) {
         let e = &self.env_particles[k];
         let Some(class) = e.class else { return };
-        // (Decals — paint on a surface — aren't modelled yet.)
         if self.armory.particles.class(class).has(p3::class::cflag::DECAL) {
+            self.env_particles[k].handle = self.env_decal(k, class);
             return;
         }
         let m = e.matrix;
@@ -92,6 +98,23 @@ impl World {
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
         let h = particles.created(p, time, &mut host);
         self.env_particles[k].handle = h;
+    }
+
+    /// A decal instead (`EPrNewDecal`): on the wall found within 10 behind
+    /// it (along its −Y), up along its Z, kept for good and never turned.
+    fn env_decal(&mut self, k: usize, class: p3::ClassId) -> Option<Handle> {
+        use crate::quads::flag;
+        use p3::effect::{Cause, Data, Location, Orientation, Spec};
+        let e = &self.env_particles[k];
+        let (m, scale) = (e.matrix, e.decal_scale);
+        let hit = self.quads.ray(m.w_axis.truncate(), m.y_axis.truncate() * -DECAL_FIND_WALL, flag::OBJ_COL_SKIP)?;
+        let mut data = Data::new(self.armory.particles.tick, hit.point);
+        data.cause = Cause::HitWall(Some(hit.quad));
+        data.upvector = m.z_axis.truncate();
+        data.decal_scale = scale;
+        data.normal = self.quads.plane(self.quads.quads[hit.quad as usize].plane).0;
+        let spec = Spec { class, orientation: Orientation::Normal, location: Location::Decal { is_static: true, random_rotation: false } };
+        self.create_effect(&spec, &data)
     }
 
     /// Kills environmental particle `k`'s particle, if it has one.

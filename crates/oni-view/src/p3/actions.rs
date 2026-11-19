@@ -410,33 +410,14 @@ impl System {
             Kind::CollisionEffect => {
                 let Value::Str(name) = a.param(0) else { return none };
                 let Some(class) = classes.get(name) else { return none };
-                let wall_offset = self.eval_f(a.param(1), &vars).unwrap_or(0.0);
-                let mode = match a.param(2) {
-                    Value::Enum(e) => *e,
-                    _ => 3,
+                let offset = self.eval_f(a.param(1), &vars).unwrap_or(0.0);
+                let orient = match a.param(2) {
+                    Value::Enum(e) => Some(*e),
+                    _ => None,
                 };
-                let mut q = self.create(class, (t * HZ).round() as u32);
-                let (at, normal) = match hit {
-                    Some(k) => (k.point + k.normal * wall_offset, Some(k.normal)),
-                    None => (self.world_position(p), None),
-                };
-                q.position = at;
-                q.owner = p.owner;
-                let po = has_o.then(|| self.world_orientation(p));
-                let vel = p.velocity;
-                q.orientation = match (mode, normal) {
-                    (3, Some(n)) => super::emit::basis(n, po.map_or(Vec3::Y, |o| o.z_axis)),
-                    (2, Some(n)) => {
-                        let r = vel - 2.0 * vel.dot(n) * n;
-                        super::emit::basis(r, po.map_or(Vec3::Y, |o| o.z_axis))
-                    }
-                    (1, _) => match po {
-                        Some(o) => Mat3::from_cols(o.x_axis, -o.y_axis, -o.z_axis),
-                        None => super::emit::basis(-vel, Vec3::Y),
-                    },
-                    _ => po.unwrap_or_else(|| super::emit::basis(vel, Vec3::Y)),
-                };
-                self.created(q, t, host);
+                // (Attaching to a character struck is not modelled.)
+                let quad = hit.filter(|k| k.env).and_then(|k| host.struck_quad(k.point, k.normal));
+                self.collision_effect(p, class, offset, orient, hit, quad, t, host);
             }
             Kind::Bounce => {
                 let Some(k) = hit else { return none };
@@ -626,8 +607,10 @@ impl System {
                     None => self.world_position(p),
                 };
                 let velocity = has_v.then_some(p.velocity);
+                let orientation = has_o.then(|| self.world_orientation(p));
                 let owner = p.owner;
-                self.sounds.push(super::SoundEvent::Impact { impact: impact.clone(), modifier, at, velocity, hit, owner });
+                let flags = p.flags;
+                self.sounds.push(super::SoundEvent::Impact { impact: impact.clone(), modifier, at, velocity, orientation, hit, owner, flags });
             }
             Kind::StopLink => p.link = None,
             Kind::BreakLink => p.flags |= pflag::BREAK_LINKS_TO_ME,

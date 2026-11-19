@@ -125,6 +125,8 @@ pub struct ShotHost<'a> {
     /// Each fighter's extra spread (degrees) on its shots, and turrets'.
     inaccuracy: Vec<f32>,
     turret_spread: f32,
+    /// The level's quads (for decals).
+    pub quads: Option<&'a crate::quads::Quads>,
 }
 
 impl<'a> ShotHost<'a> {
@@ -137,7 +139,7 @@ impl<'a> ShotHost<'a> {
     pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0 }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -289,6 +291,14 @@ impl ShotHost<'_> {
 }
 
 impl Host for ShotHost<'_> {
+    fn struck_quad(&mut self, point: Vec3, normal: Vec3) -> Option<u32> {
+        super::particle_sounds::struck_quad(self.quads?, point, normal)
+    }
+
+    fn build_decal(&mut self, quad: Option<u32>, params: &crate::decal::Params) -> Option<crate::decal::Mesh> {
+        crate::decal::build(self.quads?, quad, params)
+    }
+
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
         let f = self.fighters.first()?;
         let base = self.glass_base;
@@ -464,6 +474,19 @@ impl World {
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
+        self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
+        let flags: serde_json::Value =
+            std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        self.additive_textures = flags["additive"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+        // The health colour ramp.
+        let gs: serde_json::Value =
+            std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        self.health_color = gs["healthColor"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| Some((p["health"].as_f64()? as f32, u32::from_str_radix(p["color"].as_str()?.trim_start_matches('#'), 16).ok()?)))
+            .collect();
         self.env_particles_started = false;
         self.floor_materials = match &self.impacts {
             Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
@@ -797,6 +820,24 @@ impl World {
     /// scale — facing the camera, or stretched along its flight for the
     /// directional sprite kinds. (Models, contrails' trails, tint and fading
     /// aren't drawn yet.)
+    /// The decals to draw (`docs/PARTICLES.md`, *Decals*): the level's,
+    /// then the rest, oldest first. Drawn opacity: twice the decal's, at most
+    /// full (the original's draw doubles it).
+    pub fn decal_draws(&self) -> Vec<crate::render::DecalDraw> {
+        let textures = self.level_dir.join("../../common/textures");
+        self.armory
+            .particles
+            .decals
+            .iter()
+            .map(|d| crate::render::DecalDraw {
+                positions: d.mesh.clone(),
+                alpha: ((u32::from(d.alpha) * 255 * 2) >> 8).min(255) as f32 / 255.0,
+                texture: textures.join(format!("{}.png", d.texture)),
+                additive: self.additive_textures.contains(d.texture.as_ref()),
+            })
+            .collect()
+    }
+
     pub fn sprites(&self) -> Vec<crate::render::Sprite> {
         use p3::class::{cflag, Value};
         let sys = &self.armory.particles;
@@ -814,7 +855,8 @@ impl World {
             .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0)
             .filter_map(|(_, p)| {
                 let c = sys.class(p.class);
-                if c.has(cflag::INVISIBLE) || c.has(cflag::GEOMETRY) || c.instance.is_empty() {
+                // (Decals are drawn as decals.)
+                if c.has(cflag::INVISIBLE) || c.has(cflag::GEOMETRY) || c.has(cflag::DECAL) || c.instance.is_empty() {
                     return None;
                 }
                 let x = read(&c.scale, &p.vars)?;
@@ -1488,6 +1530,7 @@ impl World {
         host.glass_base = glass_base;
         host.set_spread(inaccuracy, spread);
         host.panes = panes;
+        host.quads = Some(&self.quads);
         self.armory.particles.update(tick, &mut host);
         let sounds = std::mem::take(&mut host.sounds);
         let broke = std::mem::take(&mut host.broke);

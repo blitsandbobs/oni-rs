@@ -73,6 +73,26 @@ struct ParticleVertex {
 }
 
 /// Camera billboard basis, pushed per particle draw (right/up world vectors).
+/// One corner of a decal: where, its texture coordinate, its colour
+/// (lighting × opacity).
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct DecalVertex {
+    pos: [f32; 3],
+    uv: [f32; 2],
+    color: [f32; 4],
+}
+
+/// A decal to draw this frame (`docs/PARTICLES.md`, *Decals*): its
+/// triangles over the level, lit corners (RGB, 0–1), its opacity, texture,
+/// and whether the texture glows (additive).
+pub struct DecalDraw {
+    pub positions: std::rc::Rc<crate::decal::Mesh>,
+    pub alpha: f32,
+    pub texture: std::path::PathBuf,
+    pub additive: bool,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct BillboardPush {
@@ -148,6 +168,10 @@ pub struct Renderer {
     blend_pipeline: wgpu::RenderPipeline,
     additive_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
+    decal_pipeline: wgpu::RenderPipeline,
+    decal_additive_pipeline: wgpu::RenderPipeline,
+    /// This frame's decals, in drawing order.
+    pub decals: Vec<DecalDraw>,
     uniform_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     tex_bgl: wgpu::BindGroupLayout,
@@ -346,6 +370,53 @@ impl Renderer {
             cache: None,
         });
 
+        // Decals: lit, see-through, depth-tested without writing depth
+        // (they sit a little off their surface).
+        let decal_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("decal"),
+            source: wgpu::ShaderSource::Wgsl(DECAL_SHADER.into()),
+        });
+        let decal_vbl = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<DecalVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![
+                0 => Float32x3, // pos
+                1 => Float32x2, // uv
+                2 => Float32x4, // color
+            ],
+        };
+        let make_decal_pipeline = |label: &str, blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &decal_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: std::slice::from_ref(&decal_vbl),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &decal_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let decal_pipeline = make_decal_pipeline("decal", wgpu::BlendState::ALPHA_BLENDING);
+        let decal_additive_pipeline = make_decal_pipeline("decal additive", additive);
+
         let uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("uniforms"),
             size: std::mem::size_of::<Uniforms>() as u64,
@@ -440,6 +511,9 @@ impl Renderer {
             blend_pipeline,
             additive_pipeline,
             particle_pipeline,
+            decal_pipeline,
+            decal_additive_pipeline,
+            decals: Vec::new(),
             uniform_buf,
             uniform_bg,
             tex_bgl,
@@ -588,6 +662,7 @@ impl Renderer {
         self.ensure_depth(&gpu.device, w, h);
         let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
         let sprites = self.sprite_prims(gpu, cam_right, cam_up);
+        let decals = self.decal_batches(gpu);
         gpu.queue.write_buffer(
             &self.uniform_buf,
             0,
@@ -678,6 +753,19 @@ impl Renderer {
                         draw_prim(&mut pass, p, model);
                     }
                 }
+                // The decals: after the solid scene, before what is seen
+                // through or glows (in order: the level's, then the rest,
+                // oldest first).
+                if bucket == Bucket::Opaque {
+                    for (vbuf, ibuf, count, texture, additive) in &decals {
+                        pass.set_pipeline(if *additive { &self.decal_additive_pipeline } else { &self.decal_pipeline });
+                        let bg = self.tex_bgs.get(*texture).unwrap_or(&self.default_tex);
+                        pass.set_bind_group(1, bg, &[]);
+                        pass.set_vertex_buffer(0, vbuf.slice(..));
+                        pass.set_index_buffer(ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..*count, 0, 0..1);
+                    }
+                }
             }
 
             // Billboard particles last: additive glow on top of everything,
@@ -760,6 +848,46 @@ impl Renderer {
                 let mut g = upload_prim(&gpu.device, &prim);
                 g.texture = t;
                 g
+            })
+            .collect()
+    }
+
+    /// This frame's decals as meshes: consecutive ones sharing a texture
+    /// and blend in one (so the drawing order holds).
+    fn decal_batches(&mut self, gpu: &Gpu) -> Vec<(wgpu::Buffer, wgpu::Buffer, u32, usize, bool)> {
+        let decals = std::mem::take(&mut self.decals);
+        let mut batches: Vec<(usize, bool, Vec<DecalVertex>, Vec<u32>)> = Vec::new();
+        for d in &decals {
+            let t = self.texture_index(gpu, &d.texture);
+            if !batches.last().is_some_and(|b| b.0 == t && b.1 == d.additive) {
+                batches.push((t, d.additive, Vec::new(), Vec::new()));
+            }
+            let b = batches.last_mut().unwrap();
+            let base = b.2.len() as u32;
+            let m = &d.positions;
+            for k in 0..m.positions.len() {
+                // Lit as the level is (its baked shades, a little brighter).
+                let s = m.shades[k];
+                let ch = |shift: u32| (((s >> shift) & 0xFF) as f32 / 255.0).max(0.12) * 1.25;
+                b.2.push(DecalVertex { pos: m.positions[k].into(), uv: m.uvs[k], color: [ch(16), ch(8), ch(0), d.alpha] });
+            }
+            b.3.extend(m.indices.iter().map(|&i| base + u32::from(i)));
+        }
+        batches
+            .into_iter()
+            .filter(|b| !b.3.is_empty())
+            .map(|(t, additive, v, i)| {
+                let vbuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("decal vbuf"),
+                    contents: bytemuck::cast_slice(&v),
+                    usage: wgpu::BufferUsages::VERTEX,
+                });
+                let ibuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("decal ibuf"),
+                    contents: bytemuck::cast_slice(&i),
+                    usage: wgpu::BufferUsages::INDEX,
+                });
+                (vbuf, ibuf, i.len() as u32, t, additive)
             })
             .collect()
     }
@@ -1001,6 +1129,36 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Baked vertex lighting modulates the texture; small ambient floor.
     let shade = max(in.color, vec3<f32>(0.12));
     return vec4<f32>(texel.rgb * shade * 1.25, texel.a);
+}
+"#;
+
+/// Decals: the texture times the corners' light, its alpha times the
+/// decal's opacity.
+const DECAL_SHADER: &str = r#"
+struct Uniforms { view_proj: mat4x4<f32> };
+@group(0) @binding(0) var<uniform> u: Uniforms;
+@group(1) @binding(0) var tex: texture_2d<f32>;
+@group(1) @binding(1) var samp: sampler;
+
+struct VSOut {
+    @builtin(position) clip: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> VSOut {
+    var out: VSOut;
+    out.clip = u.view_proj * vec4<f32>(pos, 1.0);
+    out.uv = uv;
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(tex, samp, in.uv);
+    return vec4<f32>(texel.rgb * in.color.rgb, texel.a * in.color.a);
 }
 "#;
 

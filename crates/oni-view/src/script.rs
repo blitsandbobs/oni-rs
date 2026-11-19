@@ -81,6 +81,8 @@ struct ScriptHost {
     opponent: String,
     /// Each fighter's class name, by fighter index.
     class_names: Vec<String>,
+    /// Whether frames draw the decals (`show_decals`).
+    show_decals: bool,
     /// Controls the player holds across steps (`anim::input::key` bits).
     held: u32,
     /// Buttons tapped for the next step's first tick only.
@@ -154,6 +156,7 @@ impl ScriptHost {
             classes,
             opponent: cast.opponent.unwrap_or_else(|| cast.player.clone()),
             class_names: vec![cast.player],
+            show_decals: true,
             held: 0,
             taps: 0,
             eye: None,
@@ -211,6 +214,7 @@ impl ScriptHost {
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         self.renderer.beams = self.world.beams.clone();
         self.renderer.sprites = self.world.sprites();
+        self.renderer.decals = if self.show_decals { self.world.decal_draws() } else { Vec::new() };
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
@@ -1039,6 +1043,94 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // command as scripts do.
     let h = host.clone();
     g.set("env_particles", lua.create_function(move |_, tag: String| Ok(h.borrow().world.env_particles_alive(&tag)))?)?;
+    // decals([class]) → { {class, static, alpha, vertices, triangles,
+    // positions = {{x,y,z}…}, quad}, … }: the live decals (of a class),
+    // static first, oldest first.
+    let h = host.clone();
+    g.set(
+        "decals",
+        lua.create_function(move |lua, class: Option<String>| {
+            let host = h.borrow();
+            let particles = &host.world.armory.particles;
+            let out = lua.create_table()?;
+            let fixed = particles.decals.fixed.len();
+            for (k, d) in particles.decals.iter().enumerate() {
+                let Some(p) = particles.get(d.particle) else { continue };
+                let name = &particles.classes.list[p.class].name;
+                if class.as_ref().is_some_and(|c| c != name) {
+                    continue;
+                }
+                let t = lua.create_table()?;
+                t.set("class", name.as_str())?;
+                t.set("static", k < fixed)?;
+                t.set("alpha", d.alpha)?;
+                t.set("vertices", d.mesh.positions.len())?;
+                t.set("triangles", d.mesh.indices.len() / 3)?;
+                t.set("quad", d.mesh.quad)?;
+                let ps = lua.create_table()?;
+                for (i, v) in d.mesh.positions.iter().enumerate() {
+                    ps.set(i + 1, vec![v.x, v.y, v.z])?;
+                }
+                t.set("positions", ps)?;
+                out.set(out.raw_len() + 1, t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    // particles_of(class) → { {x, y, z, dx, dy, dz [, tint]}, … }: where
+    // each live particle of a class is, its forward (Y) axis, and its colour
+    // when that is a variable.
+    // health_shade(id) → the colour of a fighter's health (melee flashes'
+    // tint).
+    let h = host.clone();
+    g.set(
+        "health_shade",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let f = host.world.fighters.get(id).ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
+            Ok(host.world.health_shade(f.hp, f.max_hp))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "particles_of",
+        lua.create_function(move |lua, class: String| {
+            let host = h.borrow();
+            let sys = &host.world.armory.particles;
+            let out = lua.create_table()?;
+            for (_, p) in sys.iter() {
+                if sys.classes.list[p.class].name != class {
+                    continue;
+                }
+                let (at, o) = (sys.world_position(p), sys.world_orientation(p).y_axis);
+                let mut v = vec![f64::from(at.x), f64::from(at.y), f64::from(at.z), f64::from(o.x), f64::from(o.y), f64::from(o.z)];
+                if let crate::p3::class::Value::Var(k) = sys.classes.list[p.class].tint {
+                    if let Some(crate::p3::Val::U(t)) = p.vars.get(k) {
+                        v.push(f64::from(*t));
+                    }
+                }
+                out.set(out.raw_len() + 1, v)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    // show_decals(on): whether screenshots draw the decals (to compare).
+    let h = host.clone();
+    g.set("show_decals", lua.create_function(move |_, on: bool| {
+        h.borrow_mut().show_decals = on;
+        Ok(())
+    })?)?;
+    // quad_plane(q) → a, b, c, d: a level quad's plane.
+    let h = host.clone();
+    g.set(
+        "quad_plane",
+        lua.create_function(move |_, q: u32| {
+            let host = h.borrow();
+            let quads = &host.world.quads;
+            let (n, d) = quads.plane(quads.quads.get(q as usize).map_or(0, |x| x.plane));
+            Ok((n.x, n.y, n.z, d))
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "particle",
