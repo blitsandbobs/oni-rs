@@ -1,6 +1,7 @@
 -- Impact effects (docs/AUDIO.md, *Impact effects*): Konoko's footsteps sound
 -- by the floor's material and her light step weight (and the AI hears them);
--- a punch that lands on a dummy sounds by the dummy's struck part.
+-- a punch that lands on a dummy sounds by the dummy's struck part, and
+-- swooshes (her variant's punch sound).
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -46,9 +47,12 @@ punch()
 listen(40)
 local hits = {}
 for clip in pairs(heard) do
-    if clip:match("pnch") or clip:match("punch") or clip:match("^bdy") or clip:match("^face") then hits[#hits + 1] = clip end
+    if clip:match("^pnch_hvy") or clip:match("^bdy") or clip:match("^face") then hits[#hits + 1] = clip end
 end
 print("punch heard:", table.concat(hits, " "), "dummy hp", hp(dummy))
 assert(hp(dummy) < 200, "the punch landed")
 assert(#hits > 0, "the blow sounds")
+local swoosh = any("^pnch_lt") -- (Konoko's punch: kon_pnch_lt's sounds)
+print("swoosh:", table.concat(swoosh, " "))
+assert(#swoosh > 0, "the punch swooshes")
 print("impacts ok")

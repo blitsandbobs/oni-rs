@@ -262,6 +262,8 @@ pub struct ClassSounds {
     /// makes on a hit, a block, a kill.
     pub part_materials: Vec<Option<String>>,
     pub part_impacts: [Vec<Option<String>>; 3],
+    /// Its variant (instance name): whose animation sounds it makes.
+    pub variant: Option<String>,
 }
 
 impl ClassSounds {
@@ -280,6 +282,7 @@ impl ClassSounds {
                 .collect(),
             part_materials: names(&c["partMaterials"]),
             part_impacts: [names(&c["partImpacts"]["hit"]), names(&c["partImpacts"]["blocked"]), names(&c["partImpacts"]["killed"])],
+            variant: c["variant"].as_str().map(str::to_string),
         }
     }
 }

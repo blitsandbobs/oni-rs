@@ -162,6 +162,8 @@ pub struct Fighter {
     pub step: Option<(usize, Vec3)>,
     /// The level triangle it last stood on (the floor's material).
     pub last_floor: Option<u32>,
+    /// The clip and frame it played this tick (its animation sounds).
+    pub played: Option<(usize, u16)>,
     /// Its class's say in its impacts.
     pub sounds: Rc<crate::impacts::ClassSounds>,
     /// What it sees, hears and remembers (AI characters).
@@ -305,6 +307,7 @@ impl Fighter {
             noise: None,
             step: None,
             last_floor: None,
+            played: None,
             sounds: Rc::default(),
             perception: None,
             glance: None,
@@ -406,6 +409,9 @@ impl Fighter {
             }
         }
 
+        // The frame played this tick (its sounds and footsteps, as the
+        // original checks them before moving on to the next frame).
+        let played = (self.motion.clip, self.motion.frame);
         self.motion.advance(&ch);
         self.facing.rotate(self.motion.take_facing_change());
         self.track_throw();
@@ -423,12 +429,14 @@ impl Fighter {
             };
         }
 
+        self.played = Some(played);
+
         // Footfalls (on the ground): an impact effect of the kind its clip
         // makes — the sound, and the noise the AI hears (`docs/AUDIO.md`,
         // *Impact effects*) — at the foot that came down.
-        let clip = self.motion.current();
-        if let Some(k) = clip.footsteps.iter().position(|&f| f == self.motion.frame).filter(|_| self.motion.air.frames == 0) {
-            let kind_name = oni_schema::name(&oni_schema::ANIM_TYPES, self.motion.kind).unwrap_or("");
+        let clip = self.motion.clip_of(played.0);
+        if let Some(k) = clip.footsteps.iter().position(|&f| f == played.1).filter(|_| self.motion.air.frames == 0) {
+            let kind_name = oni_schema::name(&oni_schema::ANIM_TYPES, clip.anim_type).unwrap_or("");
             if let Some(mut kind) = crate::impacts::anim_impact(kind_name) {
                 if kind == crate::impacts::anim::RUN && clip.varient & crate::anim::types::var::SPRINT != 0 {
                     kind = crate::impacts::anim::SPRINT;

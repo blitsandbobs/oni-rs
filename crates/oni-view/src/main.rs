@@ -13,6 +13,7 @@
 //!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
+mod anim_sounds;
 mod impacts;
 mod audio;
 mod ai;

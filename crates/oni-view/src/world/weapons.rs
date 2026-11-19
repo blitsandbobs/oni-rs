@@ -461,6 +461,7 @@ impl World {
         self.audio.mixer = mixer;
         self.audio.realtime = realtime;
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
+        self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.floor_materials = match &self.impacts {
             Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
             None => Vec::new(),
@@ -1026,6 +1027,9 @@ impl World {
         for slot in [crate::fighter::RECOIL, crate::fighter::INVENTORY] {
             let f = &self.fighters[who];
             let Some(o) = f.overlays[slot] else { continue };
+            // (An overlay's own animation sound, on its own frame.)
+            self.anim_sound(who, o.clip, o.frame, false);
+            let f = &self.fighters[who];
             let c = f.motion.clip_of(o.clip);
             let (kind, frames, action) = (c.anim_type, c.frames(), c.action_frame);
             if action == Some(o.frame) && slot == crate::fighter::INVENTORY {

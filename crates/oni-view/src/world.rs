@@ -161,8 +161,10 @@ pub struct World {
     pub all_passive: bool,
     /// Sound (`docs/AUDIO.md`).
     pub audio: crate::audio::Audio,
-    /// What impacts sound like (`common/impacts.json`).
+    /// What impacts sound like (`common/impacts.json`), and moves
+    /// (`common/anim_sounds.json`).
     pub impacts: Option<Rc<crate::impacts::Impacts>>,
+    pub anim_sounds: Option<Rc<crate::anim_sounds::AnimSounds>>,
     /// Each collision triangle's texture, and its material.
     pub floor_textures: Vec<String>,
     floor_materials: Vec<Option<u16>>,
@@ -218,6 +220,7 @@ impl World {
             all_passive: false,
             audio: crate::audio::Audio::empty(),
             impacts: None,
+            anim_sounds: None,
             floor_textures: Vec::new(),
             floor_materials: Vec::new(),
         }
@@ -1489,6 +1492,12 @@ impl World {
                 Some(t) => f.death_timer = Some(t - 1),
             }
         }
+        // The sounds of the moves played this tick.
+        for i in 0..self.fighters.len() {
+            if let Some((clip, frame)) = self.fighters[i].played.take() {
+                self.anim_sound(i, clip, frame, true);
+            }
+        }
         // Footsteps, landings, falls this tick: their impact effects.
         for i in 0..self.fighters.len() {
             if let Some((kind, at)) = self.fighters[i].step.take() {
@@ -1517,6 +1526,29 @@ impl World {
             self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
         }
         self.audio.tick(self.sight.as_ref());
+    }
+
+    /// Fighter `who`'s clip `clip` is on `frame`: its animation sound, and
+    /// (a main clip's) impulses on that frame — at its feet.
+    pub(crate) fn anim_sound(&mut self, who: usize, clip: usize, frame: u16, main: bool) {
+        let f = &self.fighters[who];
+        let c = f.motion.clip_of(clip);
+        let kind = oni_schema::name(&oni_schema::ANIM_TYPES, c.anim_type).unwrap_or("");
+        let damage = c.attacks.iter().map(|a| a.damage).max().unwrap_or(0);
+        let mut play: Vec<String> = self
+            .anim_sounds
+            .as_ref()
+            .and_then(|s| s.sound(f.sounds.variant.as_deref(), f.motion.coll.entries.get(clip).map_or("", |e| e.name.as_str()), kind, damage, frame))
+            .map(str::to_string)
+            .into_iter()
+            .collect();
+        if main {
+            play.extend(c.sounds.iter().filter(|(_, at)| *at == frame).map(|(n, _)| n.clone()));
+        }
+        let at = f.feet();
+        for name in play {
+            self.audio.impulse_play(&name, Some(at), None, self.sight.as_ref());
+        }
     }
 
     /// Plays an impact effect (`docs/AUDIO.md`, *Impact effects*): for each
