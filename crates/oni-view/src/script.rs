@@ -1019,6 +1019,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // dialog() → whether a scripted dialogue line is on.
+    let h = host.clone();
+    g.set("dialog", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.dialog_playing()))?)?;
     // saying(id) → the line a character is saying (an ambient's name) or nil.
     let h = host.clone();
     g.set(

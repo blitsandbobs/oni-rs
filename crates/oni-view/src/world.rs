@@ -27,7 +27,7 @@ mod particle_sounds;
 mod turrets;
 mod voices;
 mod weapons;
-pub use voices::{vocal, PainState, Speech};
+pub use voices::{speech, vocal, Line, PainState, Speech};
 pub use weapons::{Armory, Item};
 
 /// Characters further apart than this are never tested for touching.

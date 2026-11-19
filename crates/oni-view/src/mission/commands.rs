@@ -30,6 +30,15 @@ fn int(v: Option<&Value>) -> Option<i64> {
     }
 }
 
+fn float(v: Option<&Value>) -> Option<f32> {
+    match v? {
+        Value::Integer(i) => Some(*i as f32),
+        Value::Number(n) => Some(*n as f32),
+        Value::String(s) => s.to_str().ok()?.trim().parse().ok(),
+        _ => None,
+    }
+}
+
 fn truthy(v: Option<&Value>) -> bool {
     match v {
         None | Some(Value::Nil) => false,
@@ -398,12 +407,80 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
-        // --- dialogue (no audio yet: its subtitle, in the terminal) -------------
+        // --- sound (`docs/AUDIO.md`, *Scripts*) ---------------------------------
+        // One dialogue voice: a line still on drops a plain play, holds a
+        // `_block` play until it is over, is cut off by `_interrupt`. Its
+        // subtitle (no HUD yet: in the terminal).
         "sound_dialog_play" | "sound_dialog_play_block" | "sound_dialog_play_interrupt" => {
-            if let Some(line) = a(0).and_then(text) {
-                if let Some(t) = state.message_text(&line) {
-                    eprintln!("SAY ({line}): {t}");
+            let Some(line) = a(0).and_then(text) else { return nil() };
+            match host.world().audio.dialog_start(&line, name.ends_with("_interrupt")) {
+                Err(_) if name.ends_with("_block") => Ok((Value::Nil, Value::Boolean(true), None, None)),
+                Err(_) => nil(),
+                // (No such line: nothing, quietly — as shipped.)
+                Ok(_) => {
+                    if let Some(t) = state.message_text(&line) {
+                        eprintln!("SAY ({line}): {t}");
+                    }
+                    nil()
                 }
+            }
+        }
+        // (Called by a few scripts, but never an engine command: nothing.)
+        "sound_dialog_play_pause" => nil(),
+        // Music and script ambients: one pool of 16 unplaced slots.
+        "sound_music_start" | "sound_ambient_start" => {
+            let Some(sound) = a(0).and_then(text) else { return nil() };
+            let volume = float(a(1)).unwrap_or(1.0);
+            if !host.world().audio.script_start(&sound, volume) {
+                state.warn(format!("{name}: can't play {sound}"));
+            }
+            nil()
+        }
+        "sound_music_stop" | "sound_ambient_stop" => {
+            if let Some(sound) = a(0).and_then(text) {
+                host.world().audio.script_stop(&sound);
+            }
+            nil()
+        }
+        "sound_music_volume" | "sound_ambient_volume" => {
+            let (Some(sound), Some(volume)) = (a(0).and_then(text), float(a(1))) else { return nil() };
+            let seconds = float(a(2)).unwrap_or(0.0);
+            host.world().audio.script_volume(&sound, volume, seconds);
+            nil()
+        }
+        "sound_impulse_play" => {
+            let Some(sound) = a(0).and_then(text) else { return nil() };
+            let volume = float(a(1)).map(|v| v.clamp(0.0, 1.0));
+            let world = host.world();
+            world.audio.impulse_play(&sound, None, volume, world.sight.as_ref());
+            nil()
+        }
+        // A character says a line: `chr_talk who sound pre post [type]`
+        // (no type: override). (The original never stores a given type —
+        // uninitialised; here it is used.)
+        "chr_talk" => {
+            let (Some(who), Some(sound)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let kind = match a(4).and_then(text) {
+                None => crate::world::speech::OVERRIDE,
+                Some(t) => match ["none", "idle", "chatter", "say", "call", "pain", "yell", "override"].iter().position(|n| *n == t) {
+                    Some(k) => k as u8,
+                    None => return nil(),
+                },
+            };
+            let line = crate::world::Line {
+                sound,
+                kind,
+                pre_pause: int(a(2)).unwrap_or(0).max(0) as u32,
+                post_pause: int(a(3)).unwrap_or(0).max(0) as u32,
+            };
+            host.world().say(who, line, false);
+            nil()
+        }
+        // `chr_vocalize who kind`: its AI's line of that kind, forced.
+        "chr_vocalize" => {
+            let (Some(who), Some(kind)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            if let Some(k) = oni_schema::VOCALIZATIONS.iter().position(|v| v.eq_ignore_ascii_case(&kind)) {
+                host.world().vocalize(who, k, true);
             }
             nil()
         }

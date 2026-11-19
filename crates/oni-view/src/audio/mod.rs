@@ -11,6 +11,7 @@ mod game;
 pub mod mixer;
 mod objects;
 pub mod output;
+mod script;
 mod system;
 
 use std::collections::HashMap;
@@ -36,6 +37,9 @@ pub struct Audio {
     playing: Vec<system::Playing>,
     handles: Vec<Option<game::Handle>>,
     objects: Vec<objects::SoundObject>,
+    /// Music and script ambients: their playing ambients and names.
+    script_slots: Vec<Option<(Option<u32>, String)>>,
+    dialog: script::Dialog,
     next_id: u32,
     listener: (Vec3, Vec3),
     tick: u64,
@@ -79,6 +83,8 @@ impl Audio {
             playing: Vec::new(),
             handles: Vec::new(),
             objects: Vec::new(),
+            script_slots: Vec::new(),
+            dialog: Default::default(),
             next_id: 1,
             listener: (Vec3::ZERO, Vec3::Z),
             tick: 0,
@@ -162,6 +168,7 @@ impl Audio {
         self.overall += (self.desired - self.overall).clamp(-OVERALL_ADJUST, OVERALL_ADJUST);
         self.update_handles(sight);
         self.update_objects(sight);
+        self.script_tick();
         let mut k = 0;
         while k < self.playing.len() {
             self.update_one(k);
