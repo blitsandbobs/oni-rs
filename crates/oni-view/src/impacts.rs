@@ -264,6 +264,29 @@ pub struct ClassSounds {
     pub part_impacts: [Vec<Option<String>>; 3],
     /// Its variant (instance name): whose animation sounds it makes.
     pub variant: Option<String>,
+    /// How it cries out when hurt.
+    pub pain: Pain,
+    /// What its AI says, per vocalization kind: a chance (%) and an ambient.
+    pub vocalizations: Vec<(u8, String)>,
+}
+
+/// A class's pain tunings (`painConstants`) and grunts (impulses).
+#[derive(Default, Clone)]
+pub struct Pain {
+    pub base_percentage: u32,
+    pub max_percentage: u32,
+    pub percentage_threshold: u32,
+    pub timer: u32,
+    pub min_timer: u32,
+    pub max_light: u32,
+    pub max_medium: u32,
+    pub death_chance: u32,
+    pub volume_threshold: u32,
+    pub medium_threshold: u32,
+    pub heavy_threshold: u32,
+    pub min_volume: f32,
+    /// Light, medium, heavy, death.
+    pub sounds: [String; 4],
 }
 
 impl ClassSounds {
@@ -283,6 +306,32 @@ impl ClassSounds {
             part_materials: names(&c["partMaterials"]),
             part_impacts: [names(&c["partImpacts"]["hit"]), names(&c["partImpacts"]["blocked"]), names(&c["partImpacts"]["killed"])],
             variant: c["variant"].as_str().map(str::to_string),
+            pain: {
+                let p = &c["pain"];
+                let u = |k: &str| p[k].as_u64().unwrap_or(0) as u32;
+                let s = |k: &str| p[k].as_str().unwrap_or("").to_string();
+                Pain {
+                    base_percentage: u("basePercentage"),
+                    max_percentage: u("maxPercentage"),
+                    percentage_threshold: u("percentageThreshold"),
+                    timer: u("timer"),
+                    min_timer: u("minTimer"),
+                    max_light: u("maxLight"),
+                    max_medium: u("maxMedium"),
+                    death_chance: u("deathChance"),
+                    volume_threshold: u("volumeThreshold"),
+                    medium_threshold: u("mediumThreshold"),
+                    heavy_threshold: u("heavyThreshold"),
+                    min_volume: p["minVolume"].as_f64().unwrap_or(0.0) as f32,
+                    sounds: [s("light"), s("medium"), s("heavy"), s("death")],
+                }
+            },
+            vocalizations: c["vocalizations"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|v| (v["chance"].as_u64().unwrap_or(0) as u8, v["sound"].as_str().unwrap_or("").to_string()))
+                .collect(),
         }
     }
 }

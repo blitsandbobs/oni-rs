@@ -109,6 +109,29 @@ impl Audio {
         }
     }
 
+    /// Halts a started ambient at once (no out sound).
+    pub fn ambient_halt(&mut self, handle: usize) {
+        let Some(h) = self.handles.get_mut(handle).and_then(Option::take) else { return };
+        if let Some(id) = h.play {
+            self.halt(id);
+        }
+    }
+
+    /// Whether a started ambient still plays (a play-once sound's handle
+    /// goes when it is over).
+    pub fn ambient_alive(&self, handle: usize) -> bool {
+        self.handles.get(handle).is_some_and(Option::is_some)
+    }
+
+    /// An ambient's length (ticks): its body's first sound's (0: unknown).
+    pub fn ambient_duration(&mut self, name: &str) -> u32 {
+        let Some(base) = self.defs.ambients.get(name).and_then(|a| a.base.clone()) else { return 0 };
+        let Some(sound) = self.defs.groups.get(&base).and_then(|g| g.permutations.first()).map(|p| p.sound.clone()) else {
+            return 0;
+        };
+        self.clip(&sound).map_or(0, |c| (c.frames() as f32 * 60.0 / c.rate) as u32)
+    }
+
     /// Moves a started ambient.
     pub fn ambient_move(&mut self, handle: usize, position: Vec3) {
         if let Some(Some(h)) = self.handles.get_mut(handle) {

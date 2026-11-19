@@ -140,6 +140,28 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
         let names: Vec<String> = (0..15).map(|k| cstr(d, 1100 + k * 130, 128)).collect();
         out["animImpacts"] = json!({ "modifier": cstr(d, 1084, 16).to_lowercase(), "impacts": names });
     }
+    // How it cries out (`painConstants` @116): eleven u16 tunings, the
+    // quietest grunt's volume, the four impulse names.
+    if d.len() >= 272 {
+        let u = |k: usize| le_u16(d, 116 + k * 2);
+        out["pain"] = json!({
+            "basePercentage": u(0), "maxPercentage": u(1), "percentageThreshold": u(2),
+            "timer": u(3), "minTimer": u(4), "maxLight": u(5), "maxMedium": u(6),
+            "deathChance": u(7), "volumeThreshold": u(8), "mediumThreshold": u(9), "heavyThreshold": u(10),
+            "minVolume": crate::le_f32(d, 140),
+            "light": cstr(d, 144, 32), "medium": cstr(d, 176, 32), "heavy": cstr(d, 208, 32), "death": cstr(d, 240, 32),
+        });
+    }
+    // What its AI says (`ai2_behavior.vocalizations`): a chance (%) and an
+    // ambient per kind.
+    if d.len() >= 692 + 10 * 32 {
+        const KINDS: [&str; 10] = ["taunt", "alert", "startle", "checkBody", "pursue", "cower", "superPunch", "superKick", "super3", "super4"];
+        out["vocalizations"] = json!(KINDS
+            .iter()
+            .enumerate()
+            .map(|(k, kind)| json!({ "kind": kind, "chance": d[680 + k], "sound": cstr(d, 692 + k * 32, 32) }))
+            .collect::<Vec<_>>());
+    }
     if let Some(a) = at(le_u32(d, 1076)).and_then(|i| dat.instance_data(i)) {
         let n = (le_u32(a, 20) as usize).min(a.len().saturating_sub(24) / 164);
         out["attackImpacts"] = json!((0..n)

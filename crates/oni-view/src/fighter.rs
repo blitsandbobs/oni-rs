@@ -164,6 +164,14 @@ pub struct Fighter {
     pub last_floor: Option<u32>,
     /// The clip and frame it played this tick (its animation sounds).
     pub played: Option<(usize, u16)>,
+    /// A clip it started this tick (its vocalization).
+    pub started: Option<usize>,
+    /// Hurts this tick: damage, the least pain it calls for (0 light, 1
+    /// medium, 2 heavy), and whether it killed.
+    pub hurts: Vec<(u32, u32, bool)>,
+    /// What it is saying, and how it cries out (`docs/AUDIO.md`, *Voices*).
+    pub speech: crate::world::Speech,
+    pub pain: crate::world::PainState,
     /// Its class's say in its impacts.
     pub sounds: Rc<crate::impacts::ClassSounds>,
     /// What it sees, hears and remembers (AI characters).
@@ -308,6 +316,10 @@ impl Fighter {
             step: None,
             last_floor: None,
             played: None,
+            started: None,
+            hurts: Vec::new(),
+            speech: Default::default(),
+            pain: Default::default(),
             sounds: Rc::default(),
             perception: None,
             glance: None,
@@ -607,6 +619,7 @@ impl Fighter {
         self.replace();
         if std::mem::take(&mut self.motion.new_clip) {
             self.hit_set.clear();
+            self.started = Some(self.motion.clip);
         }
     }
 
@@ -811,6 +824,17 @@ impl Fighter {
         m.dizzy_stun = 0;
         if m.dying {
             return;
+        }
+        if damage > 0 {
+            // The least pain the blow calls for: heavy blown up, medium
+            // knocked down or landing dead.
+            let least = match oni_schema::name(&oni_schema::ANIM_TYPES, m.kind).unwrap_or("") {
+                "blownup" | "blownupBehind" => 2,
+                "landDead" | "knockdownHead" | "knockdownBody" | "knockdownFoot" | "knockdownHeadBehind" | "knockdownBodyBehind"
+                | "knockdownFootBehind" => 1,
+                _ => 0,
+            };
+            self.hurts.push((damage as u32, least, self.hp <= damage));
         }
         self.hp = (self.hp - damage).max(0);
         if !self.unstoppable {

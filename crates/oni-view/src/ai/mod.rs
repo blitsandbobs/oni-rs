@@ -248,6 +248,24 @@ impl Brain {
         }
     }
 
+    /// Whether it is about its everyday business (no alert, no fight): a
+    /// casual AI always cries out when hurt.
+    pub fn casual(&self) -> bool {
+        match self {
+            Brain::Agent(a) => a.casual(),
+            _ => false,
+        }
+    }
+
+    /// Whether it is taunting over a body it checked (its taunt line is
+    /// not said then).
+    pub fn body_taunted(&self) -> bool {
+        match self {
+            Brain::Agent(a) => a.body_taunted(),
+            _ => false,
+        }
+    }
+
     /// The fighter this brain is fighting, if any.
     pub fn opponent(&self) -> Option<usize> {
         match self {

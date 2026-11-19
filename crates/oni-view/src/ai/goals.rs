@@ -521,6 +521,8 @@ pub struct Panic {
     dazed: Option<u32>,
     done_daze: bool,
     by_hostile: bool,
+    /// When it next whimpers (ticks).
+    say_timer: u32,
 }
 
 impl Goal {
@@ -662,6 +664,8 @@ pub struct Pursuit {
     running: bool,
     scanning: bool,
     scan: Scan,
+    /// When it next says its pursuit line (ticks).
+    say_timer: u32,
 }
 
 /// Primary movements in combat, by precedence (ties go to the earlier).
@@ -907,7 +911,12 @@ impl Agent {
         }
     }
 
-    fn casual(&self) -> bool {
+    /// It has taunted over a dead target this fight.
+    pub(crate) fn body_taunted(&self) -> bool {
+        matches!(&self.goal, Goal::Combat(c) if c.done_taunt)
+    }
+
+    pub(crate) fn casual(&self) -> bool {
         match &self.goal {
             Goal::None | Goal::Idle => true,
             Goal::Job => !matches!(&self.job, Job::Patrol(p) if p.locked),
@@ -1621,6 +1630,7 @@ impl Agent {
             running: false,
             scanning: false,
             scan: Scan::default(),
+            say_timer: 120,
         };
         if danger && self.desire_pursuit(&p, Check::Initial, cx) {
             p.mode = PursuitMode::GoTo;
@@ -1834,6 +1844,16 @@ impl Agent {
         }
         if !matches!(self.goal, Goal::Pursuit(_)) {
             return;
+        }
+        // Actively pursuing, now and then it says so.
+        let next = 720 + self.rng.next() % 180;
+        let p = self.pursuit();
+        if matches!(p.mode, PursuitMode::Look | PursuitMode::Hunt | PursuitMode::Move | PursuitMode::Wait) && p.say_timer > 0 {
+            p.say_timer -= 1;
+            if p.say_timer == 0 {
+                p.say_timer = next;
+                cx.perception.vocals.push(crate::world::vocal::PURSUE);
+            }
         }
         let facing = cx.facing;
         match self.pursuit().mode {
@@ -2168,6 +2188,8 @@ impl Agent {
                     k.done_taunt = true;
                     k.taunt_enable = false;
                     taunt = roll < chance;
+                    // In any case, its check-body line.
+                    cx.perception.vocals.push(crate::world::vocal::CHECK_BODY);
                 }
             }
             if taunt {
@@ -2997,11 +3019,20 @@ impl Agent {
             self.exit(cx);
             self.halt();
             self.mode = MoveMode::RunNoAim;
-            self.goal = Goal::Panic(Box::default());
+            self.goal = Goal::Panic(Box::new(Panic { say_timer: 45, ..Default::default() }));
             eprintln!("ai: {} → panic", self.name);
         }
         let extra = self.rng.range((0, time / 2));
         let now = cx.now;
+        // Now and then it whimpers.
+        let next = 1500 + self.rng.next() % 500;
+        if let Goal::Panic(p) = &mut self.goal {
+            p.say_timer = p.say_timer.saturating_sub(1);
+            if p.say_timer == 0 {
+                p.say_timer = next;
+                cx.perception.vocals.push(crate::world::vocal::COWER);
+            }
+        }
         let cause = match &self.goal {
             Goal::Panic(p) => p.cause.and_then(|id| cx.perception.contact(id)).cloned(),
             _ => None,

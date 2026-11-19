@@ -25,7 +25,9 @@ const HEAD_BONE: usize = 10;
 
 mod particle_sounds;
 mod turrets;
+mod voices;
 mod weapons;
+pub use voices::{vocal, PainState, Speech};
 pub use weapons::{Armory, Item};
 
 /// Characters further apart than this are never tested for touching.
@@ -1533,6 +1535,7 @@ impl World {
             self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
         }
         self.particle_sounds();
+        self.voices_tick();
         self.audio.tick(self.sight.as_ref());
     }
 

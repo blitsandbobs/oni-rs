@@ -1019,6 +1019,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // saying(id) → the line a character is saying (an ambient's name) or nil.
+    let h = host.clone();
+    g.set(
+        "saying",
+        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).and_then(|f| f.speech.saying().map(str::to_string))))?,
+    )?;
     // Turrets: turret(id, "activate" | "deactivate" | "reset");
     // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
     // (the first turret with that script id; nil: none).

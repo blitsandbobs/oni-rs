@@ -358,6 +358,11 @@ pub struct Perception {
     /// pursuit or combat).
     pub locked: bool,
     next_id: u32,
+    /// Lines its AI asks to say (vocalization kinds), for the world.
+    pub vocals: Vec<usize>,
+    /// It has said its alert (or startle) line: once.
+    pub said_alert: bool,
+    alert_vocal_timer: u32,
 }
 
 /// A neutral that hurt us stays hostile this long.
@@ -366,6 +371,19 @@ const HOSTILITY_TICKS: u64 = 900;
 const STARTLE_TOLERANCE: u64 = 60;
 
 impl Perception {
+    /// A tick of its lines: its alert line once the delay runs out; the
+    /// lines asked for, taken.
+    pub fn vocal_tick(&mut self) -> Vec<usize> {
+        if self.alert_vocal_timer > 0 {
+            self.alert_vocal_timer -= 1;
+            if self.alert_vocal_timer == 0 {
+                self.vocals.push(crate::world::vocal::ALERT);
+                self.said_alert = true;
+            }
+        }
+        std::mem::take(&mut self.vocals)
+    }
+
     pub fn new(tuning: Tuning, team: Team) -> Perception {
         Perception {
             tuning,
@@ -380,6 +398,9 @@ impl Perception {
             non_combatant: false,
             omniscient: false,
             notices: Vec::new(),
+            vocals: Vec::new(),
+            said_alert: false,
+            alert_vocal_timer: 0,
             locked: false,
             ignore_player: false,
             next_id: 1,
@@ -565,9 +586,22 @@ impl Perception {
                 }
                 // A jumpy start, the first time it sees a threat.
                 let window = self.alert_raised.is_none_or(|t| now <= t + STARTLE_TOLERANCE);
-                if level >= Alert::High && !self.tuning.never_startle && first_sighting && window {
+                let startled = level >= Alert::High && !self.tuning.never_startle && first_sighting && window;
+                if startled {
                     self.startled_at = Some(now);
                     self.notices.push(Notice::Startle(c.location));
+                }
+                // Its alert line, once: startled or straight into a fight,
+                // its startle line now; else its alert line in a moment, if
+                // it doesn't come to a fight first.
+                if !self.said_alert {
+                    if startled || level == Alert::Combat {
+                        self.vocals.push(crate::world::vocal::STARTLE);
+                        self.alert_vocal_timer = 0;
+                        self.said_alert = true;
+                    } else if self.alert_vocal_timer == 0 {
+                        self.alert_vocal_timer = 60 + (now.wrapping_mul(2_654_435_761) >> 16) as u32 % 31;
+                    }
                 }
             }
             self.alert_timer = 0;

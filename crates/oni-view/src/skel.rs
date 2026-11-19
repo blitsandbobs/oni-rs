@@ -144,6 +144,8 @@ pub struct Clip {
     /// plays on given frames (`sounds`).
     pub sound_frame: u16,
     pub sounds: Vec<(String, u16)>,
+    /// What its player says as it starts (an AI vocalization kind).
+    pub vocalization: Option<usize>,
     /// Where the clip's strikes reach (`extras.reach`), for attacks.
     pub reach: Option<Reach>,
     /// Body parts the clip moves (bit = part), and — played as an overlay —
@@ -720,6 +722,7 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .unwrap_or_default(),
         attack_name: ex["attackName"].as_str().unwrap_or("").to_string(),
         sound_frame: ex["soundFrame"].as_u64().unwrap_or(0) as u16,
+        vocalization: ex["vocalization"].as_str().and_then(|v| oni_schema::VOCALIZATIONS.iter().position(|n| *n == v)),
         sounds: ex["sounds"]
             .as_array()
             .map(|a| a.iter().filter_map(|s| Some((s["impulse"].as_str()?.to_string(), s["frame"].as_u64()? as u16))).collect())

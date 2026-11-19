@@ -108,6 +108,12 @@ impl Audio {
         (self.rng >> 40) as f32 / (1u64 << 24) as f32
     }
 
+    /// A random number in [0, 1) from sound's own numbers (the original's
+    /// voices roll on the gameplay's).
+    pub fn chance(&mut self) -> f32 {
+        self.random()
+    }
+
     fn range(&mut self, (lo, hi): (f32, f32)) -> f32 {
         lo + self.random() * (hi - lo)
     }
