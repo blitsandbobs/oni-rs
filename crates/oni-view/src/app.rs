@@ -240,6 +240,7 @@ impl ApplicationHandler for App {
                     world.attach_doors(crate::door_meshes(&scene));
                     let (solid, opaque) = crate::env_parts(&scene);
                     world.attach_env(solid, opaque);
+                    world.attach_weapons(&self.cast.level_dir.join("../../common"));
                     if self.mission {
                         // The level's own scripts populate it.
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {

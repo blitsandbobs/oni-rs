@@ -22,6 +22,8 @@ mod consoles;
 mod control;
 mod doors;
 mod lasers;
+mod p3;
+mod weapons;
 mod fighter;
 mod gltf;
 mod mission;

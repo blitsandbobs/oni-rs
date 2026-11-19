@@ -198,6 +198,20 @@ impl Physics {
             .map(|(_, toi)| toi)
     }
 
+    /// The first level surface along the segment `from → from + ray`: how
+    /// far along (0–1) and its normal.
+    pub fn cast(&self, from: Vec3, ray: Vec3) -> Option<(f32, Vec3)> {
+        let len = ray.length();
+        if len < 1e-6 {
+            return None;
+        }
+        let d = ray / len;
+        let r = Ray::new(Point3::new(from.x, from.y, from.z), Vector3::new(d.x, d.y, d.z));
+        self.query
+            .cast_ray_and_get_normal(&self.bodies, &self.colliders, &r, len, true, QueryFilter::default())
+            .map(|(_, hit)| (hit.time_of_impact / len, Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z)))
+    }
+
     /// Distance from the feet straight down to the level, if within `max`.
     pub fn ground_below(&self, max: f32) -> Option<f32> {
         // Start slightly above the feet so a floor we are standing on counts.

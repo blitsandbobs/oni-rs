@@ -176,6 +176,12 @@ pub mod var {
     pub const FIGHT: u16 = 0x0200;
     /// Cowering (a panicking non-combatant).
     pub const PANIC: u16 = 0x8000;
+    /// Holding a gun: one-handed (pistol) or two-handed (rifle), in the
+    /// right or left hand.
+    pub const RIGHTY_PISTOL: u16 = 0x0800;
+    pub const LEFTY_PISTOL: u16 = 0x1000;
+    pub const RIGHTY_RIFLE: u16 = 0x2000;
+    pub const LEFTY_RIFLE: u16 = 0x4000;
 }
 
 /// Per-clip flag bit indices (`ONcAnimFlag_*`; mask = `1 << index`).
@@ -185,6 +191,8 @@ pub mod flag {
     /// A block clip that stops high / low attacks.
     pub const BLOCK_HIGH: u32 = 2;
     pub const BLOCK_LOW: u32 = 3;
+    /// Starting it throws the character's gun clear (knockdowns).
+    pub const DROP_WEAPON: u32 = 5;
     pub const NO_INTERP_VELOCITY: u32 = 14;
     pub const THROW_SOURCE: u32 = 15;
     pub const THROW_TARGET: u32 = 16;

@@ -20,6 +20,9 @@ use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
 
+mod weapons;
+pub use weapons::Armory;
+
 /// Characters further apart than this are never tested for touching.
 const CONTACT_RANGE: f32 = 25.0;
 /// A defensive character blocks attackers within this angle of where it faces.
@@ -135,6 +138,8 @@ pub struct World {
     rng: u32,
     level_positions: Vec<[f32; 3]>,
     level_indices: Vec<u32>,
+    /// Guns and the particles their shots are (`docs/WEAPONS.md`).
+    pub armory: Armory,
 }
 
 impl World {
@@ -169,6 +174,7 @@ impl World {
             rng: 0x9E37_79B9,
             level_positions,
             level_indices,
+            armory: Armory::default(),
         }
     }
 
@@ -1233,6 +1239,9 @@ impl World {
             p.motion.throw_sense = sense;
         }
         use crate::ai::perception::Relation;
+        // With a gun, the fire buttons shoot instead of striking.
+        let armed = self.armed(0);
+        let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| self.armory.weapons[w].class.has(crate::weapons::flag::HAS_ALTERNATE));
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -1276,7 +1285,7 @@ impl World {
                 }
             }
             let (held, pressed) = if i == 0 {
-                (crate::anim::input::fire_as_melee(controls, false, false), 0)
+                (crate::anim::input::fire_as_melee(controls, armed, alternate), 0)
             } else if let Some(d) = decisions[i] {
                 f.follow(&d);
                 (d.held | d.pressed, d.pressed)
@@ -1295,6 +1304,12 @@ impl World {
         for f in &mut self.fighters {
             f.apply_reaction();
         }
+        // Guns and shots.
+        let mut gun_controls = vec![0u32; self.fighters.len()];
+        if let Some(c) = gun_controls.first_mut() {
+            *c = controls;
+        }
+        self.weapons_tick(&gun_controls);
         // Bodies of classes that delete their dead go after the delay.
         for i in 1..self.fighters.len() {
             let f = &mut self.fighters[i];

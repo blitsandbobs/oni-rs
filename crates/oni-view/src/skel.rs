@@ -34,6 +34,8 @@ pub struct Part {
     /// The body part's stored bounding sphere (centre in the bone's space,
     /// radius) — what Oni tests to decide whether bodies and blows connect.
     pub bound_sphere: Option<(Vec3, f32)>,
+    /// Its geometry's box in the bone's space (min, max) — what shots test.
+    pub bound_box: (Vec3, Vec3),
 }
 
 /// A loaded character: skeleton + drawable parts.
@@ -419,8 +421,13 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
                         color: [1.0, 1.0, 1.0],
                     });
                 }
+                let bound_box = verts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), v| {
+                    let p = Vec3::from(v.pos);
+                    (lo.min(p), hi.max(p))
+                });
                 parts.push(Part {
                     bone: i,
+                    bound_box,
                     vertices: verts,
                     indices: idx,
                     texture,

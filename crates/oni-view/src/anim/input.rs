@@ -22,6 +22,10 @@ pub mod key {
     /// AI uses them, e.g. to roll up from the ground).
     pub const TURN_LEFT: u32 = 1 << 13;
     pub const TURN_RIGHT: u32 = 1 << 14;
+    /// Pick up / holster / draw (Q), reload (R), drop the gun.
+    pub const SWAP: u32 = 1 << 15;
+    pub const RELOAD: u32 = 1 << 16;
+    pub const DROP: u32 = 1 << 17;
 }
 
 /// The original's button bits (`LIc_Bit_*`, as films record them) as ours.

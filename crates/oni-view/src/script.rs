@@ -136,6 +136,7 @@ impl ScriptHost {
         world.attach_doors(crate::door_meshes(&scene));
         let (solid, opaque) = crate::env_parts(&scene);
         world.attach_env(solid, opaque);
+        world.attach_weapons(&cast.level_dir.join("../../common"));
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }
@@ -823,6 +824,70 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             }
             Ok(())
         })?,
+    )?;
+
+    // Weapons (`docs/WEAPONS.md`): give_weapon(id, class) puts a new gun in
+    // a fighter's hand; weapon(id) → class, ammo, firing (nil: unarmed);
+    // aim(id, pitch) sets its aim pitch (radians, up positive);
+    // reload(id), drop_weapon(id[, knock]); give_ammo(id, clips, cells);
+    // shots() → live particles; weapons_lying() → guns on the floor.
+    let h = host.clone();
+    g.set(
+        "give_weapon",
+        lua.create_function(move |_, (id, class): (usize, String)| Ok(h.borrow_mut().world.give_weapon(id, &class)))?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "weapon",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let w = &host.world;
+            let gun = w.fighters.get(id).and_then(|f| f.hand).map(|k| &w.weapons()[k]);
+            Ok((gun.map(|g| g.class.name.clone()), gun.map(|g| g.ammo), gun.map(|g| g.firing)))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "aim",
+        lua.create_function(move |_, (id, pitch): (usize, f32)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.aiming_ud = pitch;
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "aim_of",
+        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0.0, |f| f.aiming_ud)))?,
+    )?;
+    let h = host.clone();
+    g.set("reload", lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.reload(id)))?)?;
+    let h = host.clone();
+    g.set(
+        "drop_weapon",
+        lua.create_function(move |_, (id, knock): (usize, Option<bool>)| {
+            h.borrow_mut().world.drop_weapon(id, knock.unwrap_or(false));
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "give_ammo",
+        lua.create_function(move |_, (id, clips, cells): (usize, u16, Option<u16>)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.inventory.ammo += clips;
+                f.inventory.cells += cells.unwrap_or(0);
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set("shots", lua.create_function(move |_, ()| Ok(h.borrow().world.particles().iter().count()))?)?;
+    let h = host.clone();
+    g.set(
+        "weapons_lying",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.weapons().iter().filter(|g| g.owner.is_none()).count()))?,
     )?;
 
     // Orders laser trigger `id` ("activate", "deactivate", "reset", "hide",

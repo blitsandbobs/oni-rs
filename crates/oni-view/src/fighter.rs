@@ -122,7 +122,7 @@ pub struct Fighter {
     /// damage (its swings, if any, are ignored by hit resolution).
     pub passive: bool,
     /// Pending knockback displacement, applied a share per tick.
-    knockback: Vec3,
+    pub knockback: Vec3,
     /// (attack index, victim) pairs already hit by the current clip: each of
     /// a clip's attacks hits each victim once.
     hit_set: Vec<(usize, usize)>,
@@ -160,6 +160,39 @@ pub struct Fighter {
     /// Startled: the facing it started from and the turn it makes over the
     /// startle clip (nothing else happens meanwhile).
     pub startling: Option<(f32, f32)>,
+    /// The gun in its hand and the one holstered (indices into the world's
+    /// weapons; `docs/WEAPONS.md`).
+    pub hand: Option<usize>,
+    pub holster: Option<usize>,
+    /// What it carries: ammo clips, energy cells, hypos.
+    pub inventory: Inventory,
+    /// Aim pitch (radians, up positive) and the recoil kick on top of it.
+    pub aiming_ud: f32,
+    pub recoil: f32,
+    pub recoil_speed: f32,
+    /// The last particle that damaged it (a shot hits once).
+    pub last_particle: Option<u64>,
+    /// Its last hit's direction × strength (knocks a dropped gun away).
+    pub last_impact: Vec3,
+    /// Never runs out of ammo (`chr_inv_reset`-style script orders aside).
+    pub infinite_ammo: bool,
+    /// Shots don't hurt it.
+    pub weapon_immune: bool,
+    /// Its gun is empty and it has nothing to reload with (fire = punch).
+    pub weapon_empty: bool,
+    /// Ticks until a reload under way fills the gun.
+    pub reloading: u16,
+}
+
+/// What a character carries besides guns (`docs/WEAPONS.md`, *Powerups*).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Inventory {
+    pub ammo: u16,
+    pub cells: u16,
+    pub hypos: u16,
+    pub shield: u16,
+    pub invisibility: u16,
+    pub lsi: bool,
 }
 
 impl Fighter {
@@ -236,6 +269,18 @@ impl Fighter {
             perception: None,
             glance: None,
             startling: None,
+            hand: None,
+            holster: None,
+            inventory: Inventory::default(),
+            aiming_ud: 0.0,
+            recoil: 0.0,
+            recoil_speed: 0.0,
+            last_particle: None,
+            last_impact: Vec3::ZERO,
+            infinite_ammo: false,
+            weapon_immune: false,
+            weapon_empty: false,
+            reloading: 0,
         }
     }
 
