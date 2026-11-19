@@ -280,6 +280,8 @@ pub fn run_script(
     };
     if let Err(e) = lua.load(&src).set_name(path.to_string_lossy()).exec() {
         eprintln!("script error: {e}");
+        // (A failed scenario fails the run: callers check the exit code.)
+        std::process::exit(1);
     }
 }
 

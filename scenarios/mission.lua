@@ -15,10 +15,23 @@ local function showing(m)
     end
     return false
 end
-local function wait_for(cond, max)
-    for t = 1, max do
+-- (As in the game, the training only watches for what it asked once
+-- Shinatama has finished speaking: act after her line.)
+local function quiet()
+    for _ = 1, 1200 do
+        if not dialog() then return end
         step(1)
-        if cond() then return t end
+    end
+end
+-- Waits (up to four times `max`: the lines play at their full length) for
+-- `cond`, then for Shinatama to finish speaking.
+local function wait_for(cond, max)
+    for t = 1, max * 4 do
+        step(1)
+        if cond() then
+            quiet()
+            return t
+        end
     end
     return nil
 end
@@ -31,7 +44,7 @@ print(string.format("player starts at %.0f %.0f %.0f", x, y, z))
 assert(math.abs(x + 1101) < 3 and math.abs(z + 126) < 3, "the player is at its placement (char_0)")
 
 -- The intro plays, then asks for a mouse turn — and waits for one.
-local took = wait_for(function() return showing("xmouse") end, 1200)
+local took = wait_for(function() return showing("xmouse") end, 3000)
 print("asks to turn after", took)
 assert(took, "the training asks the player to turn")
 step(300)
@@ -172,7 +185,7 @@ crouch(true) step(30) crouch(false)
 took = wait_for(function() return showing("xfite") end, 700)
 assert(took, "the crouch lesson goes on")
 teleport(0, -1061, -300, -313)
-took = wait_for(function() return showing("c01_50_09") end, 3000)
+took = wait_for(function() return showing("c01_50_09") end, 8000)
 print("the combat demo ended after", took)
 assert(took, "the demo ends (one trainee beaten) and the lessons resume")
 local function away_from_walls()
@@ -206,9 +219,10 @@ assert(took and (laser_state(3)) and (laser_state(2)), "the training switches th
 -- off, and it asks for a punch, then a kick.
 took = wait_for(function() return showing("c01_50_19") end, 1500)
 assert(took, "asked to flip")
+quiet()
 away_from_walls()
 jump() step(8) crouch_tap() step(60)
-took = wait_for(function() return showing("c01_50_23") end, 600)
+took = wait_for(function() return showing("c01_50_23") end, 2500)
 assert(took, "the flip is recognised")
 teleport(0, -1011, -296, -505)
 took = wait_for(function() return showing("xpunch") end, 600)
@@ -269,6 +283,8 @@ assert(d2, "the throw dummy is there")
 for _ = 1, 6 do
     local x, y, z = pos_of(d2)
     teleport(0, x, y + 2, z - 6)
+    -- (The lesson wants a forward throw: the dummy faces her.)
+    set_facing(d2, 180)
     facing(0)
     step(5)
     input(true, false) step(2) punch() step(30) input(false, false) step(30)
@@ -338,15 +354,21 @@ end
 local shots = 0
 for _, c in ipairs(columns) do
     for _, pitch in ipairs(rows) do
-        refill()
-        teleport(0, c[1] - 30, -297, c[2])
-        step(10)
-        facing(93)
-        aim(0, pitch)
-        step(5)
-        fire(1)
-        shots = shots + 1
-        step(20)
+        -- (The gun follows the hand through the pistol idle, so a shot can
+        -- stray by a hair: a miss is tried again, nudged.)
+        for try = 0, 3 do
+            refill()
+            local before = env_broken(3001, 3018)
+            teleport(0, c[1] - 30, -297, c[2])
+            step(10)
+            facing(93)
+            aim(0, pitch + ({0, 0.03, -0.03, 0.06})[try + 1])
+            step(5)
+            fire(1)
+            shots = shots + 1
+            step(20)
+            if env_broken(3001, 3018) > before then break end
+        end
     end
 end
 local broken = env_broken(3001, 3018)

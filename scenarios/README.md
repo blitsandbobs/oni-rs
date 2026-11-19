@@ -5,6 +5,11 @@ locomotion state machine, collision — without a window. They replace the old
 `--sim`/`--walk`/`--facing` test flags: validation lives in these `.lua` files
 (which assert) instead of in bespoke CLI flags.
 
+
+Run them all with `scenarios/run_all.sh` (and again with `--faithful`): a
+scenario fails when its script errors (an `assert`), which makes `oni-view
+--script` exit non-zero.
+
 ## Running
 
 ```sh

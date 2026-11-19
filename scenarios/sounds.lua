@@ -47,5 +47,9 @@ assert(taken == q, "it took the quietest")
 
 -- They play out.
 step(600)
-for i = 1, 16 do assert(not channels()[i].clip, "all played out") end
+-- (The level's own ambience plays on.)
+for i = 1, 16 do
+    local c = channels()[i].clip
+    assert(not (c and c:match("^glass")), "the breaks all played out")
+end
 print("sounds ok")
