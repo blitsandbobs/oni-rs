@@ -164,6 +164,8 @@ pub struct Fighter {
     /// weapons; `docs/WEAPONS.md`).
     pub hand: Option<usize>,
     pub holster: Option<usize>,
+    /// Where a cutscene or console puts the gun in hand away.
+    pub magic: Option<usize>,
     /// What it carries: ammo clips, energy cells, hypos.
     pub inventory: Inventory,
     /// Aim pitch (radians, up positive) and the recoil kick on top of it.
@@ -180,9 +182,26 @@ pub struct Fighter {
     pub weapon_immune: bool,
     /// Its gun is empty and it has nothing to reload with (fire = punch).
     pub weapon_empty: bool,
-    /// Ticks until a reload under way fills the gun.
-    pub reloading: u16,
+    /// Partial-body clips playing over the body: the recoil, and the
+    /// inventory one (holster, draw, reload).
+    pub overlays: [Option<Overlay>; 2],
+    /// An item it is bending to pick up, and whether the pickup clip has
+    /// started.
+    pub pickup: Option<(crate::world::Item, bool, u16)>,
 }
+
+/// A clip playing as an overlay: which, and its frame.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Overlay {
+    pub clip: usize,
+    pub frame: u16,
+    /// A holster forced by a cutscene or console (into the hidden slot).
+    pub magic: bool,
+}
+
+/// Overlay slots.
+pub const RECOIL: usize = 0;
+pub const INVENTORY: usize = 1;
 
 /// What a character carries besides guns (`docs/WEAPONS.md`, *Powerups*).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -271,6 +290,7 @@ impl Fighter {
             startling: None,
             hand: None,
             holster: None,
+            magic: None,
             inventory: Inventory::default(),
             aiming_ud: 0.0,
             recoil: 0.0,
@@ -280,7 +300,8 @@ impl Fighter {
             infinite_ammo: false,
             weapon_immune: false,
             weapon_empty: false,
-            reloading: 0,
+            overlays: [None; 2],
+            pickup: None,
         }
     }
 
@@ -947,6 +968,18 @@ impl Fighter {
     /// Feet (ground) position in world space.
     pub fn feet(&self) -> Vec3 {
         self.physics.feet
+    }
+
+    /// The animation types it is playing: its body's, and its overlays'.
+    pub fn anim_types(&self) -> Vec<u16> {
+        let mut v = vec![self.motion.kind];
+        v.extend(self.overlays.iter().flatten().map(|o| self.motion.clip_of(o.clip).anim_type));
+        v
+    }
+
+    /// Reloading (a reload clip in the inventory overlay).
+    pub fn reloading(&self) -> bool {
+        self.overlays[INVENTORY].is_some_and(|o| (164..=171).contains(&self.motion.clip_of(o.clip).anim_type))
     }
 
     pub fn alive(&self) -> bool {

@@ -34,11 +34,63 @@ mod damage {
     pub const PICK_UP: u32 = 6;
 }
 
+/// Something a character can pick up.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Item {
+    Weapon(usize),
+    Powerup(usize),
+}
+
+/// Animation types of the gun clips.
+mod clip {
+    pub const PICKUP_OBJECT: u16 = 157;
+    pub const PICKUP_PISTOL: u16 = 158;
+    pub const PICKUP_RIFLE: u16 = 159;
+    pub const HOLSTER: u16 = 160;
+    pub const DRAW_PISTOL: u16 = 161;
+    pub const DRAW_RIFLE: u16 = 162;
+    pub const PICKUP_OBJECT_MID: u16 = 227;
+    pub const PICKUP_PISTOL_MID: u16 = 228;
+    pub const PICKUP_RIFLE_MID: u16 = 229;
+
+    pub fn is_pickup(t: u16) -> bool {
+        (157..=159).contains(&t) || (227..=229).contains(&t)
+    }
+    pub fn is_reload(t: u16) -> bool {
+        (164..=171).contains(&t)
+    }
+}
+
+/// Finishing a pickup at the clip's action frame: the wider reach.
+const PICKUP_FINISH_RADIUS: f32 = 16.0;
+const PICKUP_FINISH_BELOW: f32 = 6.0;
+const PICKUP_FINISH_ABOVE: f32 = 24.0;
+/// An item more than this above the feet takes the mid-height pickup clip.
+const PICKUP_MID: f32 = 9.0;
+
+/// Powerup kinds (`WPtPowerupType`), by their script names.
+pub const POWERUPS: [&str; 6] = ["ammo", "cell", "hypo", "shield", "invis", "lsi"];
+/// The data's names for them (`items.json`).
+const POWERUP_DATA: [&str; 6] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility", "lsi"];
+/// How much one gives by default, and the most one can carry (ammo, cells
+/// and hypos add up; shields and invisibility top up to the amount).
+const POWERUP_DEFAULT: [u16; 6] = [1, 1, 1, 100, 1800, 1];
+const CARRY_MAX: u16 = 6;
+
+/// A powerup lying in the level.
+#[derive(Clone, Copy, Debug)]
+pub struct Powerup {
+    pub kind: usize,
+    pub amount: u16,
+    pub position: Vec3,
+}
+
 /// Guns, their classes and the particles.
 pub struct Armory {
     pub classes: Rc<WeaponClasses>,
     pub particles: p3::System,
     pub weapons: Vec<Weapon>,
+    pub powerups: Vec<Powerup>,
     /// Each fighter's fire buttons last tick (for presses).
     last_fire: Vec<u32>,
 }
@@ -49,6 +101,7 @@ impl Default for Armory {
             classes: Rc::new(WeaponClasses::default()),
             particles: p3::System::new(Rc::new(p3::Classes::default())),
             weapons: Vec::new(),
+            powerups: Vec::new(),
             last_fire: Vec::new(),
         }
     }
@@ -339,6 +392,7 @@ impl World {
         self.armory.particles = p3::System::new(particles);
         self.armory.classes = classes;
         self.armory.weapons.clear();
+        self.armory.powerups.clear();
         let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         for w in doc["weapons"].as_array().into_iter().flatten() {
@@ -352,6 +406,119 @@ impl World {
             let yaw = (w["yaw"].as_f64().unwrap_or(0.0) as f32).to_radians();
             self.armory.weapons.push(Weapon::new(class, at, yaw, true));
         }
+        for p in doc["powerups"].as_array().into_iter().flatten() {
+            let Some(kind) = POWERUP_DATA.iter().position(|n| Some(*n) == p["type"].as_str()) else { continue };
+            let v = &p["position"];
+            let at = Vec3::new(v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32, v[2].as_f64().unwrap_or(0.0) as f32);
+            self.armory.powerups.push(Powerup { kind, amount: POWERUP_DEFAULT[kind], position: at });
+        }
+    }
+
+    pub fn powerups(&self) -> &[Powerup] {
+        &self.armory.powerups
+    }
+
+    /// A powerup of `kind` (a script name) at `at`; `amount` defaults to
+    /// the kind's.
+    pub fn spawn_powerup(&mut self, kind: &str, at: Vec3, amount: Option<u16>) -> bool {
+        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return false };
+        self.armory.powerups.push(Powerup { kind, amount: amount.unwrap_or(POWERUP_DEFAULT[kind]), position: at });
+        true
+    }
+
+    /// How much of a powerup fighter `who` could take.
+    fn could_receive(&self, who: usize, kind: usize, amount: u16) -> u16 {
+        let f = &self.fighters[who];
+        let inv = &f.inventory;
+        let add = |have: u16| if have >= CARRY_MAX { 0 } else { amount.min(CARRY_MAX - have) };
+        match kind {
+            0 => add(inv.ammo),
+            1 => add(inv.cells),
+            2 => add(inv.hypos),
+            3 => amount.saturating_sub(inv.shield),
+            4 => amount.saturating_sub(inv.invisibility),
+            _ => u16::from(f.player),
+        }
+    }
+
+    /// Gives fighter `who` a powerup (`give_powerup`); with `ignore_max`
+    /// the carrying limits don't apply. Returns how much it took.
+    pub fn give_powerup(&mut self, who: usize, kind: &str, amount: Option<u16>, ignore_max: bool) -> u16 {
+        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return 0 };
+        let amount = amount.unwrap_or(POWERUP_DEFAULT[kind]);
+        let give = if ignore_max { amount } else { self.could_receive(who, kind, amount) };
+        let inv = &mut self.fighters[who].inventory;
+        match kind {
+            0 => inv.ammo += give,
+            1 => inv.cells += give,
+            2 => inv.hypos += give,
+            3 => inv.shield += give,
+            4 => inv.invisibility += give,
+            _ => inv.lsi |= give > 0,
+        }
+        give
+    }
+
+    /// The nearest powerup fighter `who` could take, within reach.
+    fn powerup_in_reach(&self, who: usize) -> Option<usize> {
+        let feet = self.fighters.get(who)?.feet();
+        self.armory
+            .powerups
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| self.could_receive(who, p.kind, p.amount) > 0)
+            .filter_map(|(i, p)| {
+                let d = ((p.position - feet) * Vec3::new(1.0, 0.0, 1.0)).length();
+                let dy = p.position.y - feet.y;
+                (d < PICKUP_RADIUS && (-PICKUP_BELOW..=PICKUP_ABOVE).contains(&dy)).then_some((i, d))
+            })
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|x| x.0)
+    }
+
+    /// Takes every gun from fighter `who` and empties its pockets
+    /// (`chr_inv_reset`).
+    pub fn reset_inventory(&mut self, who: usize) {
+        let Some(f) = self.fighters.get_mut(who) else { return };
+        f.inventory = crate::fighter::Inventory::default();
+        let guns: Vec<usize> = [f.hand.take(), f.holster.take(), f.magic.take()].into_iter().flatten().collect();
+        for w in guns {
+            self.delete_weapon(w);
+        }
+        self.set_weapon_varient(who);
+    }
+
+    /// Removes gun `w` from the world (its particles go).
+    fn delete_weapon(&mut self, w: usize) {
+        let Armory { particles, weapons, .. } = &mut self.armory;
+        let now = self.now as u64;
+        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        weapons[w].stow(particles, &mut host);
+        weapons[w].owner = None;
+        weapons[w].gone = true;
+    }
+
+    /// A cutscene or console putting the gun in hand away (`on`), into the
+    /// hidden slot — or onto the floor if that is taken; or giving it back
+    /// (only into an empty hand). (`chr_forceholster`.)
+    pub fn force_holster(&mut self, who: usize, on: bool) {
+        let Some(f) = self.fighters.get(who) else { return };
+        if on {
+            if f.hand.is_some() && !self.holster(who, true) {
+                // (No clip: straight away.)
+                self.put_away(who, true);
+            }
+        } else if f.hand.is_none() && f.magic.is_some() && !self.draw(who) {
+            self.bring_to_hand(who);
+        }
+    }
+
+    /// Holds a gun that is empty, with nothing to reload it and no reload
+    /// under way (`chr_has_empty_weapon`).
+    pub fn has_empty_weapon(&self, who: usize) -> bool {
+        let Some(f) = self.fighters.get(who) else { return false };
+        let Some(w) = f.hand else { return false };
+        self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !f.reloading()
     }
 
     pub fn weapons(&self) -> &[Weapon] {
@@ -371,9 +538,13 @@ impl World {
 
     /// Puts a new gun of `class` in fighter `who`'s hand (the one it held
     /// goes to the floor).
+    /// (The gun it held is deleted, as `chr_giveweapon` does.)
     pub fn give_weapon(&mut self, who: usize, class: &str) -> bool {
         let Some(at) = self.fighters.get(who).map(|f| f.feet()) else { return false };
         let Some(w) = self.spawn_weapon(class, at, 0.0, true) else { return false };
+        if let Some(old) = self.fighters[who].hand.take() {
+            self.delete_weapon(old);
+        }
         self.take_weapon(who, w);
         true
     }
@@ -436,19 +607,25 @@ impl World {
         }
     }
 
-    /// Starts a reload (`WPrTryReload`): a clip is used at once, the gun
-    /// fills at the end. (The reload animation overlay isn't played yet: the
-    /// gun fills after the clip's length.)
+    /// Starts a reload (`WPrTryReload`): refused when full, busy or just
+    /// fired, or with nothing to reload with; a clip is used at once, and
+    /// the gun fills at the reload clip's action frame.
     pub fn reload(&mut self, who: usize) -> bool {
         let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else { return false };
         let gun = &self.armory.weapons[w];
-        if gun.ammo >= gun.class.max_ammo || gun.reload_delay > 0 || gun.chamber > 0 || self.fighters[who].reloading > 0 {
+        let f = &self.fighters[who];
+        if gun.ammo >= gun.class.max_ammo || gun.reload_delay > 0 || gun.chamber > 0 || f.overlays[crate::fighter::INVENTORY].is_some() {
             return false;
         }
-        if !self.has_reload(who, w) {
+        if !self.has_reload(who, w) || !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
             return false;
         }
         let energy = gun.class.has(flag::ENERGY);
+        let reload_type = oni_type(&gun.class.reload_anim);
+        if !self.start_overlay(who, crate::fighter::INVENTORY, reload_type, crate::anim::types::st::STANDING, false) {
+            eprintln!("weapon: fighter {who} has no reload clip");
+            return false;
+        }
         let f = &mut self.fighters[who];
         if !f.infinite_ammo {
             if energy {
@@ -457,9 +634,191 @@ impl World {
                 f.inventory.ammo -= 1;
             }
         }
-        f.reloading = RELOAD_TICKS;
         eprintln!("weapon: fighter {who} reloads");
         true
+    }
+
+    /// Starts clip type `kind` (looked up from state `from`) in overlay
+    /// `slot`; false if the character has no such clip.
+    fn start_overlay(&mut self, who: usize, slot: usize, kind: u16, from: u16, magic: bool) -> bool {
+        let f = &mut self.fighters[who];
+        let Some(clip) = f.motion.coll.lookup(kind, from, f.motion.varient) else { return false };
+        f.overlays[slot] = Some(crate::fighter::Overlay { clip, frame: 0, magic });
+        true
+    }
+
+    /// Holster (`magic`: forced, into the hidden slot) — the clip plays,
+    /// the gun goes at its action frame. Refused for unstorable guns and
+    /// during attacks and hit reactions.
+    fn holster(&mut self, who: usize, magic: bool) -> bool {
+        let f = &self.fighters[who];
+        let Some(w) = f.hand else { return false };
+        if self.armory.weapons[w].class.has(flag::UNSTORABLE) && !magic {
+            return false;
+        }
+        if !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
+            return false;
+        }
+        self.start_overlay(who, crate::fighter::INVENTORY, clip::HOLSTER, crate::anim::types::st::STANDING, magic)
+    }
+
+    /// Draw the holstered gun (or the hidden slot's): the clip plays, the gun
+    /// comes to hand at its action frame.
+    fn draw(&mut self, who: usize) -> bool {
+        let f = &self.fighters[who];
+        let Some(w) = f.magic.or(f.holster) else { return false };
+        if !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
+            return false;
+        }
+        let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) { clip::DRAW_RIFLE } else { clip::DRAW_PISTOL };
+        self.start_overlay(who, crate::fighter::INVENTORY, kind, crate::anim::types::st::STANDING, false)
+    }
+
+    /// The gun from the holster (or the hidden slot) into the empty hand.
+    fn bring_to_hand(&mut self, who: usize) {
+        let f = &mut self.fighters[who];
+        if f.hand.is_some() {
+            return;
+        }
+        f.hand = if f.magic.is_some() { f.magic.take() } else { f.holster.take() };
+        if let Some(w) = f.hand {
+            self.armory.weapons[w].assign(who);
+        }
+        self.set_weapon_varient(who);
+    }
+
+    /// The gun in hand into the holster — swapping with what was there —
+    /// or (`magic`) into the hidden slot, or onto the floor if that is taken.
+    fn put_away(&mut self, who: usize, magic: bool) {
+        let Some(w) = self.fighters[who].hand else { return };
+        if magic && self.fighters[who].magic.is_some() {
+            self.drop_weapon(who, false);
+            return;
+        }
+        {
+            let Armory { particles, weapons, .. } = &mut self.armory;
+            let now = self.now as u64;
+            let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+            weapons[w].stow(particles, &mut host);
+        }
+        let f = &mut self.fighters[who];
+        f.hand = None;
+        if magic {
+            f.magic = Some(w);
+        } else {
+            f.hand = f.holster.take();
+            f.holster = Some(w);
+            if let Some(n) = f.hand {
+                self.armory.weapons[n].assign(who);
+            }
+        }
+        self.set_weapon_varient(who);
+    }
+
+    /// Overlays advance a frame; each acts at its clip's action frame first
+    /// (`docs/WEAPONS.md`, *Overlays*). A knockdown cancels the inventory
+    /// one.
+    fn overlays_tick(&mut self, who: usize) {
+        let f = &mut self.fighters[who];
+        if f.overlays[crate::fighter::INVENTORY].is_some() && reaction::is_knockdown(f.motion.current().anim_type) {
+            f.overlays[crate::fighter::INVENTORY] = None;
+        }
+        for slot in [crate::fighter::RECOIL, crate::fighter::INVENTORY] {
+            let f = &self.fighters[who];
+            let Some(o) = f.overlays[slot] else { continue };
+            let c = f.motion.clip_of(o.clip);
+            let (kind, frames, action) = (c.anim_type, c.frames(), c.action_frame);
+            if action == Some(o.frame) && slot == crate::fighter::INVENTORY {
+                if clip::is_reload(kind) {
+                    if let Some(w) = f.hand {
+                        let Armory { particles, weapons, .. } = &mut self.armory;
+                        let now = self.now as u64;
+                        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+                        weapons[w].reloaded(particles, &mut host);
+                    }
+                } else if kind == clip::HOLSTER {
+                    self.put_away(who, o.magic);
+                    // A holstered gun coming out: its draw clip, from its
+                    // action frame.
+                    let f = &self.fighters[who];
+                    if !o.magic {
+                        if let Some(w) = f.hand {
+                            let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) { clip::DRAW_RIFLE } else { clip::DRAW_PISTOL };
+                            if self.start_overlay(who, crate::fighter::INVENTORY, kind, crate::anim::types::st::STANDING, false) {
+                                let f = &mut self.fighters[who];
+                                if let Some(n) = f.overlays[crate::fighter::INVENTORY].as_mut() {
+                                    n.frame = f.motion.clip_of(n.clip).action_frame.unwrap_or(0);
+                                }
+                            }
+                            continue;
+                        }
+                    }
+                } else if kind == clip::DRAW_PISTOL || kind == clip::DRAW_RIFLE {
+                    self.bring_to_hand(who);
+                }
+            }
+            let f = &mut self.fighters[who];
+            if let Some(o) = f.overlays[slot].as_mut() {
+                o.frame += 1;
+                if o.frame >= frames {
+                    f.overlays[slot] = None;
+                }
+            }
+        }
+    }
+
+    /// A pickup under way: at the pickup clip's action frame the item is
+    /// taken, if still within the wider reach (`docs/WEAPONS.md`, *Pickup*).
+    fn pickup_tick(&mut self, who: usize) {
+        let f = &mut self.fighters[who];
+        let Some((item, started, waited)) = f.pickup else { return };
+        let c = f.motion.current();
+        if !clip::is_pickup(c.anim_type) {
+            f.pickup = if started || waited > 10 { None } else { Some((item, false, waited + 1)) };
+            return;
+        }
+        f.pickup = Some((item, true, waited));
+        let at = c.action_frame.unwrap_or(0).min(c.frames().saturating_sub(1));
+        if f.motion.frame != at {
+            return;
+        }
+        f.pickup = None;
+        let feet = f.feet();
+        let near = |p: Vec3| {
+            let d = ((p - feet) * Vec3::new(1.0, 0.0, 1.0)).length();
+            d < PICKUP_FINISH_RADIUS && (-PICKUP_FINISH_BELOW..=PICKUP_FINISH_ABOVE).contains(&(p.y - feet.y))
+        };
+        match item {
+            Item::Weapon(w) => {
+                let g = &self.armory.weapons[w];
+                if g.owner.is_none() && !g.gone && near(g.pickup_position()) {
+                    self.take(who, item);
+                }
+            }
+            Item::Powerup(k) => {
+                if self.armory.powerups.get(k).is_some_and(|p| near(p.position)) {
+                    self.take(who, item);
+                }
+            }
+        }
+    }
+
+    /// Takes an item now.
+    fn take(&mut self, who: usize, item: Item) {
+        match item {
+            Item::Weapon(w) => {
+                eprintln!("weapon: fighter {who} picks up {}", self.armory.weapons[w].class.name);
+                self.take_weapon(who, w);
+            }
+            Item::Powerup(k) => {
+                let p = self.armory.powerups[k];
+                if self.give_powerup(who, POWERUPS[p.kind], Some(p.amount), false) > 0 {
+                    // (Taken whole, even if only part of it fitted.)
+                    self.armory.powerups.remove(k);
+                    eprintln!("weapon: fighter {who} picks up {}", POWERUPS[p.kind]);
+                }
+            }
+        }
     }
 
     /// The gun fighter `who` could reach for: the nearest free one within
@@ -486,32 +845,63 @@ impl World {
             .map(|x| x.0)
     }
 
-    /// The swap key: pick up a gun in reach; else holster the one in hand,
-    /// or draw the holstered one. (The pickup, holster and draw clips aren't
-    /// played yet: it happens at once.)
+    /// The swap key (not while an inventory clip plays): pick up what is
+    /// in reach — powerups first — bending for it with the pickup clip (at
+    /// once in a roll or slide); else holster the gun in hand, or draw the
+    /// holstered one.
     pub fn swap(&mut self, who: usize) {
-        if let Some(w) = self.weapon_in_reach(who) {
-            eprintln!("weapon: fighter {who} picks up {}", self.armory.weapons[w].class.name);
-            self.take_weapon(who, w);
+        if self.fighters[who].overlays[crate::fighter::INVENTORY].is_some() {
+            return;
+        }
+        let item = self.powerup_in_reach(who).map(Item::Powerup).or_else(|| self.weapon_in_reach(who).map(Item::Weapon));
+        if let Some(item) = item {
+            let f = &self.fighters[who];
+            if f.motion.current().has_flag(crate::anim::types::flag::CAN_PICKUP) {
+                self.take(who, item);
+                return;
+            }
+            let (at, rifle) = match item {
+                Item::Weapon(w) => (self.armory.weapons[w].pickup_position(), Some(self.armory.weapons[w].class.has(flag::TWO_HANDED))),
+                Item::Powerup(k) => (self.armory.powerups[k].position, None),
+            };
+            let mid = at.y > f.feet().y + PICKUP_MID;
+            let kind = match (rifle, mid) {
+                (None, false) => clip::PICKUP_OBJECT,
+                (None, true) => clip::PICKUP_OBJECT_MID,
+                (Some(false), false) => clip::PICKUP_PISTOL,
+                (Some(false), true) => clip::PICKUP_PISTOL_MID,
+                (Some(true), false) => clip::PICKUP_RIFLE,
+                (Some(true), true) => clip::PICKUP_RIFLE_MID,
+            };
+            let f = &mut self.fighters[who];
+            let ch = f.character.clone();
+            if f.motion.request(&ch, crate::anim::motion::Urge::Appropriate, false, kind).is_some() {
+                f.pickup = Some((item, false, 0));
+            }
             return;
         }
         let f = &self.fighters[who];
-        match (f.hand, f.holster) {
-            (Some(w), _) if self.armory.weapons[w].class.has(flag::UNSTORABLE) => {}
-            (hand, holster) if hand.is_some() || holster.is_some() => {
-                if let Some(w) = hand {
-                    let Armory { particles, weapons, .. } = &mut self.armory;
-                    let now = self.now as u64;
-                    let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
-                    weapons[w].stow(particles, &mut host);
-                }
-                let f = &mut self.fighters[who];
-                f.hand = holster;
-                f.holster = hand;
-                self.set_weapon_varient(who);
-                eprintln!("weapon: fighter {who} {}", if hand.is_some() { "holsters" } else { "draws" });
+        if f.hand.is_some() {
+            self.holster(who, false);
+        } else if f.holster.is_some() {
+            self.draw(who);
+        }
+    }
+
+    /// On a fire 1 press, whether fighter `who`'s gun is empty with nothing
+    /// to reload it — decided before its buttons are read, since an empty gun
+    /// turns fire 1 back into a punch.
+    pub fn check_empty(&mut self, who: usize, held: u32) {
+        let last = self.armory.last_fire.get(who).copied().unwrap_or(0);
+        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else {
+            if let Some(f) = self.fighters.get_mut(who) {
+                f.weapon_empty = false;
             }
-            _ => {}
+            return;
+        };
+        if held & !last & key::FIRE1 != 0 {
+            let empty = self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !self.fighters[who].reloading();
+            self.fighters[who].weapon_empty = empty;
         }
     }
 
@@ -537,14 +927,10 @@ impl World {
             self.fighters[who].weapon_empty = false;
             return;
         };
-        if pressed & key::FIRE1 != 0 {
-            let empty = self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && self.fighters[who].reloading == 0;
-            self.fighters[who].weapon_empty = empty;
-        }
         let motion = Vec3::ZERO;
         let Armory { particles, weapons, .. } = &mut self.armory;
         let now = self.now as u64;
-        let busy = self.fighters[who].weapon_empty || self.fighters[who].reloading > 0;
+        let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some();
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
         let gun = &mut weapons[w];
         if busy {
@@ -654,19 +1040,10 @@ impl World {
             let motion = m.w_axis.truncate() - before;
             weapons[w].tick_held(particles, &mut host, m, motion);
         }
-        // Reloads finishing.
+        // Overlays and pickups.
         for who in 0..self.fighters.len() {
-            let f = &mut self.fighters[who];
-            if f.reloading > 0 {
-                f.reloading -= 1;
-                if f.reloading == 0 {
-                    if let Some(w) = f.hand {
-                        let Armory { particles, weapons, .. } = &mut self.armory;
-                        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
-                        weapons[w].reloaded(particles, &mut host);
-                    }
-                }
-            }
+            self.overlays_tick(who);
+            self.pickup_tick(who);
         }
         // Triggers.
         for (who, &held) in controls.iter().enumerate().take(self.fighters.len()) {
@@ -682,6 +1059,8 @@ impl World {
                 match r {
                     Report::Shot { recoil, volume } => {
                         self.fighters[who].recoil_speed += recoil;
+                        let kind = oni_type(&self.armory.weapons[w].class.recoil_anim);
+                        self.start_overlay(who, crate::fighter::RECOIL, kind, crate::anim::types::st::ANYTHING, false);
                         if volume > 0.0 {
                             let at = self.fighters[who].feet() + Vec3::Y * self.fighters[who].motion.height();
                             self.sound(crate::ai::perception::Stimulus::SoundGunshot, at, volume, Some(who), None);
@@ -747,13 +1126,14 @@ impl World {
                 self.drop_weapon(who, true);
             }
         }
-        self.armory.weapons.retain(|g| !g.gone || g.owner.is_some());
+        // (Gone guns stay in the list: fighters hold guns by index.)
     }
 }
 
-/// How long a reload takes until clips play as overlays (ticks; the
-/// pistol clip's action frame).
-pub const RELOAD_TICKS: u16 = 50;
+/// An animation type by its name (`oni_schema::ANIM_TYPES`; 0 if unknown).
+fn oni_type(name: &str) -> u16 {
+    oni_schema::ANIM_TYPES.iter().position(|n| *n == name).unwrap_or(0) as u16
+}
 
 fn gun_release(armory: &mut Armory, fighters: &mut [Fighter], sight: Option<&crate::physics::Sight>, now: u64, w: usize) {
     let Armory { particles, weapons, .. } = armory;

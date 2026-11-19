@@ -512,6 +512,63 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- weapons (`docs/WEAPONS.md`) ---------------------------------------
+        "chr_giveweapon" => {
+            let (Some(id), Some(class)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            if !host.world().give_weapon(id, &class) {
+                state.warn(format!("chr_giveweapon: no weapon {class:?}"));
+            }
+            nil()
+        }
+        "weapon_spawn" | "powerup_spawn" => {
+            let (Some(what), Some(flag)) = (a(0).and_then(text), int(a(1))) else { return nil() };
+            let world = host.world();
+            let Some(f) = world.level_ai.flags.get(&(flag as i16)).copied() else {
+                state.warn(format!("{name}: no flag {flag}"));
+                return nil();
+            };
+            let made = if name == "weapon_spawn" {
+                world.spawn_weapon(&what, f.at + Vec3::Y * crate::weapons::PLACED_LIFT, f.facing, false).is_some()
+            } else {
+                world.spawn_powerup(&what, f.at, int(a(2)).map(|n| n as u16))
+            };
+            if !made {
+                state.warn(format!("{name}: no such {what:?}"));
+            }
+            nil()
+        }
+        // give_powerup name [amount] [character]: limits ignored; a negative
+        // character gives to everyone alive.
+        "give_powerup" => {
+            let Some(what) = a(0).and_then(text) else { return nil() };
+            let amount = int(a(1)).map(|n| n as u16);
+            let who: Vec<usize> = match int(a(2)) {
+                Some(n) if n < 0 => (0..host.world().fighters.len()).filter(|&i| host.world().fighters[i].alive()).collect(),
+                Some(_) | None if a(2).is_some() => fighter(host, a(2)).into_iter().collect(),
+                _ => vec![0],
+            };
+            for id in who {
+                host.world().give_powerup(id, &what, amount, true);
+            }
+            nil()
+        }
+        "chr_forceholster" => {
+            let Some(id) = fighter(host, a(0)) else { return nil() };
+            host.world().force_holster(id, int(a(1)).unwrap_or(0) > 0);
+            nil()
+        }
+        "chr_inv_reset" => {
+            if let Some(id) = fighter(host, a(0)) {
+                host.world().reset_inventory(id);
+            }
+            nil()
+        }
+        "chr_weapon_immune" => {
+            if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
+                f.weapon_immune = true;
+            }
+            nil()
+        }
         "chr_unstoppable" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.unstoppable = int(a(1)).unwrap_or(0) > 0;
@@ -672,16 +729,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "chr_wait_animtype" | "chr_wait_animation" | "chr_wait_animstate" => {
             let Some(id) = fighter(host, a(0)) else { return nil() };
             let f = &host.world().fighters[id];
-            let now = match name {
-                "chr_wait_animtype" => oni_schema::name(&oni_schema::ANIM_TYPES, f.motion.kind).unwrap_or("").to_string(),
-                "chr_wait_animstate" => {
-                    oni_schema::name(&oni_schema::ANIM_STATES, f.motion.current().to_state).unwrap_or("").to_string()
+            // (A type counts if the body or an overlay plays it.)
+            let now: Vec<String> = match name {
+                "chr_wait_animtype" => {
+                    f.anim_types().into_iter().map(|t| oni_schema::name(&oni_schema::ANIM_TYPES, t).unwrap_or("").to_string()).collect()
                 }
-                _ => f.motion.name().to_string(),
+                "chr_wait_animstate" => {
+                    vec![oni_schema::name(&oni_schema::ANIM_STATES, f.motion.current().to_state).unwrap_or("").to_string()]
+                }
+                _ => vec![f.motion.name().to_string()],
             };
             let key = |s: &str| s.chars().filter(|c| *c != '_').collect::<String>().to_ascii_lowercase();
-            let now = key(&now);
-            let hit = args.iter().skip(1).filter_map(text).any(|w| key(&w) == now);
+            let now: Vec<String> = now.iter().map(|n| key(n)).collect();
+            let hit = args.iter().skip(1).filter_map(text).any(|w| now.contains(&key(&w)));
             Ok((Value::Nil, Value::Boolean(!hit), None, None))
         }
         "chr_wait_health" => {
@@ -690,7 +750,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             Ok((Value::Nil, Value::Boolean(above), None, None))
         }
         "chr_is_player" => done(Value::Integer((fighter(host, a(0)) == Some(0)) as i64)),
-        "chr_has_lsi" | "chr_has_empty_weapon" | "did_kill_griffen" => done(Value::Integer(0)),
+        "chr_has_empty_weapon" => {
+            let empty = fighter(host, a(0)).is_some_and(|id| host.world().has_empty_weapon(id));
+            done(Value::Integer(empty as i64))
+        }
+        "chr_has_lsi" => {
+            let lsi = fighter(host, a(0)).and_then(|id| host.world().fighters.get(id)).is_some_and(|f| f.inventory.lsi);
+            done(Value::Integer(lsi as i64))
+        }
+        "did_kill_griffen" => done(Value::Integer(0)),
         "difficulty" => done(Value::Integer(state.difficulty)),
 
         // --- AI orders -------------------------------------------------------

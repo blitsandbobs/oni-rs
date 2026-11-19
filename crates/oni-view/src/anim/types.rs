@@ -196,6 +196,8 @@ pub mod flag {
     pub const NO_INTERP_VELOCITY: u32 = 14;
     pub const THROW_SOURCE: u32 = 15;
     pub const THROW_TARGET: u32 = 16;
+    /// Rolls and slides: a pickup happens at once, without its own clip.
+    pub const CAN_PICKUP: u32 = 20;
 }
 
 /// Shortcut flag masks (`TRtShortcut.flags`).

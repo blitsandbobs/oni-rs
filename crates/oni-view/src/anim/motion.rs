@@ -318,10 +318,7 @@ impl Motion {
 
     /// Length of the current clip in ticks.
     pub fn length(&self) -> u16 {
-        let c = self.current();
-        let by_track = c.root_motion.len().max(c.heights.len()) as f32;
-        let by_keys = (c.duration * skel::FPS).round() + 1.0;
-        by_track.max(by_keys).max(1.0) as u16
+        self.current().frames()
     }
 
     /// The (hard, soft) pause the current clip leaves before our clip `to`.

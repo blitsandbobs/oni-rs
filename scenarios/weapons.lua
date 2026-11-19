@@ -47,15 +47,40 @@ _, left = weapon(0)
 assert(left == 0, "empty after ten shots: " .. left)
 local dealt = before - hp(d)
 assert(dealt >= 72 and dealt <= 90, "nine more hits: " .. dealt)
--- Empty without a clip: fire 1 just clicks.
-fire(1)
-step(5)
-_, left = weapon(0)
-assert(left == 0)
--- With a clip, an empty gun reloads on the press, and fills later.
-give_ammo(0, 1)
+-- Empty without a clip: fire 1 clicks — and, the gun being useless,
+-- punches (no reloading in the middle of a punch: wait it out).
 fire(1)
 step(60)
 _, left = weapon(0)
+assert(left == 0)
+-- With a clip, an empty gun reloads on the press: the reload clip plays
+-- over the body and the gun fills at its action frame.
+give_ammo(0, 1)
+fire(1)
+step(30)
+_, left = weapon(0)
+assert(left == 0, "not yet full mid-reload")
+step(40)
+_, left = weapon(0)
 assert(left == 10, "reloaded: " .. left)
 print("weapons ok")
+
+-- Holster (the swap key with nothing in reach): the holster clip plays and
+-- the gun goes at its action frame; swap again draws it.
+swap()
+step(40)
+assert(weapon(0) == nil and holster_of(0) == "w1_tap", "holstered")
+swap()
+step(40)
+assert(weapon(0) == "w1_tap" and holster_of(0) == nil, "drawn again")
+
+-- A rifle on the floor at her feet: with a gun in hand but the holster
+-- empty she bends for it (the pickup clip), takes it at the clip's action
+-- frame, and the pistol drops.
+local x, y, z = pos()
+assert(spawn_weapon("w3_phr", x, y + 1, z + 3))
+swap()
+step(60)
+assert(weapon(0) == "w3_phr", "picked up the rifle: " .. tostring(weapon(0)))
+assert(weapons_lying() >= 1, "the pistol is on the floor")
+print("pickup ok")

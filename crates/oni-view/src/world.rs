@@ -21,7 +21,7 @@ use crate::quirks::Quirks;
 use crate::skel::Character;
 
 mod weapons;
-pub use weapons::Armory;
+pub use weapons::{Armory, Item};
 
 /// Characters further apart than this are never tested for touching.
 const CONTACT_RANGE: f32 = 25.0;
@@ -1240,6 +1240,7 @@ impl World {
         }
         use crate::ai::perception::Relation;
         // With a gun, the fire buttons shoot instead of striking.
+        self.check_empty(0, controls);
         let armed = self.armed(0);
         let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| self.armory.weapons[w].class.has(crate::weapons::flag::HAS_ALTERNATE));
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();

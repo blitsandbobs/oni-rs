@@ -886,6 +886,32 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set("shots", lua.create_function(move |_, ()| Ok(h.borrow().world.particles().iter().count()))?)?;
     let h = host.clone();
     g.set(
+        "swap",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().taps |= key::SWAP;
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "spawn_weapon",
+        lua.create_function(move |_, (class, x, y, z): (String, f32, f32, f32)| {
+            Ok(h.borrow_mut().world.spawn_weapon(&class, Vec3::new(x, y, z), 0.0, true).is_some())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "holster_of",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let w = &host.world;
+            Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set("powerups_lying", lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?)?;
+    let h = host.clone();
+    g.set(
         "weapons_lying",
         lua.create_function(move |_, ()| Ok(h.borrow().world.weapons().iter().filter(|g| g.owner.is_none()).count()))?,
     )?;

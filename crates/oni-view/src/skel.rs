@@ -204,6 +204,13 @@ pub struct Shortcut {
 
 impl Clip {
     /// Whether flag bit `flag` (an `ONcAnimFlag_*` index) is set.
+    /// How many frames (ticks) it plays.
+    pub fn frames(&self) -> u16 {
+        let by_track = self.root_motion.len().max(self.heights.len()) as f32;
+        let by_keys = (self.duration * FPS).round() + 1.0;
+        by_track.max(by_keys).max(1.0) as u16
+    }
+
     pub fn has_flag(&self, flag: u32) -> bool {
         self.flags & (1 << flag) != 0
     }
