@@ -584,9 +584,47 @@ impl World {
             skill: f.shooting.get(ai.skill_index).copied().unwrap_or_default(),
             params: f.targeting,
             usable: gun.ammo > 0 || self.has_reload(who, w) || f.reloading(),
+            firing: gun.firing,
             stuns: gun.class.has(flag::AI_STUN),
             knocks_down: gun.class.has(flag::AI_KNOCKDOWN),
         })
+    }
+
+    /// The guns firing now, as cones others dodge (those with a dodge
+    /// pattern): from the shooter along its shot's line.
+    pub(super) fn spreads(&self) -> Vec<crate::ai::goals::Spread> {
+        self.armory
+            .weapons
+            .iter()
+            .filter(|g| g.firing && g.class.dodge_pattern[0] > 0.0)
+            .filter_map(|g| {
+                let owner = g.owner?;
+                let m = g.matrix.get();
+                let shooter = g.class.attachments.iter().find(|a| a.ammo_used > 0 && a.shooter == 0)?;
+                Some(crate::ai::goals::Spread {
+                    owner,
+                    origin: m.transform_point3(shooter.matrix.w_axis.truncate()),
+                    axis: m.transform_vector3(shooter.matrix.y_axis.truncate()).normalize_or(Vec3::Z),
+                    length: g.class.dodge_pattern[0],
+                    base: g.class.dodge_pattern[1],
+                    angle: g.class.dodge_pattern[2],
+                })
+            })
+            .collect()
+    }
+
+    /// The projectiles others may dodge (classes with a dodge radius).
+    pub(super) fn projectiles(&self) -> Vec<crate::ai::goals::Projectile> {
+        let sys = &self.armory.particles;
+        sys.iter()
+            .filter(|(_, p)| sys.class(p.class).dodge_radius > 0.0)
+            .map(|(h, p)| crate::ai::goals::Projectile {
+                id: h.id(),
+                at: sys.world_position(p),
+                velocity: p.velocity,
+                radius: sys.class(p.class).dodge_radius,
+            })
+            .collect()
     }
 
     /// The guns lying free, as fighter `who` sees them (`FreeGun`): usable

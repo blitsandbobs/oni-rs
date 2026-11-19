@@ -296,6 +296,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Holds (or lets go of) fire 1.
+    let h = host.clone();
+    g.set(
+        "hold_fire",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().hold(key::FIRE1, on);
+            Ok(())
+        })?,
+    )?;
+
     let h = host.clone();
     g.set(
         "turn_keys",
@@ -917,6 +927,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "dodge_of",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let d = match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::Agent(a)) => a.dodging(),
+                _ => None,
+            };
+            Ok((d.map(|(v, _)| v.x), d.map(|(v, _)| v.z), d.map(|(_, w)| w)))
         })?,
     )?;
     let h = host.clone();

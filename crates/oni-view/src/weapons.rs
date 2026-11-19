@@ -110,6 +110,9 @@ pub struct WeaponClass {
     pub detection_volume: [f32; 2],
     /// How the AI shoots it (`docs/AI.md`, *Shooting*).
     pub ai: AiGun,
+    /// The cone its fire makes, for others to dodge: length, base radius,
+    /// half-angle (0 length: none).
+    pub dodge_pattern: [f32; 3],
     pub attachments: Vec<Attachment>,
 }
 
@@ -198,6 +201,7 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         pickup_offset: vec3(&c["pickupOffset"]),
         detection_volume: [f(&c["ai"]["detectionVolume"]), f(&c["aiAlternate"]["detectionVolume"])],
         ai: AiGun::from_json(&c["ai"]),
+        dodge_pattern: [0, 1, 2].map(|k| c["ai"]["dodgePattern"][k].as_f64().unwrap_or(0.0) as f32),
         attachments,
     }
 }

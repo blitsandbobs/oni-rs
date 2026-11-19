@@ -98,11 +98,32 @@ pub struct ClassCombat {
     pub default_profile: u16,
     /// Chance (percent) it goes for a gun when it has none.
     pub gun_pickup_percent: u32,
+    /// Dodging: at all, while its own gun fires, and whether a dodge stops
+    /// it firing; how long a danger must last before it reacts (ticks), and
+    /// how its dodges' lifetimes and weights are scaled.
+    pub dodge: bool,
+    pub dodge_while_firing: bool,
+    pub dodge_stops_firing: bool,
+    pub dodge_react: u32,
+    pub dodge_time_scale: f32,
+    pub dodge_weight_scale: f32,
 }
 
 impl Default for ClassCombat {
     fn default() -> Self {
-        ClassCombat { investigate_body: 240, lost_contact: 180, taunt_percent: 40, default_profile: 0, gun_pickup_percent: 0 }
+        ClassCombat {
+            investigate_body: 240,
+            lost_contact: 180,
+            taunt_percent: 40,
+            default_profile: 0,
+            gun_pickup_percent: 0,
+            dodge: false,
+            dodge_while_firing: false,
+            dodge_stops_firing: false,
+            dodge_react: 0,
+            dodge_time_scale: 1.0,
+            dodge_weight_scale: 1.0,
+        }
     }
 }
 
@@ -110,6 +131,7 @@ impl ClassCombat {
     pub fn from_json(p: &serde_json::Value) -> ClassCombat {
         let c = &p["combat"];
         let u = |k: &str, d: u32| c[k].as_u64().map_or(d, |v| v as u32);
+        let has = |f: &str| p["flags"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some(f)));
         let d = ClassCombat::default();
         ClassCombat {
             investigate_body: u("investigateBodyTicks", d.investigate_body),
@@ -117,6 +139,12 @@ impl ClassCombat {
             taunt_percent: u("deadTauntPercent", d.taunt_percent),
             default_profile: u("defaultCombatProfileId", 0) as u16,
             gun_pickup_percent: u("gunPickupPercent", 0),
+            dodge: has("dodge"),
+            dodge_while_firing: has("dodgeWhileFiring"),
+            dodge_stops_firing: has("dodgeStopsFiring"),
+            dodge_react: p["dodge"]["reactTicks"].as_u64().unwrap_or(0) as u32,
+            dodge_time_scale: p["dodge"]["timeScale"].as_f64().unwrap_or(1.0) as f32,
+            dodge_weight_scale: p["dodge"]["weightScale"].as_f64().unwrap_or(1.0) as f32,
         }
     }
 }
@@ -317,6 +345,8 @@ pub struct GunView {
     pub params: crate::ai::ranged::Params,
     /// Loaded, or with something to reload it.
     pub usable: bool,
+    /// Firing now (its trigger held).
+    pub firing: bool,
     /// The gun stuns, or knocks down (its shots set the AI on to melee the
     /// reeling / fallen target).
     pub stuns: bool,
@@ -353,6 +383,43 @@ pub struct Ctx<'a> {
     /// The gun in its hand, and the guns lying about.
     pub gun: Option<GunView>,
     pub guns: &'a [FreeGun],
+    /// Dangers to dodge: guns firing (their firing cones) and projectiles.
+    pub spreads: &'a [Spread],
+    pub projectiles: &'a [Projectile],
+}
+
+/// A gun firing, as a cone others dodge: from its muzzle along its shot's
+/// line, this long, this wide at the start, widening at this angle.
+#[derive(Clone, Copy, Debug)]
+pub struct Spread {
+    pub owner: usize,
+    pub origin: Vec3,
+    pub axis: Vec3,
+    pub length: f32,
+    pub base: f32,
+    pub angle: f32,
+}
+
+/// A projectile others may dodge: where, its velocity (units/s), how wide a
+/// berth it wants.
+#[derive(Clone, Copy, Debug)]
+pub struct Projectile {
+    pub id: u64,
+    pub at: Vec3,
+    pub velocity: Vec3,
+    pub radius: f32,
+}
+
+/// One danger it is dodging: which, how strongly, how long it lasts and has
+/// lasted, and the way to go.
+#[derive(Clone, Copy, Debug)]
+struct Dodge {
+    key: u64,
+    weight: f32,
+    lifetime: u32,
+    left: u32,
+    age: u32,
+    heading: Vec3,
 }
 
 /// A gun lying free: which, where to pick it up, and whether this character
@@ -647,6 +714,10 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     })
 }
 
+/// Dodging: a body's reach, and how far a dodge goes at a time.
+const BODY_RADIUS: f32 = 6.0;
+const DODGE_STEP: f32 = 20.0;
+
 /// Going for a gun: how far it looks, and how near it bends for it.
 const GUN_SEARCH: f32 = 200.0;
 const GUN_REACH: f32 = 12.0;
@@ -697,6 +768,10 @@ pub struct Combat {
     unreachable: Vec<usize>,
     /// Decisions left of the melee its gun earned (the target is down).
     weapon_melee: u32,
+    /// What it is dodging, and the way to go now (weighted; none below a
+    /// trace).
+    dodges: Vec<Dodge>,
+    dodge: Option<(Vec3, f32)>,
 }
 
 /// An AI character's goals (behaviour per `docs/GOALS.md`).
@@ -1912,6 +1987,8 @@ impl Agent {
             gun_roll: None,
             unreachable: Vec::new(),
             weapon_melee: 0,
+            dodges: Vec::new(),
+            dodge: None,
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
@@ -2135,7 +2212,18 @@ impl Agent {
         }
         let dist = (target_feet - cx.feet).with_y_zero().length();
         self.look = Look::At(target_feet);
+        // Dodging: a step away from the danger takes over from holding,
+        // advancing, retreating or going for a gun (not from melee).
+        let dodge = self.combat().dodge.filter(|_| primary != Primary::Melee && primary != Primary::GetUp && !cx.fallen);
+        if let Some((heading, _)) = dodge {
+            let to = cx.feet + heading * DODGE_STEP;
+            let fresh = self.dest.as_ref().is_none_or(|d| d.at.distance(to) > 6.0);
+            if fresh {
+                self.go_to(to, 3.0, true, None, cx);
+            }
+        }
         match primary {
+            _ if dodge.is_some() => {}
             Primary::Melee => {
                 self.halt();
                 let k = self.combat();
@@ -2206,6 +2294,107 @@ impl Agent {
         self.shoot(target, cx);
     }
 
+    /// The dangers it sees (each decision; `docs/AI.md`, *Dodging*): guns
+    /// firing toward it and projectiles about to reach it. Each lasts a
+    /// while and fades; it reacts once one has lasted its class's reaction
+    /// time. The way to go is the dodges' weighted sum.
+    fn find_dodges(&mut self, cx: &mut Ctx) {
+        let class = self.class;
+        let firing = cx.gun.is_some_and(|g| g.firing);
+        let looking = class.dodge && (!firing || class.dodge_while_firing || class.dodge_stops_firing);
+        let pelvis = cx.pelvis;
+        let mut found: Vec<Dodge> = Vec::new();
+        if looking {
+            for s in cx.spreads.iter().filter(|s| s.owner != cx.me) {
+                let rel = pelvis - s.origin;
+                let along = rel.dot(s.axis);
+                if along <= 0.0 || along > s.length {
+                    continue;
+                }
+                let radius = s.base + along * s.angle.tan() + BODY_RADIUS;
+                let away = rel - s.axis * along;
+                let off = away.length();
+                let mut weight = if off < 0.6 * radius {
+                    0.8
+                } else if off < radius {
+                    0.8 - 0.5 * (off - 0.6 * radius) / (0.4 * radius)
+                } else if off < 1.2 * radius {
+                    0.3
+                } else {
+                    continue;
+                };
+                if !(cx.sight)(s.origin, pelvis) {
+                    continue;
+                }
+                weight -= 1.0 - class.dodge_weight_scale;
+                if weight <= 0.0 {
+                    continue;
+                }
+                let heading = if off < 10.0 {
+                    // Straight at it: sidestep, to a side with room.
+                    let side = s.axis.cross(Vec3::Y).normalize_or(Vec3::X);
+                    let clear = |d: Vec3| (cx.sight)(pelvis, pelvis + d * 20.0);
+                    if clear(side) || !clear(-side) { side } else { -side }
+                } else {
+                    away.with_y_zero().normalize_or(Vec3::X)
+                };
+                let lifetime = (20.0 * class.dodge_time_scale).round() as u32;
+                found.push(Dodge { key: s.owner as u64, weight, lifetime, left: lifetime, age: 0, heading });
+            }
+            for p in cx.projectiles {
+                // Its next 50 ticks against the body.
+                let path = p.velocity * (50.0 / 60.0);
+                let reach = BODY_RADIUS + p.radius;
+                let l2 = path.length_squared();
+                let t = if l2 > 0.0 { ((pelvis - p.at).dot(path) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                let closest = p.at + path * t;
+                if closest.distance(pelvis) > reach {
+                    continue;
+                }
+                // (As shipped, the distance is the closest point's distance
+                // from the world's origin, not from the body — so the weight
+                // is almost always far below zero, and projectiles go
+                // undodged. SHIPPED BALANCE: kept in every mode.)
+                let mut weight = ((p.radius - closest.length()) / 10.0).min(0.8);
+                if weight < -0.3 {
+                    continue;
+                }
+                weight = weight.max(0.3) - (1.0 - class.dodge_weight_scale);
+                if weight <= 0.0 || !(cx.sight)(p.at, pelvis) {
+                    continue;
+                }
+                let lifetime = (45.0 * class.dodge_time_scale).round() as u32;
+                let heading = (pelvis - closest).with_y_zero().normalize_or(Vec3::X);
+                found.push(Dodge { key: p.id | (1 << 63), weight, lifetime, left: lifetime, age: 0, heading });
+            }
+        }
+        let k = self.combat();
+        // Age what it knew; refresh or add what it found (at most eight).
+        for d in &mut k.dodges {
+            d.age += COMBAT_PERIOD as u32;
+            d.left = d.left.saturating_sub(COMBAT_PERIOD as u32);
+        }
+        k.dodges.retain(|d| d.left > 0);
+        for f in found {
+            if let Some(d) = k.dodges.iter_mut().find(|d| d.key == f.key) {
+                d.weight = f.weight;
+                d.heading = f.heading;
+                d.left = f.lifetime;
+                d.lifetime = f.lifetime;
+            } else if k.dodges.len() < 8 {
+                k.dodges.push(f);
+            }
+        }
+        let mut sum = Vec3::ZERO;
+        let mut max = 0.0f32;
+        for d in k.dodges.iter().filter(|d| d.age >= class.dodge_react) {
+            let w = d.weight * d.left as f32 / d.lifetime.max(1) as f32;
+            sum += d.heading * w;
+            max = max.max(w);
+        }
+        k.dodge = (max > 0.0).then(|| (sum.normalize_or(Vec3::X), max));
+    }
+
     /// The gun this tick (`docs/AI.md`, *Shooting*): lead the target, aim
     /// the barrel (the shot's line through the aim point, with the skill's
     /// error), and hold the trigger while the gun points close enough.
@@ -2227,6 +2416,7 @@ impl Agent {
             self.combat().targeting = None;
             return;
         };
+        let stops_firing = self.class.dodge_stops_firing;
         let k = self.combat();
         let melee_kind = matches!(behavior.as_str(), "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee");
         if k.target_dead || k.primary == Primary::Melee || melee_kind || cx.fallen {
@@ -2242,8 +2432,10 @@ impl Agent {
         // (Staring, it looks with the gun lowered and never fires.)
         let shooting = behavior != "stare";
         let dir = targeting.aim(shoulder, g.matrix, shooting);
-        // (Backing off hard, it doesn't fire.)
-        let backing = k.primary == Primary::Retreat && k.too_close > 0.2;
+        // (Backing off hard — or dodging, for a class whose dodges stop its
+        // firing — it doesn't fire.)
+        let dodging = k.dodge.is_some() && stops_firing;
+        let backing = (k.primary == Primary::Retreat && k.too_close > 0.2) || dodging;
         let fire = targeting.execute(shooting && k.have_los && !backing, g.matrix);
         let speed = targeting.aim_speed;
         if shooting {
@@ -2272,6 +2464,14 @@ impl Agent {
         self.aim_speed = speed;
         self.trigger = fire;
         self.extra_spread = spread;
+    }
+
+    /// The way it is dodging now and how strongly (none: not dodging).
+    pub fn dodging(&self) -> Option<(Vec3, f32)> {
+        match &self.goal {
+            Goal::Combat(k) => k.dodge,
+            _ => None,
+        }
     }
 
     /// Its gun fired a shot: targeting moves on (new error, the pause).
@@ -2528,6 +2728,7 @@ impl Agent {
                 _ => {}
             }
         };
+        self.find_dodges(cx);
         if pick == Primary::FindAlarm {
             self.alarm_setup(alarm, cx);
             return;

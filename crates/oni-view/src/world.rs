@@ -473,6 +473,7 @@ impl World {
             .collect();
         let gun = self.gun_view(i);
         let guns = self.free_guns(i);
+        let (spreads, projectiles) = (self.spreads(), self.projectiles());
         let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
@@ -515,6 +516,8 @@ impl World {
                 quirks,
                 gun,
                 guns: &guns,
+                spreads: &spreads,
+                projectiles: &projectiles,
             };
             run(&mut agent, &mut cx);
         }
