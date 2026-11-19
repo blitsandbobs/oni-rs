@@ -254,6 +254,10 @@ impl System {
                     Some(k) => k.point + k.normal * 0.5,
                     None => self.world_position(p),
                 };
+                // (Breaking glass too, unless told not to.)
+                if !matches!(a.param(7), Value::Enum(0)) {
+                    host.damage_surfaces_near(centre, radius);
+                }
                 if p.flags & pflag::CUTSCENE_KILLED == 0 {
                     let who = self.owner_word(p, c);
                     host.blast(centre, kind, damage, stun, knockback, radius, falloff, who, h.id(), self_immune);

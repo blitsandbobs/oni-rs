@@ -274,7 +274,8 @@ fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     // (Doors' closed leaves collide on their own, while closed.)
     // (Stair steps don't collide — the ramp under them does; invisible
     // surfaces do.)
-    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.env_ref.is_none() && p.collide) {
+    // (Glass panes collide on their own, until broken.)
+    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.env_ref.is_none() && p.glass.is_none() && p.collide) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));
@@ -289,7 +290,7 @@ type Parts = std::collections::BTreeMap<u32, Mesh>;
 fn env_parts(scene: &gltf::Scene) -> (Parts, Parts) {
     let (mut solid, mut opaque) = (Parts::new(), Parts::new());
     for p in &scene.prims {
-        let Some(r) = p.env_ref.filter(|_| p.door.is_none()) else { continue };
+        let Some(r) = p.env_ref.filter(|_| p.door.is_none() && p.glass.is_none()) else { continue };
         for (set, keep) in [(&mut solid, p.collide), (&mut opaque, !p.blend && p.visible)] {
             if keep {
                 let (verts, indices) = set.entry(r).or_default();
@@ -315,12 +316,33 @@ fn door_meshes(scene: &gltf::Scene) -> std::collections::HashMap<u32, (Vec<[f32;
     out
 }
 
+/// The level's breakable glass panes: each one's quad, script reference
+/// and triangles.
+fn glass_parts(scene: &gltf::Scene) -> Vec<(u32, Option<u32>, Mesh)> {
+    let mut out: Vec<(u32, Option<u32>, Mesh)> = Vec::new();
+    for p in &scene.prims {
+        let Some(q) = p.glass else { continue };
+        let k = match out.iter().position(|(g, _, _)| *g == q) {
+            Some(k) => k,
+            None => {
+                out.push((q, p.env_ref, Default::default()));
+                out.len() - 1
+            }
+        };
+        let (verts, indices) = &mut out[k].2;
+        let base = verts.len() as u32;
+        verts.extend(p.vertices.iter().map(|v| v.pos));
+        indices.extend(p.indices.iter().map(|i| base + i));
+    }
+    out
+}
+
 /// The scene's opaque triangles (what blocks sight: not glass).
 fn opaque_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
     let mut verts: Vec<[f32; 3]> = Vec::new();
     let mut indices: Vec<u32> = Vec::new();
     // (Doors' closed leaves block sight on their own, while closed.)
-    for p in scene.prims.iter().filter(|p| !p.blend && p.visible && p.door.is_none() && p.env_ref.is_none()) {
+    for p in scene.prims.iter().filter(|p| !p.blend && p.visible && p.door.is_none() && p.env_ref.is_none() && p.glass.is_none()) {
         let base = verts.len() as u32;
         verts.extend(p.vertices.iter().map(|v| v.pos));
         indices.extend(p.indices.iter().map(|i| base + i));

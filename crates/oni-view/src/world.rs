@@ -140,6 +140,21 @@ pub struct World {
     level_indices: Vec<u32>,
     /// Guns and the particles their shots are (`docs/WEAPONS.md`).
     pub armory: Armory,
+    /// The level's breakable glass panes (each fighter's physics holds them
+    /// after the script parts), and the broken ones by quad (not drawn).
+    glass: Vec<Pane>,
+    pub broken_glass: std::collections::HashSet<u32>,
+}
+
+/// A breakable glass pane.
+struct Pane {
+    quad: u32,
+    env_ref: Option<u32>,
+    broken: bool,
+    /// Its middle and how far its corners reach from it.
+    centre: Vec3,
+    radius: f32,
+    mesh: crate::Mesh,
 }
 
 impl World {
@@ -175,6 +190,8 @@ impl World {
             level_positions,
             level_indices,
             armory: Armory::default(),
+            glass: Vec::new(),
+            broken_glass: Default::default(),
         }
     }
 
@@ -203,6 +220,10 @@ impl World {
         for (r, (v, i)) in &self.env_solid {
             let n = f.physics.add_door(v, i);
             f.physics.set_door(n, !self.env_hidden.contains(r));
+        }
+        for p in &self.glass {
+            let n = f.physics.add_door(&p.mesh.0, &p.mesh.1);
+            f.physics.set_door(n, !p.broken);
         }
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
@@ -679,6 +700,56 @@ impl World {
         }
     }
 
+    /// The level's glass panes (`crate::glass_parts`): solid until broken.
+    pub fn attach_glass(&mut self, panes: Vec<(u32, Option<u32>, crate::Mesh)>) {
+        self.glass = panes
+            .into_iter()
+            .map(|(quad, env_ref, mesh)| {
+                let n = mesh.0.len().max(1) as f32;
+                let centre = mesh.0.iter().fold(Vec3::ZERO, |a, v| a + Vec3::from(*v)) / n;
+                let radius = mesh.0.iter().map(|v| Vec3::from(*v).distance(centre)).fold(0.0, f32::max);
+                Pane { quad, env_ref, broken: false, centre, radius, mesh }
+            })
+            .collect();
+        for f in &mut self.fighters {
+            for p in &self.glass {
+                f.physics.add_door(&p.mesh.0, &p.mesh.1);
+            }
+        }
+    }
+
+    /// Where pane colliders start among each fighter's switchable parts.
+    fn glass_base(&self) -> usize {
+        self.doors.len() + self.env_solid.len()
+    }
+
+    /// Breaks (or, `broken` false, mends) glass pane `k`: not drawn, not
+    /// solid.
+    fn set_glass(&mut self, k: usize, broken: bool) {
+        let base = self.glass_base();
+        let Some(p) = self.glass.get_mut(k) else { return };
+        if p.broken == broken {
+            return;
+        }
+        p.broken = broken;
+        if broken {
+            self.broken_glass.insert(p.quad);
+        } else {
+            self.broken_glass.remove(&p.quad);
+        }
+        for f in &mut self.fighters {
+            f.physics.set_door(base + k, !broken);
+        }
+    }
+
+    /// How many of the script references `from..=to` have no unbroken
+    /// pane left (`env_broken`; a reference with no glass counts as broken).
+    pub fn env_broken(&self, from: u32, to: u32) -> u32 {
+        let intact: std::collections::HashSet<u32> =
+            self.glass.iter().filter(|p| !p.broken).filter_map(|p| p.env_ref).filter(|r| (from..=to).contains(r)).collect();
+        (to.saturating_sub(from) + 1).saturating_sub(intact.len() as u32)
+    }
+
     /// `env_show ref on`: shows or hides a level part — drawn, solid and
     /// blocking sight only while shown (the original flags its quads as
     /// broken glass).
@@ -701,6 +772,12 @@ impl World {
                 if *pr == r {
                     sight.set_door(doors + j, on);
                 }
+            }
+        }
+        // (Hiding glass is breaking it, as in the original; showing mends it.)
+        for k in 0..self.glass.len() {
+            if self.glass[k].env_ref == Some(r) {
+                self.set_glass(k, !on);
             }
         }
     }

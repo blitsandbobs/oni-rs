@@ -186,6 +186,8 @@ pub trait Host {
     fn breakable(&self, _surface: u32) -> bool {
         false
     }
+    /// Breaks the glass within `radius` of a blast.
+    fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32) {}
     /// The living characters (attractor candidates).
     fn targets(&self) -> Vec<Target>;
     /// Whether `other` is hostile to character `me`.

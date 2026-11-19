@@ -42,6 +42,8 @@ pub struct Prim {
     pub collide: bool,
     /// The reference scripts show and hide it by (`…__ref<N>…`).
     pub env_ref: Option<u32>,
+    /// A breakable glass pane, by its quad (`…__glass<N>`).
+    pub glass: Option<u32>,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -214,9 +216,10 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
         // as level geometry because the object itself collides: they do.)
         let object = parent[node].is_some();
         let (visible, collide) = (!name.ends_with("__invisible"), object || !name.ends_with("__nocollide"));
-        let env_ref = name.split("__ref").nth(1).and_then(|r| {
-            r.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok()
-        });
+        let number_after = |tag: &str| -> Option<u32> {
+            name.split(tag).nth(1).and_then(|r| r.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok())
+        };
+        let (env_ref, glass) = (number_after("__ref"), number_after("__glass"));
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
         for prim in json["meshes"][mesh_idx]["primitives"].as_array().unwrap() {
             let attrs = &prim["attributes"];
@@ -281,6 +284,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 visible,
                 collide,
                 env_ref,
+                glass,
             });
         }
     }

@@ -199,8 +199,9 @@ impl Physics {
     }
 
     /// The first level surface along the segment `from → from + ray`: how
-    /// far along (0–1) and its normal.
-    pub fn cast(&self, from: Vec3, ray: Vec3) -> Option<(f32, Vec3)> {
+    /// far along (0–1), its normal, and — for a switchable part (a door's
+    /// leaf, a script part, a glass pane) — which, in the order added.
+    pub fn cast(&self, from: Vec3, ray: Vec3) -> Option<(f32, Vec3, Option<usize>)> {
         let len = ray.length();
         if len < 1e-6 {
             return None;
@@ -209,7 +210,10 @@ impl Physics {
         let r = Ray::new(Point3::new(from.x, from.y, from.z), Vector3::new(d.x, d.y, d.z));
         self.query
             .cast_ray_and_get_normal(&self.bodies, &self.colliders, &r, len, true, QueryFilter::default())
-            .map(|(_, hit)| (hit.time_of_impact / len, Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z)))
+            .map(|(h, hit)| {
+                let part = self.doors.iter().position(|d| *d == Some(h));
+                (hit.time_of_impact / len, Vec3::new(hit.normal.x, hit.normal.y, hit.normal.z), part)
+            })
     }
 
     /// Distance from the feet straight down to the level, if within `max`.

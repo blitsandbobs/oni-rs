@@ -750,6 +750,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             Ok((Value::Nil, Value::Boolean(above), None, None))
         }
         "chr_is_player" => done(Value::Integer((fighter(host, a(0)) == Some(0)) as i64)),
+        // How many of the references in a range have all their glass broken.
+        "env_broken" => {
+            let Some(from) = int(a(0)) else { return nil() };
+            let to = int(a(1)).unwrap_or(from);
+            done(Value::Integer(i64::from(host.world().env_broken(from as u32, to as u32))))
+        }
         "chr_has_empty_weapon" => {
             let empty = fighter(host, a(0)).is_some_and(|id| host.world().has_empty_weapon(id));
             done(Value::Integer(empty as i64))

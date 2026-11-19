@@ -240,6 +240,7 @@ impl ApplicationHandler for App {
                     world.attach_doors(crate::door_meshes(&scene));
                     let (solid, opaque) = crate::env_parts(&scene);
                     world.attach_env(solid, opaque);
+                    world.attach_glass(crate::glass_parts(&scene));
                     world.attach_weapons(&self.cast.level_dir.join("../../common"));
                     if self.mission {
                         // The level's own scripts populate it.
@@ -583,6 +584,7 @@ impl State {
             self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
             self.renderer.beams = pw.world.beams.clone();
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
+            self.renderer.broken_glass = pw.world.broken_glass.clone();
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

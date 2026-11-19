@@ -32,6 +32,7 @@ mod lasers;
 mod objects;
 mod patrols;
 mod particles;
+mod materials;
 mod particle_defs;
 mod weapons;
 
@@ -194,12 +195,22 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     // so a placeholder reference in one level resolves to the real flags. ---
     let mut global_named: BTreeMap<(FourCc, String), usize> = BTreeMap::new();
     let mut texture_flags: BTreeMap<String, (bool, bool)> = BTreeMap::new();
+    // The textures that break like glass (their material is glass).
+    let mut glass_textures = std::collections::BTreeSet::new();
     // Particle classes (PAR3 binary data) are globally named; level0 wins ties.
     let mut particle_classes: BTreeMap<String, particles::ParticleClass> = BTreeMap::new();
     for (fi, f) in files.iter().enumerate() {
         let dat = Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}")))?;
         let raw = std::fs::read(f.path.with_extension("raw")).ok();
         particles::collect_particle_classes(&dat, raw.as_deref(), &mut particle_classes);
+        if let (0, Some(raw)) = (f.level, raw.as_deref()) {
+            let glass = materials::breakable(&dat);
+            glass_textures = materials::texture_materials(&dat, raw)
+                .into_iter()
+                .filter(|(_, m)| glass.contains(m))
+                .map(|(t, _)| t)
+                .collect();
+        }
         for inst in &dat.instances {
             if let Some(name) = &inst.name {
                 if !name.is_empty() {
@@ -212,6 +223,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                                 fl & oni_texture::FLAG_BLEND_ADDITIVE != 0,
                                 fl & oni_texture::FLAG_SELF_ILLUMINENT != 0,
                             ));
+
                         }
                     }
                 }
@@ -278,7 +290,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         )?;
         convert_characters(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
-        let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &mut stats)?;
+        let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &glass_textures, &mut stats)?;
         if let Some(raw) = raw.as_deref() {
             convert_messages(&dat, raw, &root)?;
             convert_navigation(&dat, raw, &root)?;
@@ -844,16 +856,18 @@ fn convert_environment(
     this_root: &str,
     root: &Path,
     tex_flags: &BTreeMap<String, (bool, bool)>,
+    glass_textures: &std::collections::BTreeSet<String>,
     stats: &mut LevelStats,
 ) -> std::io::Result<Vec<EnvObjectInfo>> {
     use oni_geom::glb::{scene_to_glb, SceneNode};
-    use oni_geom::level::extract_level;
+    use oni_geom::level::extract_level_with;
     use oni_geom::Mesh;
 
     let mut object_infos: Vec<EnvObjectInfo> = Vec::new();
 
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_AKEV) {
-        let Some(level) = extract_level(dat, inst) else {
+        let breakable = |ti: usize| dat.instances.get(ti).and_then(|i| i.name.as_ref()).is_some_and(|n| glass_textures.contains(n));
+        let Some(level) = extract_level_with(dat, inst, &breakable) else {
             continue;
         };
         if level.environment.is_empty() && level.objects.is_empty() {
@@ -887,8 +901,8 @@ fn convert_environment(
                     "env_{}{}{}",
                     sanitize(g.texture.as_deref().unwrap_or(&format!("mat{i}"))),
                     g.env_ref.map(|r| format!("__ref{r}")).unwrap_or_default(),
-                    surface_suffix(g)
-                ),
+                    surface_suffix(g),
+                ) + &g.glass.map(|q| format!("__glass{q}")).unwrap_or_default(),
                 translation: [0.0; 3],
                 parent: None,
                 mesh: Some(m),

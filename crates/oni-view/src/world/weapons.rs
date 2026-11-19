@@ -117,13 +117,18 @@ pub struct ShotHost<'a> {
     now: u64,
     /// Noises the hits make (gunshot impacts), for the world to spread.
     pub sounds: Vec<(Vec3, f32, Option<usize>)>,
+    /// Glass: where the panes start among the switchable parts, each pane
+    /// (broken, middle, reach), and the ones shots broke.
+    glass_base: usize,
+    panes: Vec<(bool, Vec3, f32)>,
+    pub broke: Vec<usize>,
 }
 
 impl<'a> ShotHost<'a> {
     fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new() }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new() }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -262,10 +267,50 @@ fn ray_sphere(from: Vec3, ray: Vec3, centre: Vec3, r: f32) -> Option<f32> {
     (0.0..=1.0).contains(&t).then_some(t)
 }
 
+impl ShotHost<'_> {
+    /// Breaks pane `k` now (later shots this tick fly through it).
+    fn break_pane(&mut self, k: usize) {
+        self.panes[k].0 = true;
+        self.broke.push(k);
+        for f in self.fighters.iter_mut() {
+            f.physics.set_door(self.glass_base + k, false);
+        }
+        self.sounds.push((self.panes[k].1, 300.0, None));
+    }
+}
+
 impl Host for ShotHost<'_> {
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
         let f = self.fighters.first()?;
-        f.physics.cast(from, ray).map(|(fraction, normal)| EnvHit { fraction, normal, surface: 0 })
+        let base = self.glass_base;
+        let n = self.panes.len();
+        f.physics.cast(from, ray).map(|(fraction, normal, part)| {
+            // A glass pane: surface = its index + 1.
+            let surface = part.filter(|&k| k >= base && k - base < n).map_or(0, |k| (k - base + 1) as u32);
+            EnvHit { fraction, normal, surface }
+        })
+    }
+
+    fn breakable(&self, surface: u32) -> bool {
+        surface > 0 && self.panes.get(surface as usize - 1).is_some_and(|p| !p.0)
+    }
+
+    fn damage_surface(&mut self, surface: u32, _damage: f32) -> bool {
+        if !self.breakable(surface) {
+            return false;
+        }
+        let k = surface as usize - 1;
+        self.break_pane(k);
+        true
+    }
+
+    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32) {
+        for k in 0..self.panes.len() {
+            let (broken, at, reach) = self.panes[k];
+            if !broken && at.distance(centre) <= radius + reach {
+                self.break_pane(k);
+            }
+        }
     }
 
     fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, owner: Option<usize>) -> Option<CharHit> {
@@ -1079,16 +1124,24 @@ impl World {
             let floor = if gun.resting {
                 None
             } else {
-                self.fighters.first().and_then(|f| f.physics.cast(gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0)).map(|(t, _)| gun.position.y + 2.0 - 40.0 * t)
+                self.fighters.first().and_then(|f| f.physics.cast(gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0)).map(|(t, _, _)| gun.position.y + 2.0 - 40.0 * t)
             };
             self.armory.weapons[w].tick_free(floor);
         }
         // The shots.
         let tick = self.now as u32;
+        let glass_base = self.glass_base();
+        let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        host.glass_base = glass_base;
+        host.panes = panes;
         self.armory.particles.update(tick, &mut host);
         let sounds = std::mem::take(&mut host.sounds);
+        let broke = std::mem::take(&mut host.broke);
         drop(host);
+        for k in broke {
+            self.set_glass(k, true);
+        }
         for (at, volume, maker) in sounds {
             self.sound(crate::ai::perception::Stimulus::SoundGunshot, at, volume, maker, None);
         }

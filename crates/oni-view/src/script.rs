@@ -136,6 +136,7 @@ impl ScriptHost {
         world.attach_doors(crate::door_meshes(&scene));
         let (solid, opaque) = crate::env_parts(&scene);
         world.attach_env(solid, opaque);
+        world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
@@ -209,6 +210,7 @@ impl ScriptHost {
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         self.renderer.beams = self.world.beams.clone();
         self.renderer.hidden_refs = self.world.env_hidden.clone();
+        self.renderer.broken_glass = self.world.broken_glass.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let draws: Vec<CharDraw> = self
             .world
@@ -907,6 +909,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let w = &host.world;
             Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
         })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "env_show",
+        lua.create_function(move |_, (r, on): (u32, bool)| {
+            h.borrow_mut().world.env_show(r, on);
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "env_broken",
+        lua.create_function(move |_, (from, to): (u32, Option<u32>)| Ok(h.borrow().world.env_broken(from, to.unwrap_or(from))))?,
     )?;
     let h = host.clone();
     g.set("powerups_lying", lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?)?;

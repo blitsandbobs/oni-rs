@@ -104,6 +104,9 @@ pub struct TextureGroup {
     pub collide: bool,
     /// The reference scripts show and hide them by (`env_show`), if any.
     pub env_ref: Option<u32>,
+    /// A breakable pane (its texture's material is glass): each breakable
+    /// quad is its own group, numbered by its quad index.
+    pub glass: Option<u32>,
     /// Vertex positions (per quad corner).
     pub positions: Vec<[f32; 3]>,
     /// Vertex texture coordinates.
@@ -168,6 +171,12 @@ fn resolve<'a>(dat: &'a Dat<'a>, v: u32) -> Option<&'a [u8]> {
 
 /// Extracts a [`Level`] from an `AKEV` instance.
 pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
+    extract_level_with(dat, akev, &|_| false)
+}
+
+/// [`extract_level`], told which textures (by `TXMP` instance index) break
+/// like glass: their quads come out one group each.
+pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usize) -> bool) -> Option<Level> {
     if akev.tag != TAG_AKEV {
         return None;
     }
@@ -221,8 +230,8 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
         }
     }
 
-    // (Groups: texture, blend, visible, collide, script reference.)
-    type Groups = BTreeMap<(u16, bool, bool, bool, Option<u32>), TextureGroup>;
+    // (Groups: texture, blend, visible, collide, script reference, pane.)
+    type Groups = BTreeMap<(u16, bool, bool, bool, Option<u32>, Option<u32>), TextureGroup>;
     let mut buckets: BTreeMap<u32, Groups> = BTreeMap::new();
 
     for q in 0..num_gq {
@@ -260,12 +269,14 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
         let blend = flags & GQ_FLAG_TRANSPARENT != 0;
         let is_triangle = flags & GQ_FLAG_TRIANGLE != 0;
 
+        let glass = tex_lookup(tex_index as usize).0.filter(|&i| breakable(i)).map(|_| q as u32);
         let grp = buckets
             .entry(object_tag)
             .or_default()
-            .entry((tex_index, blend, visible, collide, remap.get(&q).copied()))
+            .entry((tex_index, blend, visible, collide, remap.get(&q).copied(), glass))
             .or_default();
         if grp.tex_instance.is_none() {
+            grp.glass = glass;
             let (idx, name) = tex_lookup(tex_index as usize);
             grp.tex_instance = idx;
             grp.texture = name;
