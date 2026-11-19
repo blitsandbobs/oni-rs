@@ -35,6 +35,12 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
             if let Some(a) = anim {
                 c["animation"] = crate::object_animation_json(&a);
             }
+            // What sound passes it while it isn't open (`sound_allow` @16:
+            // all, shouting, gunfire, none) and how much it muffles what does
+            // (`sound_muffle_fraction` @12; 1: nothing passes).
+            const ALLOW: [&str; 4] = ["all", "shouting", "gunfire", "none"];
+            c["soundAllow"] = json!(ALLOW.get(crate::le_u32(d, 16) as usize).copied().unwrap_or("none"));
+            c["soundMuffle"] = json!(le_f32(d, 12));
             let kind = crate::le_u32(d, 20);
             if kind < crate::impacts::AI_SOUNDS.len() as u32 {
                 c["ai"] = json!({ "type": crate::impacts::AI_SOUNDS[kind as usize], "radius": le_f32(d, 24) });

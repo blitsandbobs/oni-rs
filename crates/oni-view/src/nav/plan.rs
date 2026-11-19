@@ -58,6 +58,56 @@ impl PartialOrd for Node {
     }
 }
 
+/// How far a sound goes from `from` (in room `start`) to `to` (in room
+/// `goal`) through the rooms (`PHrGeneratePath` with no character): the
+/// shortest way portal to portal, where `gate(room, portal)` says whether a
+/// portal passes it and how much a door there stretches everything beyond
+/// (a muffled door: each later step counts that many times over). None:
+/// no way.
+pub fn sound_route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: Vec3, gate: &dyn Fn(usize, usize) -> Option<f32>) -> Option<f32> {
+    if start == goal {
+        return Some(from.distance(to));
+    }
+    // (State: arrived through a portal — its place and the stretch so far.)
+    type Heard = (usize, Option<(usize, usize)>, Vec3, f32);
+    let mut states: Vec<Heard> = vec![(start, None, from, 1.0)];
+    let mut index: HashMap<(usize, usize), usize> = HashMap::new();
+    let mut cost = vec![0.0f32];
+    let mut open = BinaryHeap::new();
+    open.push(Node { f: from.distance(to), id: 0 });
+    let mut best: Option<f32> = None;
+    while let Some(Node { f, id }) = open.pop() {
+        if best.is_some_and(|b| f >= b) {
+            break;
+        }
+        let (room, via, at, stretch) = states[id];
+        if room == goal {
+            let total = cost[id] + stretch * at.distance(to);
+            best = Some(best.map_or(total, |b: f32| b.min(total)));
+            continue;
+        }
+        let back = via.map(|(r, _)| r);
+        for (k, p) in nav.rooms[room].portals.iter().enumerate() {
+            if Some(p.to) == back {
+                continue;
+            }
+            let Some(more) = gate(room, k) else { continue };
+            let g = cost[id] + stretch * at.distance(p.mid);
+            let sid = *index.entry((room, k)).or_insert_with(|| {
+                states.push((p.to, Some((room, k)), p.mid, stretch * more));
+                cost.push(f32::MAX);
+                states.len() - 1
+            });
+            if g < cost[sid] {
+                cost[sid] = g;
+                states[sid].3 = stretch * more;
+                open.push(Node { f: g + stretch * more * p.mid.distance(to), id: sid });
+            }
+        }
+    }
+    best
+}
+
 /// The portals to take from room `start` (at `from`) to room `goal` (at
 /// `to`): `(room, portal index)` pairs. A\* from portal midpoint to portal
 /// midpoint, never straight back, avoiding portals blocked all the way.

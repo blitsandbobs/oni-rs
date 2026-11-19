@@ -47,6 +47,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
+| `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |

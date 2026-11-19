@@ -59,6 +59,12 @@ pub struct Sound {
 
 /// The length of the way between two points through the level's rooms
 /// (straight within a room; through portal midpoints across rooms).
+/// How far a sound travels from `from` to `to` through the rooms, past the
+/// portals `gate` lets it through (`crate::nav::plan::sound_route`).
+fn sound_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3, gate: &dyn Fn(usize, usize) -> Option<f32>) -> Option<f32> {
+    crate::nav::plan::sound_route(nav, nav.room_at(from)?, from, nav.room_at(to)?, to, gate)
+}
+
 fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f32> {
     let (a, b) = (nav.room_at(from)?, nav.room_at(to)?);
     if a == b {
@@ -366,7 +372,12 @@ impl World {
             }
         }
 
-        // Noises.
+        // Noises. (Through the rooms, doors that aren't open pass only what
+        // their class lets through, muffled.)
+        let portal_doors: std::collections::HashMap<(usize, usize), usize> = match self.nav.clone() {
+            Some(nav) => self.door_portals(&nav).iter().enumerate().flat_map(|(d, ps)| ps.iter().map(move |&rk| (rk, d))).collect(),
+            None => Default::default(),
+        };
         let sounds = std::mem::take(&mut self.sounds);
         for s in &sounds {
             for i in 0..n {
@@ -387,8 +398,9 @@ impl World {
                     continue;
                 }
                 let eye = points[i][1];
+                let gate = |r: usize, k: usize| portal_doors.get(&(r, k)).map_or(Some(1.0), |&d| self.doors[d].sound_through(s.stimulus));
                 let heard = self.quads.sees(s.at, eye)
-                    || self.nav.as_ref().is_some_and(|nav| route_length(nav, s.at, feet[i]).is_some_and(|d| d <= range));
+                    || self.nav.as_ref().is_some_and(|nav| sound_length(nav, s.at, feet[i], &gate).is_some_and(|d| d <= range));
                 if !heard {
                     continue;
                 }

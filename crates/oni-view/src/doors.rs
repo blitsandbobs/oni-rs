@@ -77,6 +77,43 @@ pub struct Door {
     pub proximity_off: u32,
     /// Who last held a leaf still (`pausing_context`).
     pub blocker: Option<usize>,
+    /// What sound passes it while it isn't open, and how much it muffles
+    /// that (`sound_allow`, `sound_muffle_fraction`).
+    pub sound_allow: SoundAllow,
+    pub sound_muffle: f32,
+}
+
+/// The sounds a door lets through while it isn't open (`AI2tSoundAllowType`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SoundAllow {
+    All,
+    /// Shouts: danger, melee and gunshots.
+    Shouting,
+    #[default]
+    Gunfire,
+    None,
+}
+
+impl Door {
+    /// Whether sound of kind `s` gets past it (`PHrGeneratePath`): open (or
+    /// opening, or held open), anything; otherwise what its class allows,
+    /// each step beyond counting `1 / (1 − muffle)` times. None: not at all.
+    pub fn sound_through(&self, s: crate::ai::perception::Stimulus) -> Option<f32> {
+        use crate::ai::perception::Stimulus as S;
+        if matches!(self.state, State::Opening(_) | State::Open(_)) {
+            return Some(1.0);
+        }
+        let passes = match self.sound_allow {
+            SoundAllow::All => true,
+            SoundAllow::Shouting => matches!(s, S::SoundDanger | S::SoundMelee | S::SoundGunshot),
+            SoundAllow::Gunfire => s == S::SoundGunshot,
+            SoundAllow::None => false,
+        };
+        if !passes || self.sound_muffle > 0.99 {
+            return None;
+        }
+        Some(if self.sound_muffle > 0.0 { 1.0 / (1.0 - self.sound_muffle) } else { 1.0 })
+    }
 }
 
 /// What a door's tick asks of the world.
@@ -330,6 +367,14 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
             let class = d["class"].as_str().unwrap_or("").to_string();
             let anim = anims.entry(class.clone()).or_insert_with(|| object_animation(&classes["classes"][&class]["animation"])).clone();
             let leaves = d["leaves"].as_array().into_iter().flatten().map(|l| matrix(&l["origin"])).collect();
+            let c = &classes["classes"][&class];
+            let sound_allow = match c["soundAllow"].as_str() {
+                Some("all") => SoundAllow::All,
+                Some("shouting") => SoundAllow::Shouting,
+                Some("none") => SoundAllow::None,
+                _ => SoundAllow::Gunfire,
+            };
+            let sound_muffle = c["soundMuffle"].as_f64().unwrap_or(0.5) as f32;
             Door {
                 id: d["id"].as_u64().unwrap_or(0) as u16,
                 object_id: d["objectId"].as_u64().unwrap_or(0) as u32,
@@ -352,6 +397,8 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
                 give_up: false,
                 proximity_off: 0,
                 blocker: None,
+                sound_allow,
+                sound_muffle,
             }
         })
         .collect()
@@ -446,6 +493,8 @@ mod tests {
             give_up: false,
             proximity_off: 0,
             blocker: None,
+            sound_allow: SoundAllow::Gunfire,
+            sound_muffle: 0.5,
         }
     }
 
