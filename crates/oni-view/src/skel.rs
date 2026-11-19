@@ -138,6 +138,12 @@ pub struct Clip {
     pub footsteps: Vec<u16>,
     /// Where the clip's strikes reach (`extras.reach`), for attacks.
     pub reach: Option<Reach>,
+    /// Body parts the clip moves (bit = part), and — played as an overlay —
+    /// the ones it replaces (the rest of `used_parts` it layers on).
+    pub used_parts: u32,
+    pub replace_parts: u32,
+    /// Which aiming screen serves it (`extras.aimingType`; 0 = none).
+    pub aiming_type: u16,
     /// Per tick: root offset from the start `[x, forward]`, the body's lowest
     /// point and its height (`extras.bodyTrack`).
     pub body: Vec<[f32; 4]>,
@@ -282,6 +288,41 @@ impl Character {
         self.pose_blended(clip, time, None)
     }
 
+    /// Like [`pose_blended`](Self::pose_blended), with `layers` on top of
+    /// the pose (overlays, aim): each replaces its `replace` parts' rotation
+    /// and multiplies its rotation onto its other `used` parts, by `weight`.
+    pub fn pose_layered(&self, clip: Option<&Clip>, time: f32, stitch: Option<(&[Quat], f32)>, layers: &[Layer]) -> Vec<Mat4> {
+        let n = self.bones.len();
+        let mut world = vec![Mat4::IDENTITY; n];
+        for i in 0..n {
+            let b = &self.bones[i];
+            let mut rot = clip
+                .and_then(|c| c.channels.iter().find(|ch| ch.bone_name == b.name))
+                .map(|ch| sample(ch, time))
+                .unwrap_or(b.rotation);
+            if let Some((saved, t)) = stitch {
+                if let Some(&s) = saved.get(i) {
+                    rot = nlerp(rot, s, t);
+                }
+            }
+            for l in layers {
+                let bit = 1u32 << i;
+                let Some(&q) = l.rotations.get(i) else { continue };
+                if l.replace & bit != 0 {
+                    rot = nlerp(rot, q, l.weight);
+                } else if l.used & bit != 0 {
+                    rot = nlerp(Quat::IDENTITY, q, l.weight) * rot;
+                }
+            }
+            let local = Mat4::from_rotation_translation(rot, b.translation);
+            world[i] = match b.parent {
+                Some(p) => world[p] * local,
+                None => local,
+            };
+        }
+        world
+    }
+
     /// Like [`pose`](Self::pose), but when `stitch` is `Some((saved, t))` each
     /// bone's rotation is blended toward the `saved` pose by weight `t`
     /// (`t = 1` → fully `saved`, `t = 0` → fully `clip`) — Oni's animation
@@ -313,6 +354,14 @@ impl Character {
         }
         world
     }
+}
+
+/// A pose layer: an overlay clip's or an aiming screen's rotations per bone.
+pub struct Layer {
+    pub rotations: Vec<Quat>,
+    pub used: u32,
+    pub replace: u32,
+    pub weight: f32,
 }
 
 /// Normalized lerp from `a` (t=0) to `b` (t=1), flipping `b` into `a`'s
@@ -560,6 +609,9 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         from_state: named(&ex["fromState"], &sc::ANIM_STATES),
         to_state: named(&ex["toState"], &sc::ANIM_STATES),
         varient: named_bits(&ex["variant"], &sc::VARIANTS) as u16,
+        used_parts: ex["usedParts"].as_u64().unwrap_or(0) as u32,
+        replace_parts: ex["replaceParts"].as_u64().unwrap_or(0) as u32,
+        aiming_type: named(&ex["aimingType"], &sc::ANIM_TYPES),
         final_rotation: ex["finalRotation"].as_f64().unwrap_or(0.0) as f32,
         move_direction: named(&ex["moveDirection"], &sc::DIRECTIONS),
         end_interpolation: u16_field("endBlend"),

@@ -3,6 +3,7 @@
 //! and the identifiers they share. A behavioural reimplementation of Oni's
 //! system — see `docs/MOVEMENT.md`.
 
+pub mod aim;
 pub mod collection;
 pub mod decide;
 pub mod input;

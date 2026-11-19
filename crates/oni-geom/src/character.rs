@@ -200,6 +200,8 @@ const TRAM_STRIKES: usize = 308; // raw offset of TRtAttackExtent[] (12 bytes ea
 const TRAM_FRAME_COUNT: usize = 356; // `numFrames` u16
 /// Fixed-point steps: positions in 0.01 units, angles in 2π/65535.
 const TRAM_DIRECT_ANIM: usize = 56; // `directAnimation[2]`: two instance references
+const TRAM_USED_PARTS: usize = 64; // `usedParts` u32: body parts the clip moves
+const TRAM_REPLACE_PARTS: usize = 68; // `replaceParts` u32: parts an overlay replaces (else layers on)
 const TRAM_FINAL_ROTATION: usize = 72; // `finalRotation` f32 (radians): net yaw the clip imparts
 const TRAM_MOVE_DIRECTION: usize = 76; // `moveDirection` u16 (TRtDirection)
 const TRAM_VOCALIZATION: usize = 78; // `vocalizationType` u16
@@ -445,6 +447,10 @@ pub struct Clip {
     /// Net yaw (radians) this clip imparts to the character's facing
     /// (`TRtAnimation.finalRotation`) — e.g. a turn-in-place clip's total turn.
     pub final_rotation: f32,
+    /// Body parts the clip moves (bit = part index), and — as an overlay —
+    /// those it replaces outright (the rest of `used_parts` it layers on).
+    pub used_parts: u32,
+    pub replace_parts: u32,
     /// Which way the clip moves the character (`TRtAnimation.moveDirection`, a
     /// `TRtDirection`: 0 None, 1 Forwards, 2 Back, 3 Left, 4 Right, 5 360).
     pub move_direction: u16,
@@ -717,6 +723,8 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         to_state: read_u16(d, TRAM_TO_STATE).unwrap_or(0),
         varient: read_u16(d, TRAM_VARIENT).unwrap_or(0),
         final_rotation: read_f32(d, TRAM_FINAL_ROTATION).unwrap_or(0.0),
+        used_parts: read_u32(d, TRAM_USED_PARTS).unwrap_or(0),
+        replace_parts: read_u32(d, TRAM_REPLACE_PARTS).unwrap_or(0),
         move_direction: read_u16(d, TRAM_MOVE_DIRECTION).unwrap_or(0),
         end_interpolation: read_u16(d, TRAM_END_INTERP).unwrap_or(0),
         max_interpolation: read_u16(d, TRAM_MAX_INTERP).unwrap_or(0),

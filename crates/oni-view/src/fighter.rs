@@ -182,6 +182,8 @@ pub struct Fighter {
     pub weapon_immune: bool,
     /// Its gun is empty and it has nothing to reload with (fire = punch).
     pub weapon_empty: bool,
+    /// Its class's aiming screens.
+    pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
     /// Partial-body clips playing over the body: the recoil, and the
     /// inventory one (holster, draw, reload).
     pub overlays: [Option<Overlay>; 2],
@@ -302,6 +304,7 @@ impl Fighter {
             weapon_empty: false,
             overlays: [None; 2],
             pickup: None,
+            aiming: Rc::new(Vec::new()),
         }
     }
 
@@ -944,17 +947,51 @@ impl Fighter {
             Mat4::from_rotation_translation(Quat::from_rotation_y(self.facing.facing), origin);
     }
 
-    /// Posed bone world-matrices (placement baked in) for rendering.
+    /// Posed bone world-matrices (placement baked in) for rendering: the
+    /// body's clip, the overlays on it, and — holding a gun, when the clip
+    /// allows — the aim pose (`docs/WEAPONS.md`, *Aim poses*).
     pub fn bones(&self) -> Vec<Mat4> {
+        let mut layers = Vec::new();
+        let mut dont_aim = false;
+        for o in self.overlays.iter().flatten() {
+            let c = self.motion.clip_of(o.clip);
+            let frames = c.frames();
+            // A six-frame ramp in and out.
+            let weight = (f32::from(o.frame) / 6.0).min(f32::from(frames.saturating_sub(o.frame)) / 6.0).clamp(0.0, 1.0);
+            dont_aim |= c.has_flag(flag::DONT_AIM);
+            layers.push(crate::skel::Layer {
+                rotations: self.character.local_rotations(Some(c), f32::from(o.frame) / crate::skel::FPS),
+                used: c.used_parts,
+                replace: c.replace_parts,
+                weight,
+            });
+        }
+        if let Some(l) = self.aim_layer(dont_aim) {
+            layers.push(l);
+        }
         self.character
-            .pose_blended(
-                Some(self.motion.current()),
-                self.motion.frame_time(),
-                self.motion.blend_pose(),
-            )
+            .pose_layered(Some(self.motion.current()), self.motion.frame_time(), self.motion.blend_pose(), &layers)
             .into_iter()
             .map(|m| self.placement * m)
             .collect()
+    }
+
+    /// The aim pose: holding a gun, in a clip that aims (not blocking, not
+    /// reeling), no overlay forbidding it — the class's screen for the clip,
+    /// bent toward the aim (yaw off the body, pitch with recoil).
+    fn aim_layer(&self, dont_aim: bool) -> Option<crate::skel::Layer> {
+        let c = self.motion.current();
+        if self.hand.is_none() || dont_aim || !c.has_flag(flag::DO_AIM) || reaction::is_victim(c.anim_type) || !self.alive() {
+            return None;
+        }
+        let s = crate::anim::aim::find(&self.aiming, c.aiming_type, c.varient)?;
+        let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        let yaw = wrap(self.facing.aim() - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let pitch = (self.aiming_ud + self.recoil).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        if yaw == 0.0 && pitch == 0.0 {
+            return None;
+        }
+        Some(crate::anim::aim::layer(&self.character, s, yaw, pitch))
     }
 
     /// A render draw referencing `bones` (kept alive by the caller).

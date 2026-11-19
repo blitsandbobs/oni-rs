@@ -122,6 +122,7 @@ impl Classes {
             perception: crate::ai::perception::Tuning::from_json(&c["perception"]),
             class_combat: crate::ai::goals::ClassCombat::from_json(&c["perception"]),
             death_delete: c["stats"]["deathDeleteDelay"].as_u64().unwrap_or(0) as u32,
+            aiming: Rc::new(crate::anim::aim::load(&c["aiming"], &self.anim_dir)),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

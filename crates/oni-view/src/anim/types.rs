@@ -193,6 +193,9 @@ pub mod flag {
     pub const BLOCK_LOW: u32 = 3;
     /// Starting it throws the character's gun clear (knockdowns).
     pub const DROP_WEAPON: u32 = 5;
+    /// It aims (an aiming screen may bend the body), or forbids aiming.
+    pub const DO_AIM: u32 = 18;
+    pub const DONT_AIM: u32 = 19;
     pub const NO_INTERP_VELOCITY: u32 = 14;
     pub const THROW_SOURCE: u32 = 15;
     pub const THROW_TARGET: u32 = 16;

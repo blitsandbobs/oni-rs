@@ -83,6 +83,8 @@ pub struct CharKind {
     pub class_combat: crate::ai::goals::ClassCombat,
     /// A non-player body is removed this long after death (0: it stays).
     pub death_delete: u32,
+    /// Its aiming screens (upper-body aim poses).
+    pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -229,6 +231,7 @@ impl World {
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
         f.death_delete = kind.death_delete;
+        f.aiming = kind.aiming.clone();
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,

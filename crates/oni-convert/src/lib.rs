@@ -472,6 +472,33 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
 }
 
 /// Appends this file's canonical `ONCC` character classes to `out` as JSON.
+/// A class's aiming screens (`TRSC` named `name` → its `TRAS` list): each
+/// screen's clip (a grid of yaw × pitch poses) and its steps — per side, the
+/// angle between frames and how many frames.
+fn aiming_screens(dat: &Dat<'_>, name: &str) -> Vec<serde_json::Value> {
+    const TAG_TRSC: FourCc = FourCc(u32::from_be_bytes(*b"TRSC"));
+    const TAG_TRAS: FourCc = FourCc(u32::from_be_bytes(*b"TRAS"));
+    let named = |i: &&oni_dat::Instance| i.name.as_deref().is_some_and(|n| n == name || n.strip_prefix("TRSC") == Some(name));
+    let Some(d) = dat.instances.iter().filter(|i| i.tag == TAG_TRSC).find(named).and_then(|i| dat.instance_data(i)) else {
+        return Vec::new();
+    };
+    let at = |r: u32| (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten();
+    let n = le_u16(d, 22) as usize;
+    (0..n)
+        .filter_map(|k| {
+            let s = at(le_u32(d, 24 + k * 4)).filter(|i| i.tag == TAG_TRAS)?;
+            let t = dat.instance_data(s)?;
+            let clip = at(le_u32(t, 0)).and_then(|i| i.name.clone())?;
+            let i16_at = |o: usize| le_u16(t, o) as i16;
+            Some(serde_json::json!({
+                "clip": clip,
+                "yaw": { "negativeDelta": le_f32(t, 4), "positiveDelta": le_f32(t, 8), "negativeFrames": i16_at(12), "positiveFrames": i16_at(14) },
+                "pitch": { "negativeDelta": le_f32(t, 16), "positiveDelta": le_f32(t, 20), "negativeFrames": i16_at(24), "positiveFrames": i16_at(26) },
+            }))
+        })
+        .collect()
+}
+
 fn collect_character_classes(
     dat: &Dat<'_>,
     this_root: &str,
@@ -551,6 +578,7 @@ fn collect_character_classes(
             "textures": cc.textures,
             "partTextures": part_textures,
             "aimingScreens": cc.aiming_screens,
+            "aiming": cc.aiming_screens.as_deref().map(|n| aiming_screens(dat, n)).unwrap_or_default(),
             "animationCollection": cc.animation_collection,
             "animationCount": cc.animations.len(),
             "animations": cc.animations,
@@ -1322,6 +1350,12 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     }
     if clip.aiming_type != 0 {
         put("aimingType", json!(type_name(clip.aiming_type)));
+    }
+    if clip.used_parts != 0 {
+        put("usedParts", json!(clip.used_parts));
+    }
+    if clip.replace_parts != 0 {
+        put("replaceParts", json!(clip.replace_parts));
     }
     if !clip.shortcuts.is_empty() {
         let list: Vec<_> = clip
