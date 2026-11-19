@@ -16,11 +16,14 @@ const NAME: usize = 63;
 
 /// A console class: where its action marker is and which way it faces (in
 /// the console's own space), and its flags.
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct Class {
     pub position: [f32; 3],
     pub vector: [f32; 3],
     pub flags: u32,
+    /// The screen's model (drawn at the console, textured by its state: the
+    /// console's own screen textures — every shipped class's are `NONE`).
+    pub screen_model: Option<String>,
 }
 
 /// The console classes (level 0's `CONS` templates), by name.
@@ -40,6 +43,16 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> HashMap<Stri
                 position: [f("action_position.x"), f("action_position.y"), f("action_position.z")],
                 vector: [f("action_vector.x"), f("action_vector.y"), f("action_vector.z")],
                 flags: rec.int("flags").unwrap_or(0) as u32,
+                screen_model: match rec.get("screen_geometry").map(|e| &e.value) {
+                    Some(oni_template::Value::Ref(_, r)) => {
+                        let r = *r;
+                        (r & 1 != 0)
+                            .then(|| dat.instances.get((r >> 8) as usize))
+                            .flatten()
+                            .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)))
+                    }
+                    _ => None,
+                },
             };
             Some((name, class))
         })
@@ -88,7 +101,7 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
             let screen = |k: usize| cstr(d, NAME + 4 + k * NAME, NAME);
             let (events, _) = events(d, NAME + 4 + 3 * NAME);
             let axes = crate::patrols::euler_axes(o.rotation);
-            let class = classes.get(&class_name).copied().unwrap_or_default();
+            let class = classes.get(&class_name).cloned().unwrap_or_default();
             let rotate = |v: [f32; 3]| -> [f32; 3] {
                 std::array::from_fn(|k| axes[0][k] * v[0] + axes[1][k] * v[1] + axes[2][k] * v[2])
             };
@@ -105,6 +118,9 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
                 "events": events,
                 "screens": { "inactive": screen(0), "active": screen(1), "triggered": screen(2) },
             });
+            if let Some(m) = &class.screen_model {
+                c["screenModel"] = json!(m);
+            }
             let f = oni_schema::bit_names(&oni_schema::CONSOLE_FLAGS, flags);
             if !f.is_empty() {
                 c["flags"] = json!(f);

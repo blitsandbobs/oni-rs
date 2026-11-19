@@ -164,6 +164,69 @@ fn decode_env_particles(dat: &Dat<'_>) -> Vec<Placed> {
     out
 }
 
+/// The level's environmental particles (`docs/PARTICLES.md`, *Environmental
+/// particles*): the `ENVP` arrays' (a 4×3 matrix @112, decal x / y scale
+/// @160 / @164, u16 flags @168 — 0x2: not created at the start) and the
+/// particle objects' (`CJBOParticle`: class[64], tag[48], u16 flags, decal
+/// scales; placed by the object's position and XYZ rotation). Each: class,
+/// tag (what scripts' `particle` command names), matrix (12 floats, columns
+/// X Y Z then position), flags, decal scale.
+pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
+    const NOT_INITIALLY_CREATED: u16 = 0x2;
+    let entry = |class: String, tag: String, m: [f32; 12], flags: u16, decal: [f32; 2], from: &str| {
+        let mut e = serde_json::json!({ "class": class, "matrix": m, "decalScale": decal, "from": from });
+        if !tag.is_empty() {
+            e["tag"] = serde_json::json!(tag);
+        }
+        if flags & NOT_INITIALLY_CREATED != 0 {
+            e["notInitiallyCreated"] = serde_json::json!(true);
+        }
+        e
+    };
+    let mut out = Vec::new();
+    for inst in dat.instances.iter().filter(|i| i.tag == TAG_ENVP) {
+        let Some(d) = dat.instance_data(inst) else { continue };
+        let num = le_u16(d, 22) as usize;
+        for k in 0..num {
+            let o = ENVP_ARRAY_START + k * ENVP_PARTICLE_STRIDE;
+            if o + ENVP_PARTICLE_STRIDE > d.len() {
+                break;
+            }
+            let class = cstr(d, o, 64);
+            if class.is_empty() {
+                continue;
+            }
+            let m: [f32; 12] = std::array::from_fn(|i| le_f32(d, o + ENVP_MATRIX_OFF + i * 4));
+            let decal = [le_f32(d, o + 160), le_f32(d, o + 164)];
+            out.push(entry(class, cstr(d, o + 64, 48), m, le_u16(d, o + 168), decal, "env"));
+        }
+    }
+    for o in crate::objects::read(dat, raw, "Particle").1 {
+        let d = o.data;
+        if d.len() < 114 {
+            continue;
+        }
+        let axes = crate::patrols::euler_axes(o.rotation);
+        let p = o.position;
+        let m = [
+            axes[0][0], axes[0][1], axes[0][2], axes[1][0], axes[1][1], axes[1][2], axes[2][0], axes[2][1], axes[2][2], p[0], p[1], p[2],
+        ];
+        let decal = if d.len() >= 122 { [le_f32(d, 114), le_f32(d, 118)] } else { [1.0, 1.0] };
+        out.push(entry(cstr(d, 0, 64), cstr(d, 64, 48), m, le_u16(d, 112), decal, "object"));
+    }
+    out
+}
+
+/// Writes `<root>/env_particles.json` (see `env_particles`), if any.
+pub fn write_env_particles(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
+    let p = env_particles(dat, raw);
+    if !p.is_empty() {
+        std::fs::create_dir_all(root)?;
+        std::fs::write(root.join("env_particles.json"), serde_json::to_string_pretty(&serde_json::json!({ "particles": p }))?)?;
+    }
+    Ok(p.len())
+}
+
 /// Writes `<root>/particles.json` — every placed environment particle with its
 /// world position, size, sprite texture reference, and additive/self-illum
 /// flags (resolved through the particle class and texture). Returns the count.

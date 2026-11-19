@@ -23,6 +23,7 @@ use crate::skel::Character;
 /// The head's bone (the listener's ear height).
 const HEAD_BONE: usize = 10;
 
+mod env_particles;
 mod objects_sound;
 mod particle_sounds;
 mod turrets;
@@ -183,6 +184,9 @@ pub struct World {
     /// condition loops hushed).
     pub in_cutscene: bool,
     pub letterbox: bool,
+    /// The level's environmental particles (`docs/PARTICLES.md`).
+    pub(crate) env_particles: Vec<env_particles::EnvParticle>,
+    env_particles_started: bool,
 }
 
 /// A breakable glass pane.
@@ -243,6 +247,8 @@ impl World {
             game_sounds: Default::default(),
             in_cutscene: false,
             letterbox: false,
+            env_particles: Vec::new(),
+            env_particles_started: false,
         }
     }
 
@@ -1508,6 +1514,11 @@ impl World {
         self.start_throws();
         for f in &mut self.fighters {
             f.apply_reaction();
+        }
+        // The level's environmental particles come at its start.
+        if !self.env_particles_started {
+            self.env_particles_started = true;
+            self.env_particles_start();
         }
         // Turrets, then guns and shots: the player's buttons, the AIs' triggers.
         self.turrets_tick();

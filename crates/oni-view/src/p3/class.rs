@@ -376,8 +376,10 @@ pub mod cflag {
     pub const INITIALLY_HIDDEN: u32 = 1 << 19;
     pub const INVISIBLE: u32 = 1 << 20;
     pub const LOCK_TO_LINKED: u32 = 1 << 21;
+    /// Painted onto a surface (a decal).
+    pub const DECAL: u32 = 1 << 23;
 }
-const CLASS_FLAGS: [(&str, u32); 17] = [
+const CLASS_FLAGS: [(&str, u32); 18] = [
     ("decorative", cflag::DECORATIVE),
     ("geometry", cflag::GEOMETRY),
     ("collideEnv", cflag::COLLIDE_ENV),
@@ -395,6 +397,7 @@ const CLASS_FLAGS: [(&str, u32); 17] = [
     ("initiallyHidden", cflag::INITIALLY_HIDDEN),
     ("invisible", cflag::INVISIBLE),
     ("lockToLinkedParticle", cflag::LOCK_TO_LINKED),
+    ("decal", cflag::DECAL),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -441,6 +444,8 @@ pub struct Class {
     pub y_scale: Option<Value>,
     pub sprite_type: u32,
     pub alpha: Value,
+    /// Its colour (a shade: ARGB).
+    pub tint: Value,
     /// Texture (sprite) or model (geometry) name.
     pub instance: String,
     pub attractor: Option<AttractorDef>,
@@ -719,6 +724,7 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         y_scale: names("flags").iter().any(|n| n == "separateYScale").then(|| value(&c["appearance"]["yScale"], &vars)),
         sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,
         alpha: value(&c["appearance"]["alpha"], &vars),
+        tint: value(&c["appearance"]["tint"], &vars),
         instance: c["appearance"]["instance"].as_str().unwrap_or("").to_string(),
         attractor,
         vars,

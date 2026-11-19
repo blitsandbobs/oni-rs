@@ -1,0 +1,167 @@
+//! Environmental particles (`docs/PARTICLES.md`, *Environmental particles*):
+//! the level's placed particle effects — floor targets, lights, steam, force
+//! fields, creatures — from its `ENVP` arrays and particle objects
+//! (`levels/NN/env_particles.json`). Each is created at the level's start
+//! (unless flagged not to be) and scripts drive them by tag (`particle tag
+//! create | kill | reset | do <event> | <event>`).
+
+use std::path::Path;
+
+use glam::{Mat3, Mat4, Vec3};
+use serde_json::Value;
+
+use super::weapons::ShotHost;
+use super::World;
+use crate::p3::{self, Handle};
+
+/// The original's event names, in the particle system's event order.
+const EVENT_NAMES: [&str; 16] = [
+    "update",
+    "pulse",
+    "start",
+    "stop",
+    "bgfx_start",
+    "bgfx_stop",
+    "hit_wall",
+    "hit_char",
+    "lifetime",
+    "explode",
+    "brokenlink",
+    "create",
+    "die",
+    "newattractor",
+    "delay_start",
+    "delay_stop",
+];
+
+pub(crate) struct EnvParticle {
+    class: Option<p3::ClassId>,
+    pub tag: String,
+    matrix: Mat4,
+    not_initially: bool,
+    /// Its live particle, while created.
+    handle: Option<Handle>,
+}
+
+/// Loads a level's environmental particles (classes resolved against the
+/// particle system's).
+pub(crate) fn load(level_dir: &Path, classes: &p3::Classes) -> Vec<EnvParticle> {
+    let Some(j) = std::fs::read_to_string(level_dir.join("env_particles.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    else {
+        return Vec::new();
+    };
+    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    j["particles"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|p| {
+            let m: Vec<f32> = p["matrix"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default();
+            let c = |k: usize| Vec3::new(m.get(k * 3).copied().unwrap_or(0.0), m.get(k * 3 + 1).copied().unwrap_or(0.0), m.get(k * 3 + 2).copied().unwrap_or(0.0));
+            EnvParticle {
+                class: p["class"].as_str().and_then(|n| classes.get(n)),
+                tag: p["tag"].as_str().unwrap_or("").to_string(),
+                matrix: Mat4::from_mat3_translation(Mat3::from_cols(c(0), c(1), c(2)), c(3)),
+                not_initially: p["notInitiallyCreated"].as_bool().unwrap_or(false),
+                handle: None,
+            }
+        })
+        .collect()
+}
+
+impl World {
+    /// Creates environmental particle `k`'s particle (`EPrNewParticle`): at its
+    /// place and orientation, still, owned by no one, its create event run.
+    fn env_new(&mut self, k: usize) {
+        let e = &self.env_particles[k];
+        let Some(class) = e.class else { return };
+        // (Decals — paint on a surface — aren't modelled yet.)
+        if self.armory.particles.class(class).has(p3::class::cflag::DECAL) {
+            return;
+        }
+        let m = e.matrix;
+        let (tick, now) = (self.armory.particles.tick, self.now as u64);
+        let time = f64::from(tick) / p3::HZ;
+        let mut p = self.armory.particles.create(class, tick);
+        p.position = m.w_axis.truncate();
+        p.orientation = Mat3::from_mat4(m);
+        p.velocity = Vec3::ZERO;
+        p.offset = Vec3::ZERO;
+        p.owner = 0;
+        let super::weapons::Armory { particles, .. } = &mut self.armory;
+        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let h = particles.created(p, time, &mut host);
+        self.env_particles[k].handle = h;
+    }
+
+    /// Kills environmental particle `k`'s particle, if it has one.
+    fn env_kill(&mut self, k: usize) {
+        if let Some(h) = self.env_particles[k].handle.take() {
+            let now = self.now as u64;
+            let super::weapons::Armory { particles, .. } = &mut self.armory;
+            let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+            particles.kill(h, &mut host);
+        }
+    }
+
+    /// The level's start: every environmental particle not held back is
+    /// created.
+    pub(super) fn env_particles_start(&mut self) {
+        for k in 0..self.env_particles.len() {
+            if !self.env_particles[k].not_initially {
+                self.env_new(k);
+            }
+        }
+    }
+
+    /// Scripts' `particle tag command [event]` to every environmental
+    /// particle tagged `tag`: `create`, `kill`, `reset` (killed, and made
+    /// again unless held back), `do <event>` or `<event>` (sent to it).
+    /// False: an unknown command.
+    pub fn env_particle_command(&mut self, tag: &str, command: &str, event: Option<&str>) -> bool {
+        let event_of = |n: &str| EVENT_NAMES.iter().position(|e| *e == n);
+        let ev = match command {
+            "create" | "kill" | "reset" => None,
+            "do" => match event.and_then(event_of) {
+                Some(e) => Some(e),
+                None => return false,
+            },
+            other => match event_of(other) {
+                Some(e) => Some(e),
+                None => return false,
+            },
+        };
+        let picked: Vec<usize> = (0..self.env_particles.len()).filter(|&k| self.env_particles[k].tag == tag).collect();
+        for k in picked {
+            match (command, ev) {
+                ("create", _) => self.env_new(k),
+                ("kill", _) => self.env_kill(k),
+                ("reset", _) => {
+                    self.env_kill(k);
+                    if !self.env_particles[k].not_initially {
+                        self.env_new(k);
+                    }
+                }
+                (_, Some(e)) => {
+                    let Some(h) = self.env_particles[k].handle else { continue };
+                    if self.armory.particles.get(h).is_none() {
+                        self.env_particles[k].handle = None;
+                        continue;
+                    }
+                    let now = self.now as u64;
+                    let time = f64::from(self.armory.particles.tick) / p3::HZ;
+                    let super::weapons::Armory { particles, .. } = &mut self.armory;
+                    let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+                    particles.send(h, e, time, &mut host);
+                }
+                _ => {}
+            }
+        }
+        true
+    }
+
+    /// How many environmental particles tagged `tag` are alive.
+    pub fn env_particles_alive(&self, tag: &str) -> usize {
+        self.env_particles.iter().filter(|e| e.tag == tag && e.handle.is_some_and(|h| self.armory.particles.get(h).is_some())).count()
+    }
+}

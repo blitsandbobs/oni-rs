@@ -58,6 +58,11 @@ pub struct Console {
     pub is_alarm: bool,
     pub active: bool,
     pub triggered: bool,
+    /// Its orientation, its screen's model (under `common/`) and the screen's
+    /// texture names when inactive, active, used.
+    pub rotation: glam::Mat3,
+    pub screen_model: Option<String>,
+    pub screens: [String; 3],
 }
 
 /// Every console (`0xFFFF` in an event list).
@@ -104,6 +109,9 @@ pub fn load(level_dir: &Path) -> Vec<Console> {
                 is_alarm: has("isAlarm"),
                 active: initial_active,
                 triggered: false,
+                rotation: glam::Mat3::from_cols(v3(&c["axes"][0]), v3(&c["axes"][1]), v3(&c["axes"][2])),
+                screen_model: c["screenModel"].as_str().map(str::to_string),
+                screens: ["inactive", "active", "triggered"].map(|k| c["screens"][k].as_str().unwrap_or("").to_string()),
             }
         })
         .collect()
@@ -196,6 +204,9 @@ mod tests {
             is_alarm: false,
             active: true,
             triggered: false,
+            rotation: glam::Mat3::IDENTITY,
+            screen_model: None,
+            screens: Default::default(),
         }
     }
 

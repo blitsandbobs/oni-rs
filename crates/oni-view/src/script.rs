@@ -214,7 +214,7 @@ impl ScriptHost {
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
-        let guns: Vec<(usize, Vec<Mat4>)> = self
+        let mut guns: Vec<(usize, Vec<Mat4>)> = self
             .world
             .gun_draws()
             .into_iter()
@@ -222,6 +222,12 @@ impl ScriptHost {
             .chain(self.world.turret_draws())
             .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
             .collect();
+        // (Consoles' screens, textured by their state.)
+        for (path, tex, m) in self.world.console_draws() {
+            if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
+                guns.push((k, vec![m]));
+            }
+        }
         let draws: Vec<CharDraw> = self
             .world
             .fighters
@@ -1027,6 +1033,28 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "powerup",
         lua.create_function(move |_, (id, kind, amount): (usize, String, Option<u16>)| Ok(h.borrow_mut().world.give_powerup(id, &kind, amount, false)))?,
+    )?;
+    // env_particles(tag) → how many of the level's environmental particles
+    // tagged `tag` are alive; particle(tag, command [, event]) sends them a
+    // command as scripts do.
+    let h = host.clone();
+    g.set("env_particles", lua.create_function(move |_, tag: String| Ok(h.borrow().world.env_particles_alive(&tag)))?)?;
+    let h = host.clone();
+    g.set(
+        "particle",
+        lua.create_function(move |_, (tag, command, event): (String, String, Option<String>)| {
+            Ok(h.borrow_mut().world.env_particle_command(&tag, &command, event.as_deref()))
+        })?,
+    )?;
+    // console_screen(id) → the texture console `id`'s screen shows now (by
+    // its state), or nil.
+    let h = host.clone();
+    g.set(
+        "console_screen",
+        lua.create_function(move |_, id: u16| {
+            let host = h.borrow();
+            Ok(host.world.consoles.iter().find(|c| c.id == id).map(crate::world::World::screen_of))
+        })?,
     )?;
     // dialog() → whether a scripted dialogue line is on.
     let h = host.clone();

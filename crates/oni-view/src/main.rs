@@ -174,9 +174,12 @@ fn main() {
 
     // Environment particles: an explicit path, else `particles.json` next to the
     // scene (the converter writes it into each level folder beside `environment.glb`).
+    // (Playing, or running a scenario, the level's environmental particles
+    // run in the particle system instead — `env_particles.json`.)
+    let live = (play || script_path.is_some()) && scene_path.with_file_name("env_particles.json").is_file();
     let particles_path = particles_path.or_else(|| {
         let p = scene_path.with_file_name("particles.json");
-        p.is_file().then_some(p)
+        (p.is_file() && !live).then_some(p)
     });
     let particles = particles_path
         .as_ref()

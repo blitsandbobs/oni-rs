@@ -68,6 +68,9 @@ assert(took, "running moves the training on")
 -- lesson's messages.
 took = wait_for(function() return showing("xconsole1") end, 900)
 assert(took, "the console lesson")
+-- Its yellow floor target (an environmental particle the script creates).
+step(40)
+assert(env_particles("obj_control") > 0, "the console's floor target is lit")
 teleport(0, -1062, -338, -288)
 took = wait_for(function() return not showing("xconsole1") end, 90)
 print("walked into the trigger volume:", took)
@@ -77,6 +80,7 @@ assert(took, "the trigger volume's entry script ran")
 -- the console animation, and the console runs its script — the training
 -- goes on.
 assert(console_state(10) == "active", "the lesson turned the console on")
+assert(console_screen(10) == "_CON_WH1", "its screen shows it is on: " .. tostring(console_screen(10)))
 teleport(0, -1063.5, -338, -291)
 facing(180)
 step(10)
@@ -84,6 +88,7 @@ action()
 took = wait_for(function() return console_state(10) == "triggered" end, 400)
 print("used the console after", took, anim())
 assert(took, "Action at the console uses it")
+assert(console_screen(10) == "_CON_USED", "its screen shows it used")
 took = wait_for(function() return showing("xactivate2") end, 200)
 assert(took, "its script moves the training on")
 
@@ -110,6 +115,10 @@ end
 visit(-1090, -290) -- the start
 took = wait_for(function() return showing("xrun") end, 200)
 assert(took, "the course is on")
+-- The course's markers light up (an arrow and a flare each) and go out,
+-- beeping, as she passes them.
+assert(env_particles("t1") == 2, "the first marker is lit")
+local beeped = false
 for _, c in ipairs({
     {-1040, -201}, {-1040, -172}, {-1040, -142}, {-1040, -111}, {-1044, -84},
     {-1079, -67}, {-1126, -67}, {-1153, -78}, {-1163, -113}, {-1163, -143},
@@ -117,7 +126,14 @@ for _, c in ipairs({
     {-1118, -290}, {-1091, -291},
 }) do
     visit(c[1], c[2])
+    for _ = 1, 4 do
+        step(1)
+        for _, ch in ipairs(channels()) do
+            if ch.clip and ch.clip:match("^countdown_beep") then beeped = true end
+        end
+    end
 end
+assert(env_particles("t1") == 0 and beeped, "passed, the markers go out with a beep")
 visit(-1039, -236) -- the finish
 took = wait_for(function() return showing("xgreat") end, 300)
 print("course run; verdict after", took)

@@ -89,6 +89,11 @@ pub struct Sprite {
     pub at: glam::Vec3,
     pub size: [f32; 2],
     pub axis: Option<glam::Vec3>,
+    /// Lying in this plane (its two axes) instead of facing the camera — a
+    /// "flat" sprite, perpendicular to its direction.
+    pub plane: Option<[glam::Vec3; 2]>,
+    /// Its colour (tint × alpha: additive).
+    pub color: [f32; 3],
     pub texture: std::path::PathBuf,
 }
 
@@ -457,6 +462,25 @@ impl Renderer {
 
     /// A rigid model (a gun's `.glb`) as a character model whose every part
     /// rides the first bone — loaded once per file; None if it won't load.
+    /// A model with every part's texture replaced by `texture` (a console's
+    /// screen in its state), loaded once per pair.
+    pub fn model_textured(&mut self, gpu: &Gpu, path: &std::path::Path, texture: &std::path::Path) -> Option<usize> {
+        let key = std::path::PathBuf::from(format!("{}#{}", path.display(), texture.display()));
+        if let Some(m) = self.models_by_path.get(&key) {
+            return *m;
+        }
+        let texture = if texture.is_file() { texture.to_path_buf() } else { texture.with_file_name("NONE.png") };
+        let m = crate::skel::load_character(path).ok().map(|mut ch| {
+            for p in &mut ch.parts {
+                p.bone = 0;
+                p.texture = Some(texture.clone());
+            }
+            self.add_character(gpu, &ch)
+        });
+        self.models_by_path.insert(key, m);
+        m
+    }
+
     pub fn model_from(&mut self, gpu: &Gpu, path: &std::path::Path) -> Option<usize> {
         if let Some(m) = self.models_by_path.get(path) {
             return *m;
@@ -704,16 +728,17 @@ impl Renderer {
         let mut by_texture: std::collections::BTreeMap<usize, (Vec<Vertex>, Vec<u32>)> = Default::default();
         for s in &sprites {
             let t = self.texture_index(gpu, &s.texture);
-            let (x, y) = match s.axis.and_then(|a| a.try_normalize()) {
+            let (x, y) = match (s.plane, s.axis.and_then(|a| a.try_normalize())) {
+                (Some([u, v]), _) => (u.normalize_or(right), v.normalize_or(up)),
                 // Stretched along its flight, turned to face the camera.
-                Some(a) => (a, a.cross(forward).try_normalize().unwrap_or(up)),
-                None => (right, up),
+                (None, Some(a)) => (a, a.cross(forward).try_normalize().unwrap_or(up)),
+                (None, None) => (right, up),
             };
             let (x, y) = (x * s.size[0], y * s.size[1]);
             let (verts, idx) = by_texture.entry(t).or_default();
             let base = verts.len() as u32;
             for (p, uv) in [(s.at - x - y, [0.0, 1.0]), (s.at + x - y, [1.0, 1.0]), (s.at + x + y, [1.0, 0.0]), (s.at - x + y, [0.0, 0.0])] {
-                verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: [1.0, 1.0, 1.0] });
+                verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: s.color });
             }
             idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }

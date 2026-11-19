@@ -430,6 +430,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
 
+        // --- environmental particles (`docs/PARTICLES.md`) ----------------------
+        "particle" => {
+            let (Some(tag), Some(command)) = (a(0).and_then(text), a(1).and_then(text)) else { return nil() };
+            let event = a(2).and_then(text);
+            if !host.world().env_particle_command(&tag, &command, event.as_deref()) {
+                state.warn(format!("particle {tag}: unknown command {command}"));
+            }
+            nil()
+        }
         // --- sound (`docs/AUDIO.md`, *Scripts*) ---------------------------------
         // One dialogue voice: a line still on drops a plain play, holds a
         // `_block` play until it is over, is cut off by `_interrupt`. Its

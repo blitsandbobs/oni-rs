@@ -116,6 +116,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
 | `powerup(id, kind [, amount])` | Give a powerup the game's way (`ammo`, `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took. |
+| `env_particles(tag)` / `particle(tag, command [, event])` / `console_screen(id)` | How many of the level's environmental particles with that tag are alive; send them a command as scripts do; the texture a console's screen shows now. |
 | `dialog()` | Whether a scripted dialogue line is on. |
 | `saying(id)` | The line a character is saying (an ambient's name), or nil. |
 | `sounds()` | The playing ambient sounds (`docs/AUDIO.md`): each `name`, `stage` (`in`, `body`, `stopping`, `out`, `detailonly`), `clip` (the sound playing now), `left` / `right` gains. |

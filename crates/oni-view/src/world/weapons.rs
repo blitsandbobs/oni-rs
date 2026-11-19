@@ -463,6 +463,8 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
+        self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
+        self.env_particles_started = false;
         self.floor_materials = match &self.impacts {
             Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
             None => Vec::new(),
@@ -824,7 +826,30 @@ impl World {
                         p.velocity
                     }
                 });
-                Some(crate::render::Sprite { at: sys.world_position(p), size: [x, y], axis, texture: textures.join(format!("{}.png", c.instance)) })
+                // (Flat: lying perpendicular to its direction, its Y.)
+                let plane = (c.sprite_type == 4 && c.has(cflag::ORIENTATION)).then(|| {
+                    let o = sys.world_orientation(p);
+                    [o.x_axis, o.z_axis]
+                });
+                // Its tint (ARGB) and alpha: additive, so fainter is darker.
+                let shade = match &c.tint {
+                    Value::Shade(s) | Value::ShadeRange(s, _) | Value::ShadeBell(s, _) => *s,
+                    Value::Var(i) => match p.vars.get(*i) {
+                        Some(p3::Val::U(u)) => *u,
+                        _ => 0xFFFF_FFFF,
+                    },
+                    _ => 0xFFFF_FFFF,
+                };
+                let alpha = read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0);
+                let channel = |shift: u32| ((shade >> shift) & 0xFF) as f32 / 255.0 * alpha;
+                Some(crate::render::Sprite {
+                    at: sys.world_position(p),
+                    size: [x, y],
+                    axis: if plane.is_some() { None } else { axis },
+                    plane,
+                    color: [channel(16), channel(8), channel(0)],
+                    texture: textures.join(format!("{}.png", c.instance)),
+                })
             })
             .collect()
     }

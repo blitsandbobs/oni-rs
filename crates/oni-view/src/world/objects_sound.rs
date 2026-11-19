@@ -120,6 +120,32 @@ impl World {
         }
     }
 
+    /// What to draw of the consoles: each screen's model, its texture by
+    /// the console's state (inactive, active, used; none set: `NONE`), and
+    /// the console's matrix.
+    pub fn console_draws(&self) -> Vec<(std::path::PathBuf, std::path::PathBuf, glam::Mat4)> {
+        let common = self.level_dir.join("../../common");
+        self.consoles
+            .iter()
+            .filter_map(|c| {
+                let model = common.join(c.screen_model.as_ref()?);
+                let name = Self::screen_of(c);
+                Some((model, common.join("textures").join(format!("{name}.png")), glam::Mat4::from_mat3_translation(c.rotation, c.position)))
+            })
+            .collect()
+    }
+
+    /// The texture a console's screen shows: by its state (inactive,
+    /// active, used); none set, `NONE`.
+    pub fn screen_of(c: &crate::consoles::Console) -> String {
+        let k = if !c.active { 0 } else if c.triggered { 2 } else { 1 };
+        if c.screens[k].is_empty() {
+            "NONE".to_string()
+        } else {
+            c.screens[k].to_uppercase()
+        }
+    }
+
     /// A console's sound for fighter `user` using it (`what`: locked,
     /// already used, activate), between its marker and the user.
     pub(super) fn console_sound(&mut self, c: usize, user: Option<usize>, what: &str) {
