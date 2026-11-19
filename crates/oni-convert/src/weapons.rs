@@ -80,7 +80,7 @@ fn anim_type(t: u16) -> Value {
 }
 
 /// The AI's aiming and shooting parameters for one shooter.
-fn ai_params(d: &[u8], o: usize) -> Value {
+pub(crate) fn ai_params(d: &[u8], o: usize) -> Value {
     json!({
         "noWildShots": le_u32(d, o) & 1 != 0,
         "predictionSpeed": le_f32(d, o + 76),

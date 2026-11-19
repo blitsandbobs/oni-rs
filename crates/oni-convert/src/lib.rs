@@ -35,6 +35,7 @@ mod particles;
 mod materials;
 mod particle_defs;
 mod weapons;
+mod turrets;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -301,6 +302,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 doors::write(&dat, raw, &root)?;
                 lasers::write(&dat, raw, &root, &laser_classes)?;
                 weapons::write_items(&dat, raw, &root)?;
+                turrets::write(&dat, raw, &root)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
@@ -311,6 +313,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 console_classes = consoles::classes(&dat, &registry);
                 laser_classes = lasers::classes(&dat, &registry);
                 weapons::write_classes(&dat, &root)?;
+                turrets::write_classes(&dat, &root)?;
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");
