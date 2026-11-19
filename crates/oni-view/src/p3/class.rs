@@ -433,6 +433,8 @@ pub struct Class {
     pub collision_radius: f32,
     pub dodge_radius: f32,
     pub alert_radius: f32,
+    /// The impulse a projectile makes passing the listener.
+    pub flyby: Option<Rc<str>>,
     pub scale: Value,
     /// A separate height (when the class has one), and how its sprite is
     /// drawn (0 = facing the camera; 2, 3, 5, 6, 7 = along its direction).
@@ -712,6 +714,7 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         collision_radius,
         dodge_radius: f32_of(&c["dodgeRadius"]),
         alert_radius: f32_of(&c["alertRadius"]),
+        flyby: c["flybySound"].as_str().filter(|s| !s.is_empty()).map(Rc::from),
         scale: value(&c["appearance"]["scale"], &vars),
         y_scale: names("flags").iter().any(|n| n == "separateYScale").then(|| value(&c["appearance"]["yScale"], &vars)),
         sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,

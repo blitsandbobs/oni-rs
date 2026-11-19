@@ -114,6 +114,8 @@ pub struct WeaponClass {
     /// half-angle (0 length: none).
     pub dodge_pattern: [f32; 3],
     pub attachments: Vec<Attachment>,
+    /// The click it makes empty (an impulse sound).
+    pub empty_sound: String,
 }
 
 impl WeaponClass {
@@ -196,6 +198,7 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
             firing_return_speed: f(&r["firingReturnSpeed"]),
         },
         recoil_anim: c["recoilAnimType"].as_str().unwrap_or("").to_string(),
+        empty_sound: c["emptySound"].as_str().unwrap_or("").to_string(),
         reload_anim: c["reloadAnimType"].as_str().unwrap_or("").to_string(),
         aiming_speed: f(&c["aimingSpeed"]),
         pickup_offset: vec3(&c["pickupOffset"]),
@@ -680,7 +683,7 @@ mod tests {
     impl Host for Range {
         fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
             let to = from + ray;
-            (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 0 })
+            (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 0, triangle: None })
         }
         fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, owner: Option<usize>) -> Option<CharHit> {
             if owner == Some(1) {

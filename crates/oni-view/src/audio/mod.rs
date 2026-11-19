@@ -132,6 +132,11 @@ impl Audio {
         self.listener = (ear, facing);
     }
 
+    /// Where the listener's ear is.
+    pub fn ear(&self) -> Vec3 {
+        self.listener.0
+    }
+
     /// Sets the overall volume to head for (it moves 0.05 an update).
     pub fn set_volume(&mut self, v: f32) {
         self.desired = v.clamp(0.0, 1.0);

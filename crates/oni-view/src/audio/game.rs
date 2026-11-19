@@ -109,6 +109,13 @@ impl Audio {
         }
     }
 
+    /// Moves a started ambient.
+    pub fn ambient_move(&mut self, handle: usize, position: Vec3) {
+        if let Some(Some(h)) = self.handles.get_mut(handle) {
+            h.position = position;
+        }
+    }
+
     /// The handles' update: in and out of earshot, muffling.
     pub(super) fn update_handles(&mut self, sight: Option<&Sight>) {
         for slot in 0..self.handles.len() {

@@ -56,6 +56,8 @@ pub mod pflag {
     pub const HAS_ATTRACTOR: u32 = 1 << 9;
     pub const BREAK_LINKS_TO_ME: u32 = 1 << 10;
     pub const CUTSCENE_KILLED: u32 = 1 << 11;
+    /// It plays an ambient sound.
+    pub const PLAYING_SOUND: u32 = 1 << 12;
 }
 
 /// A reference to a particle that goes stale when the particle dies.
@@ -139,6 +141,8 @@ pub struct Collision {
     /// The level surface, or the character index.
     pub id: u32,
     pub t: f64,
+    /// A level hit's triangle (its material), when known.
+    pub triangle: Option<u32>,
 }
 
 /// A level hit: how far along the ray (0–1), the surface normal and an id.
@@ -147,6 +151,25 @@ pub struct EnvHit {
     pub fraction: f32,
     pub normal: Vec3,
     pub surface: u32,
+    /// The level triangle hit (its material), when known.
+    pub triangle: Option<u32>,
+}
+
+/// What a particle wants heard (`docs/AUDIO.md`, *Particles*): the world
+/// plays these after the particles' turn.
+#[derive(Clone, Debug)]
+pub enum SoundEvent {
+    /// An impulse sound at a place.
+    Impulse { name: Rc<str>, at: Vec3 },
+    /// A particle starts an ambient sound (that follows it) …
+    AmbientStart { particle: Handle, name: Rc<str>, at: Vec3 },
+    /// … or stops it (it plays out).
+    AmbientStop { particle: Handle },
+    /// An impact effect (`docs/AUDIO.md`, *Impact effects*): by name and
+    /// weight, where, how fast, what it hit, whose.
+    Impact { impact: Rc<str>, modifier: u32, at: Vec3, velocity: Option<Vec3>, hit: Option<Collision>, owner: u32 },
+    /// A projectile with a flyby sound is out.
+    Flyby { particle: Handle },
 }
 
 /// A character hit along a ray.
@@ -214,6 +237,8 @@ pub struct System {
     rng: u32,
     /// Game time in ticks (the last update's).
     pub tick: u32,
+    /// Sounds the particles want heard, for the world to play.
+    pub sounds: Vec<SoundEvent>,
 }
 
 /// The outcome of running an action list.
@@ -228,7 +253,7 @@ const NORMAL: [f32; 11] = [0.0, 0.1257, 0.2533, 0.3853, 0.5244, 0.6745, 0.8416, 
 
 impl System {
     pub fn new(classes: Rc<Classes>) -> System {
-        System { classes, slots: Vec::new(), free: Vec::new(), rng: 0x2545_F491, tick: 0 }
+        System { classes, slots: Vec::new(), free: Vec::new(), rng: 0x2545_F491, tick: 0, sounds: Vec::new() }
     }
 
     /// Live particles (for drawing and tests).
@@ -393,7 +418,11 @@ impl System {
     /// Adds a created particle and sends it Create at time `t`. Returns its
     /// handle, or `None` if it died on creation.
     pub fn created(&mut self, p: Particle, t: f64, host: &mut dyn Host) -> Option<Handle> {
+        let flyby = self.classes.list[p.class].flyby.is_some();
         let h = self.insert(p);
+        if flyby {
+            self.sounds.push(SoundEvent::Flyby { particle: h });
+        }
         let mut p = self.take(h)?;
         self.find_attractor(&mut p, 0, host);
         let out = self.run(&mut p, h, event::CREATE, t, 0.0, None, false, host);
@@ -438,6 +467,10 @@ impl System {
     /// handle to it goes stale).
     fn die(&mut self, mut p: Particle, h: Handle, t: f64, host: &mut dyn Host) {
         self.run(&mut p, h, event::DIE, t, 0.0, None, false, host);
+        // (Its ambient sound stops with it.)
+        if p.flags & pflag::PLAYING_SOUND != 0 {
+            self.sounds.push(SoundEvent::AmbientStop { particle: h });
+        }
         self.release(h);
     }
 
@@ -731,6 +764,7 @@ impl System {
                     dir: ray * k.fraction,
                     id: k.surface,
                     t: cur + dt * f64::from(k.fraction),
+                    triangle: k.triangle,
                 });
             }
         }
@@ -745,6 +779,7 @@ impl System {
                     dir: r * k.fraction,
                     id: k.who as u32,
                     t: cur + dt * f64::from(limit * k.fraction),
+                    triangle: None,
                 });
             }
         }

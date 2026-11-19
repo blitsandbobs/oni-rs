@@ -23,6 +23,7 @@ use crate::skel::Character;
 /// The head's bone (the listener's ear height).
 const HEAD_BONE: usize = 10;
 
+mod particle_sounds;
 mod turrets;
 mod weapons;
 pub use weapons::{Armory, Item};
@@ -168,6 +169,10 @@ pub struct World {
     /// Each collision triangle's texture, and its material.
     pub floor_textures: Vec<String>,
     floor_materials: Vec<Option<u16>>,
+    /// Particles' ambient sounds (their audio handles), and projectiles
+    /// followed for flybys (where each was last).
+    particle_ambients: std::collections::HashMap<crate::p3::Handle, usize>,
+    flybys: Vec<(crate::p3::Handle, Vec3)>,
 }
 
 /// A breakable glass pane.
@@ -223,6 +228,8 @@ impl World {
             anim_sounds: None,
             floor_textures: Vec::new(),
             floor_materials: Vec::new(),
+            particle_ambients: Default::default(),
+            flybys: Vec::new(),
         }
     }
 
@@ -1525,6 +1532,7 @@ impl World {
             let f = p.facing.facing;
             self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
         }
+        self.particle_sounds();
         self.audio.tick(self.sight.as_ref());
     }
 

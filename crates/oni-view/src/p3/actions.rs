@@ -592,6 +592,43 @@ impl System {
                 }
                 p.flags |= pflag::VELOCITY_CHANGED;
             }
+            // Sounds (`docs/AUDIO.md`, *Particles*): heard where the
+            // particle really is.
+            Kind::ImpulseSound => {
+                let Value::Str(name) = a.param(0) else { return none };
+                let at = self.world_position(p);
+                self.sounds.push(super::SoundEvent::Impulse { name: name.clone(), at });
+            }
+            Kind::SoundStart => {
+                let Value::Str(name) = a.param(0) else { return none };
+                if p.flags & pflag::PLAYING_SOUND != 0 {
+                    self.sounds.push(super::SoundEvent::AmbientStop { particle: h });
+                }
+                let at = self.world_position(p);
+                self.sounds.push(super::SoundEvent::AmbientStart { particle: h, name: name.clone(), at });
+                p.flags |= pflag::PLAYING_SOUND;
+            }
+            Kind::SoundEnd => {
+                if p.flags & pflag::PLAYING_SOUND != 0 {
+                    self.sounds.push(super::SoundEvent::AmbientStop { particle: h });
+                }
+                p.flags &= !pflag::PLAYING_SOUND;
+            }
+            Kind::ImpactEffect => {
+                let Value::Str(impact) = a.param(0) else { return none };
+                let modifier = match a.param(1) {
+                    Value::Enum(e) => *e,
+                    _ => 0,
+                };
+                // At the hit (a little off the surface), else where it is.
+                let at = match hit {
+                    Some(k) => k.point + k.normal * 0.2,
+                    None => self.world_position(p),
+                };
+                let velocity = has_v.then_some(p.velocity);
+                let owner = p.owner;
+                self.sounds.push(super::SoundEvent::Impact { impact: impact.clone(), modifier, at, velocity, hit, owner });
+            }
             Kind::StopLink => p.link = None,
             Kind::BreakLink => p.flags |= pflag::BREAK_LINKS_TO_ME,
             // Sound, impact effects (decals, sparks by material), colour,

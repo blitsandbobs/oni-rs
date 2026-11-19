@@ -48,6 +48,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `patrol_shoot.lua` | Level 4: a patrolling thug shoots at its flag for the waypoint's time (rounds spent), then goes on to its scan. |
 | `ai_dodge.lua` | An armed soldier holding its ground steps off the line of a gun spraying at it once the danger has lasted its reaction time. |
 | `ambience.lua` | Level 1's sound objects: a box eases its ambient in over 2 s and out after leaving (then halted); a sphere's ambient plays placed while near and plays out once left. |
+| `gunfire.lua` | Level 1's pistol: the report and the bullet's whine (particle ambients), wall hits by material, ricochets and casings, and the click as a held trigger runs dry. |
 | `impacts.lua` | Level 1: Konoko's running footsteps sound by the floor (tile) and her light weight; a punch landing on a dummy sounds by the struck part, and swooshes (her variant's punch sound). |
 | `sounds.lua` | Level 1: glass-breaking impulses — placed and panned (PC law), the alt past three copies, nothing out of earshot, a full stereo pool gives up its quietest channel, all play out. |
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |

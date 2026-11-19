@@ -293,10 +293,10 @@ impl Host for ShotHost<'_> {
         let f = self.fighters.first()?;
         let base = self.glass_base;
         let n = self.panes.len();
-        f.physics.cast(from, ray).map(|(fraction, normal, part)| {
+        f.physics.cast_triangle(from, ray).map(|(fraction, normal, part, triangle)| {
             // A glass pane: surface = its index + 1.
             let surface = part.filter(|&k| k >= base && k - base < n).map_or(0, |k| (k - base + 1) as u32);
-            EnvHit { fraction, normal, surface }
+            EnvHit { fraction, normal, surface, triangle }
         })
     }
 
@@ -1272,10 +1272,36 @@ impl World {
         if empty {
             // Out of ammo: a single press reloads; a held trigger just clicks.
             gun_release(&mut self.armory, &mut self.fighters, self.sight.as_ref(), now, w);
-            if (single || !self.fighters[who].player) && !self.reload(who) {
-                self.armory.weapons[w].reports.push(Report::Empty);
+            let click = if single || !self.fighters[who].player {
+                let reloaded = self.reload(who);
+                if !reloaded {
+                    self.armory.weapons[w].reports.push(Report::Empty);
+                }
+                !reloaded
+            } else {
+                true
+            };
+            if click {
+                self.empty_click(w);
             }
         }
+    }
+
+    /// Gun `w` clicks empty (unless chambering or reloading) at the gun; an
+    /// automatic one then waits its shooter's chamber time to click again.
+    fn empty_click(&mut self, w: usize) {
+        let gun = &mut self.armory.weapons[w];
+        if gun.chamber > 0 || gun.reload_time > 0 || gun.class.empty_sound.is_empty() {
+            return;
+        }
+        let at = gun.matrix.get().w_axis.truncate();
+        if gun.class.has(flag::AUTOFIRE) {
+            if let Some(a) = gun.class.attachments.iter().find(|a| a.ammo_used > 0) {
+                (gun.chamber, gun.chamber_total) = (a.chamber_time, a.chamber_time);
+            }
+        }
+        let sound = gun.class.empty_sound.clone();
+        self.audio.impulse_play(&sound, Some(at), None, self.sight.as_ref());
     }
 
     /// The player's auto-aim (`docs/WEAPONS.md`, *Auto-aim*): the turn
