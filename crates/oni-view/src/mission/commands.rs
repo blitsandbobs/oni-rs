@@ -576,6 +576,37 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- collision and environment animations --------------------------
+        "chr_nocollision" => {
+            let Some(id) = fighter(host, a(0)) else { return nil() };
+            host.world().fighters[id].no_collision = truthy(a(1));
+            nil()
+        }
+        // An object animation moves the character (its pelvis on the clip's
+        // path, no collision) from its second frame; `_block` waits for one
+        // already playing to end, then starts and goes on at once.
+        "chr_envanim" | "chr_envanim_block" => {
+            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let world = host.world();
+            if name == "chr_envanim_block" {
+                if let Some((anim, frame)) = &world.fighters[id].env_anim {
+                    if frame + 1 < i32::from(anim.num_frames) {
+                        return Ok((Value::Nil, Value::Boolean(true), None, None));
+                    }
+                }
+            }
+            match world.object_anim(&clip) {
+                Some(anim) => world.fighters[id].env_anim = Some((anim, 2)),
+                None => state.warn(format!("{name}: no animation {clip}")),
+            }
+            nil()
+        }
+        "chr_envanim_stop" => {
+            if let Some(id) = fighter(host, a(0)) {
+                host.world().fighters[id].env_anim = None;
+            }
+            nil()
+        }
         // --- scripted animation ------------------------------------------------
         "chr_animate" | "chr_animate_block" => {
             let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };

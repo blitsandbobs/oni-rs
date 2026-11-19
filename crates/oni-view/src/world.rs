@@ -135,6 +135,9 @@ pub struct World {
     door_links: Vec<Vec<(usize, usize)>>,
     /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
+    /// The object animations scripts name (`OBAN`, the level's and the
+    /// common ones), by name.
+    pub object_anims: std::collections::HashMap<String, Rc<oni_geom::objanim::ObjectAnimation>>,
     /// Whether each door's gunk is shown now.
     door_applied: Vec<bool>,
     /// Script functions the world asks to run (consoles' events), with
@@ -231,6 +234,7 @@ impl World {
             door_leaf_boxes: Vec::new(),
             door_links: Vec::new(),
             env_hidden: Default::default(),
+            object_anims: Default::default(),
             door_applied: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
@@ -829,6 +833,12 @@ impl World {
             .collect();
     }
 
+    /// An object animation by name (exactly, else ignoring case, as the
+    /// original's template names go).
+    pub fn object_anim(&self, name: &str) -> Option<Rc<oni_geom::objanim::ObjectAnimation>> {
+        self.object_anims.get(name).or_else(|| self.object_anims.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, a)| a)).cloned()
+    }
+
     /// Door `id`'s leaves this tick: each one's box (centre, half sizes),
     /// whether it is solid, and the ticks it stays paused.
     pub fn door_leaves(&self, id: u16) -> Vec<(Vec3, Vec3, bool, u16)> {
@@ -1248,6 +1258,8 @@ impl World {
     pub fn play_film(&mut self, id: usize, name: &str, mode: &str, interp: u32) -> Option<u32> {
         let film = self.level_ai.films.get(name).cloned()?;
         let f = self.fighters.get_mut(id)?;
+        // (A film ends any environment animation.)
+        f.env_anim = None;
         let mut play = crate::fighter::FilmPlay { film: film.clone(), frame: 0, interp: None };
         f.facing.facing = film.facing;
         f.facing.desired_facing = film.facing;

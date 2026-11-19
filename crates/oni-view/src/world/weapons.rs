@@ -661,6 +661,16 @@ impl World {
         self.game_sounds = super::objects_sound::GameSounds::load(common);
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
         self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
+        // The object animations scripts name: the common ones, then the level's.
+        self.object_anims.clear();
+        for path in [common.join("object_animations.json"), self.level_dir.join("object_animations.json")] {
+            let doc: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+            for a in doc["animations"].as_array().into_iter().flatten() {
+                if let (Some(name), Some(anim)) = (a["name"].as_str(), crate::doors::object_animation(a)) {
+                    self.object_anims.insert(name.to_string(), anim);
+                }
+            }
+        }
         self.mark_door_quads();
         // (Glass is breakable by its material, `AKiComputeBreakableFlags`.)
         for k in 0..self.glass.len() {

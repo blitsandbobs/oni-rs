@@ -172,6 +172,12 @@ pub struct Fighter {
     pub collisions: (u32, u32, u32),
     /// Its AI movement's collision records (`ai/avoid.rs`).
     pub avoid: crate::ai::avoid::Avoid,
+    /// Collision off (`chr_nocollision`): it moves as its animation does,
+    /// through everything, with no pull to the ground.
+    pub no_collision: bool,
+    /// An environment animation moving it (`chr_envanim`): the clip and the
+    /// frame it is at.
+    pub env_anim: Option<(Rc<oni_geom::objanim::ObjectAnimation>, i32)>,
     /// A noise it made this tick (kind, volume), for the world to spread.
     pub noise: Option<(crate::ai::perception::Stimulus, f32)>,
     /// A footstep (or landing, or fall) this tick: its impact kind and
@@ -344,6 +350,8 @@ impl Fighter {
             velocity: Vec3::ZERO,
             collisions: (0, 0, 0),
             avoid: Default::default(),
+            no_collision: false,
+            env_anim: None,
             noise: None,
             step: None,
             last_floor: None,
@@ -642,8 +650,46 @@ impl Fighter {
 
     /// The second half of a tick: apply the (possibly adjusted) move against
     /// the level, detect landing / ledges, and update the placement.
-    pub fn commit(&mut self, mut world: Vec3, env: &chrphys::Env) {
+    pub fn commit(&mut self, world: Vec3, env: &chrphys::Env) {
         let start = self.physics.feet;
+        // An environment animation places it (its pelvis on the clip's
+        // path); without collision the move is taken as it is: no spheres, no
+        // floor, no pull down (`ONrCharacter_BuildPhysicsFlags`).
+        if let Some(feet) = self.env_anim_step() {
+            self.ground_pull = None;
+            self.physics.feet = feet;
+        } else if self.no_collision {
+            self.ground_pull = None;
+            self.physics.feet += world;
+        } else {
+            self.collide_move(start, world, env);
+        }
+        self.physics.grounded = self.motion.air.frames == 0 && self.motion.air.off_ground == 0;
+        self.velocity = self.physics.feet - start;
+
+        self.replace();
+        if std::mem::take(&mut self.motion.new_clip) {
+            self.hit_set.clear();
+            self.started = Some(self.motion.clip);
+        }
+    }
+
+    /// Where an environment animation puts it this tick (the clip's
+    /// translation less the pelvis height), moving it a frame on; at the
+    /// clip's last frame it ends (`ONrCharacter_Update`).
+    fn env_anim_step(&mut self) -> Option<Vec3> {
+        let (anim, frame) = self.env_anim.clone()?;
+        if frame >= i32::from(anim.num_frames) - 1 {
+            self.env_anim = None;
+            return None;
+        }
+        self.env_anim = Some((anim.clone(), frame + 1));
+        let m = anim.matrix(frame);
+        Some(Vec3::new(m[9], m[10], m[11]) - Vec3::Y * self.motion.height())
+    }
+
+    /// The move against the level: the spheres, then the floor pass.
+    fn collide_move(&mut self, start: Vec3, mut world: Vec3, env: &chrphys::Env) {
         if let Some(plain) = self.ground_pull.take() {
             world.y -= chrphys::ground_gravity(env.quads, start, plain);
         }
@@ -690,14 +736,6 @@ impl Fighter {
             if air.off_ground > 11 {
                 self.motion.please_jump = true;
             }
-        }
-        self.physics.grounded = self.motion.air.frames == 0 && self.motion.air.off_ground == 0;
-        self.velocity = self.physics.feet - start;
-
-        self.replace();
-        if std::mem::take(&mut self.motion.new_clip) {
-            self.hit_set.clear();
-            self.started = Some(self.motion.clip);
         }
     }
 
