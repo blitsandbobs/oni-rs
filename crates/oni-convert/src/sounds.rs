@@ -14,6 +14,11 @@
 //! threshold (copies at once; from version 5, else 3), min occlusion (from
 //! version 6, else 0).
 //!
+//! Impulse (a one-shot): its group's name, priority (0 low … 3 highest),
+//! max- and min-volume distances (feet), three angle fields the game never
+//! uses, then from version 4 the alt threshold and alt impulse's name, from
+//! 5 the impact velocity, from 6 the min occlusion.
+//!
 //! Group: volume (from version 2, else 1), pitch (from 3, else 1), u16 flags
 //! (1 prevent repeats) and u16 flag data (from 6; before, prevent repeats
 //! with 4 or more permutations), channels, permutation count, then per
@@ -69,6 +74,33 @@ pub fn ambient(version: u32, b: &[u8]) -> Option<Value> {
         }
     }
     Some(a)
+}
+
+/// An impulse sound's definition (format `version`).
+pub fn impulse(version: u32, b: &[u8]) -> Option<Value> {
+    if b.len() < 56 {
+        return None;
+    }
+    let mut i = json!({
+        "group": cstr(b, 0, NAME),
+        "priority": le_u32(b, 32),
+        "maxVolumeDistance": le_f32(b, 36),
+        "minVolumeDistance": le_f32(b, 40),
+    });
+    if version >= 4 && b.len() >= 92 {
+        let alt = cstr(b, 60, NAME);
+        if le_u32(b, 56) > 0 && !alt.is_empty() {
+            i["altThreshold"] = json!(le_u32(b, 56));
+            i["alt"] = json!(alt);
+        }
+    }
+    if version >= 5 && b.len() >= 96 && le_f32(b, 92) > 0.0 {
+        i["impactVelocity"] = json!(le_f32(b, 92));
+    }
+    if version >= 6 && b.len() >= 100 && le_f32(b, 96) > 0.0 {
+        i["minOcclusion"] = json!(le_f32(b, 96));
+    }
+    Some(i)
 }
 
 /// A sound group's definition (format `version`; `sound`: the WAV's name
@@ -127,6 +159,7 @@ pub fn group(version: u32, b: &[u8]) -> Option<Value> {
 pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize, usize)> {
     let mut ambients = BTreeMap::new();
     let mut groups = BTreeMap::new();
+    let mut impulses = BTreeMap::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_OSBD) {
         let Some(full) = inst.name.as_deref() else { continue };
         let Some((class, version, body)) = blob(dat, raw, inst) else { continue };
@@ -142,6 +175,11 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize
                     groups.insert(key, g);
                 }
             }
+            b"mISO" => {
+                if let Some(i) = impulse(version, body) {
+                    impulses.insert(key, i);
+                }
+            }
             _ => {}
         }
     }
@@ -150,7 +188,7 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize
         std::fs::create_dir_all(common)?;
         std::fs::write(
             common.join("sounds.json"),
-            serde_json::to_string_pretty(&json!({ "ambients": ambients, "groups": groups }))?,
+            serde_json::to_string_pretty(&json!({ "ambients": ambients, "groups": groups, "impulses": impulses }))?,
         )?;
     }
     Ok(counts)
@@ -189,5 +227,19 @@ mod tests {
         let g1 = group(1, &g1).unwrap();
         assert_eq!(g1["volume"], json!(1.0));
         assert_eq!(g1["permutations"][0]["sound"], json!("a_aif"));
+
+        let mut i = vec![0u8; 100];
+        i[0..4].copy_from_slice(b"bang");
+        i[32..36].copy_from_slice(&2u32.to_le_bytes());
+        i[40..44].copy_from_slice(&40f32.to_le_bytes());
+        i[56..60].copy_from_slice(&3u32.to_le_bytes());
+        i[60..63].copy_from_slice(b"alt");
+        i[92..96].copy_from_slice(&25f32.to_le_bytes());
+        let i6 = impulse(6, &i).unwrap();
+        assert_eq!((i6["group"].as_str(), i6["priority"].as_u64()), (Some("bang"), Some(2)));
+        assert_eq!((i6["alt"].as_str(), i6["altThreshold"].as_u64()), (Some("alt"), Some(3)));
+        assert_eq!(i6["impactVelocity"], json!(25.0));
+        let i3 = impulse(3, &i).unwrap();
+        assert!(i3.get("alt").is_none() && i3.get("impactVelocity").is_none(), "older versions lack them");
     }
 }
