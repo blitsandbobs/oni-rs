@@ -514,6 +514,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- turrets (`docs/TURRETS.md`) ----------------------------------------
+        "turret_activate" | "turret_deactivate" | "turret_reset" => {
+            let id = int(a(0)).unwrap_or(-1);
+            let what = name.trim_start_matches("turret_");
+            host.world().turret_set(id, what);
+            nil()
+        }
+        "reset_mechanics" => {
+            host.world().turret_set(-1, "reset");
+            nil()
+        }
         // --- weapons (`docs/WEAPONS.md`) ---------------------------------------
         "chr_giveweapon" => {
             let (Some(id), Some(class)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
@@ -797,6 +808,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let on = truthy(a(0));
             state.all_passive = on;
             let world = host.world();
+            world.all_passive = on;
             for id in 1..world.fighters.len() {
                 world.set_passive(id, on);
             }

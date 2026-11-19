@@ -122,15 +122,22 @@ pub struct ShotHost<'a> {
     glass_base: usize,
     panes: Vec<(bool, Vec3, f32)>,
     pub broke: Vec<usize>,
-    /// Each fighter's extra spread (degrees) on its shots.
+    /// Each fighter's extra spread (degrees) on its shots, and turrets'.
     inaccuracy: Vec<f32>,
+    turret_spread: f32,
 }
 
 impl<'a> ShotHost<'a> {
-    fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
+    /// Each fighter's extra spread, and the turrets'.
+    pub(super) fn set_spread(&mut self, fighters: Vec<f32>, turrets: f32) {
+        self.inaccuracy = fighters;
+        self.turret_spread = turrets;
+    }
+
+    pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new() }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0 }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -418,6 +425,9 @@ impl Host for ShotHost<'_> {
     }
 
     fn inaccuracy(&self, owner: u32) -> f32 {
+        if owner & p3::owner::TYPE_MASK == p3::owner::TURRET {
+            return self.turret_spread;
+        }
         p3::owner::character(owner).and_then(|c| self.inaccuracy.get(c)).copied().unwrap_or(0.0)
     }
 }
@@ -444,6 +454,7 @@ impl World {
         self.armory.classes = classes;
         self.armory.weapons.clear();
         self.armory.powerups.clear();
+        self.turrets = super::turrets::load(&self.level_dir, common, &self.armory.particles.classes.clone());
         let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         for w in doc["weapons"].as_array().into_iter().flatten() {
@@ -698,7 +709,7 @@ impl World {
     /// Each fighter's extra shot spread (degrees): an AI's skill with its
     /// gun, widened by the difficulty if it is the player's enemy; players
     /// shoot true.
-    fn inaccuracies(&self) -> Vec<f32> {
+    pub(super) fn inaccuracies(&self) -> Vec<f32> {
         let player_team = self.fighters.first().map(|p| p.team());
         self.fighters
             .iter()
@@ -1391,9 +1402,10 @@ impl World {
         let glass_base = self.glass_base();
         let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
         let inaccuracy = self.inaccuracies();
+        let spread = self.turret_spread();
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
         host.glass_base = glass_base;
-        host.inaccuracy = inaccuracy;
+        host.set_spread(inaccuracy, spread);
         host.panes = panes;
         self.armory.particles.update(tick, &mut host);
         let sounds = std::mem::take(&mut host.sounds);

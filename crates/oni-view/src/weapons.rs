@@ -220,7 +220,7 @@ pub struct AiGun {
 }
 
 impl AiGun {
-    fn from_json(j: &Json) -> AiGun {
+    pub fn from_json(j: &Json) -> AiGun {
         let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
         let m: Vec<f32> = j["shooterInverse"].as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default();
         let inverse = if m.len() >= 9 {
@@ -237,6 +237,7 @@ impl AiGun {
                 shooter_offset: vec3(&j["shooterOffset"]),
                 shooter_inverse: inverse,
                 ballistic: (f("ballisticSpeed") > 0.0).then(|| (f("ballisticSpeed"), f("ballisticGravity"))),
+                barrel_z: false,
             },
             min_safe_distance: f("minSafeDistance"),
             max_range: f("maxRange"),

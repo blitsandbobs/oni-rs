@@ -218,6 +218,7 @@ impl ScriptHost {
             .gun_draws()
             .into_iter()
             .chain(self.world.particle_models())
+            .chain(self.world.turret_draws())
             .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
             .collect();
         let draws: Vec<CharDraw> = self
@@ -927,6 +928,33 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
+        })?,
+    )?;
+    // Turrets: turret(id, "activate" | "deactivate" | "reset");
+    // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
+    // (the first turret with that script id; nil: none).
+    let h = host.clone();
+    g.set(
+        "turret",
+        lua.create_function(move |_, (id, what): (i64, String)| {
+            h.borrow_mut().world.turret_set(id, &what);
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "turret_state",
+        lua.create_function(move |lua, id: u16| {
+            let host = h.borrow();
+            let Some(t) = host.world.turrets.iter().find(|t| t.id == id) else { return Ok(mlua::Value::Nil) };
+            let r = lua.create_table()?;
+            r.set("active", t.active)?;
+            r.set("yaw", t.yaw.to_degrees())?;
+            r.set("pitch", t.pitch.to_degrees())?;
+            r.set("target", t.target)?;
+            r.set("firing", t.firing)?;
+            r.set("shots", t.shots)?;
+            Ok(mlua::Value::Table(r))
         })?,
     )?;
     let h = host.clone();

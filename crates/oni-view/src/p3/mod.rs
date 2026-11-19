@@ -31,6 +31,7 @@ const DISABLED: u16 = 0xFFFF;
 pub mod owner {
     pub const CHARACTER_WEAPON: u32 = 1 << 24;
     pub const CHARACTER_MELEE: u32 = 2 << 24;
+    pub const TURRET: u32 = 3 << 24;
     pub const ENVIRONMENTAL: u32 = 4 << 24;
     pub const FALLING: u32 = 5 << 24;
     pub const ACT_OF_GOD: u32 = 6 << 24;

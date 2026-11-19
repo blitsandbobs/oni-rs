@@ -91,6 +91,8 @@ pub struct Gun {
     /// A lobbed shot (grenades, superballs): its launch speed (units/s) and
     /// gravity (× 98 units/s²).
     pub ballistic: Option<(f32, f32)>,
+    /// The barrel runs along gun-space +Z (turrets) rather than +X (guns).
+    pub barrel_z: bool,
 }
 
 /// The flatter of the two arcs that reach a point `to` away (horizontal
@@ -222,7 +224,8 @@ impl Targeting {
         }
         self.near = ((len - 25.0) / (10.0 - 25.0)).clamp(0.0, 1.0);
         // (Nose to nose, the reference point pulls back along the barrel so
-        // a muzzle inside the target doesn't swing the aim.)
+        // a muzzle inside the target doesn't swing the aim — along gun-space
+        // X even for a turret, whose barrel is Z: as shipped.)
         let weapon_pt = gun.transform_point3(self.gun.shooter_offset - Vec3::X * 8.0 * self.near);
         self.desired = (shoulder - weapon_pt) + v;
         self.aiming_distance = self.desired.length();
@@ -267,7 +270,11 @@ impl Targeting {
         // how far off at the target (perpendicular).
         let r = Mat3::from_mat4(gun);
         let s = self.gun.shooter_inverse * (r.transpose() * self.desired);
-        let (axial, off) = (s.x, (s.y * s.y + s.z * s.z).sqrt());
+        let (axial, off) = if self.gun.barrel_z {
+            (s.z, (s.x * s.x + s.y * s.y).sqrt())
+        } else {
+            (s.x, (s.y * s.y + s.z * s.z).sqrt())
+        };
         // SHIPPED BALANCE — kept on purpose, in every mode (not a `--faithful`
         // quirk): the original reads `near` the wrong way round in this gate,
         // so the strict cone and the class's best aiming angle apply nose to
@@ -361,6 +368,7 @@ mod tests {
             shooter_offset: Vec3::ZERO,
             shooter_inverse: Mat3::IDENTITY,
             ballistic: None,
+            barrel_z: false,
         }
     }
 

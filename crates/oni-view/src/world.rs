@@ -20,6 +20,7 @@ use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
 
+mod turrets;
 mod weapons;
 pub use weapons::{Armory, Item};
 
@@ -149,6 +150,10 @@ pub struct World {
     /// after the script parts), and the broken ones by quad (not drawn).
     glass: Vec<Pane>,
     pub broken_glass: std::collections::HashSet<u32>,
+    /// The level's turrets (`docs/TURRETS.md`).
+    pub turrets: Vec<turrets::Turret>,
+    /// Every AI made passive (`ai2_allpassive`): turrets hold fire too.
+    pub all_passive: bool,
 }
 
 /// A breakable glass pane.
@@ -197,6 +202,8 @@ impl World {
             armory: Armory::default(),
             glass: Vec::new(),
             broken_glass: Default::default(),
+            turrets: Vec::new(),
+            all_passive: false,
         }
     }
 
@@ -993,6 +1000,8 @@ impl World {
                 // (By id only: the original's "every laser" doesn't apply here.)
                 Event::ActivateLaser(id) => self.laser_set(i64::from(*id), "activate", 1.0),
                 Event::DeactivateLaser(id) => self.laser_set(i64::from(*id), "deactivate", 1.0),
+                Event::ActivateTurret(id) => self.turret_set(i64::from(*id), "activate"),
+                Event::DeactivateTurret(id) => self.turret_set(i64::from(*id), "deactivate"),
                 Event::Other(kind, id) => eprintln!("event {kind} {id} (not carried out yet)"),
             }
         }
@@ -1443,7 +1452,8 @@ impl World {
         for f in &mut self.fighters {
             f.apply_reaction();
         }
-        // Guns and shots: the player's buttons, the AIs' triggers.
+        // Turrets, then guns and shots: the player's buttons, the AIs' triggers.
+        self.turrets_tick();
         let mut gun_controls = self.ai_guns();
         if let Some(c) = gun_controls.first_mut() {
             *c = controls;

@@ -20,7 +20,9 @@ pub enum Event {
     UnlockDoor(u16),
     ActivateLaser(u16),
     DeactivateLaser(u16),
-    /// Turrets: not modelled yet.
+    ActivateTurret(u16),
+    DeactivateTurret(u16),
+    /// Anything else (not modelled).
     Other(String, u16),
 }
 
@@ -36,6 +38,8 @@ pub fn event(e: &serde_json::Value) -> Event {
         "unlockDoor" => Event::UnlockDoor(id),
         "activateTrigger" => Event::ActivateLaser(id),
         "deactivateTrigger" => Event::DeactivateLaser(id),
+        "activateTurret" => Event::ActivateTurret(id),
+        "deactivateTurret" => Event::DeactivateTurret(id),
         other => Event::Other(other.to_string(), id),
     }
 }

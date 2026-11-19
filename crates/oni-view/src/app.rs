@@ -600,7 +600,7 @@ impl State {
         };
         // Guns: one-bone models placed by their matrices.
         let guns: Vec<(usize, Vec<Mat4>)> = match &self.play {
-            Some(pw) => pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m]))).collect(),
+            Some(pw) => pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m]))).collect(),
             None => Vec::new(),
         };
         let draws: Vec<crate::render::CharDraw> = match (&self.play, self.char_model) {
