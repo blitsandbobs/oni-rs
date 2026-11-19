@@ -32,6 +32,8 @@ mod lasers;
 mod objects;
 mod patrols;
 mod particles;
+mod particle_defs;
+mod weapons;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -286,6 +288,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 consoles::write(&dat, raw, &root, &console_classes)?;
                 doors::write(&dat, raw, &root)?;
                 lasers::write(&dat, raw, &root, &laser_classes)?;
+                weapons::write_items(&dat, raw, &root)?;
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
@@ -295,6 +298,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             } else {
                 console_classes = consoles::classes(&dat, &registry);
                 laser_classes = lasers::classes(&dat, &registry);
+                weapons::write_classes(&dat, &root)?;
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");
@@ -369,6 +373,10 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("game_settings.json"), serde_json::to_string_pretty(&gs)?)?;
     }
+
+    // Every particle class, decoded in full (`particle_defs`).
+    let defs: BTreeMap<String, &[u8]> = particle_classes.iter().map(|(n, c)| (n.clone(), c.def.as_slice())).collect();
+    particle_defs::write(&defs, &output_dir.join("common"))?;
 
     write_manifest(output_dir, &report, &source_files)?;
     Ok(report)
@@ -1700,7 +1708,7 @@ fn root_to_common(root: &Path) -> PathBuf {
 }
 
 /// Stable asset name: the instance's name (sanitized) if present, else `<tag>_<index>`.
-fn asset_name(_dat: &Dat<'_>, inst: &Instance) -> String {
+pub(crate) fn asset_name(_dat: &Dat<'_>, inst: &Instance) -> String {
     match &inst.name {
         Some(n) if !n.is_empty() => sanitize(n),
         _ => format!("{}_{}", sanitize(&inst.tag.to_string()), inst.index),

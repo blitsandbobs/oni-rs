@@ -61,6 +61,9 @@ pub struct ParticleClass {
     /// (`P3cParticleClassFlag_Appearance_Geometry`); such classes have no
     /// billboard texture.
     pub geometry: bool,
+    /// The whole `P3tParticleDefinition` (fixed part and its variable,
+    /// action and emitter arrays), decoded by `particle_defs`.
+    pub def: Vec<u8>,
 }
 
 /// Reads a `P3tValue`'s leading `f32` (valid for the float constant/range/
@@ -124,6 +127,7 @@ pub fn collect_particle_classes(
                     1.0
                 },
                 geometry,
+                def: def.to_vec(),
             },
         );
     }
