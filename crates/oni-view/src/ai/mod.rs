@@ -9,6 +9,7 @@
 //! rest: start clips, loops, stops, collisions. Higher layers (routes now;
 //! pathfinding, goals and combat later) only ever produce [`Orders`].
 
+pub mod avoid;
 pub mod goals;
 pub mod level;
 pub mod melee;
@@ -231,19 +232,60 @@ pub enum Brain {
 
 impl Brain {
     /// This tick's control bits; turns `facing` as ordered.
-    pub fn think(&mut self, senses: &Senses, facing: &mut Facing) -> u32 {
+    pub fn think(&mut self, senses: &Senses, facing: &mut Facing, avoid: &mut avoid::Avoid) -> u32 {
+        // The AI's own movement steers round what it keeps bumping into
+        // (`ai/avoid.rs`); wedged, its path fails.
+        let steer = |orders: Orders, avoid: &mut avoid::Avoid, facing: &Facing| {
+            let wanted = match orders.direction {
+                Direction::Stopped => None,
+                Direction::Forward => Some(orders.face.unwrap_or(facing.facing)),
+                Direction::Backpedal => Some(facing.facing + std::f32::consts::PI),
+                Direction::SidestepLeft => Some(facing.facing + std::f32::consts::FRAC_PI_2),
+                Direction::SidestepRight => Some(facing.facing - std::f32::consts::FRAC_PI_2),
+            };
+            let way = avoid.steer(wanted, senses.feet);
+            // Steered off its way: the move relative to the body
+            // (`AI2iMovementState_FindMovementDirection`) — ahead within 45°,
+            // behind past 135°, else a sidestep — still facing as it was.
+            match (orders.direction, way, wanted) {
+                (Direction::Forward, Some(w), Some(m)) if (w - m).abs() > 1e-4 => {
+                    let delta = relative(facing.facing - w);
+                    let direction = if delta.abs() < std::f32::consts::FRAC_PI_4 {
+                        Direction::Forward
+                    } else if delta.abs() > 3.0 * std::f32::consts::FRAC_PI_4 {
+                        Direction::Backpedal
+                    } else if delta > 0.0 {
+                        Direction::SidestepRight
+                    } else {
+                        Direction::SidestepLeft
+                    };
+                    Orders { direction, ..orders }
+                }
+                _ => orders,
+            }
+        };
         match self {
-            Brain::Route(r) => execute(r.orders(senses.feet, facing.facing), facing),
+            Brain::Route(r) => execute(steer(r.orders(senses.feet, facing.facing), avoid, facing), facing),
             Brain::Hold(o) => execute(*o, facing),
             Brain::Spar(s) => s.think(senses, facing),
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
             Brain::Agent(a) => {
                 let (orders, press) = a.orders(senses.feet, facing.facing, senses.now);
+                let orders = steer(orders, avoid, facing);
+                if std::mem::take(&mut avoid.stuck) {
+                    if let Some(n) = a.nav.as_mut() {
+                        n.collision_stuck(senses.now);
+                    }
+                }
                 execute(orders, facing) | press
             }
             Brain::GoTo(n) => {
                 let now = senses.now;
-                execute(n.orders(senses.feet, facing.facing, now), facing)
+                let orders = steer(n.orders(senses.feet, facing.facing, now), avoid, facing);
+                if std::mem::take(&mut avoid.stuck) {
+                    n.collision_stuck(now);
+                }
+                execute(orders, facing)
             }
         }
     }

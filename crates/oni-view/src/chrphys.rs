@@ -124,9 +124,8 @@ impl DoorBox {
 pub struct Env<'a> {
     pub quads: &'a Quads,
     pub doors: &'a [DoorBox],
-    /// Where to note the door faces it touches, each time it looks
-    /// (`PHrPhysics_Single_PhyCollision` notifying the object).
-    pub touched: Option<&'a std::cell::RefCell<Vec<Touch>>>,
+    /// Where to note what it touches, each time it looks.
+    pub touched: Option<&'a std::cell::RefCell<Contacts>>,
 }
 
 impl<'a> Env<'a> {
@@ -135,12 +134,28 @@ impl<'a> Env<'a> {
     }
 }
 
-/// A door face a character touched: which box, where, and its normal.
+/// Something a character's movement met (`PHtCollider`, for the
+/// notifications): a wall's plane (its index; the top bit: the reversed
+/// side), or a door leaf's box; where, and the plane's normal and d.
 #[derive(Clone, Copy, Debug)]
 pub struct Touch {
-    pub door: usize,
+    pub wall: Option<u32>,
+    pub door: Option<usize>,
     pub point: Vec3,
     pub normal: Vec3,
+    pub d: f32,
+}
+
+/// What a character's movement met this tick: every wall (not floor) and
+/// door face, each time it looked (`ONrCharacter_Callback_FindEnvCollisions`
+/// / `_FindPhyCollisions`, before what it moves away from is left out), and
+/// the counts the original keeps — walls met (each side once), objects met
+/// the last time it looked.
+#[derive(Clone, Debug, Default)]
+pub struct Contacts {
+    pub touches: Vec<Touch>,
+    pub walls: u32,
+    pub objects: u32,
 }
 
 /// Where a character stands (its location: the point on the ground under
@@ -165,23 +180,37 @@ pub struct Collider {
 /// twice, both ways), then the doors' faces.
 fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
     let mut out = Vec::new();
+    let mut contacts = env.touched.map(|t| t.borrow_mut());
     for hit in env.quads.sphere(tree.root.center, tree.root.radius, v, flag::CHR_COL_SKIP) {
         let q = &env.quads.quads[hit.quad as usize];
         if !tree.touches(env.quads, q, v) {
             continue;
         }
-        let (normal, _) = env.quads.plane(q.plane);
+        let (normal, d) = env.quads.plane(q.plane);
         out.push(Collider { normal, point: hit.point });
-        if q.flags & flag::AK_2SIDED != 0 {
+        let two_sided = q.flags & flag::AK_2SIDED != 0;
+        if two_sided {
             out.push(Collider { normal: -normal, point: hit.point });
         }
+        // (A wall, not a floor: counted once, noted both ways.)
+        if let Some(c) = contacts.as_mut().filter(|_| normal.y <= MIN_FLOOR_NORMAL_Y) {
+            c.walls += 1;
+            c.touches.push(Touch { wall: Some(q.plane), door: None, point: hit.point, normal, d });
+            if two_sided {
+                c.touches.push(Touch { wall: Some(q.plane ^ 0x8000_0000), door: None, point: hit.point, normal: -normal, d: -d });
+            }
+        }
     }
+    let objects = out.len();
     for (k, door) in env.doors.iter().enumerate().filter(|(_, d)| d.solid) {
         let at = out.len();
         door_colliders(door, tree, v, initial, &mut out);
-        if let Some(t) = env.touched {
-            t.borrow_mut().extend(out[at..].iter().map(|c| Touch { door: k, point: c.point, normal: c.normal }));
+        if let Some(c) = contacts.as_mut() {
+            c.touches.extend(out[at..].iter().map(|o| Touch { wall: None, door: Some(k), point: o.point, normal: o.normal, d: -o.normal.dot(o.point) }));
         }
+    }
+    if let Some(c) = contacts.as_mut() {
+        c.objects = (out.len() - objects) as u32;
     }
     out
 }

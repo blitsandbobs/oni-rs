@@ -33,6 +33,12 @@ impl Quirks {
         self.faithful
     }
 
+    /// Whether hit prediction turns a colliding target's movement into its
+    /// own frame with `dx` in place of `dz` across (Q15).
+    pub fn colliding_velocity_slip(self) -> bool {
+        self.faithful
+    }
+
     /// Whether a melee technique ignores danger. The shipped game tests its
     /// "fearless" flag against the wrong set of bits — the ones holding the
     /// technique's start state — so it really depends on that state (Q5).

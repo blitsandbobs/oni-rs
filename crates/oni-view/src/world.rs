@@ -854,7 +854,7 @@ impl World {
     /// a leaf moving into one in front of it pauses.
     fn doors_touched(&mut self, touches: &[(usize, crate::chrphys::Touch)]) {
         for &(who, t) in touches {
-            let Some(b) = self.door_leaf_boxes.get(t.door) else { continue };
+            let Some(b) = t.door.and_then(|k| self.door_leaf_boxes.get(k)) else { continue };
             let at = self.fighters[who].feet();
             let d = &mut self.doors[b.door];
             let was = d.paused[b.leaf.min(1)];
@@ -1574,14 +1574,29 @@ impl World {
             moves.push(f.plan(held, pressed, &others));
         }
         self.collide(&mut moves);
-        let touched = std::cell::RefCell::new(Vec::new());
+        let touched = std::cell::RefCell::new(crate::chrphys::Contacts::default());
         let mut touches = Vec::new();
         let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         env.touched = Some(&touched);
         for (i, (f, m)) in self.fighters.iter_mut().zip(moves).enumerate() {
             if let Some(m) = m {
                 f.commit(m, &env);
-                touches.extend(touched.borrow_mut().drain(..).map(|t| (i, t)));
+                let c = std::mem::take(&mut *touched.borrow_mut());
+                f.collisions.0 = c.walls;
+                f.collisions.1 = c.objects;
+                // (The AI's own movement is told what it met.)
+                if matches!(f.brain, Some(crate::ai::Brain::Agent(_) | crate::ai::Brain::GoTo(_) | crate::ai::Brain::Route(_))) {
+                    let feet = f.feet();
+                    for t in &c.touches {
+                        let with = match (t.wall, t.door) {
+                            (Some(p), _) => crate::ai::avoid::With::Wall(p),
+                            (_, Some(k)) => crate::ai::avoid::With::Object(k),
+                            _ => continue,
+                        };
+                        f.avoid.notify(with, t.point, t.normal, t.d, feet);
+                    }
+                }
+                touches.extend(c.touches.into_iter().filter(|t| t.door.is_some()).map(|t| (i, t)));
             }
         }
         self.doors_touched(&touches);
@@ -1905,6 +1920,9 @@ impl World {
     ///   of a clip's attacks hits each victim once.
     fn collide(&mut self, moves: &mut [Option<Vec3>]) {
         let n = self.fighters.len();
+        for f in &mut self.fighters {
+            f.collisions.2 = 0;
+        }
         let spheres: Vec<Vec<(usize, Vec3, f32)>> =
             self.fighters.iter().map(|f| f.body_spheres()).collect();
         let mut blows: Vec<(usize, usize, usize, crate::skel::Attack, u32, u32)> = Vec::new();
@@ -1948,6 +1966,21 @@ impl World {
                         if into < 0.0 {
                             *m -= away * into;
                         }
+                    }
+                    // (Counted, and the AI's movement told — not of its
+                    // combat target, `AI2rTryToPathfindThrough`; the plane
+                    // halfway in, through its pelvis less half the way.)
+                    let f = &mut self.fighters[me];
+                    f.collisions.2 += 1;
+                    let ai = match &f.brain {
+                        Some(crate::ai::Brain::Agent(a)) => a.opponent() != Some(other),
+                        Some(crate::ai::Brain::GoTo(_) | crate::ai::Brain::Route(_)) => true,
+                        _ => false,
+                    };
+                    if ai {
+                        let point = f.sight_points()[0] - away * 0.5;
+                        let feet = f.feet();
+                        f.avoid.notify(crate::ai::avoid::With::Character(other), point, away, -point.dot(away), feet);
                     }
                 }
 

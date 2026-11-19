@@ -39,9 +39,30 @@ pub struct View<'a> {
     pub knockdown_resistant: bool,
     /// The player (its body sphere is 4, an AI's 3).
     pub player: bool,
+    /// Its movement met something last tick (a wall, an object, a
+    /// character).
+    pub colliding: bool,
 }
 
 impl View<'_> {
+    /// Its velocity as an attack's hit prediction reckons it (world;
+    /// `ONrSetupAttackerState`): colliding, its actual movement — `slip`: as
+    /// the original turns it, `dx` in place of `dz` across (Q15); otherwise
+    /// its animation's.
+    pub fn predicted(&self, slip: bool) -> Vec3 {
+        let turn = Quat::from_rotation_y(self.facing);
+        let local = if self.colliding {
+            let d = self.velocity;
+            let (s, c) = self.facing.sin_cos();
+            let across = if slip { d.x } else { d.z };
+            Vec3::new(c * d.x - s * across, 0.0, s * d.x + c * d.z)
+        } else {
+            let e = self.motion.velocity_estimate();
+            Vec3::new(e.x, 0.0, e.z)
+        };
+        turn * local + Vec3::Y * self.velocity.y
+    }
+
     pub fn state(&self) -> MeleeState {
         MeleeState::from_anim_state(self.motion.state)
     }
@@ -459,7 +480,8 @@ impl Melee {
             return false;
         }
         // Would it hit us, and when?
-        let (rel, vel) = relative(target, me);
+        let (rel, _) = relative(target, me);
+        let vel = Quat::from_rotation_y(-target.facing) * me.predicted(self.quirks.colliding_velocity_slip());
         let attacker = Attacker {
             clip,
             tick: target.motion.frame,
@@ -808,7 +830,8 @@ impl Melee {
                 }
             }
             let c = &me.motion.coll.entries[clip].clip;
-            let (rel, mut vel) = relative_turned(me, target, turn);
+            let (rel, _) = relative_turned(me, target, turn);
+            let mut vel = Quat::from_rotation_y(-(me.facing + turn)) * target.predicted(self.quirks.colliding_velocity_slip());
             let along = dir.map_or(Vec3::Z, |d| Vec3::new(d.sin(), 0.0, d.cos()));
             let air = jump.map(|(kind, jdir)| {
                 if matches!(kind, tables::JumpKind::Standing | tables::JumpKind::Vertical) {
@@ -929,6 +952,7 @@ pub fn view<'a>(
         feet,
         facing: f.facing.facing,
         velocity: f.velocity,
+        colliding: f.collisions != (0, 0, 0),
         motion: &f.motion,
         env,
         nav,

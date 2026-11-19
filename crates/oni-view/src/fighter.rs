@@ -167,6 +167,11 @@ pub struct Fighter {
     pub class_combat: crate::ai::goals::ClassCombat,
     /// Its movement last tick (world).
     pub velocity: Vec3,
+    /// What its movement met last tick: walls, objects, characters
+    /// (`numWallCollisions` …).
+    pub collisions: (u32, u32, u32),
+    /// Its AI movement's collision records (`ai/avoid.rs`).
+    pub avoid: crate::ai::avoid::Avoid,
     /// A noise it made this tick (kind, volume), for the world to spread.
     pub noise: Option<(crate::ai::perception::Stimulus, f32)>,
     /// A footstep (or landing, or fall) this tick: its impact kind and
@@ -337,6 +342,8 @@ impl Fighter {
             daze: (60, 100),
             class_combat: Default::default(),
             velocity: Vec3::ZERO,
+            collisions: (0, 0, 0),
+            avoid: Default::default(),
             noise: None,
             step: None,
             last_floor: None,
@@ -1025,7 +1032,7 @@ impl Fighter {
             now: m.now,
         };
         match self.brain.as_mut() {
-            Some(brain) => brain.think(&senses, &mut self.facing),
+            Some(brain) => brain.think(&senses, &mut self.facing, &mut self.avoid),
             None if self.passive => self.dummy_controls(),
             None => {
                 // Glancing toward something it noticed: turn the body there.

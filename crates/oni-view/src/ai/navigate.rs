@@ -19,6 +19,8 @@ const OFF_PATH: f32 = 14.0;
 const GIVE_UP: u32 = 5;
 /// An error is forgotten after this many quiet ticks.
 const ERROR_DECAY: u64 = 300;
+/// After an error, no new one is noticed for this long.
+const MIN_REPATH: u64 = 30;
 /// After a failed plan, wait this long before trying again.
 const RETRY_AFTER: u64 = 90;
 /// A destination is reached within at least this.
@@ -123,6 +125,15 @@ impl Navigator {
         self.careful = true;
         self.route = None;
         self.state = if self.errors >= GIVE_UP { State::Failed(why.to_string()) } else { State::Planning };
+    }
+
+    /// Wedged against something its movement keeps meeting
+    /// (`AI2rMovementState_CheckFailure`, "collision stuck"): plan again.
+    pub fn collision_stuck(&mut self, now: u64) {
+        // (Not again within 30 ticks of the last error, `AI2cRepath_MinFrames`.)
+        if self.state == State::Following && now.saturating_sub(self.last_error) >= MIN_REPATH {
+            self.error(now, "collision stuck");
+        }
     }
 
     /// This tick's orders for a body at `feet` facing `yaw`.

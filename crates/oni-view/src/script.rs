@@ -850,6 +850,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // collisions(id) → walls, objects, characters, records, serious: what
+    // fighter id's movement met last tick, and its AI's collision records.
+    let h = host.clone();
+    g.set(
+        "collisions",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let Some(f) = host.world.fighters.get(id) else { return Ok((0, 0, 0, 0, 0)) };
+            let (r, s) = f.avoid.count();
+            Ok((f.collisions.0, f.collisions.1, f.collisions.2, r, s))
+        })?,
+    )?;
     // door_leaves(id) → {{at={x,y,z}, half={x,y,z}, solid, paused}, …}: door
     // id's leaf boxes this tick.
     let h = host.clone();
