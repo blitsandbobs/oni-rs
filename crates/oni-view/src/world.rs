@@ -470,6 +470,7 @@ impl World {
             })
             .collect();
         let gun = self.gun_view(i);
+        let guns = self.free_guns(i);
         let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
@@ -511,6 +512,7 @@ impl World {
                 daze,
                 quirks,
                 gun,
+                guns: &guns,
             };
             run(&mut agent, &mut cx);
         }
@@ -529,6 +531,17 @@ impl World {
                 continue;
             }
             self.with_agent(i, |a, cx| a.update(cx));
+            // A gun it bends for: its own (useless) one goes to the floor.
+            let want = match self.fighters[i].brain.as_mut() {
+                Some(crate::ai::Brain::Agent(a)) => a.want_pickup.take(),
+                _ => None,
+            };
+            if let Some(w) = want.filter(|_| self.fighters[i].pickup.is_none()) {
+                self.drop_weapon(i, false);
+                if self.start_pickup(i, Item::Weapon(w)) {
+                    eprintln!("ai: fighter {i} bends for {}", self.armory.weapons[w].class.name);
+                }
+            }
             // A console it wants to use.
             if let Some(crate::ai::Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
                 if let Some(c) = a.use_console.take() {

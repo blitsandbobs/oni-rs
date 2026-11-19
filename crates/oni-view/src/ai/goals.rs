@@ -96,11 +96,13 @@ pub struct ClassCombat {
     pub lost_contact: u32,
     pub taunt_percent: u32,
     pub default_profile: u16,
+    /// Chance (percent) it goes for a gun when it has none.
+    pub gun_pickup_percent: u32,
 }
 
 impl Default for ClassCombat {
     fn default() -> Self {
-        ClassCombat { investigate_body: 240, lost_contact: 180, taunt_percent: 40, default_profile: 0 }
+        ClassCombat { investigate_body: 240, lost_contact: 180, taunt_percent: 40, default_profile: 0, gun_pickup_percent: 0 }
     }
 }
 
@@ -114,6 +116,7 @@ impl ClassCombat {
             lost_contact: u("lostContactTicks", d.lost_contact),
             taunt_percent: u("deadTauntPercent", d.taunt_percent),
             default_profile: u("defaultCombatProfileId", 0) as u16,
+            gun_pickup_percent: u("gunPickupPercent", 0),
         }
     }
 }
@@ -340,8 +343,18 @@ pub struct Ctx<'a> {
     pub melee_profile: Option<Rc<Profile>>,
     pub daze: (u32, u32),
     pub quirks: Quirks,
-    /// The gun in its hand.
+    /// The gun in its hand, and the guns lying about.
     pub gun: Option<GunView>,
+    pub guns: &'a [FreeGun],
+}
+
+/// A gun lying free: which, where to pick it up, and whether this character
+/// could use it (loaded, or it has clips for it; storable).
+#[derive(Clone, Copy, Debug)]
+pub struct FreeGun {
+    pub index: usize,
+    pub at: Vec3,
+    pub usable: bool,
 }
 
 impl crate::ai::ranged::Random for Rng {
@@ -579,6 +592,8 @@ pub enum Primary {
     FindAlarm,
     Melee,
     GetUp,
+    /// Going for a gun.
+    Gun,
 }
 
 /// Whether the gun in hand has a clear line of fire at the target: within
@@ -617,6 +632,10 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
         !(o.feet.y..=o.feet.y + o.height + 8.0).contains(&y)
     })
 }
+
+/// Going for a gun: how far it looks, and how near it bends for it.
+const GUN_SEARCH: f32 = 200.0;
+const GUN_REACH: f32 = 12.0;
 
 /// Range bands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -657,6 +676,11 @@ pub struct Combat {
     first_sight: bool,
     /// How much too close for the gun the target is (0–1).
     too_close: f32,
+    /// Going for a gun: the one it is after, its roll of the class's chance
+    /// (once a fight), and the guns it found it couldn't reach.
+    gun_target: Option<usize>,
+    gun_roll: Option<bool>,
+    unreachable: Vec<usize>,
 }
 
 /// An AI character's goals (behaviour per `docs/GOALS.md`).
@@ -704,6 +728,9 @@ pub struct Agent {
     pub aim: Option<Vec3>,
     pub aim_speed: f32,
     pub trigger: bool,
+    /// A gun it wants to bend for now (the world drops its own and starts
+    /// the pickup).
+    pub want_pickup: Option<usize>,
 }
 
 impl Agent {
@@ -736,6 +763,7 @@ impl Agent {
             aim: None,
             aim_speed: 1.0,
             trigger: false,
+            want_pickup: None,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
     }
@@ -1849,6 +1877,9 @@ impl Agent {
             have_los: true,
             first_sight: true,
             too_close: 0.0,
+            gun_target: None,
+            gun_roll: None,
+            unreachable: Vec::new(),
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
@@ -2106,6 +2137,27 @@ impl Agent {
                 self.halt();
                 self.press |= key::FORWARD;
             }
+            Primary::Gun => {
+                let k = self.combat();
+                let gun = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).copied();
+                match gun {
+                    Some(f) if f.at.with_y_zero().distance(cx.feet.with_y_zero()) <= GUN_REACH => {
+                        self.halt();
+                        self.want_pickup = Some(f.index);
+                    }
+                    Some(f) => {
+                        if self.path_failed() {
+                            // Out of reach: remember it, find another.
+                            let k = self.combat();
+                            k.unreachable.push(f.index);
+                            k.gun_target = None;
+                        } else if self.nav.is_none() || self.arrived(cx) {
+                            self.go_to(f.at, 8.0, true, None, cx);
+                        }
+                    }
+                    None => self.halt(),
+                }
+            }
         }
         // Lying down outside melee: dazed a while, then get up.
         if primary != Primary::Melee {
@@ -2189,6 +2241,7 @@ impl Agent {
         const FIND_ALARM: usize = 3;
         const MELEE: usize = 4;
         const GETUP: usize = 5;
+        const GUN: usize = 6;
         let profile = self.profile.clone();
         let alarm = self.find_alarm(cx);
         let dist = (target_feet - cx.feet).with_y_zero().length();
@@ -2196,7 +2249,7 @@ impl Agent {
         let has_melee = self.combat().melee.is_some();
         let k = self.combat();
         k.try_advance = k.try_advance.saturating_sub(COMBAT_PERIOD as u32);
-        let mut w = [0.0f32; 6];
+        let mut w = [0.0f32; 7];
 
         if k.target_dead {
             // Go and look at the body.
@@ -2263,6 +2316,8 @@ impl Agent {
                     if fight_back {
                         w[MELEE] = 1.0;
                     } else {
+                        // Go for a gun — if the roll says so and one is near.
+                        w[GUN] = 1.0;
                         match profile.no_gun.as_str() {
                             "retreat" => {
                                 w[RETREAT] = 0.8;
@@ -2313,7 +2368,9 @@ impl Agent {
         }
 
         // The highest viable one.
-        let mut checked = [false; 6];
+        let mut checked = [false; 7];
+        let gun_chance = self.class.gun_pickup_percent;
+        let gun_roll = self.rng.next() % 100;
         let pick = loop {
             let (best, &bw) = w
                 .iter()
@@ -2330,6 +2387,7 @@ impl Agent {
                     Primary::FindAlarm,
                     Primary::Melee,
                     Primary::GetUp,
+                    Primary::Gun,
                 ][best];
             }
             checked[best] = true;
@@ -2357,6 +2415,29 @@ impl Agent {
                 FIND_ALARM => {
                     if alarm.is_none() {
                         w[FIND_ALARM] = 0.0;
+                    }
+                }
+                GUN => {
+                    // Once a fight it decides whether it goes for guns at all.
+                    let goes = *k.gun_roll.get_or_insert(gun_roll < gun_chance);
+                    let still = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).filter(|f| f.usable);
+                    let pick = still.or_else(|| {
+                        cx.guns
+                            .iter()
+                            .filter(|f| f.usable && !k.unreachable.contains(&f.index))
+                            .filter(|f| f.at.distance(cx.feet) <= GUN_SEARCH)
+                            .min_by(|a, b| a.at.distance(cx.feet).total_cmp(&b.at.distance(cx.feet)))
+                    });
+                    match pick.filter(|_| goes) {
+                        Some(f) => {
+                            k.gun_target = Some(f.index);
+                            let d = f.at.distance(cx.feet);
+                            w[GUN] *= 1.0 - ((d - 30.0) / (GUN_SEARCH - 30.0)).max(0.0);
+                        }
+                        None => {
+                            k.gun_target = None;
+                            w[GUN] = 0.0;
+                        }
                     }
                 }
                 MELEE => {

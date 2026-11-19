@@ -921,6 +921,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
     let h = host.clone();
     g.set(
+        "gun_chance",
+        lua.create_function(move |_, (id, percent): (usize, u32)| {
+            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+                a.class.gun_pickup_percent = percent;
+            }
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
         "env_show",
         lua.create_function(move |_, (r, on): (u32, bool)| {
             h.borrow_mut().world.env_show(r, on);

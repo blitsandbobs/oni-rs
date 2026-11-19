@@ -587,6 +587,30 @@ impl World {
         })
     }
 
+    /// The guns lying free, as fighter `who` sees them (`FreeGun`): usable
+    /// if storable and loaded or it carries clips for them.
+    pub(super) fn free_guns(&self, who: usize) -> Vec<crate::ai::goals::FreeGun> {
+        let f = &self.fighters[who];
+        self.armory
+            .weapons
+            .iter()
+            .enumerate()
+            .filter(|(_, g)| g.owner.is_none() && !g.gone)
+            .map(|(index, g)| {
+                let clips = match g.ammo_type() {
+                    Some(0) => f.inventory.ammo > 0,
+                    Some(1) => f.inventory.cells > 0,
+                    _ => false,
+                };
+                crate::ai::goals::FreeGun {
+                    index,
+                    at: g.pickup_position(),
+                    usable: !g.class.has(flag::UNSTORABLE) && (g.ammo > 0 || clips || f.infinite_ammo),
+                }
+            })
+            .collect()
+    }
+
     /// The AIs' aim and triggers this tick (`docs/AI.md`, *Shooting*): each
     /// aim swings toward where its goals want the barrel — at most a sixth of
     /// a turn a second × its speed × the gun's aiming speed, never more than
@@ -1066,10 +1090,26 @@ impl World {
         }
         let item = self.powerup_in_reach(who).map(Item::Powerup).or_else(|| self.weapon_in_reach(who).map(Item::Weapon));
         if let Some(item) = item {
+            self.start_pickup(who, item);
+            return;
+        }
+        let f = &self.fighters[who];
+        if f.hand.is_some() {
+            self.holster(who, false);
+        } else if f.holster.is_some() {
+            self.draw(who);
+        }
+    }
+
+    /// Bends for `item` with the pickup clip (object, pistol or rifle; the
+    /// mid-height one for items more than 9 above the feet) — or, in a roll
+    /// or slide, takes it at once. True if it started.
+    pub fn start_pickup(&mut self, who: usize, item: Item) -> bool {
+        {
             let f = &self.fighters[who];
             if f.motion.current().has_flag(crate::anim::types::flag::CAN_PICKUP) {
                 self.take(who, item);
-                return;
+                return true;
             }
             let (at, rifle) = match item {
                 Item::Weapon(w) => (self.armory.weapons[w].pickup_position(), Some(self.armory.weapons[w].class.has(flag::TWO_HANDED))),
@@ -1088,14 +1128,9 @@ impl World {
             let ch = f.character.clone();
             if f.motion.request(&ch, crate::anim::motion::Urge::Appropriate, false, kind).is_some() {
                 f.pickup = Some((item, false, 0));
+                return true;
             }
-            return;
-        }
-        let f = &self.fighters[who];
-        if f.hand.is_some() {
-            self.holster(who, false);
-        } else if f.holster.is_some() {
-            self.draw(who);
+            false
         }
     }
 
