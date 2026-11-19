@@ -131,11 +131,7 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
-        let (ov, oi) = crate::opaque_mesh(&scene);
-        world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         world.attach_doors(crate::door_meshes(&scene));
-        let opaque = crate::env_parts(&scene);
-        world.attach_env(opaque);
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
         if world.nav.is_none() {
@@ -997,7 +993,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 _ => None,
             };
             let w = &mut host.world;
-            Ok(w.audio.impulse_play(&name, at, volume, w.sight.as_ref()))
+            Ok(w.audio.impulse_play(&name, at, volume, Some(&w.quads)))
         })?,
     )?;
     let h = host.clone();

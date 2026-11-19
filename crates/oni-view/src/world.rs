@@ -115,8 +115,6 @@ pub struct World {
     pub difficulty: crate::ai::melee::brain::Difficulty,
     /// The level's navigation data (rooms, portals, grids), if it has any.
     pub nav: Option<Rc<crate::nav::Navigation>>,
-    /// Line of sight through the level's opaque geometry.
-    pub sight: Option<crate::physics::Sight>,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
@@ -133,12 +131,9 @@ pub struct World {
     /// Each door's leaf as character collision sees it.
     door_boxes: Vec<crate::chrphys::DoorBox>,
     door_links: Vec<Vec<(usize, usize)>>,
-    /// Level parts scripts show and hide (`env_show`): the solid ones (each
-    /// fighter's physics holds them after the doors), the opaque ones (sight
-    /// holds them after the doors), and the references hidden now.
-    env_opaque: Vec<u32>,
+    /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
-    /// Whether each door's leaf is solid in the colliders now.
+    /// Whether each door's gunk is shown now.
     door_applied: Vec<bool>,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
@@ -212,7 +207,6 @@ impl World {
             fights: Default::default(),
             difficulty: Default::default(),
             nav: None,
-            sight: None,
             sounds: Vec::new(),
             level_ai: Default::default(),
             player_name: "player".into(),
@@ -224,7 +218,6 @@ impl World {
             door_meshes: Vec::new(),
             door_boxes: Vec::new(),
             door_links: Vec::new(),
-            env_opaque: Vec::new(),
             env_hidden: Default::default(),
             door_applied: Vec::new(),
             script_events: Vec::new(),
@@ -372,7 +365,7 @@ impl World {
                     continue;
                 }
                 let eye = points[i][1];
-                let heard = self.sight.as_ref().is_none_or(|sg| sg.clear(s.at, eye))
+                let heard = self.quads.sees(s.at, eye)
                     || self.nav.as_ref().is_some_and(|nav| route_length(nav, s.at, feet[i]).is_some_and(|d| d <= range));
                 if !heard {
                     continue;
@@ -424,7 +417,7 @@ impl World {
                 let known = p.about(j).is_some_and(|c| c.strength == Strength::Definite);
                 let aim = feet[j] + Vec3::Y * self.fighters[j].motion.height();
                 let Some(stimulus) = p.tuning.sees(aim - eye, look, known, faithful) else { continue };
-                let seen = points[j].iter().find(|&&pt| self.sight.as_ref().is_none_or(|s| s.clear(eye, pt)));
+                let seen = points[j].iter().find(|&&pt| self.quads.sees(eye, pt));
                 let Some(&at) = seen else { continue };
                 let strength = if stimulus == Stimulus::SightDefinite { Strength::Definite } else { Strength::Weak };
                 let p = self.fighters[i].perception.as_mut().expect("perceiving");
@@ -523,8 +516,8 @@ impl World {
         let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
-        let sight = &self.sight;
-        let sight_fn = |a: Vec3, b: Vec3| sight.as_ref().is_none_or(|s| s.clear(a, b));
+        let quads = &self.quads;
+        let sight_fn = |a: Vec3, b: Vec3, skip: u32| quads.clear(a, b, skip);
         let path_fn = |a: Vec3, b: Vec3| match nav.as_deref() {
             Some(n) => route_length(n, a, b),
             None => Some(a.distance(b)),
@@ -786,29 +779,30 @@ impl World {
             .map(|(d, (v, _))| {
                 let pts: Vec<Vec3> = v.iter().map(|p| Vec3::from(*p)).collect();
                 let mut b = crate::chrphys::DoorBox::around(&pts, d.position, d.axes);
-                b.solid = d.solid();
+                b.solid = false;
                 b
             })
             .collect();
         self.mark_door_quads();
-        self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
-        if let Some(sight) = self.sight.as_mut() {
-            for (k, (v, i)) in self.door_meshes.iter().enumerate() {
-                sight.add_door(v, i);
-                sight.set_door(k, self.doors[k].solid());
-            }
-        }
     }
 
-    /// The doors' own level quads never stop characters (`Oni_Object.c`):
-    /// their boxes do instead.
+    /// Each door's own level quads — its closed leaves, the "gunk" — as its
+    /// state has them (`OBJrDoor_HideShowGunk`): solid and seen while it is
+    /// closed; invisible and passed through from the moment it starts to open
+    /// until it has shut. (Exported without collision, so the pathfinding grid
+    /// ignores them; a door's reset shows them.)
     pub(crate) fn mark_door_quads(&mut self) {
-        let ids: std::collections::HashSet<u32> = self.doors.iter().map(|d| d.object_id).collect();
+        let shown: std::collections::HashMap<u32, bool> = self.doors.iter().map(|d| (d.object_id, d.solid())).collect();
+        let hide = crate::quads::flag::NO_COLLISION | crate::quads::flag::INVISIBLE;
         for q in &mut self.quads.quads {
-            if q.object_tag >> 24 == 3 && ids.contains(&(q.object_tag & 0x00FF_FFFF)) {
-                q.flags |= crate::quads::flag::NO_COLLISION;
+            if q.object_tag >> 24 != 3 {
+                continue;
+            }
+            if let Some(&show) = shown.get(&(q.object_tag & 0x00FF_FFFF)) {
+                q.flags = if show { q.flags & !hide } else { q.flags | hide };
             }
         }
+        self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
     }
 
     /// A level quad's material (its texture's).
@@ -818,16 +812,6 @@ impl World {
     }
 
 
-    /// Gives the world the level parts scripts can hide (after the doors):
-    /// solid and sight-blocking until hidden.
-    pub fn attach_env(&mut self, opaque: crate::Parts) {
-        self.env_opaque = opaque.keys().copied().collect();
-        if let Some(sight) = self.sight.as_mut() {
-            for (v, i) in opaque.values() {
-                sight.add_door(v, i);
-            }
-        }
-    }
 
     /// The level's glass panes (`crate::glass_parts`): solid until broken.
     pub fn attach_glass(&mut self, panes: Vec<(u32, Option<u32>, crate::Mesh)>) {
@@ -885,14 +869,6 @@ impl World {
                 q.flags |= crate::quads::flag::BROKEN_GLASS;
             }
         }
-        let doors = self.doors.len();
-        if let Some(sight) = self.sight.as_mut() {
-            for (j, pr) in self.env_opaque.iter().enumerate() {
-                if *pr == r {
-                    sight.set_door(doors + j, on);
-                }
-            }
-        }
         // (Hiding glass is breaking it, as in the original; showing mends it.)
         for k in 0..self.glass.len() {
             if self.glass[k].env_ref == Some(r) {
@@ -930,14 +906,8 @@ impl World {
             // (Its sound and its leaf follow its state — whoever changed
             // it: this tick, a script, the Action key.)
             let solid = self.doors[k].solid();
-            if let Some(b) = self.door_boxes.get_mut(k) {
-                b.solid = solid;
-            }
             if self.door_applied.get(k).is_some_and(|&was| was != solid) {
-                self.door_applied[k] = solid;
-                if let Some(sight) = self.sight.as_mut() {
-                    sight.set_door(k, solid);
-                }
+                self.mark_door_quads();
             }
         }
         self.door_sounds();
@@ -1595,7 +1565,7 @@ impl World {
         self.particle_sounds();
         self.voices_tick();
         self.conditions_tick();
-        self.audio.tick(self.sight.as_ref());
+        self.audio.tick(Some(&self.quads));
     }
 
     /// Fighter `who`'s clip `clip` is on `frame`: its animation sound, and
@@ -1617,7 +1587,7 @@ impl World {
         }
         let at = f.feet();
         for name in play {
-            self.audio.impulse_play(&name, Some(at), None, self.sight.as_ref());
+            self.audio.impulse_play(&name, Some(at), None, Some(&self.quads));
         }
     }
 
@@ -1647,7 +1617,7 @@ impl World {
                 if !sound.impulse.is_empty() {
                     let full = self.audio.impact_velocity(&sound.impulse);
                     let volume = data.parent_velocity.map(Vec3::length).filter(|&s| full > 0.0 && s < full).map(|s| 0.3 + 0.7 * s * s / (full * full));
-                    self.audio.impulse_play(&sound.impulse, Some(at), volume, self.sight.as_ref());
+                    self.audio.impulse_play(&sound.impulse, Some(at), volume, Some(&self.quads));
                 }
                 if let Some((stimulus, radius)) = sound.ai {
                     self.sound(stimulus, at, radius * ai_scale, ai1, ai2);
@@ -1665,7 +1635,7 @@ impl World {
     pub(crate) fn create_effect(&mut self, spec: &crate::p3::effect::Spec, data: &crate::p3::effect::Data) -> Option<crate::p3::Handle> {
         let now = self.now as u64;
         let weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = weapons::ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.quads = Some(&self.quads);
         particles.create_effect(spec, data, &mut host)
     }

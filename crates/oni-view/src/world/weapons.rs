@@ -110,7 +110,7 @@ pub struct ShotHost<'a> {
     pub fighters: &'a mut [Fighter],
     /// Each fighter's posed bones, worked out when first needed.
     bones: Vec<Option<Vec<Mat4>>>,
-    sight: Option<&'a crate::physics::Sight>,
+    sight: Option<&'a crate::quads::Quads>,
     teams: Vec<crate::ai::perception::Team>,
     now: u64,
     /// Noises the hits make (gunshot impacts), for the world to spread.
@@ -136,7 +136,7 @@ impl<'a> ShotHost<'a> {
         self.turret_spread = turrets;
     }
 
-    pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
+    pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::quads::Quads>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
         ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), pane_quads: Vec::new(), panes: Vec::new(), doors: &[], broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None }
@@ -409,7 +409,7 @@ impl Host for ShotHost<'_> {
                 continue;
             }
             if let Some(s) = self.sight {
-                if !s.clear(centre, pelvis) {
+                if !s.shoots(centre, pelvis) {
                     continue;
                 }
             }
@@ -441,7 +441,7 @@ impl Host for ShotHost<'_> {
     }
 
     fn clear(&mut self, from: Vec3, to: Vec3) -> bool {
-        self.sight.is_none_or(|s| s.clear(from, to))
+        self.sight.is_none_or(|s| s.clear(from, to, crate::quads::flag::OBJ_COL_SKIP))
     }
 
     fn inaccuracy(&self, owner: u32) -> f32 {
@@ -662,6 +662,16 @@ impl World {
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
         self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
         self.mark_door_quads();
+        // (Glass is breakable by its material, `AKiComputeBreakableFlags`.)
+        for k in 0..self.glass.len() {
+            let (quad, broken) = (self.glass[k].quad, self.glass[k].broken);
+            if let Some(q) = self.quads.quads.get_mut(quad as usize) {
+                q.flags |= crate::quads::flag::BREAKABLE;
+                if broken {
+                    q.flags |= crate::quads::flag::BROKEN_GLASS;
+                }
+            }
+        }
         // (Anyone placed before the level's quads were known.)
         for k in 0..self.fighters.len() {
             let quads = &self.quads;
@@ -785,7 +795,7 @@ impl World {
     fn delete_weapon(&mut self, w: usize) {
         let Armory { particles, weapons, .. } = &mut self.armory;
         let now = self.now as u64;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         weapons[w].stow(particles, &mut host);
         weapons[w].owner = None;
         weapons[w].gone = true;
@@ -1206,7 +1216,7 @@ impl World {
     fn drop_weapon_index(&mut self, w: usize, kick: Option<Vec3>) {
         let Armory { particles, weapons, .. } = &mut self.armory;
         let now = self.now as u64;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         weapons[w].release(particles, &mut host, kick);
     }
 
@@ -1333,7 +1343,7 @@ impl World {
         {
             let Armory { particles, weapons, .. } = &mut self.armory;
             let now = self.now as u64;
-            let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             weapons[w].stow(particles, &mut host);
         }
         let f = &mut self.fighters[who];
@@ -1371,7 +1381,7 @@ impl World {
                     if let Some(w) = f.hand {
                         let Armory { particles, weapons, .. } = &mut self.armory;
                         let now = self.now as u64;
-                        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+                        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
                         weapons[w].reloaded(particles, &mut host);
                     }
                 } else if kind == clip::HOLSTER {
@@ -1591,7 +1601,7 @@ impl World {
         let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some() || self.gun_through_wall(who);
         let inaccuracy = self.inaccuracies();
         let Armory { particles, weapons, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.inaccuracy = inaccuracy;
         let gun = &mut weapons[w];
         if busy {
@@ -1615,7 +1625,7 @@ impl World {
         drop(host);
         if empty {
             // Out of ammo: a single press reloads; a held trigger just clicks.
-            gun_release(&mut self.armory, &mut self.fighters, self.sight.as_ref(), now, w);
+            gun_release(&mut self.armory, &mut self.fighters, Some(&self.quads), now, w);
             let click = if single || !self.fighters[who].player {
                 let reloaded = self.reload(who);
                 if !reloaded {
@@ -1645,7 +1655,7 @@ impl World {
             }
         }
         let sound = gun.class.empty_sound.clone();
-        self.audio.impulse_play(&sound, Some(at), None, self.sight.as_ref());
+        self.audio.impulse_play(&sound, Some(at), None, Some(&self.quads));
     }
 
     /// The player's auto-aim (`docs/WEAPONS.md`, *Auto-aim*): the turn
@@ -1681,7 +1691,7 @@ impl World {
                 continue;
             }
             let mid = t.feet() + Vec3::Y * t.motion.height();
-            if self.sight.as_ref().is_some_and(|s| !s.clear(mid, pelvis)) {
+            if !self.quads.clear(mid, pelvis, crate::quads::flag::LOS_SEE_PLAYER) {
                 continue;
             }
             let d = to / dist;
@@ -1753,7 +1763,7 @@ impl World {
             };
             let before = self.armory.weapons[w].position;
             let Armory { particles, weapons, .. } = &mut self.armory;
-            let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             let motion = m.w_axis.truncate() - before;
             weapons[w].tick_held(particles, &mut host, m, motion);
         }
@@ -1823,7 +1833,7 @@ impl World {
         let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
         let inaccuracy = self.inaccuracies();
         let spread = self.turret_spread();
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.pane_quads = pane_quads;
         host.doors = &self.door_boxes;
         host.set_spread(inaccuracy, spread);
@@ -1885,7 +1895,7 @@ fn oni_type(name: &str) -> u16 {
     oni_schema::ANIM_TYPES.iter().position(|n| *n == name).unwrap_or(0) as u16
 }
 
-fn gun_release(armory: &mut Armory, fighters: &mut [Fighter], sight: Option<&crate::physics::Sight>, now: u64, w: usize) {
+fn gun_release(armory: &mut Armory, fighters: &mut [Fighter], sight: Option<&crate::quads::Quads>, now: u64, w: usize) {
     let Armory { particles, weapons, .. } = armory;
     let mut host = ShotHost::new(fighters, sight, now);
     weapons[w].release_trigger(particles, &mut host, false);

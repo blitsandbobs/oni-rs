@@ -9,6 +9,10 @@
 use std::f32::consts::{PI, TAU};
 use std::rc::Rc;
 
+/// Seeing and shooting through the level (`AKcGQ_Flag_LOS_*_AI`).
+const SEE: u32 = crate::quads::flag::LOS_SEE_AI;
+const SHOOT: u32 = crate::quads::flag::LOS_SHOOT_AI;
+
 use glam::Vec3;
 
 use super::level::{CombatProfile, LevelAi, PatrolPath, Pursue as PursueSettings, Target, Waypoint};
@@ -372,7 +376,9 @@ pub struct Ctx<'a> {
     pub perception: &'a mut Perception,
     pub level: &'a LevelAi,
     /// A clear line between two points.
-    pub sight: &'a dyn Fn(Vec3, Vec3) -> bool,
+    /// A clear line through the level, past what the mask's flags let
+    /// through (`crate::quads::flag::LOS_*`).
+    pub sight: &'a dyn Fn(Vec3, Vec3, u32) -> bool,
     /// The length of the way between two points (None: no way).
     pub path_length: &'a dyn Fn(Vec3, Vec3) -> Option<f32>,
     pub others: &'a [Other],
@@ -439,7 +445,7 @@ impl crate::ai::ranged::Random for Rng {
 
 impl Ctx<'_> {
     fn clear_toward(&self) -> impl Fn(f32) -> bool + '_ {
-        move |yaw: f32| (self.sight)(self.eye, self.eye + Vec3::new(yaw.sin(), 0.0, yaw.cos()) * LOOK_CLEAR)
+        move |yaw: f32| (self.sight)(self.eye, self.eye + Vec3::new(yaw.sin(), 0.0, yaw.cos()) * LOOK_CLEAR, SEE)
     }
     fn alert(&self) -> Alert {
         self.perception.alert
@@ -698,7 +704,7 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
             return false;
         }
     }
-    if !(cx.sight)(from, to) {
+    if !(cx.sight)(from, to, SHOOT) {
         return false;
     }
     let d = to - from;
@@ -1888,7 +1894,7 @@ impl Agent {
             let now = cx.now;
             let due = now >= self.pursuit().last_los_check + every;
             let los = if due {
-                let seen = (cx.sight)(cx.eye, location + Vec3::Y * 5.0);
+                let seen = (cx.sight)(cx.eye, location + Vec3::Y * 5.0, SEE);
                 let p = self.pursuit();
                 p.last_los_check = now;
                 p.los_seen = seen;
@@ -2352,7 +2358,7 @@ impl Agent {
                 } else {
                     continue;
                 };
-                if !(cx.sight)(s.origin, pelvis) {
+                if !(cx.sight)(s.origin, pelvis, SHOOT) {
                     continue;
                 }
                 weight -= 1.0 - class.dodge_weight_scale;
@@ -2362,7 +2368,7 @@ impl Agent {
                 let heading = if off < 10.0 {
                     // Straight at it: sidestep, to a side with room.
                     let side = s.axis.cross(Vec3::Y).normalize_or(Vec3::X);
-                    let clear = |d: Vec3| (cx.sight)(pelvis, pelvis + d * 20.0);
+                    let clear = |d: Vec3| (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP);
                     if clear(side) || !clear(-side) { side } else { -side }
                 } else {
                     away.with_y_zero().normalize_or(Vec3::X)
@@ -2389,7 +2395,7 @@ impl Agent {
                     continue;
                 }
                 weight = weight.max(0.3) - (1.0 - class.dodge_weight_scale);
-                if weight <= 0.0 || !(cx.sight)(p.at, pelvis) {
+                if weight <= 0.0 || !(cx.sight)(p.at, pelvis, SHOOT) {
                     continue;
                 }
                 let lifetime = (45.0 * class.dodge_time_scale).round() as u32;
@@ -2746,7 +2752,7 @@ impl Agent {
                     }
                 }
                 MELEE => {
-                    let clear = (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0);
+                    let clear = (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0, SHOOT);
                     if !has_melee || dist > MELEE_RANGE || k.try_advance > 0 || !clear {
                         w[MELEE] = 0.0;
                         w[ADVANCE] = w[ADVANCE].max(1.0);

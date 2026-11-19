@@ -156,7 +156,7 @@ impl World {
             } else {
                 let eye = f.feet() + Vec3::Y * f.motion.height() * 2.0;
                 let eye = f.bones().get(super::HEAD_BONE).map_or(eye, |m| m.w_axis.truncate());
-                let handle = self.audio.ambient_start(&sound, eye, self.sight.as_ref());
+                let handle = self.audio.ambient_start(&sound, eye, Some(&self.quads));
                 let duration = match self.audio.ambient_duration(&sound) {
                     0 => DEFAULT_DURATION,
                     d => u64::from(d),
@@ -279,7 +279,7 @@ impl World {
         self.speech_stop(who, true);
         let f = &self.fighters[who];
         let eye = f.bones().get(super::HEAD_BONE).map_or(f.feet(), |m| m.w_axis.truncate());
-        self.audio.impulse_play(&name, Some(eye), volume, self.sight.as_ref());
+        self.audio.impulse_play(&name, Some(eye), volume, Some(&self.quads));
     }
 
     /// Fighter `who`'s run of pain this tick: it fades, and a waiting grunt

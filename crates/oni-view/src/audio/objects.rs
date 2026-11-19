@@ -19,7 +19,7 @@ use serde_json::Value;
 
 use super::system::LOW;
 use super::Audio;
-use crate::physics::Sight;
+use crate::quads::Quads as Sight;
 
 /// The box fades' length (ticks).
 const FADE: f32 = 120.0;

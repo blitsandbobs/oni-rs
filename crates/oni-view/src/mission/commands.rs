@@ -484,7 +484,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let Some(sound) = a(0).and_then(text) else { return nil() };
             let volume = float(a(1)).map(|v| v.clamp(0.0, 1.0));
             let world = host.world();
-            world.audio.impulse_play(&sound, None, volume, world.sight.as_ref());
+            world.audio.impulse_play(&sound, None, volume, Some(&world.quads));
             nil()
         }
         // A character says a line: `chr_talk who sound pre post [type]`

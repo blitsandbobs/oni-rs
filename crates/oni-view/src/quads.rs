@@ -25,6 +25,18 @@ pub mod flag {
     pub const WALL: u32 = 1 << 20;
     pub const BROKEN_GLASS: u32 = 1 << 18;
     pub const NO_DECAL: u32 = 1 << 23;
+    /// Set at load from the texture's material (glass).
+    pub const BREAKABLE: u32 = 1 << 21;
+    pub const FURNITURE: u32 = 1 << 24;
+    pub const SOUND_TRANSPARENT: u32 = 1 << 27;
+    /// What the player's line of sight passes (`AKcGQ_Flag_LOS_CanSee_Skip_Player`).
+    pub const LOS_SEE_PLAYER: u32 = INVISIBLE | TRANSPARENT | JELLO | BROKEN_GLASS;
+    /// What an AI's line of sight passes (`_CanSee_Skip_AI`).
+    pub const LOS_SEE_AI: u32 = INVISIBLE | TRANSPARENT | BROKEN_GLASS;
+    /// What an AI may shoot through (`_CanShoot_Skip_AI`).
+    pub const LOS_SHOOT_AI: u32 = INVISIBLE | BREAKABLE | BROKEN_GLASS;
+    /// What sound passes (`AKcGQ_Flag_SoundOcclude_Skip`).
+    pub const SOUND_OCCLUDE_SKIP: u32 = NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS | SOUND_TRANSPARENT;
     /// What objects (and particles) pass through.
     pub const OBJ_COL_SKIP: u32 = NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS;
     /// Drawn from both sides (the decal code's two-sided test: without jello).
@@ -273,6 +285,104 @@ impl Quads {
             .min_by_key(|h| (round_256(h.distance), h.quad))
     }
 
+    /// Every quad a ray from `start` along `vector` crosses
+    /// (`AKrCollision_Point` asked for all of them), skipping those with any
+    /// of `skip`, nearest first by the x + y + z distance in 1/256ths; at most
+    /// [`MAX_COLLISIONS`].
+    pub fn ray_all(&self, start: Vec3, vector: Vec3, skip: u32) -> Vec<Hit> {
+        let end = start + vector;
+        let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
+        let mut hits: Vec<Hit> = self
+            .candidates(lo, hi)
+            .into_iter()
+            .map(|k| (k, &self.quads[k as usize]))
+            .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())
+            .filter_map(|(k, q)| {
+                let point = self.quad_line(q, start, end)?;
+                let d = point - start;
+                Some(Hit { quad: k, point, distance: d.x.abs() + d.y.abs() + d.z.abs() })
+            })
+            .collect();
+        hits.sort_by_key(|h| (round_256(h.distance), h.quad));
+        hits.truncate(MAX_COLLISIONS);
+        hits
+    }
+
+    /// Whether nothing but what `skip` passes lies between `from` and `to`
+    /// (`AKrCollision_Point` asked for none: any hit at all).
+    pub fn clear(&self, from: Vec3, to: Vec3, skip: u32) -> bool {
+        self.ray(from, to - from, skip).is_none()
+    }
+
+    /// An AI's line of sight from `from` to `to` (`LOS_SEE_AI`).
+    pub fn sees(&self, from: Vec3, to: Vec3) -> bool {
+        self.clear(from, to, flag::LOS_SEE_AI)
+    }
+
+    /// An AI's line of fire from `from` to `to` (`LOS_SHOOT_AI`).
+    pub fn shoots(&self, from: Vec3, to: Vec3) -> bool {
+        self.clear(from, to, flag::LOS_SHOOT_AI)
+    }
+
+    /// How many surfaces muffle a sound at `source` for a listener at
+    /// `listener` (`OSiIsOccluded`): every quad sound doesn't pass along the
+    /// line, but one within 0.1 of the source first, and the near side of
+    /// furniture the sound is inside — met back-facing, or within 2 of the
+    /// source (8 after a back-facing one) — and the rest of that piece of
+    /// furniture; a hit just before (within 3) a back-facing one is taken
+    /// back.
+    pub fn occlusions(&self, source: Vec3, listener: Vec3) -> usize {
+        let line = listener - source;
+        let mut n = 0usize;
+        let mut inside: Option<u32> = None;
+        let mut possibly_inside = true;
+        let (mut last_is_source, mut last_reversed, mut last_was_hit) = (true, false, false);
+        let (mut last_point, mut last_hit) = (source, source);
+        for h in self.ray_all(source, line, flag::SOUND_OCCLUDE_SKIP) {
+            let q = &self.quads[h.quad as usize];
+            if n == 0 && source.distance_squared(h.point) < 0.1 * 0.1 {
+                continue;
+            }
+            if q.flags & flag::FURNITURE == 0 || !possibly_inside {
+                n += 1;
+                possibly_inside = false;
+                continue;
+            }
+            if let Some(tag) = inside {
+                if q.object_tag != tag {
+                    n += 1;
+                }
+                continue;
+            }
+            let tolerance = if last_is_source {
+                Some(2.0)
+            } else if last_reversed {
+                Some(8.0)
+            } else {
+                None
+            };
+            let close = tolerance.is_some_and(|t| last_point.distance_squared(h.point) < t * t);
+            let reversed = q.flags & flag::DRAW_BOTH_SIDES == 0 && line.dot(self.plane(q.plane).0) > 0.0;
+            if last_was_hit && reversed && h.point.distance_squared(last_hit) < 3.0 * 3.0 {
+                n = n.saturating_sub(1);
+            }
+            last_reversed = reversed;
+            last_is_source = false;
+            last_was_hit = false;
+            last_point = h.point;
+            if reversed || close {
+                if q.object_tag != u32::MAX {
+                    inside = Some(q.object_tag);
+                }
+                continue;
+            }
+            n += 1;
+            last_was_hit = true;
+            last_hit = h.point;
+        }
+        n
+    }
+
     /// `AKrGQ_SphereVector`: whether a sphere at `center` swept along
     /// `vector` touches quad `q`, and where.
     pub fn sphere_vector(&self, q: &Quad, center: Vec3, radius: f32, vector: Vec3) -> Option<Vec3> {
@@ -471,6 +581,38 @@ pub(crate) mod tests {
         assert!(q.ray(Vec3::new(11.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), 0).is_none(), "beside it");
         let q = room(&[(wall(), flag::NO_COLLISION)]);
         assert!(q.ray(Vec3::new(1.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), flag::OBJ_COL_SKIP).is_none());
+    }
+
+    #[test]
+    fn lines_of_sight_pass_what_their_mask_skips() {
+        let q = room(&[(wall(), flag::TRANSPARENT)]);
+        let (a, b) = (Vec3::new(0.0, 0.0, 5.0), Vec3::new(0.0, 0.0, -5.0));
+        assert!(q.sees(a, b), "an AI sees through glass");
+        assert!(!q.shoots(a, b), "but can't shoot through unbreakable glass");
+        let q = room(&[(wall(), flag::TRANSPARENT | flag::BREAKABLE)]);
+        assert!(q.shoots(a, b), "breakable glass doesn't stop its shots");
+        let q = room(&[(wall(), flag::JELLO)]);
+        assert!(!q.sees(a, b) && q.clear(a, b, flag::LOS_SEE_PLAYER), "jello hides from AIs, not from the player");
+    }
+
+    #[test]
+    fn sound_counts_walls_but_not_the_furniture_it_is_inside() {
+        let at = |z: f32| wall().map(|p| p + Vec3::new(0.0, 0.0, z));
+        // (Facing +z: the way back toward the sound.)
+        let two = room(&[(at(0.0), 0), (at(-5.0), 0)]);
+        assert_eq!(two.occlusions(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, -10.0)), 2);
+        // A sound on a surface isn't muffled by it.
+        assert_eq!(two.occlusions(Vec3::new(0.0, 0.0, 0.05), Vec3::new(0.0, 0.0, -10.0)), 1);
+        // Inside a crate (its far side faces away, -z; same object): only
+        // the wall beyond counts. A second crate further on does count.
+        let back = [Vec3::new(-10.0, -10.0, -1.0), Vec3::new(-10.0, 10.0, -1.0), Vec3::new(10.0, 10.0, -1.0), Vec3::new(10.0, -10.0, -1.0)];
+        let mut q = room(&[(back, flag::FURNITURE), (at(-10.0), 0)]);
+        q.quads[0].object_tag = 7;
+        assert_eq!(q.occlusions(Vec3::ZERO, Vec3::new(0.0, 0.0, -20.0)), 1);
+        let mut q = room(&[(back, flag::FURNITURE), (at(-4.0), flag::FURNITURE), (at(-10.0), 0)]);
+        q.quads[0].object_tag = 7;
+        q.quads[1].object_tag = 8;
+        assert_eq!(q.occlusions(Vec3::ZERO, Vec3::new(0.0, 0.0, -20.0)), 2, "another crate's face counts");
     }
 
     #[test]

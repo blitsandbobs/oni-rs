@@ -95,7 +95,7 @@ impl World {
         p.offset = Vec3::ZERO;
         p.owner = 0;
         let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         let h = particles.created(p, time, &mut host);
         self.env_particles[k].handle = h;
     }
@@ -122,7 +122,7 @@ impl World {
         if let Some(h) = self.env_particles[k].handle.take() {
             let now = self.now as u64;
             let super::weapons::Armory { particles, .. } = &mut self.armory;
-            let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             particles.kill(h, &mut host);
         }
     }
@@ -174,7 +174,7 @@ impl World {
                     let now = self.now as u64;
                     let time = f64::from(self.armory.particles.tick) / p3::HZ;
                     let super::weapons::Armory { particles, .. } = &mut self.armory;
-                    let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+                    let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
                     particles.send(h, e, time, &mut host);
                 }
                 _ => {}

@@ -25,10 +25,10 @@ impl World {
         for ev in std::mem::take(&mut self.armory.particles.sounds) {
             match ev {
                 SoundEvent::Impulse { name, at } => {
-                    self.audio.impulse_play(&name, Some(at), None, self.sight.as_ref());
+                    self.audio.impulse_play(&name, Some(at), None, Some(&self.quads));
                 }
                 SoundEvent::AmbientStart { particle, name, at } => {
-                    if let Some(a) = self.audio.ambient_start(&name, at, self.sight.as_ref()) {
+                    if let Some(a) = self.audio.ambient_start(&name, at, Some(&self.quads)) {
                         self.particle_ambients.insert(particle, a);
                     }
                 }
@@ -109,7 +109,7 @@ impl World {
             let sound = self.armory.particles.classes.list[p.class].flyby.clone();
             self.flybys[k].1 = at;
             if let (Some(point), Some(s)) = (flyby_point(prev, at, ear), sound) {
-                self.audio.impulse_play(&s, Some(point), None, self.sight.as_ref());
+                self.audio.impulse_play(&s, Some(point), None, Some(&self.quads));
             }
             k += 1;
         }

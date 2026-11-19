@@ -283,23 +283,8 @@ fn main() {
     }
 }
 
-/// The level parts scripts show and hide (`env_show`), by reference: what
-/// blocks sight. (What collides goes by the level's quads.)
+/// A triangle mesh: positions and indices.
 type Mesh = (Vec<[f32; 3]>, Vec<u32>);
-type Parts = std::collections::BTreeMap<u32, Mesh>;
-fn env_parts(scene: &gltf::Scene) -> Parts {
-    let mut opaque = Parts::new();
-    for p in &scene.prims {
-        let Some(r) = p.env_ref.filter(|_| p.door.is_none() && p.glass.is_none()) else { continue };
-        if !p.blend && p.visible {
-            let (verts, indices) = opaque.entry(r).or_default();
-            let base = verts.len() as u32;
-            verts.extend(p.vertices.iter().map(|v| v.pos));
-            indices.extend(p.indices.iter().map(|i| base + i));
-        }
-    }
-    opaque
-}
 
 /// Each door's closed-leaf triangles, by its object id.
 fn door_meshes(scene: &gltf::Scene) -> std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)> {
@@ -333,19 +318,6 @@ fn glass_parts(scene: &gltf::Scene) -> Vec<(u32, Option<u32>, Mesh)> {
         indices.extend(p.indices.iter().map(|i| base + i));
     }
     out
-}
-
-/// The scene's opaque triangles (what blocks sight: not glass).
-fn opaque_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
-    let mut verts: Vec<[f32; 3]> = Vec::new();
-    let mut indices: Vec<u32> = Vec::new();
-    // (Doors' closed leaves block sight on their own, while closed.)
-    for p in scene.prims.iter().filter(|p| !p.blend && p.visible && p.door.is_none() && p.env_ref.is_none() && p.glass.is_none()) {
-        let base = verts.len() as u32;
-        verts.extend(p.vertices.iter().map(|v| v.pos));
-        indices.extend(p.indices.iter().map(|i| base + i));
-    }
-    (verts, indices)
 }
 
 /// The converted-asset root (`…/oni`) for a scene at `…/oni/levels/NN/x.glb`.

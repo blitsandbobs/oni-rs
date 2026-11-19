@@ -260,7 +260,7 @@ impl World {
         let inaccuracy = self.inaccuracies();
         let spread = self.turret_spread();
         let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.set_spread(inaccuracy, spread);
         for h in handles {
             if let Some(p) = particles.get_mut(h) {
@@ -280,7 +280,7 @@ impl World {
         let tick = self.armory.particles.tick;
         let time = f64::from(tick) / p3::HZ;
         let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         let handles = class
             .attachments
             .iter()
@@ -399,7 +399,7 @@ impl World {
             t.humming = true;
             if let Some(name) = t.class.active_sound.clone() {
                 let at = t.position;
-                let sound = self.audio.ambient_start(&name, at, self.sight.as_ref());
+                let sound = self.audio.ambient_start(&name, at, Some(&self.quads));
                 self.turrets[k].sound = sound;
             }
         } else if !on && t.humming {
@@ -451,7 +451,7 @@ impl World {
                 Some(i) => {
                     let to = self.fighters[i].feet() + Vec3::Y * self.fighters[i].motion.height();
                     let d = to - from;
-                    d.length() < LOS_START || self.sight.as_ref().is_none_or(|s| s.clear(from + d.normalize() * LOS_START, to))
+                    d.length() < LOS_START || self.quads.shoots(from + d.normalize() * LOS_START, to)
                 }
                 None => false,
             };

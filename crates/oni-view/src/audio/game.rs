@@ -6,7 +6,7 @@ use glam::Vec3;
 
 use super::defs::PLAY_ONCE;
 use super::Audio;
-use crate::physics::Sight;
+use crate::quads::Quads as Sight;
 
 /// How far the muffled volume moves an update.
 const VOLUME_ADJUST: f32 = 0.05;
@@ -34,7 +34,7 @@ impl Audio {
         if min_occlusion > 0.99 {
             return 1.0;
         }
-        let hits = sight.map_or(0, |s| s.hits(at, self.listener.0, MAX_COLLISIONS));
+        let hits = sight.map_or(0, |s| s.occlusions(at, self.listener.0)).min(MAX_COLLISIONS);
         if hits > 0 {
             min_occlusion.max(0.8 - (hits * hits) as f32 / 12.0)
         } else {

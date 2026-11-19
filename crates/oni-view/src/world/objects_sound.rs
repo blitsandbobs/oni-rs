@@ -85,7 +85,7 @@ impl World {
     /// `at` or unplaced.
     pub fn event_sound(&mut self, event: &str, at: Option<Vec3>) {
         let Some(name) = self.game_sounds.events.get(event).filter(|n| !n.is_empty()).cloned() else { return };
-        self.audio.impulse_play(&name, at, None, self.sight.as_ref());
+        self.audio.impulse_play(&name, at, None, Some(&self.quads));
     }
 
     /// Like `event_sound`, but not during a cutscene or the level's first
@@ -112,7 +112,7 @@ impl World {
             let Some((opens, closes, ai)) = self.game_sounds.doors.get(&class).cloned() else { continue };
             let sound = if open { opens } else { closes };
             if !sound.is_empty() {
-                self.audio.impulse_play(&sound, Some(at), None, self.sight.as_ref());
+                self.audio.impulse_play(&sound, Some(at), None, Some(&self.quads));
             }
             if let Some((stimulus, radius)) = ai {
                 self.sound(stimulus, at, radius, None, None);
@@ -163,11 +163,11 @@ impl World {
         let (on, at, class) = (l.active && !l.hidden, l.position, l.class.clone());
         let Some((hum, trip)) = self.game_sounds.lasers.get(&class).cloned() else { return };
         if tripped && !trip.is_empty() {
-            self.audio.impulse_play(&trip, Some(at), None, self.sight.as_ref());
+            self.audio.impulse_play(&trip, Some(at), None, Some(&self.quads));
         }
         match (on, self.game_sounds.laser_hum[k]) {
             (true, None) => {
-                let h = (!hum.is_empty()).then(|| self.audio.ambient_start(&hum, at, self.sight.as_ref())).flatten();
+                let h = (!hum.is_empty()).then(|| self.audio.ambient_start(&hum, at, Some(&self.quads))).flatten();
                 self.game_sounds.laser_hum[k] = Some(h);
             }
             (false, Some(h)) => {

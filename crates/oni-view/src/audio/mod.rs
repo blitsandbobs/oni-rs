@@ -158,7 +158,7 @@ impl Audio {
     /// worth; the overall volume moves; the handles follow their sounds in
     /// and out of earshot; the playing ambients step; every channel takes its
     /// level and pan.
-    pub fn tick(&mut self, sight: Option<&crate::physics::Sight>) {
+    pub fn tick(&mut self, sight: Option<&crate::quads::Quads>) {
         self.tick += 1;
         if !self.realtime {
             let mut m = self.mixer.lock().unwrap();
