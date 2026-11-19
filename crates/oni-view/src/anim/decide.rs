@@ -166,7 +166,8 @@ fn react(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
         }
     }
 
-    if m.air.frames > FLAIL_AFTER
+    if (m.air.lifted || m.air.frames > FLAIL_AFTER)
+        && m.air.frames > 0
         && m.request(ch, Urge::Force, false, ty::FALLING_FLAIL).is_some()
     {
         return true;

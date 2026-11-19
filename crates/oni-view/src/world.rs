@@ -31,7 +31,7 @@ mod turrets;
 mod voices;
 mod weapons;
 pub use voices::{speech, vocal, Line, PainState, Speech};
-pub use weapons::{Armory, Item, SightTarget};
+pub use weapons::{Armory, Item, SightTarget, POWERUPS};
 
 /// Characters further apart than this are never tested for touching.
 const CONTACT_RANGE: f32 = 25.0;
@@ -328,6 +328,11 @@ impl World {
             p.force_target(target, team, feet, now);
         }
         true
+    }
+
+    /// A roll in `[0, 1)`.
+    fn random(&mut self) -> f32 {
+        self.percent() / 100.0 + (self.percent() / 10_000.0)
     }
 
     /// A roll in `[0, 100)`.
@@ -707,6 +712,9 @@ impl World {
             inv.hypos = p.carries[2];
             inv.shield = p.carries[3];
             inv.invisibility = p.carries[4];
+            inv.drops = p.drops;
+            inv.no_auto_drop = p.flags.iter().any(|f| f == "noAutoDrop");
+            inv.lsi |= p.flags.iter().any(|f| f == "hasLsi");
             if let Some(w) = p.weapon.as_deref() {
                 if self.give_weapon(id, w) {
                     if let (Some(pc), Some(g)) = (p.ammo_percent, self.fighters[id].hand) {
@@ -1522,6 +1530,15 @@ impl World {
         self.perceive();
         self.run_agents();
         self.plan_paths();
+        // Someone lifted by a weapon is pulled toward the lifter (its
+        // place: the pelvis over the feet, `actual_position`).
+        let places: Vec<Vec3> = self.fighters.iter().map(|f| {
+            let p = f.sight_points()[0];
+            Vec3::new(p.x, f.feet().y, p.z)
+        }).collect();
+        for f in &mut self.fighters {
+            f.lift.owner_at = f.lift.owner.and_then(|o| places.get(o).copied());
+        }
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
@@ -1609,13 +1626,22 @@ impl World {
         self.collide(&mut moves);
         let touched = std::cell::RefCell::new(crate::chrphys::Contacts::default());
         let mut touches = Vec::new();
+        // (The objects' spheres; for an AI the loose guns' too — the player
+        // walks over guns, `ONrCharacter_Callback_FindPhyCollisions`.)
         let spheres = self.object_spheres();
+        let n_objects = spheres.len();
+        let loose: Vec<usize> = (0..self.armory.weapons.len()).filter(|&w| self.armory.weapons[w].owner.is_none() && self.armory.weapons[w].body.is_some()).collect();
+        let with_guns: Vec<(Vec3, f32)> = spheres.iter().copied().chain(loose.iter().map(|&w| (self.armory.weapons[w].position, self.armory.weapons[w].class.sphere_radius))).collect();
         let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         env.touched = Some(&touched);
+        let mut ai_env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        ai_env.touched = Some(&touched);
+        ai_env.spheres = &with_guns;
         env.spheres = &spheres;
+        let mut gun_pushes: Vec<(usize, usize, Vec3)> = Vec::new();
         for (i, (f, m)) in self.fighters.iter_mut().zip(moves).enumerate() {
             if let Some(m) = m {
-                f.commit(m, &env);
+                f.commit(m, if f.player { &env } else { &ai_env });
                 let c = std::mem::take(&mut *touched.borrow_mut());
                 f.collisions.0 = c.walls;
                 f.collisions.1 = c.objects;
@@ -1633,9 +1659,21 @@ impl World {
                     }
                 }
                 touches.extend(c.touches.into_iter().filter(|t| t.door.is_some()).map(|t| (i, t)));
+                gun_pushes.extend(c.pushed.iter().filter(|(k, _)| *k >= n_objects).map(|&(k, p)| (i, loose[k - n_objects], p)));
             }
         }
         self.doors_touched(&touches);
+        // Pushed guns (`WPiWeaponPhysics_Callback_ReceiveForce`): once they
+        // have touched down, and not by an AI going for that very gun.
+        for (who, w, push) in gun_pushes {
+            let wanted = matches!(&self.fighters[who].brain, Some(crate::ai::Brain::Agent(a)) if a.gun_wanted() == Some(w));
+            let gun = &mut self.armory.weapons[w];
+            if gun.hit_ground && !wanted {
+                if let Some(b) = gun.body.as_mut() {
+                    b.acceleration += push;
+                }
+            }
+        }
         self.start_throws();
         for f in &mut self.fighters {
             f.apply_reaction();

@@ -46,6 +46,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
+| `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
@@ -100,6 +101,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 |------|--------|
 | `input(forward, backward)` | Set the move keys (W/S). |
 | `collisions(id)` | What a fighter's movement met last tick: walls, objects, characters, and its AI's collision records and how many are serious. |
+| `loose_guns()` / `powerups()` / `lift(id, by, ticks)` | The guns no one holds (`{class, at, moving}`), the powerups lying about (`{kind, at, falling}`); lift a fighter toward another as "picked up" damage does. `spawn_weapon(class, x, y, z, falling)` lets a gun fall instead of floating. |
 | `objects()` | The live placed objects: `{{name, at, frame, animating}, …}`. |
 | `door_leaves(id)` | Door id's leaf boxes this tick: `{{at, half, solid, paused}, …}`. |
 | `sight(id)` / `gun_through_wall(id)` | A fighter's gun sight this tick: `{from, to, target, laser, tunnel}` (target `none` / `environment` / `character`, laser `{r, g, b}` or nil, tunnel its sprite count), nil without one; whether its gun pokes through a wall. |

@@ -81,7 +81,35 @@ pub struct Powerup {
     pub kind: usize,
     pub amount: u16,
     pub position: Vec3,
+    /// Which way it lies.
+    pub rotation: f32,
+    /// Its physics while it falls or slides (a dropped one,
+    /// `WPrPowerup_AddPhysics`); gone once it has rested 120 ticks.
+    pub body: Option<crate::objphys::Body>,
+    rest: u32,
 }
+
+impl Powerup {
+    fn new(kind: usize, amount: u16, position: Vec3) -> Powerup {
+        Powerup { kind, amount, position, rotation: 0.0, body: None, rest: 0 }
+    }
+}
+
+/// A powerup's looks (`game_settings.json` `powerups`): its model and its
+/// physics sphere's radius.
+#[derive(Clone, Debug, Default)]
+pub struct PowerupLook {
+    pub model: Option<std::path::PathBuf>,
+    pub radius: f32,
+}
+
+/// A loose powerup's friction, the speed under which it counts as still
+/// (`5 / 60` a tick), and how long it rests before its physics goes
+/// (`WPcPowerupPhysicsTimer`).
+const POWERUP_STATIC_FRICTION: f32 = 0.0025;
+const POWERUP_DYNAMIC_FRICTION: f32 = 0.75;
+const POWERUP_STILL: f32 = 5.0 / 60.0;
+const POWERUP_REST: u32 = 120;
 
 /// Guns, their classes and the particles.
 pub struct Armory {
@@ -89,6 +117,8 @@ pub struct Armory {
     pub particles: p3::System,
     pub weapons: Vec<Weapon>,
     pub powerups: Vec<Powerup>,
+    /// Each powerup type's looks (by [`POWERUPS`] order).
+    pub powerup_looks: Vec<PowerupLook>,
     /// Each fighter's fire buttons last tick (for presses).
     last_fire: Vec<u32>,
 }
@@ -100,6 +130,7 @@ impl Default for Armory {
             particles: p3::System::new(Rc::new(p3::Classes::default())),
             weapons: Vec::new(),
             powerups: Vec::new(),
+            powerup_looks: Vec::new(),
             last_fire: Vec::new(),
         }
     }
@@ -174,6 +205,19 @@ impl<'a> ShotHost<'a> {
             return false;
         }
         let physical = if kind == damage::PICK_UP { 0 } else { damage };
+        // Picked up (`WPrHitChar`): enough of it (a share of 100 by damage)
+        // and it is lifted toward the shooter, the hit's stun more ticks of
+        // it (at most 60).
+        if kind == damage::PICK_UP && f.alive() && !f.unstoppable {
+            let lifted = f.lift.timer > 0 || {
+                f.lift.percent += damage as f32;
+                f.lift.percent >= 100.0
+            };
+            if let (true, Some((a, _, _))) = (lifted, attacker) {
+                f.lift.timer = (f.lift.timer + stun.max(0) as u16).min(60);
+                f.lift.owner = Some(a);
+            }
+        }
         f.last_impact = dir * (damage as f32).clamp(5.0, 15.0);
         f.take_damage(physical, dir * knockback);
         // Facing the shot, or turned away from it: the reaction's side.
@@ -526,32 +570,24 @@ fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
         .min_by(f32::total_cmp)
 }
 
-/// How fast (along the surface's normal, per tick) a falling gun must hit
-/// to make its impact (`WPcImpact_MinVelocity`).
-const WEAPON_IMPACT_SPEED: f32 = 0.35;
-
 impl World {
-    /// A falling object's impact on the floor under `at`
-    /// (`WPiGenerateFallImpact`): on the quad's material, at any weight, with
-    /// no decal size and no one to blame.
-    fn fall_impact(&mut self, at: Vec3, impact: &str) {
+    /// A loose thing met a surface hard enough (`WPiGenerateFallImpact`):
+    /// the impact on its material, at the point met.
+    fn fall_impact_on(&mut self, c: crate::objphys::Contact, impact: &str) {
         use p3::effect::{Cause, Data};
         let Some(impacts) = self.impacts.clone() else { return };
         let Some(impact) = impacts.impact(impact) else { return };
-        let hit = self.quads.ray(at + Vec3::Y * 2.0, Vec3::Y * -4.0, crate::quads::flag::OBJ_COL_SKIP);
-        let quad = hit.and_then(|h| self.quads.quads.get(h.quad as usize).map(|q| (h, q)));
-        let material = quad
-            .and_then(|(_, q)| self.quads.textures.get(q.texture as usize))
+        let material = self
+            .quads
+            .quads
+            .get(c.quad as usize)
+            .and_then(|q| self.quads.textures.get(q.texture as usize))
             .and_then(|t| impacts.texture_material(t))
-            .or_else(|| impacts.material("Base"))
-            .or_else(|| impacts.material("Default"));
+            .or_else(|| impacts.material("Base"));
         let Some(material) = material else { return };
-        let mut data = Data::new(self.armory.particles.tick, at);
-        if let Some((h, q)) = quad {
-            data.position = h.point;
-            data.normal = self.quads.plane(q.plane).0;
-            data.cause = Cause::HitWall(Some(h.quad));
-        }
+        let mut data = Data::new(self.armory.particles.tick, c.point);
+        data.normal = c.normal;
+        data.cause = Cause::HitWall(Some(c.quad));
         self.impact_effect(impact, material, crate::impacts::ANY, data, 1.0, None, None);
     }
 
@@ -659,6 +695,14 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
+        let settings: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        self.armory.powerup_looks = POWERUP_DATA
+            .iter()
+            .map(|k| {
+                let p = &settings["powerups"][*k];
+                PowerupLook { model: p["model"].as_str().map(|m| common.join(m)), radius: p["radius"].as_f64().unwrap_or(2.0) as f32 }
+            })
+            .collect();
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
         self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
         // The object animations scripts name: the common ones, then the level's.
@@ -717,8 +761,108 @@ impl World {
             let Some(kind) = POWERUP_DATA.iter().position(|n| Some(*n) == p["type"].as_str()) else { continue };
             let v = &p["position"];
             let at = Vec3::new(v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32, v[2].as_f64().unwrap_or(0.0) as f32);
-            self.armory.powerups.push(Powerup { kind, amount: POWERUP_DEFAULT[kind], position: at });
+            self.armory.powerups.push(Powerup::new(kind, POWERUP_DEFAULT[kind], at));
         }
+    }
+
+    /// Fighter `who` drops what it carries, dying (`ONiCharacter_DropInventoryItems`;
+    /// not the player): its "death candy" — each clip, cell and hypo it was
+    /// given to drop, a full shield or invisibility if so — then, unless it
+    /// keeps them, its worn shield, invisibility and its LSI.
+    fn drop_inventory(&mut self, who: usize) {
+        let f = &mut self.fighters[who];
+        if f.player || f.inventory.dropped {
+            return;
+        }
+        f.inventory.dropped = true;
+        let inv = f.inventory;
+        let mut drops: Vec<(usize, u16)> = Vec::new();
+        for (kind, &n) in inv.drops.iter().enumerate().take(3) {
+            drops.extend(std::iter::repeat_n((kind, 1), usize::from(n)));
+        }
+        if inv.drops[3] > 0 {
+            drops.push((3, POWERUP_DEFAULT[3]));
+        }
+        if inv.drops[4] > 0 {
+            drops.push((4, POWERUP_DEFAULT[4]));
+        }
+        if !inv.no_auto_drop {
+            if inv.shield > 0 {
+                drops.push((3, inv.shield));
+            }
+            if inv.invisibility > 0 {
+                drops.push((4, inv.invisibility));
+            }
+            if inv.lsi {
+                drops.push((5, 1));
+            }
+        }
+        for (kind, amount) in drops {
+            self.drop_powerup(who, kind, amount);
+        }
+    }
+
+    /// A powerup falls from fighter `who` (`WPrPowerup_Drop`): from its
+    /// middle, nudged up to 1 aside, turned at random, with a little random
+    /// speed sideways.
+    fn drop_powerup(&mut self, who: usize, kind: usize, amount: u16) {
+        let f = &self.fighters[who];
+        let pelvis = f.sight_points()[0];
+        let mut at = Vec3::new(pelvis.x, f.feet().y + f.motion.height(), pelvis.z);
+        let deviate = |w: &mut World, v: &mut Vec3, by: f32| {
+            v.x += (w.random() * 2.0 - 1.0) * by;
+            v.z += (w.random() * 2.0 - 1.0) * by;
+        };
+        deviate(self, &mut at, 1.0);
+        let radius = self.armory.powerup_looks.get(kind).map_or(2.0, |l| l.radius);
+        let mut body = crate::objphys::Body::new(at, radius, POWERUP_STATIC_FRICTION, POWERUP_DYNAMIC_FRICTION);
+        deviate(self, &mut body.velocity, 1.5 / 60.0);
+        let mut p = Powerup::new(kind, amount, at);
+        p.rotation = self.random() * std::f32::consts::TAU;
+        p.body = Some(body);
+        eprintln!("weapon: fighter {who} drops {}", POWERUPS[kind]);
+        self.armory.powerups.push(p);
+    }
+
+    /// One tick of the falling and sliding powerups (`WPiPowerup_Update`):
+    /// their physics (`crate::objphys`; characters don't stop them), the
+    /// "Powerup" impact once a pass on meeting a surface hard enough, and —
+    /// on the ground or barely moving for 120 ticks — their physics goes.
+    fn powerups_tick(&mut self) {
+        let mut impacts = Vec::new();
+        for p in &mut self.armory.powerups {
+            let Some(mut b) = p.body else { continue };
+            let mut on_ground = false;
+            b.tick(&self.quads, |body, met| {
+                if let Some(c) = met.iter().find(|c| body.velocity.dot(c.normal).abs() > 0.35) {
+                    impacts.push(*c);
+                }
+                on_ground = met.iter().any(|c| c.normal.y > crate::chrphys::MIN_FLOOR_NORMAL_Y);
+            });
+            b.velocity.y = b.velocity.y.min(2.25);
+            p.position = b.position;
+            if on_ground || b.velocity.length_squared() < POWERUP_STILL * POWERUP_STILL {
+                p.rest += 1;
+            } else {
+                p.rest = 0;
+            }
+            p.body = (p.rest < POWERUP_REST).then_some(b);
+        }
+        for c in impacts {
+            self.fall_impact_on(c, "Powerup");
+        }
+    }
+
+    /// What to draw for the powerups lying about: each one's model, turned.
+    pub fn powerup_draws(&self) -> Vec<(std::path::PathBuf, Mat4)> {
+        self.armory
+            .powerups
+            .iter()
+            .filter_map(|p| {
+                let model = self.armory.powerup_looks.get(p.kind)?.model.clone()?;
+                Some((model, Mat4::from_rotation_translation(glam::Quat::from_rotation_y(p.rotation), p.position)))
+            })
+            .collect()
     }
 
     pub fn powerups(&self) -> &[Powerup] {
@@ -729,7 +873,7 @@ impl World {
     /// the kind's.
     pub fn spawn_powerup(&mut self, kind: &str, at: Vec3, amount: Option<u16>) -> bool {
         let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return false };
-        self.armory.powerups.push(Powerup { kind, amount: amount.unwrap_or(POWERUP_DEFAULT[kind]), position: at });
+        self.armory.powerups.push(Powerup::new(kind, amount.unwrap_or(POWERUP_DEFAULT[kind]), at));
         true
     }
 
@@ -1822,21 +1966,12 @@ impl World {
             if gun.owner.is_some() || gun.gone {
                 continue;
             }
-            let floor = if gun.resting {
-                None
-            } else {
-                let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
-                crate::chrphys::level_ray(&env, gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0).map(|h| gun.position.y + 2.0 - 40.0 * h.fraction)
-            };
-            // Landing hard enough (`WPcImpact_MinVelocity`): the floor's
-            // "Weapon" impact.
-            if let Some(speed) = self.armory.weapons[w].tick_free(floor) {
-                if speed > WEAPON_IMPACT_SPEED {
-                    let at = self.armory.weapons[w].position;
-                    self.fall_impact(at, "Weapon");
-                }
+            // Meeting a surface hard enough: its "Weapon" impact.
+            for c in self.armory.weapons[w].tick_free(&self.quads) {
+                self.fall_impact_on(c, "Weapon");
             }
         }
+        self.powerups_tick();
         // The shots.
         let tick = self.now as u32;
         let pane_quads: Vec<u32> = self.glass.iter().map(|p| p.quad).collect();
@@ -1892,8 +2027,12 @@ impl World {
         // Knocked down: the gun flies.
         for who in 0..self.fighters.len() {
             let f = &self.fighters[who];
-            if f.hand.is_some() && (f.motion.current().has_flag(crate::anim::types::flag::DROP_WEAPON) || (!f.alive() && f.motion.dying)) {
+            let died = !f.alive() && f.motion.dying;
+            if f.hand.is_some() && (f.motion.current().has_flag(crate::anim::types::flag::DROP_WEAPON) || died) {
                 self.drop_weapon(who, true);
+            }
+            if died {
+                self.drop_inventory(who);
             }
         }
         // (Gone guns stay in the list: fighters hold guns by index.)

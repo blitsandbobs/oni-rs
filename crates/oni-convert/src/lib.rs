@@ -480,7 +480,37 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
         .take(points)
         .map(|(v, c)| serde_json::json!({ "health": v, "color": c }))
         .collect();
+    // The powerups' looks (`powerup_geom[7][128]` @152, `powerup_glow` @1048,
+    // `powerup_glowsize` @1944), by type: the model, and the physics
+    // sphere a dropped one falls with (`WPrPowerup_AddPhysics`: down to the
+    // geometry's lowest point, at least 1; 2 without geometry).
+    const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
+    const POWERUPS: [&str; 6] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility", "lsi"];
+    let powerups: serde_json::Map<String, serde_json::Value> = POWERUPS
+        .iter()
+        .enumerate()
+        .map(|(k, name)| {
+            let geom = cstr(d, 152 + k * 128, 128);
+            let inst = (!geom.is_empty())
+                .then(|| dat.instances.iter().find(|i| i.tag == TAG_M3GM && i.name.as_deref().is_some_and(|n| n == geom || n.trim_start_matches("M3GM") == geom)))
+                .flatten();
+            let radius = inst
+                .and_then(|i| oni_geom::extract_mesh(dat, i))
+                .map(|m| m.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min).abs().max(1.0))
+                .unwrap_or(2.0);
+            let mut v = serde_json::json!({ "radius": radius, "glowSize": le_f32(d, 1944 + 4 * k) });
+            if let Some(i) = inst {
+                v["model"] = serde_json::json!(format!("models/{}.glb", asset_name(dat, i)));
+            }
+            let glow = cstr(d, 1048 + k * 128, 128);
+            if !glow.is_empty() {
+                v["glow"] = serde_json::json!(glow);
+            }
+            (name.to_string(), v)
+        })
+        .collect();
     Some(serde_json::json!({
+        "powerups": powerups,
         "healthColor": health_color,
         "eventSounds": events,
         "conditionSounds": conditions,

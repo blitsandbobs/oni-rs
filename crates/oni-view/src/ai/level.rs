@@ -166,6 +166,9 @@ pub struct Placed {
     pub weapon: Option<String>,
     pub ammo_percent: Option<u32>,
     pub carries: [u16; 5],
+    /// What it drops dying ("death candy", `drop_*`): clips, cells and hypos
+    /// by count; a shield or invisibility if non-zero.
+    pub drops: [u16; 5],
 }
 
 impl Placed {
@@ -254,6 +257,8 @@ impl LevelAi {
                 ammo_percent: c["ammoPercent"].as_u64().map(|v| v as u32),
                 carries: ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"]
                     .map(|k| c["inventory"][k]["use"].as_u64().unwrap_or(0) as u16),
+                drops: ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"]
+                    .map(|k| c["inventory"][k]["drop"].as_u64().unwrap_or(0) as u16),
                 alarm_groups: c["alarmGroups"]
                     .as_array()
                     .into_iter()

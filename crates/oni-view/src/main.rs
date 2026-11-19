@@ -26,6 +26,7 @@ mod consoles;
 mod control;
 mod decal;
 mod doors;
+mod objphys;
 mod lasers;
 mod p3;
 mod weapons;

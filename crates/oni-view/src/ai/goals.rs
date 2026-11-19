@@ -894,6 +894,15 @@ impl Agent {
     }
 
     /// Whom it fights, if anyone.
+    /// The gun it is going for in a fight, if any (it doesn't kick that
+    /// one about).
+    pub fn gun_wanted(&self) -> Option<usize> {
+        match &self.goal {
+            Goal::Combat(c) => c.gun_target,
+            _ => None,
+        }
+    }
+
     pub fn opponent(&self) -> Option<usize> {
         match &self.goal {
             Goal::Combat(c) if !c.target_dead => Some(c.target),

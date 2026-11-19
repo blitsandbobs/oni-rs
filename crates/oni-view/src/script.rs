@@ -218,6 +218,7 @@ impl ScriptHost {
             .chain(self.world.particle_models())
             .chain(self.world.turret_draws())
             .chain(self.world.object_draws())
+            .chain(self.world.powerup_draws())
             .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
             .collect();
         // (Consoles' screens, textured by their state.)
@@ -447,6 +448,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, (id, n): (usize, i32)| {
             if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
                 f.take_damage(n, Vec3::ZERO);
+            }
+            Ok(())
+        })?,
+    )?;
+    // lift(id, by, ticks): fighter `id` is lifted toward `by` as a weapon's
+    // "picked up" damage does, for `ticks` (at most 60).
+    let h = host.clone();
+    g.set(
+        "lift",
+        lua.create_function(move |_, (id, by, ticks): (usize, usize, u16)| {
+            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                f.lift.timer = (f.lift.timer + ticks).min(60);
+                f.lift.owner = Some(by);
             }
             Ok(())
         })?,
@@ -996,8 +1010,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "spawn_weapon",
-        lua.create_function(move |_, (class, x, y, z): (String, f32, f32, f32)| {
-            Ok(h.borrow_mut().world.spawn_weapon(&class, Vec3::new(x, y, z), 0.0, true).is_some())
+        lua.create_function(move |_, (class, x, y, z, falling): (String, f32, f32, f32, Option<bool>)| {
+            Ok(h.borrow_mut().world.spawn_weapon(&class, Vec3::new(x, y, z), 0.0, !falling.unwrap_or(false)).is_some())
+        })?,
+    )?;
+    // loose_guns() → {{class, at={x,y,z}, falling}, …}: the guns no one holds.
+    let h = host.clone();
+    g.set(
+        "loose_guns",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            for (k, g) in host.world.weapons().iter().filter(|g| g.owner.is_none() && !g.gone).enumerate() {
+                let o = lua.create_table()?;
+                o.set("class", g.class.name.clone())?;
+                o.set("at", vec![g.position.x, g.position.y, g.position.z])?;
+                o.set("moving", g.velocity.length() > 1e-3)?;
+                t.set(k + 1, o)?;
+            }
+            Ok(t)
         })?,
     )?;
     let h = host.clone();
@@ -1369,6 +1400,24 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
     let h = host.clone();
     g.set("powerups_lying", lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?)?;
+    // powerups() → {{kind, at={x,y,z}, falling}, …}: the powerups lying
+    // about (falling: still with physics).
+    let h = host.clone();
+    g.set(
+        "powerups",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            for (k, p) in host.world.powerups().iter().enumerate() {
+                let o = lua.create_table()?;
+                o.set("kind", crate::world::POWERUPS[p.kind])?;
+                o.set("at", vec![p.position.x, p.position.y, p.position.z])?;
+                o.set("falling", p.body.is_some())?;
+                t.set(k + 1, o)?;
+            }
+            Ok(t)
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "weapons_lying",

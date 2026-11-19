@@ -183,7 +183,17 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             .flatten()
             .filter(|g| g.tag == TAG_M3GM)
             .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)));
+        // Its physics sphere (`WPiMakeSphereTree`): a quarter of the largest
+        // coordinate of its geometry's points.
+        let radius = (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+            .and_then(|g| oni_geom::extract_mesh(dat, g))
+            .map(|m| m.positions.iter().flat_map(|p| p.iter().map(|c| c.abs())).fold(0.0f32, f32::max) / 4.0);
         if let Some(mut c) = class(d, model) {
+            if let Some(r) = radius {
+                c["sphereRadius"] = json!(r);
+            }
             // Its sprites (`WPtSprite`: texture, shade, scale): the
             // reticle, the reticle on a target, the sight's tunnel (with
             // how many and how far apart).

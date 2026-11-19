@@ -76,10 +76,18 @@ assert(weapon(0) == "w1_tap" and holster_of(0) == nil, "drawn again")
 
 -- A rifle on the floor at her feet: with a gun in hand but the holster
 -- empty she bends for it (the pickup clip), takes it at the clip's action
--- frame, and the pistol drops (landing with the floor's impact sound).
+-- frame, and the pistol drops (from her low hand: too gently for a sound).
 local x, y, z = pos()
 assert(spawn_weapon("w3_phr", x, y + 1, z + 3))
 swap()
+step(60)
+assert(weapon(0) == "w3_phr", "picked up the rifle: " .. tostring(weapon(0)))
+assert(weapons_lying() >= 1, "the pistol is on the floor")
+print("pickup ok")
+
+-- Dropped standing, the rifle falls from her hand and lands with the
+-- floor's impact sound (faster than 0.35 a tick along the floor's normal).
+drop_weapon(0)
 local landed = {}
 for _ = 1, 60 do
     step(1)
@@ -89,8 +97,5 @@ for _ = 1, 60 do
 end
 local heard = {}
 for c in pairs(landed) do heard[#heard + 1] = c end
-print("the pistol lands:", table.concat(heard, " "))
-assert(#heard > 0, "the dropped pistol lands with a sound by the floor's material")
-assert(weapon(0) == "w3_phr", "picked up the rifle: " .. tostring(weapon(0)))
-assert(weapons_lying() >= 1, "the pistol is on the floor")
-print("pickup ok")
+print("the rifle lands:", table.concat(heard, " "))
+assert(#heard > 0, "a dropped gun lands with a sound by the floor's material")

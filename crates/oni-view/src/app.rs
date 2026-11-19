@@ -611,7 +611,7 @@ impl State {
         // Guns: one-bone models placed by their matrices.
         let guns: Vec<(usize, Vec<Mat4>)> = match &self.play {
             Some(pw) => {
-                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.object_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m]))).collect();
+                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.object_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m]))).collect();
                 // (Consoles' screens, textured by their state.)
                 for (path, tex, m) in pw.world.console_draws() {
                     if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {

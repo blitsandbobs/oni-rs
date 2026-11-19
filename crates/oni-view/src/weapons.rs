@@ -61,7 +61,13 @@ pub const FADE_TIME: u32 = 600;
 /// Placed guns sit this far above their marker.
 pub const PLACED_LIFT: f32 = 2.0;
 /// A falling gun's gravity, units per tick².
-const DROP_GRAVITY: f32 = 0.06;
+/// A loose gun's friction (`WPcWeaponStaticFriction`, `…DynamicFriction`),
+/// how hard it must meet a surface for an impact (`WPcImpact_MinVelocity`)
+/// and the launch speed its rise is capped by (`WPcItemLaunchSpeed`).
+const STATIC_FRICTION: f32 = 0.0025;
+const DYNAMIC_FRICTION: f32 = 0.75;
+const IMPACT_SPEED: f32 = 0.35;
+const LAUNCH_SPEED: f32 = 1.5;
 
 /// The recoil a class gives (radians; `base` per shot, already in the
 /// form that sums to the authored kick).
@@ -114,6 +120,8 @@ pub struct WeaponClass {
     /// half-angle (0 length: none).
     pub dodge_pattern: [f32; 3],
     pub attachments: Vec<Attachment>,
+    /// Its physics sphere's radius, loose (`WPiMakeSphereTree`).
+    pub sphere_radius: f32,
     /// The click it makes empty (an impulse sound).
     pub empty_sound: String,
     /// Its sight (`docs/WEAPONS.md`, *Sight*): where on the gun and which
@@ -215,6 +223,7 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
     });
     WeaponClass {
         sight: (v3(&c["sight"]["position"]), v3(&c["sight"]["vector"])),
+        sphere_radius: f(&c["sphereRadius"]).max(0.1),
         max_sight_distance: f(&c["maxSightDistance"]),
         laser_color: rgb(&c["laserColor"]),
         tunnel,
@@ -305,7 +314,14 @@ pub struct Weapon {
     pub position: Vec3,
     pub yaw: f32,
     pub velocity: Vec3,
+    /// Without physics: in a hand, or placed by the level (floating where
+    /// it was put until someone takes it).
     pub resting: bool,
+    /// Its physics context while loose (`docs/OBJECTS.md`, *Loose things*).
+    pub body: Option<crate::objphys::Body>,
+    /// It has touched something since it was let go (only then can AIs
+    /// kick it about).
+    pub hit_ground: bool,
     pub ammo: u16,
     pub chamber: u16,
     pub chamber_total: u16,
@@ -330,6 +346,7 @@ impl Weapon {
     /// level put it, not falling).
     pub fn new(class: Rc<WeaponClass>, position: Vec3, yaw: f32, placed: bool) -> Weapon {
         let n = class.attachments.len();
+        let radius = class.sphere_radius;
         Weapon {
             ammo: class.max_ammo,
             class,
@@ -339,6 +356,8 @@ impl Weapon {
             yaw,
             velocity: Vec3::ZERO,
             resting: placed,
+            body: (!placed).then(|| crate::objphys::Body::new(position, radius, STATIC_FRICTION, DYNAMIC_FRICTION)),
+            hit_ground: false,
             chamber: 0,
             chamber_total: 0,
             reload_time: 0,
@@ -370,6 +389,7 @@ impl Weapon {
         self.free_time = 0;
         self.fade_time = 0;
         self.resting = true;
+        self.body = None;
     }
 
     /// Let go (dropped, or the holder died): it falls, knocked away by
@@ -384,6 +404,10 @@ impl Weapon {
         self.yaw = (x.x.atan2(x.z) - std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU);
         self.velocity = kick.map_or(Vec3::ZERO, |k| Vec3::Y * 1.5 + k);
         self.resting = false;
+        self.hit_ground = false;
+        let mut body = crate::objphys::Body::new(self.position, self.class.sphere_radius, STATIC_FRICTION, DYNAMIC_FRICTION);
+        body.velocity = self.velocity;
+        self.body = Some(body);
         self.owner = None;
         self.must_fire = 0;
         self.reload_time = 0;
@@ -673,24 +697,30 @@ impl Weapon {
 
     /// One tick lying free: falling until it lands (`floor` = the height
     /// below, if any), then lying, fading and going.
-    /// A free gun's tick: falls onto `floor`, then lies there and fades.
-    /// Returns how fast it was going down when it landed, if it did.
-    pub fn tick_free(&mut self, floor: Option<f32>) -> Option<f32> {
-        let mut landed = None;
-        if !self.resting {
-            // (A falling gun's physics is approximated: the characters'
-            // jump gravity, its upward speed capped as Oni caps it.)
-            self.velocity.y = (self.velocity.y - DROP_GRAVITY).clamp(-10.0, 2.25);
-            let next = self.position + self.velocity;
-            match floor {
-                Some(y) if next.y <= y => {
-                    self.position = Vec3::new(next.x, y, next.z);
-                    landed = Some(-self.velocity.y);
-                    self.velocity = Vec3::ZERO;
-                    self.resting = true;
+    /// A free gun's tick: its physics (`crate::objphys`) — falling,
+    /// bouncing off the level, sliding to rest — then lying a while and
+    /// fading. Returns the surfaces it met hard enough for an impact
+    /// (`WPiWeaponPhysics_PostCollision_Callback`: faster than 0.35 along a
+    /// surface's normal; each surface each pass).
+    pub fn tick_free(&mut self, quads: &crate::quads::Quads) -> Vec<crate::objphys::Contact> {
+        let mut impacts = Vec::new();
+        if let Some(mut b) = self.body.filter(|_| !self.resting) {
+            let mut touched = false;
+            b.tick(quads, |body, met| {
+                for c in met {
+                    if body.velocity.dot(c.normal).abs() > IMPACT_SPEED {
+                        impacts.push(*c);
+                    }
+                    touched = true;
                 }
-                _ => self.position = next,
-            }
+            });
+            // (Its upward speed capped, `WPrUpdate`: "to stop weapons being
+            // flung into the stratosphere".)
+            b.velocity.y = b.velocity.y.min(1.5 * LAUNCH_SPEED);
+            self.hit_ground |= touched;
+            self.position = b.position;
+            self.velocity = b.velocity;
+            self.body = Some(b);
         }
         self.matrix.set(Mat4::from_rotation_translation(glam::Quat::from_rotation_y(self.yaw), self.position));
         if self.free_time > 0 {
@@ -704,7 +734,7 @@ impl Weapon {
                 self.gone = true;
             }
         }
-        landed
+        impacts
     }
 }
 

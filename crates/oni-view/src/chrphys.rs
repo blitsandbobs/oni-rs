@@ -160,8 +160,8 @@ fn sphere_collider(tree: &Tree, v: Vec3, b: (Vec3, f32)) -> Option<Collider> {
     }
     let (c, r) = b;
     Some(match (tree.root.center - c).try_normalize() {
-        Some(n) => Collider { normal: n, point: ((c + n * r) + (tree.root.center - n * tree.root.radius)) * 0.5 },
-        None => Collider { normal: Vec3::Y, point: tree.root.center },
+        Some(n) => Collider { normal: n, point: ((c + n * r) + (tree.root.center - n * tree.root.radius)) * 0.5, sphere: None },
+        None => Collider { normal: Vec3::Y, point: tree.root.center, sphere: None },
     })
 }
 
@@ -189,6 +189,9 @@ pub struct Contacts {
     pub touches: Vec<Touch>,
     pub walls: u32,
     pub objects: u32,
+    /// The spheres it pushed and how hard (`receiveForce`): the push it took
+    /// off its move on a reflecting pass, its whole move when halted.
+    pub pushed: Vec<(usize, Vec3)>,
 }
 
 /// Where a character stands (its location: the point on the ground under
@@ -205,6 +208,9 @@ pub struct Body {
 pub struct Collider {
     pub normal: Vec3,
     pub point: Vec3,
+    /// A sphere's (its index in [`Env::spheres`]): pushed when it stops the
+    /// mover.
+    pub sphere: Option<usize>,
 }
 
 /// Everything the stack swept along `v` meets
@@ -220,10 +226,10 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
             continue;
         }
         let (normal, d) = env.quads.plane(q.plane);
-        out.push(Collider { normal, point: hit.point });
+        out.push(Collider { normal, point: hit.point, sphere: None });
         let two_sided = q.flags & flag::AK_2SIDED != 0;
         if two_sided {
-            out.push(Collider { normal: -normal, point: hit.point });
+            out.push(Collider { normal: -normal, point: hit.point, sphere: None });
         }
         // (A wall, not a floor: counted once, noted both ways.)
         if let Some(c) = contacts.as_mut().filter(|_| normal.y <= MIN_FLOOR_NORMAL_Y) {
@@ -236,7 +242,8 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
     }
     let objects = out.len();
     for (k, &b) in env.spheres.iter().enumerate() {
-        if let Some(c) = sphere_collider(tree, v, b) {
+        if let Some(mut c) = sphere_collider(tree, v, b) {
+            c.sphere = Some(k);
             out.push(c);
             if let Some(t) = contacts.as_mut() {
                 t.touches.push(Touch { wall: None, door: None, object: Some(k), point: c.point, normal: c.normal, d: -c.normal.dot(c.point) });
@@ -276,7 +283,7 @@ fn door_colliders(door: &DoorBox, tree: &Tree, v: Vec3, initial: bool, out: &mut
             if discard && dir.dot(*n) > 0.0 {
                 continue;
             }
-            out.push(Collider { normal: *n, point });
+            out.push(Collider { normal: *n, point, sphere: None });
             any = true;
         }
         any
@@ -370,6 +377,9 @@ fn reflect(env: &Env, tree: &Tree, v: &mut Vec3, initial: bool) -> bool {
         let p = push_back(*v, c.normal);
         *v -= p;
         if p != Vec3::ZERO {
+            if let (Some(k), Some(t)) = (c.sphere, env.touched) {
+                t.borrow_mut().pushed.push((k, p));
+            }
             v.y = v.y.max(0.0);
             return true;
         }
@@ -377,9 +387,17 @@ fn reflect(env: &Env, tree: &Tree, v: &mut Vec3, initial: bool) -> bool {
     false
 }
 
-/// `OBrPhysics_Update_ReflectHalt`: still pushing into anything, it stops.
+/// `OBrPhysics_Update_ReflectHalt`: still pushing into anything, it stops
+/// (a sphere it pushes into takes its whole move).
 fn halt(env: &Env, tree: &Tree, v: &mut Vec3) {
-    if prepare(gather(env, tree, *v, false), *v, tree.root.center).iter().any(|c| push_back(*v, c.normal) != Vec3::ZERO) {
+    let met = prepare(gather(env, tree, *v, false), *v, tree.root.center);
+    if met.iter().any(|c| push_back(*v, c.normal) != Vec3::ZERO) {
+        if let Some(t) = env.touched {
+            // (Only the first: the move is gone after it.)
+            if let Some(k) = met.iter().find(|c| push_back(*v, c.normal) != Vec3::ZERO).and_then(|c| c.sphere) {
+                t.borrow_mut().pushed.push((k, *v));
+            }
+        }
         *v = Vec3::ZERO;
     }
 }

@@ -170,6 +170,10 @@ pub struct Fighter {
     /// What its movement met last tick: walls, objects, characters
     /// (`numWallCollisions` …).
     pub collisions: (u32, u32, u32),
+    /// Being lifted by a weapon ("picked up" damage): ticks left, by whom,
+    /// where it began, the share of a lift built up so far, and where the
+    /// lifter stands this tick.
+    pub lift: Lift,
     /// Its AI movement's collision records (`ai/avoid.rs`).
     pub avoid: crate::ai::avoid::Avoid,
     /// Collision off (`chr_nocollision`): it moves as its animation does,
@@ -259,6 +263,16 @@ pub struct Overlay {
 pub const RECOIL: usize = 0;
 pub const INVENTORY: usize = 1;
 
+/// Being lifted by a weapon's "picked up" damage (`inAirControl.pickup*`).
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Lift {
+    pub timer: u16,
+    pub owner: Option<usize>,
+    pub start: Option<Vec3>,
+    pub percent: f32,
+    pub owner_at: Option<Vec3>,
+}
+
 /// What a character carries besides guns (`docs/WEAPONS.md`, *Powerups*).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Inventory {
@@ -268,6 +282,13 @@ pub struct Inventory {
     pub shield: u16,
     pub invisibility: u16,
     pub lsi: bool,
+    /// What it drops dying ([`crate::ai::level::Placed::drops`]), and
+    /// whether it keeps its worn shield, invisibility and LSI then
+    /// (`noAutoDrop`).
+    pub drops: [u16; 5],
+    pub no_auto_drop: bool,
+    /// Dropped already (once, when it died).
+    pub dropped: bool,
 }
 
 impl Fighter {
@@ -349,6 +370,7 @@ impl Fighter {
             class_combat: Default::default(),
             velocity: Vec3::ZERO,
             collisions: (0, 0, 0),
+            lift: Lift::default(),
             avoid: Default::default(),
             no_collision: false,
             env_anim: None,
@@ -444,9 +466,24 @@ impl Fighter {
         // (Grounded, the pull to the floor is added when the move is made:
         // it depends on the level.)
         self.ground_pull = None;
-        let local = if self.motion.air.frames > 0 {
+        // (Being lifted: its timer runs down, and while it lasts it is
+        // pulled along through the air.)
+        if self.lift.timer > 0 {
+            self.lift.timer -= 1;
+            if self.lift.timer == 0 {
+                self.motion.air.frames = 1;
+                self.lift.owner = None;
+                self.motion.air.jump_height = self.physics.feet.y;
+            }
+        }
+        self.motion.air.lifted = self.lift.timer > 0;
+        let local = if self.lift.timer > 0 {
+            self.lifted()
+        } else if self.motion.air.frames > 0 {
+            self.lift.start = None;
             self.fly()
         } else {
+            self.lift.start = None;
             let c = self.motion.current();
             self.ground_pull = Some(!reaction::is_victim(self.motion.kind) && c.attacks.is_empty());
             self.motion.root_delta()
@@ -801,6 +838,41 @@ impl Fighter {
         let air = &mut self.motion.air;
         air.velocity = velocity;
         air.frames = 1;
+    }
+
+    /// One tick lifted by a weapon (`ONrCharacter_Update`'s pickup air
+    /// control): it moves its flight (character-local), which slows to 0.9;
+    /// pulled toward the lifter if more than 40 away, up toward a glide path
+    /// 12 above the lifter (rising 0.3 a unit further than 40 out, and no
+    /// steeper than 1.2 from where it began), its speed eased above 2.5.
+    fn lifted(&mut self) -> Vec3 {
+        let air = &mut self.motion.air;
+        let moved = air.velocity;
+        air.frames = air.frames.saturating_add(1);
+        air.velocity *= 0.9;
+        let Some(owner) = self.lift.owner_at else { return moved };
+        let me = self.physics.feet;
+        let start = *self.lift.start.get_or_insert(me);
+        let to = owner - me;
+        let horiz = Vec3::new(to.x, 0.0, to.z).length();
+        if horiz > 40.0 {
+            let (s, c) = self.facing.facing.sin_cos();
+            air.velocity.x += 0.04 * (c * to.x - s * to.z) / horiz;
+            air.velocity.z += 0.04 * (s * to.x + c * to.z) / horiz;
+        }
+        let mut target = owner.y + 12.0;
+        if horiz > 40.0 {
+            target += (horiz - 40.0) * 0.3;
+        }
+        let from_start = Vec3::new(start.x - me.x, 0.0, start.z - me.z).length();
+        target = target.min(start.y + from_start * 1.2);
+        let rise = (target - me.y).clamp(-40.0, 40.0);
+        air.velocity.y += rise * 0.12 / 40.0;
+        let speed = air.velocity.length();
+        if speed > 2.5 {
+            air.velocity *= (2.5 + 0.8 * (speed - 2.5)) / speed;
+        }
+        moved
     }
 
     /// One airborne tick: returns this tick's (character-local) movement and

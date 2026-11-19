@@ -127,6 +127,9 @@ pub struct Air {
     pub jump_height: f32,
     /// Grounded ticks with no floor under the feet (walking off a ledge).
     pub off_ground: u16,
+    /// Being lifted by someone's weapon (`pickupReleaseTimer > 0`): it
+    /// flails.
+    pub lifted: bool,
 }
 
 /// One character's animation state.
