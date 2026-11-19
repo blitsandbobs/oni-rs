@@ -103,6 +103,7 @@ pub struct App {
     faithful: bool,
     spar: bool,
     mission: bool,
+    sound_law: crate::audio::mixer::Law,
     state: Option<State>,
 }
 
@@ -123,6 +124,8 @@ pub struct PlaySetup {
     /// Run the level's own scripts (the player at its placement, the
     /// level's characters as its scripts spawn them) instead of a dummy.
     pub mission: bool,
+    /// How volumes become loudness: the PC build's (default) or the Mac's.
+    pub sound_law: crate::audio::mixer::Law,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -141,6 +144,7 @@ pub fn run(
         faithful,
         spar,
         mission,
+        sound_law,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -156,6 +160,7 @@ pub fn run(
         faithful,
         spar,
         mission,
+        sound_law,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -273,6 +278,7 @@ impl ApplicationHandler for App {
                     // Capture the cursor so mouse motion turns the character
                     // continuously (Oni grabs the mouse in gameplay); Esc releases it.
                     apply_capture(&window, true);
+                    world.audio.mixer.lock().unwrap().law = self.sound_law;
                     let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
                     world.audio.realtime = audio.is_some();
                     if audio.is_none() {

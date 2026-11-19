@@ -123,6 +123,7 @@ fn main() {
     let mut faithful = false;
     let mut spar = false;
     let mut mission = false;
+    let mut sound_law = audio::mixer::Law::Pc;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
         match flag.as_str() {
@@ -133,6 +134,12 @@ fn main() {
             "--faithful" => faithful = true,
             "--spar" => spar = true,
             "--mission" => mission = true,
+            "--sound-law" => {
+                sound_law = match args.next().as_deref() {
+                    Some("mac") => audio::mixer::Law::Mac,
+                    _ => audio::mixer::Law::Pc,
+                }
+            }
             "--level" => level_number = args.next().and_then(|s| s.parse().ok()),
             "--script" => script_path = args.next().map(PathBuf::from),
             "--screenshot" => screenshot = args.next().map(PathBuf::from),
@@ -262,6 +269,7 @@ fn main() {
                 faithful,
                 spar,
                 mission,
+                sound_law,
             },
         ),
     }

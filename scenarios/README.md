@@ -47,6 +47,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `ai_gun.lua` | An unarmed enemy that shoots goes for a loaded gun lying near, bends for it and shoots with it. |
 | `patrol_shoot.lua` | Level 4: a patrolling thug shoots at its flag for the waypoint's time (rounds spent), then goes on to its scan. |
 | `ai_dodge.lua` | An armed soldier holding its ground steps off the line of a gun spraying at it once the danger has lasted its reaction time. |
+| `sounds.lua` | Level 1: glass-breaking impulses — placed and panned (PC law), the alt past three copies, nothing out of earshot, a full stereo pool gives up its quietest channel, all play out. |
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
 | `env_show.lua` | `env_show`: the training room's barrier (reference 2010) stops Konoko while shown; a script hides it and she runs through. |
@@ -103,7 +104,8 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
-| `sounds()` | The playing ambient sounds (`docs/AUDIO.md`): each `name`, `stage` (`in`, `body`, `stopping`, `out`), `clip` (the sound playing now), `left` / `right` gains. |
+| `sounds()` | The playing ambient sounds (`docs/AUDIO.md`): each `name`, `stage` (`in`, `body`, `stopping`, `out`, `detailonly`), `clip` (the sound playing now), `left` / `right` gains. |
+| `impulse(name [, x, y, z [, volume]])` / `channels()` / `sound_volume(v)` | Play an impulse sound (placed or not) → its channel 0–15 or nil; the 16 channels (`clip`, `locked`, `volume` linear, `left` / `right` output gains); set the overall volume to head for. |
 | `turret(id, what)` / `turret_state(id)` | Switch turrets by script id (`activate`, `deactivate`, `reset`; −1 every); a turret's state (`active`, `yaw`, `pitch` degrees, `target`, `firing`, `shots`). |
 | `hold_fire(on)` / `dodge_of(id)` | Hold fire 1 down; an agent's dodge now (x, z, weight; nil: none). |
 | `gun_chance(id, percent)` | Set an agent's chance to go for a gun (its class's, else). |

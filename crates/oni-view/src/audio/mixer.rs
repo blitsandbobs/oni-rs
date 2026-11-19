@@ -1,11 +1,17 @@
-//! The mixer: voices playing decoded clips, each with a queued next clip
-//! (so an ambient's in sound, loop and out sound follow without a gap) and
-//! left / right gains the simulation sets every tick. The output device's
-//! callback drives it in play mode; headless runs advance it a tick's worth
-//! of samples at a time, so voices end on the same ticks either way.
+//! The mixer: the original's 16 sound channels (6 stereo, then 10 mono),
+//! each playing a decoded clip with a queued next one (so an ambient's
+//! passes and stages follow without a gap). The simulation decides
+//! everything — what plays where, levels, pans; the mixer only renders, turning
+//! the original's linear volumes into output gains with the PC (DirectSound)
+//! law or, as an option, the Mac's. The output device's callback drives it in
+//! play mode; headless runs advance it a tick's worth at a time.
 
 use std::path::Path;
 use std::sync::Arc;
+
+/// Channels in all, and how many of them (the first) are stereo.
+pub const CHANNELS: usize = 16;
+pub const STEREO: usize = 6;
 
 /// A decoded sound: 16-bit PCM read into floats, interleaved.
 pub struct Clip {
@@ -50,6 +56,10 @@ impl Clip {
         self.samples.len() / self.channels
     }
 
+    pub fn stereo(&self) -> bool {
+        self.channels == 2
+    }
+
     fn frame(&self, i: usize) -> [f32; 2] {
         let k = i * self.channels;
         if self.channels == 2 {
@@ -60,14 +70,60 @@ impl Clip {
     }
 }
 
-/// One clip to play on a voice.
+/// How a linear volume becomes an output gain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Law {
+    /// The PC build (DirectSound): v ↦ −33.3·(1−v) dB, silent at 0.05 or
+    /// below; the far ear loses −33.3·(1−p) dB.
+    #[default]
+    Pc,
+    /// The Mac build: gains are the volumes; the far ear is × p.
+    Mac,
+}
+
+/// Which side a panned sound is on.
+#[derive(Clone, Copy, Debug, PartialEq, Default)]
+pub enum Side {
+    #[default]
+    Centre,
+    Left,
+    Right,
+}
+
+/// Hundredths of a dB (DirectSound's unit) → amplitude.
+fn centibels(c: i32) -> f32 {
+    10f32.powf(c as f32 / 2000.0)
+}
+
+impl Law {
+    /// Left / right output gains for a composed volume `v` and pan.
+    pub fn gains(self, v: f32, side: Side, p: f32) -> [f32; 2] {
+        let (g, far) = match self {
+            Law::Pc => {
+                // (Above 1 DirectSound refuses the value: taken as 1.)
+                let g = if v <= 0.05 { 0.0 } else { centibels((3333.0 * v.min(1.0)) as i32 - 3333) };
+                let far = if p <= 0.05 { 0.0 } else { centibels((3333.0 * p.min(1.0)) as i32 - 3333) };
+                (g, far)
+            }
+            Law::Mac => (v.max(0.0), p),
+        };
+        match side {
+            Side::Centre => [g, g],
+            Side::Left => [g, g * far],
+            Side::Right => [g * far, g],
+        }
+    }
+}
+
+/// One clip to play on a channel.
 #[derive(Clone)]
 pub struct Play {
     pub clip: Arc<Clip>,
-    /// Playback speed (the pitch factor).
+    /// Playback speed (the permutation's pitch × the group's).
     pub pitch: f32,
-    /// The permutation's and the group's volume.
+    /// The permutation's volume × the group's.
     pub volume: f32,
+    /// Played again when it ends with nothing queued.
     pub looping: bool,
     /// What it is to its owner (e.g. an ambient's in sound, loop, out sound).
     pub part: u8,
@@ -76,75 +132,73 @@ pub struct Play {
 pub struct Voice {
     pub now: Play,
     pub next: Option<Play>,
-    /// Left / right gains (the simulation's: distance, pan, channel volume).
-    pub gain: [f32; 2],
-    /// The gains being heard (ramping toward `gain` to avoid clicks).
-    heard: [f32; 2],
+    /// The channel's volume without the clip's own: overall × channel ×
+    /// distance.
+    pub level: f32,
+    pub pan: (Side, f32),
+    /// The gains being heard (ramping toward the target to avoid clicks).
+    heard: Option<[f32; 2]>,
     pos: f64,
 }
 
 impl Voice {
-    pub fn new(now: Play, gain: [f32; 2]) -> Voice {
-        Voice { now, next: None, gain, heard: gain, pos: 0.0 }
+    pub fn new(now: Play, level: f32, pan: (Side, f32)) -> Voice {
+        Voice { now, next: None, level, pan, heard: None, pos: 0.0 }
     }
-}
 
-/// A voice's slot and generation.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct VoiceId {
-    slot: usize,
-    generation: u32,
+    /// The composed (linear) volume — what stealing compares.
+    pub fn volume(&self) -> f32 {
+        self.level * self.now.volume
+    }
 }
 
 #[derive(Default)]
 pub struct Mixer {
-    voices: Vec<(u32, Option<Voice>)>,
+    voices: [Option<Voice>; CHANNELS],
     /// The output's sample rate.
     pub rate: f32,
+    pub law: Law,
 }
 
 impl Mixer {
     pub fn new(rate: f32) -> Mixer {
-        Mixer { voices: Vec::new(), rate }
+        Mixer { voices: Default::default(), rate, law: Law::Pc }
     }
 
-    pub fn play(&mut self, v: Voice) -> VoiceId {
-        let slot = match self.voices.iter().position(|(_, v)| v.is_none()) {
-            Some(s) => s,
-            None => {
-                self.voices.push((0, None));
-                self.voices.len() - 1
-            }
-        };
-        let e = &mut self.voices[slot];
-        e.0 = e.0.wrapping_add(1);
-        e.1 = Some(v);
-        VoiceId { slot, generation: e.0 }
+    /// Channel `c`'s voice, while it plays.
+    pub fn voice(&self, c: usize) -> Option<&Voice> {
+        self.voices.get(c).and_then(Option::as_ref)
     }
 
-    /// A voice still playing.
-    pub fn get_mut(&mut self, id: VoiceId) -> Option<&mut Voice> {
-        self.voices.get_mut(id.slot).filter(|(g, _)| *g == id.generation).and_then(|(_, v)| v.as_mut())
+    pub fn voice_mut(&mut self, c: usize) -> Option<&mut Voice> {
+        self.voices.get_mut(c).and_then(Option::as_mut)
     }
 
-    pub fn stop(&mut self, id: VoiceId) {
-        if let Some(e) = self.voices.get_mut(id.slot).filter(|(g, _)| *g == id.generation) {
-            e.1 = None;
-        }
+    pub fn start(&mut self, c: usize, v: Voice) {
+        self.voices[c] = Some(v);
     }
 
+    pub fn stop(&mut self, c: usize) {
+        self.voices[c] = None;
+    }
+
+    /// The output gains channel `c` is heading for.
+    pub fn gains(&self, c: usize) -> [f32; 2] {
+        self.voice(c).map_or([0.0; 2], |v| self.law.gains(v.volume(), v.pan.0, v.pan.1))
+    }
 
     /// Mixes `frames` stereo frames into `out` (interleaved, added to), or
     /// just plays them through when there is no output.
     pub fn mix(&mut self, mut out: Option<&mut [f32]>, frames: usize) {
-        let rate = self.rate;
-        for (_, slot) in &mut self.voices {
+        let (rate, law) = (self.rate, self.law);
+        for slot in &mut self.voices {
             let Some(v) = slot else { continue };
-            let start = v.heard;
+            let mut target = law.gains(v.volume(), v.pan.0, v.pan.1);
+            let start = v.heard.unwrap_or(target);
             let mut ended = false;
             for f in 0..frames {
                 let t = (f + 1) as f32 / frames as f32;
-                let g = [start[0] + (v.gain[0] - start[0]) * t, start[1] + (v.gain[1] - start[1]) * t];
+                let g = [start[0] + (target[0] - start[0]) * t, start[1] + (target[1] - start[1]) * t];
                 let clip = &v.now.clip;
                 let n = clip.frames();
                 if n == 0 {
@@ -154,20 +208,21 @@ impl Mixer {
                 if let Some(out) = out.as_deref_mut() {
                     let i = v.pos as usize;
                     let a = clip.frame(i.min(n - 1));
-                    let b = clip.frame(if i + 1 < n { i + 1 } else if v.now.looping { 0 } else { n - 1 });
+                    let b = clip.frame((i + 1).min(n - 1));
                     let w = (v.pos - i as f64) as f32;
                     for c in 0..2 {
-                        out[f * 2 + c] += (a[c] + (b[c] - a[c]) * w) * v.now.volume * g[c];
+                        out[f * 2 + c] += (a[c] + (b[c] - a[c]) * w) * g[c];
                     }
                 }
                 v.pos += f64::from(clip.rate * v.now.pitch / rate);
                 if v.pos >= n as f64 {
                     v.pos -= n as f64;
-                    if v.now.looping {
-                        continue;
-                    }
                     match v.next.take() {
-                        Some(next) => v.now = next,
+                        Some(next) => {
+                            v.now = next;
+                            target = law.gains(v.volume(), v.pan.0, v.pan.1);
+                        }
+                        None if v.now.looping => {}
                         None => {
                             ended = true;
                             break;
@@ -175,7 +230,7 @@ impl Mixer {
                     }
                 }
             }
-            v.heard = v.gain;
+            v.heard = Some(target);
             if ended {
                 *slot = None;
             }
@@ -199,22 +254,36 @@ mod tests {
     fn in_then_loop_then_out_without_a_gap() {
         let mut m = Mixer::new(100.0);
         let (a, b, c) = (clip("in", 10), clip("loop", 10), clip("out", 10));
-        let mut v = Voice::new(play(&a, false, 0), [1.0, 1.0]);
+        let mut v = Voice::new(play(&a, false, 0), 1.0, (Side::Centre, 1.0));
         v.next = Some(play(&b, true, 1));
-        let id = m.play(v);
+        m.start(3, v);
         let mut out = vec![0.0; 2 * 15];
         m.mix(Some(&mut out), 15);
         assert!(out.iter().all(|s| (*s - 0.5).abs() < 1e-6), "no silent frame between in and loop");
-        assert_eq!(m.get_mut(id).unwrap().now.part, 1);
+        assert_eq!(m.voice(3).unwrap().now.part, 1);
         m.mix(None, 100);
-        assert_eq!(m.get_mut(id).unwrap().now.part, 1, "the loop keeps going");
-        let v = m.get_mut(id).unwrap();
+        assert_eq!(m.voice(3).unwrap().now.part, 1, "the loop keeps going");
+        let v = m.voice_mut(3).unwrap();
         v.now.looping = false;
         v.next = Some(play(&c, false, 2));
         m.mix(None, 10);
-        assert_eq!(m.get_mut(id).unwrap().now.part, 2, "the loop's pass ends, the out sound follows");
+        assert_eq!(m.voice(3).unwrap().now.part, 2, "the loop's pass ends, the out sound follows");
         m.mix(None, 10);
-        assert!(m.get_mut(id).is_none(), "and then the voice is free");
+        assert!(m.voice(3).is_none(), "and then the channel is free");
+    }
+
+    #[test]
+    fn the_pc_law_is_logarithmic() {
+        let pc = Law::Pc;
+        assert_eq!(pc.gains(1.0, Side::Centre, 1.0), [1.0, 1.0]);
+        let half = pc.gains(0.5, Side::Centre, 1.0)[0];
+        assert!((half - 0.1468).abs() < 1e-3, "half volume is −16.7 dB: {half}");
+        assert_eq!(pc.gains(0.05, Side::Centre, 1.0), [0.0, 0.0], "silent at 0.05");
+        // Straight to the left: the right ear loses 16.7 dB.
+        let g = pc.gains(1.0, Side::Left, 0.5);
+        assert!(g[0] == 1.0 && (g[1] - 0.1468).abs() < 1e-3, "{g:?}");
+        // The Mac's is linear.
+        assert_eq!(Law::Mac.gains(0.5, Side::Right, 0.5), [0.25, 0.5]);
     }
 
     #[test]

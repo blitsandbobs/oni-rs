@@ -951,6 +951,49 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(list)
         })?,
     )?;
+    // impulse(name [, x, y, z [, volume]]) plays an impulse sound (placed,
+    // or not) → its channel (0–15) or nil; channels() → the 16 channels,
+    // each {clip, locked, volume (linear), left, right (output gains)};
+    // sound_volume(v) sets the overall volume to head for.
+    let h = host.clone();
+    g.set(
+        "impulse",
+        lua.create_function(move |_, (name, x, y, z, volume): (String, Option<f32>, Option<f32>, Option<f32>, Option<f32>)| {
+            let mut host = h.borrow_mut();
+            let at = match (x, y, z) {
+                (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
+                _ => None,
+            };
+            let w = &mut host.world;
+            Ok(w.audio.impulse_play(&name, at, volume, w.sight.as_ref()))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "channels",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let list = lua.create_table()?;
+            for (i, c) in host.world.audio.channels().into_iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("clip", c.clip)?;
+                t.set("locked", c.locked)?;
+                t.set("volume", c.volume)?;
+                t.set("left", c.gain[0])?;
+                t.set("right", c.gain[1])?;
+                list.set(i + 1, t)?;
+            }
+            Ok(list)
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "sound_volume",
+        lua.create_function(move |_, v: f32| {
+            h.borrow_mut().world.audio.set_volume(v);
+            Ok(())
+        })?,
+    )?;
     // Turrets: turret(id, "activate" | "deactivate" | "reset");
     // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
     // (the first turret with that script id; nil: none).
