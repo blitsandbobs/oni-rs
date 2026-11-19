@@ -924,6 +924,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, (from, to): (u32, Option<u32>)| Ok(h.borrow().world.env_broken(from, to.unwrap_or(from))))?,
     )?;
     let h = host.clone();
+    g.set(
+        "inventory",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let i = host.world.fighters.get(id).map(|f| f.inventory).unwrap_or_default();
+            Ok((i.ammo, i.cells, i.hypos))
+        })?,
+    )?;
+    let h = host.clone();
     g.set("powerups_lying", lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?)?;
     let h = host.clone();
     g.set(

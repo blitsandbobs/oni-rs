@@ -680,8 +680,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                         "keys_attack" => k::PUNCH | k::KICK | k::FIRE1 | k::FIRE2,
                         "keys_action" => k::ACTION,
                         "keys_walk" => k::WALK,
+                        "keys_inventory" => k::SWAP | k::DROP,
+                        "keys_reload" => k::RELOAD,
                         "keys_all" => u32::MAX,
-                        _ => 0, // pause, inventory, hypo, reload: not modelled
+                        _ => 0, // pause, hypo: not modelled
                     }
                 }
             }

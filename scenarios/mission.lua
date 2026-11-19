@@ -278,7 +278,7 @@ print("throw:", thrown)
 assert(thrown, "a throw moves the lesson on")
 
 -- The block room: its drone comes at Konoko a while, then the training
--- sends her on to shooting (which needs weapons — the walkthrough ends).
+-- sends her on to shooting.
 took = wait_for(function() return showing("goto_block") end, 2400)
 assert(took, "on to blocking")
 visit(-700, -632, -296)
@@ -288,6 +288,80 @@ visit(-629, -610, -296)
 took = wait_for(function() return showing("goto_shoot") end, 2400)
 print("block lesson done after", took, "hp", hp(0))
 assert(took, "on to shooting")
+
+-- The shooting range (#10): the training puts out a pistol; Konoko picks it
+-- up (the pickup clip), fires (the lesson waits for the recoil), breaks the
+-- 18 glass targets — picking up the clips the training puts out when she
+-- runs dry, and reloading — and is handed the rifle.
+visit(-692, -541, -297)
+took = wait_for(function() return weapons_lying() > 0 end, 300)
+assert(took, "a pistol to pick up")
+visit(-660, -487, -297)
+step(40)
+took = wait_for(function()
+    if weapon(0) == nil then swap() end
+    return weapon(0) == "w1_tap"
+end, 400)
+print("pistol picked up after", took)
+assert(took, "picked up the pistol")
+
+-- Each target column, from 30 units on its -X side; the rows are 8, 17
+-- and 26 above the floor. (The pistol's shot leaves 3° off the barrel —
+-- aim a touch right; pitches found for a muzzle 23 units from the pane.)
+local columns = {
+    {-510.0, -517.9}, {-478.8, -506.0}, {-447.6, -493.4},
+    {-447.6, -420.5}, {-478.8, -406.3}, {-510.0, -390.4},
+}
+local rows = {-0.15, 0.21, 0.45} -- (the muzzle rises as the gun tips up)
+local function refill()
+    -- Out of rounds: the training puts out two clips; pick them up, reload.
+    if select(2, weapon(0)) > 0 then return end
+    local before = powerups_lying()
+    local spawned = wait_for(function() return powerups_lying() >= before + 2 end, 600)
+    assert(spawned, "clips put out when the pistol runs dry")
+    for _, at in ipairs({{-660, -487}, {-651, -482}}) do
+        visit(at[1], at[2], -297)
+        step(10)
+        local had = inventory(0)
+        wait_for(function()
+            if inventory(0) > had then return true end
+            swap()
+            return false
+        end, 200)
+    end
+    step(60)
+    print("refill: clips", inventory(0))
+    assert(reload(0), "reload")
+    step(80)
+    assert(select(2, weapon(0)) == 10, "full again")
+end
+local shots = 0
+for _, c in ipairs(columns) do
+    for _, pitch in ipairs(rows) do
+        refill()
+        teleport(0, c[1] - 30, -297, c[2])
+        step(10)
+        facing(93)
+        aim(0, pitch)
+        step(5)
+        fire(1)
+        shots = shots + 1
+        step(20)
+    end
+end
+local broken = env_broken(3001, 3018)
+print("targets broken:", broken, "of 18 with", shots, "shots")
+assert(broken == 18, "every target broken")
+took = wait_for(function() return weapons_lying() > 0 and weapon(0) == "w1_tap" end, 600)
+assert(took, "the rifle is put out")
+visit(-660, -452, -297)
+step(30)
+took = wait_for(function()
+    if weapon(0) ~= "w3_phr" then swap() end
+    return weapon(0) == "w3_phr"
+end, 400)
+print("rifle picked up after", took)
+assert(took, "picked up the rifle")
 
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
