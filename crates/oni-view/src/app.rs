@@ -24,8 +24,6 @@ use crate::render::{Gpu, Renderer};
 /// this holds the mouse/aim accumulators and the key press-edges.
 struct PlayWorld {
     world: crate::world::World,
-    /// Aim pitch (radians), accumulated from mouse-Y; clamped to ±π/2.
-    aiming_ud: f32,
     /// Mouse delta accumulated since the last tick (applied once per frame).
     mouse_dx: f32,
     mouse_dy: f32,
@@ -277,7 +275,6 @@ impl ApplicationHandler for App {
                         None,
                         Some(PlayWorld {
                             world,
-                            aiming_ud: 0.0,
                             mouse_dx: 0.0,
                             mouse_dy: 0.0,
                             player_height,
@@ -510,6 +507,9 @@ impl State {
             (Action::Fire2, key::FIRE2),
             (Action::Fire3, key::FIRE3),
             (Action::Use, key::ACTION),
+            (Action::Swap, key::SWAP),
+            (Action::Reload, key::RELOAD),
+            (Action::Drop, key::DROP),
         ] {
             if held(action) {
                 controls |= bit;
@@ -528,13 +528,15 @@ impl State {
         let dx = std::mem::take(&mut pw.mouse_dx);
         let dy = std::mem::take(&mut pw.mouse_dy);
         let dy = if tuning.invert_y { -dy } else { dy };
+        // (With a gun the mouse moves at the gun's aiming speed × ½.)
+        let sens = sens * pw.world.aiming_speed(0).map_or(1.0, |s| s * 0.5);
         if let Some(player) = pw.world.fighters.first_mut() {
             player
                 .facing
                 .adjust_desired((-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI));
+            player.aiming_ud = (player.aiming_ud + dy * sens)
+                .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
-        pw.aiming_ud = (pw.aiming_ud + dy * sens)
-            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
 
         pw.accum += dt;
         while pw.accum >= TICK {
@@ -583,6 +585,7 @@ impl State {
         if let Some(pw) = &self.play {
             self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
             self.renderer.beams = pw.world.beams.clone();
+            self.renderer.beams.extend(pw.world.shot_streaks());
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
         }
@@ -595,6 +598,11 @@ impl State {
             }
             (None, None) => Vec::new(),
         };
+        // Guns: one-bone models placed by their matrices.
+        let guns: Vec<(usize, Vec<Mat4>)> = match &self.play {
+            Some(pw) => pw.world.gun_draws().into_iter().filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m]))).collect(),
+            None => Vec::new(),
+        };
         let draws: Vec<crate::render::CharDraw> = match (&self.play, self.char_model) {
             (Some(pw), _) => pw
                 .world
@@ -602,6 +610,7 @@ impl State {
                 .iter()
                 .zip(&bones)
                 .map(|(f, b)| f.draw(b))
+                .chain(guns.iter().map(|(m, b)| crate::render::CharDraw { model: *m, bones: b }))
                 .collect(),
             (None, Some(m)) => bones
                 .first()

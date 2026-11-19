@@ -566,6 +566,40 @@ impl World {
         self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !f.reloading()
     }
 
+    /// How fast the gun in fighter `who`'s hand aims (scales the mouse).
+    pub fn aiming_speed(&self, who: usize) -> Option<f32> {
+        let w = self.fighters.get(who)?.hand?;
+        Some(self.armory.weapons[w].class.aiming_speed).filter(|s| *s > 0.0)
+    }
+
+    /// What to draw of the guns: each one's model and world matrix (guns
+    /// in hands, and guns lying about; holstered ones are not shown).
+    pub fn gun_draws(&self) -> Vec<(std::path::PathBuf, Mat4)> {
+        let holstered: std::collections::HashSet<usize> =
+            self.fighters.iter().flat_map(|f| [f.holster, f.magic]).flatten().collect();
+        self.armory
+            .weapons
+            .iter()
+            .enumerate()
+            .filter(|(i, g)| !g.gone && !holstered.contains(i) && g.owner.is_none_or(|o| self.fighters.get(o).is_some_and(|f| f.hand == Some(*i))))
+            .filter_map(|(_, g)| Some((g.class.model.clone()?, g.matrix.get())))
+            .collect()
+    }
+
+    /// The shots in flight as short glowing streaks (from, to, colour) —
+    /// until particles are drawn as their sprites.
+    pub fn shot_streaks(&self) -> Vec<(Vec3, Vec3, [f32; 3])> {
+        let sys = &self.armory.particles;
+        sys.iter()
+            .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0 && p.velocity.length_squared() > 100.0)
+            .filter(|(_, p)| !sys.class(p.class).has(p3::class::cflag::INVISIBLE))
+            .map(|(_, p)| {
+                let at = sys.world_position(p);
+                (at - p.velocity / 60.0, at, [1.0, 0.75, 0.35])
+            })
+            .collect()
+    }
+
     pub fn weapons(&self) -> &[Weapon] {
         &self.armory.weapons
     }

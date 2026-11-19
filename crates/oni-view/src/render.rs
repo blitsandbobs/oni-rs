@@ -150,6 +150,8 @@ pub struct Renderer {
     /// strips facing the camera.
     pub beams: Vec<(glam::Vec3, glam::Vec3, [f32; 3])>,
     char_models: Vec<CharModel>,
+    /// Rigid models loaded by file (guns), drawn as one-bone characters.
+    models_by_path: std::collections::HashMap<std::path::PathBuf, Option<usize>>,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -431,9 +433,26 @@ impl Renderer {
             broken_glass: Default::default(),
             beams: Vec::new(),
             char_models: Vec::new(),
+            models_by_path: Default::default(),
             particles: particle_groups,
             depth: None,
         }
+    }
+
+    /// A rigid model (a gun's `.glb`) as a character model whose every part
+    /// rides the first bone — loaded once per file; None if it won't load.
+    pub fn model_from(&mut self, gpu: &Gpu, path: &std::path::Path) -> Option<usize> {
+        if let Some(m) = self.models_by_path.get(path) {
+            return *m;
+        }
+        let m = crate::skel::load_character(path).ok().map(|mut ch| {
+            for p in &mut ch.parts {
+                p.bone = 0;
+            }
+            self.add_character(gpu, &ch)
+        });
+        self.models_by_path.insert(path.to_path_buf(), m);
+        m
     }
 
     /// Uploads a character model's bone-local parts and returns its model index

@@ -209,15 +209,23 @@ impl ScriptHost {
         }
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         self.renderer.beams = self.world.beams.clone();
+        self.renderer.beams.extend(self.world.shot_streaks());
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
+        let guns: Vec<(usize, Vec<Mat4>)> = self
+            .world
+            .gun_draws()
+            .into_iter()
+            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
+            .collect();
         let draws: Vec<CharDraw> = self
             .world
             .fighters
             .iter()
             .zip(&bones)
             .map(|(f, b)| f.draw(b))
+            .chain(guns.iter().map(|(m, b)| CharDraw { model: *m, bones: b }))
             .collect();
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
