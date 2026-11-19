@@ -184,7 +184,11 @@ const PTR_FOOTSTEPS: usize = 8; // TRtFootstep[] (frame u16, type u16)
 const TRAM_NUM_FOOTSTEPS: usize = 382; // `numFootsteps` u8
 const PTR_BODY: usize = 10; // TRtPosition[numFrames]: per-tick body extent
 const PTR_DATA: usize = 11; // keyframe data
+const PTR_SOUNDS: usize = 12; // TRtSound[] (impulse name[32], frame u16)
 const TRAM_NUM_PTRS: usize = 13;
+const TRAM_ATTACK_NAME: usize = 312; // `attackName[16]`: its special impact (`ONIA`)
+const TRAM_NUM_SOUNDS: usize = 332; // `numNewSounds` u32
+const TRAM_SOUND_FRAME: usize = 340; // `soundFrame` u16
 // Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
 // usedParts(4), replaceParts(4), finalRotation(4), moveDirection +
 // vocalizationType(4), extentInfo(232), attackName[16], hardPause + softPause,
@@ -493,9 +497,17 @@ pub struct Clip {
     /// Damage the character playing this clip takes, as `(frame, damage)`
     /// pairs — how a thrown victim gets hurt.
     pub self_damage: Vec<(u16, u16)>,
-    /// Frames a foot comes down (`footsteps`; their kind — left / right /
-    /// single — dropped): where the footstep sounds and noises come.
+    /// Frames a foot comes down (`footsteps`): where the footstep sounds and
+    /// noises come.
     pub footsteps: Vec<u16>,
+    /// Each footstep's kind (1 left, 2 right, 3 single), as `footsteps`.
+    pub footstep_kinds: Vec<u16>,
+    /// The name its special attack's impact goes by (`attackName`), if any.
+    pub attack_name: String,
+    /// The frame its own animation sound plays (`soundFrame`).
+    pub sound_frame: u16,
+    /// Impulse sounds it plays on given frames (`newSounds`).
+    pub sounds: Vec<(String, u16)>,
 }
 
 /// Resolves a reference-form word (`v & 1`, index `v >> 8`) to an instance name.
@@ -684,6 +696,32 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 .collect()
         }
     };
+    let footstep_kinds = {
+        let off = ptrs.get(PTR_FOOTSTEPS).copied().unwrap_or(0) as usize;
+        let count = read_u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
+        (0..if off == 0 { 0 } else { count })
+            .filter_map(|k| read_u16(raw, off + k * 4 + 2))
+            .filter(|&kind| kind != 0)
+            .take(footsteps.len())
+            .collect()
+    };
+    let sounds = {
+        let off = ptrs.get(PTR_SOUNDS).copied().unwrap_or(0) as usize;
+        let count = read_u32(d, TRAM_NUM_SOUNDS).unwrap_or(0) as usize;
+        (0..if off == 0 { 0 } else { count.min(64) })
+            .filter_map(|k| {
+                let o = off + k * 34;
+                let name = raw.get(o..o + 32)?;
+                let end = name.iter().position(|&c| c == 0).unwrap_or(32);
+                Some((String::from_utf8_lossy(&name[..end]).into_owned(), read_u16(raw, o + 32)?))
+            })
+            .filter(|(n, _)| !n.is_empty())
+            .collect()
+    };
+    let attack_name = d
+        .get(TRAM_ATTACK_NAME..TRAM_ATTACK_NAME + 16)
+        .map(|b| String::from_utf8_lossy(&b[..b.iter().position(|&c| c == 0).unwrap_or(16)]).into_owned())
+        .unwrap_or_default();
     let reach = decode_reach(d, raw);
     let body = {
         let off = ptrs.get(PTR_BODY).copied().unwrap_or(0) as usize;
@@ -743,6 +781,10 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         throw,
         self_damage,
         footsteps,
+        footstep_kinds,
+        attack_name,
+        sound_frame: read_u16(d, TRAM_SOUND_FRAME).unwrap_or(0),
+        sounds,
         reach,
         body,
     })

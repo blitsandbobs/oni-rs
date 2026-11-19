@@ -35,6 +35,8 @@ mod particles;
 mod materials;
 mod particle_defs;
 mod weapons;
+mod anim_sounds;
+mod impacts;
 mod sounds;
 mod turrets;
 
@@ -317,6 +319,8 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 weapons::write_classes(&dat, &root)?;
                 turrets::write_classes(&dat, &root)?;
                 sounds::write(&dat, raw, &root)?;
+                impacts::write(&dat, raw, &root)?;
+                anim_sounds::write(&dat, raw, &root)?;
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");
@@ -632,6 +636,11 @@ fn collect_character_classes(
             "stats": stats,
             "air": air,
         }));
+        if let (Some(d), Some(entry)) = (dat.instance_data(inst), out.last_mut()) {
+            if let (Some(e), Some(f)) = (entry.as_object_mut(), impacts::class_fields(dat, d).as_object()) {
+                e.extend(f.clone());
+            }
+        }
         // The AI's melee profile (resolved to a name once all are read) and
         // how long it lies dazed after a knockdown.
         let rec = layout.and_then(|l| {
@@ -1547,6 +1556,16 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     }
     if !clip.footsteps.is_empty() {
         put("footsteps", json!(clip.footsteps));
+        put("footstepKinds", json!(clip.footstep_kinds));
+    }
+    if !clip.attack_name.is_empty() {
+        put("attackName", json!(clip.attack_name));
+    }
+    if clip.sound_frame != 0 {
+        put("soundFrame", json!(clip.sound_frame));
+    }
+    if !clip.sounds.is_empty() {
+        put("sounds", json!(clip.sounds.iter().map(|(n, f)| json!({ "impulse": n, "frame": f })).collect::<Vec<_>>()));
     }
     serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
 }
