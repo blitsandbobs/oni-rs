@@ -645,7 +645,7 @@ impl Fighter {
         let tree = self.tree();
         let rising = Vec3::new(world.x, world.y.max(0.0), world.z);
         let gravity = world.y.min(0.0);
-        let no_doors = chrphys::Env { quads: env.quads, doors: &[] };
+        let no_doors = chrphys::Env::new(env.quads, &[]);
         let env = if self.motion.corpse { &no_doors } else { env };
         self.physics.feet += chrphys::resolve(env, &tree, rising, self.player);
         if gravity != 0.0 {
@@ -1370,11 +1370,11 @@ mod tests {
     fn fall_and_land(f: &mut Fighter) -> Option<u16> {
         let mut was_airborne = false;
         for _ in 0..600 {
-            f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] });
+            f.tick(0, &[], &chrphys::Env::new(&floor_quads(), &[]));
             if f.airborne() {
                 was_airborne = true;
             } else if was_airborne {
-                f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // the landing request is taken on the next tick
+                f.tick(0, &[], &chrphys::Env::new(&floor_quads(), &[])); // the landing request is taken on the next tick
                 return Some(f.motion.kind);
             }
         }
@@ -1404,10 +1404,10 @@ mod tests {
             return;
         };
         for _ in 0..30 {
-            f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // settle onto the floor
+            f.tick(0, &[], &chrphys::Env::new(&floor_quads(), &[])); // settle onto the floor
         }
         let hp0 = f.hp;
-        f.tick(key::JUMP, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // press jump for one tick
+        f.tick(key::JUMP, &[], &chrphys::Env::new(&floor_quads(), &[])); // press jump for one tick
         let landed = fall_and_land(&mut f).expect("takes off and lands");
         assert_eq!(f.hp, hp0, "a jump on flat ground is harmless");
         assert!(

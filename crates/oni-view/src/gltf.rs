@@ -23,6 +23,7 @@ pub struct Vertex {
 }
 
 /// One drawable primitive (world-space, baked transform).
+#[derive(Clone)]
 pub struct Prim {
     pub vertices: Vec<Vertex>,
     pub indices: Vec<u32>,
@@ -35,6 +36,8 @@ pub struct Prim {
     /// The door (its object id) this is the closed leaf of — a node named
     /// `door_0x<id>`, or under one.
     pub door: Option<u32>,
+    /// Which of the door's leaves (double doors have two).
+    pub leaf: u8,
     /// Drawn (a node named `…__invisible` only collides).
     pub visible: bool,
     /// Characters collide with it (not a static-world node named
@@ -281,6 +284,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 blend,
                 additive,
                 door,
+                leaf: 0,
                 visible,
                 collide,
                 env_ref,

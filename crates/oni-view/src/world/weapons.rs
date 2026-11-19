@@ -301,7 +301,7 @@ impl Host for ShotHost<'_> {
     }
 
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
-        let env = crate::chrphys::Env { quads: self.quads?, doors: self.doors };
+        let env = crate::chrphys::Env::new(self.quads?, self.doors);
         // (A pane broken earlier this tick is passed through.)
         let mut start = 0.0f32;
         for _ in 0..4 {
@@ -572,7 +572,7 @@ impl World {
             .find(|p| p.bone == 0)
             .and_then(|p| Some(bones.first()?.transform_point3(p.bound_sphere?.0)))
             .unwrap_or_else(|| f.feet() + Vec3::Y * f.motion.height());
-        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+        let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         // (A long gun held over a ledge counts as through it, the original's
         // known limit.)
         let blocked = |to: Vec3| crate::chrphys::level_ray(&env, pelvis, to - pelvis).is_some();
@@ -611,7 +611,7 @@ impl World {
                 }
             }
         }
-        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+        let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         if let Some(h) = crate::chrphys::level_ray(&env, from, dir * PICK_LIMIT) {
             let d = h.fraction * PICK_LIMIT;
             if hit.is_none_or(|(h, _)| d < h) {
@@ -1815,7 +1815,7 @@ impl World {
             let floor = if gun.resting {
                 None
             } else {
-                let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+                let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
                 crate::chrphys::level_ray(&env, gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0).map(|h| gun.position.y + 2.0 - 40.0 * h.fraction)
             };
             // Landing hard enough (`WPcImpact_MinVelocity`): the floor's

@@ -592,7 +592,7 @@ impl State {
         // Pose the characters. In play mode: every fighter in the world. In the
         // static viewer: the single character, looping over elapsed time.
         if let Some(pw) = &self.play {
-            self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
+            self.renderer.door_motion = pw.world.door_motions();
             self.renderer.beams = pw.world.beams.clone();
             self.renderer.sprites = pw.world.sprites();
             self.renderer.decals = pw.world.decal_draws();

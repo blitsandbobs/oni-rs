@@ -26,6 +26,15 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
             }
             let name = i.name.as_deref()?.trim_start_matches("DOOR").to_string();
             let mut c = json!({ "open": cstr(d, 28, 32), "close": cstr(d, 60, 32) });
+            // Its leaves' animation (`OBtAnimation` ref @8).
+            let r = crate::le_u32(d, 8);
+            let anim = (r & 1 != 0)
+                .then(|| dat.instances.get((r >> 8) as usize))
+                .flatten()
+                .and_then(|a| oni_geom::objanim::decode_object_animation(dat, a));
+            if let Some(a) = anim {
+                c["animation"] = crate::object_animation_json(&a);
+            }
             let kind = crate::le_u32(d, 20);
             if kind < crate::impacts::AI_SOUNDS.len() as u32 {
                 c["ai"] = json!({ "type": crate::impacts::AI_SOUNDS[kind as usize], "radius": le_f32(d, 24) });
@@ -38,6 +47,7 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
 /// A level's doors.
 pub fn doors(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
     let (version, objects) = crate::objects::read(dat, raw, "Door");
+    let setups = leaf_setups(dat);
     objects
         .iter()
         .filter(|o| o.data.len() >= NAME + 22)
@@ -66,8 +76,33 @@ pub fn doors(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             if !events.is_empty() {
                 door["events"] = json!(events);
             }
+            // Its moving leaves: the level's object setups made for it (the
+            // second of double doors at id | 0x1000), each with its origin.
+            let id = u32::from(le_u16(d, NAME));
+            let leaves: Vec<Value> = [id, id | 0x1000]
+                .iter()
+                .filter_map(|k| setups.iter().find(|s| s.0 == *k))
+                .map(|s| json!({ "origin": s.1 }))
+                .collect();
+            if !leaves.is_empty() {
+                door["leaves"] = json!(leaves);
+            }
             door
         })
+        .collect()
+}
+
+/// The level's door-leaf object setups (`OBOA`, `OBtObjectSetup`, 240
+/// bytes each after a 24-byte header): `doorScriptID` @20 and the origin
+/// matrix `debugOrigMatrix` @64 (4×3, column-major).
+fn leaf_setups(dat: &Dat<'_>) -> Vec<(u32, [f32; 12])> {
+    const TAG_OBOA: oni_dat::FourCc = oni_dat::FourCc(u32::from_be_bytes(*b"OBOA"));
+    let Some(d) = dat.instances.iter().find(|i| i.tag == TAG_OBOA).and_then(|i| dat.instance_data(i)) else { return Vec::new() };
+    (0..le_u16(d, 22) as usize)
+        .map(|k| 24 + k * 240)
+        .take_while(|o| o + 240 <= d.len())
+        .filter(|&o| crate::le_u32(d, o + 20) != 0)
+        .map(|o| (crate::le_u32(d, o + 20), std::array::from_fn(|i| le_f32(d, o + 64 + 4 * i))))
         .collect()
 }
 

@@ -94,6 +94,7 @@ pub struct DoorBox {
 
 impl DoorBox {
     /// The box round `points` in the frame `axes` (about `origin`).
+    #[cfg(test)]
     pub fn around(points: &[Vec3], origin: Vec3, axes: [Vec3; 3]) -> DoorBox {
         let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
         for p in points {
@@ -123,6 +124,23 @@ impl DoorBox {
 pub struct Env<'a> {
     pub quads: &'a Quads,
     pub doors: &'a [DoorBox],
+    /// Where to note the door faces it touches, each time it looks
+    /// (`PHrPhysics_Single_PhyCollision` notifying the object).
+    pub touched: Option<&'a std::cell::RefCell<Vec<Touch>>>,
+}
+
+impl<'a> Env<'a> {
+    pub fn new(quads: &'a Quads, doors: &'a [DoorBox]) -> Env<'a> {
+        Env { quads, doors, touched: None }
+    }
+}
+
+/// A door face a character touched: which box, where, and its normal.
+#[derive(Clone, Copy, Debug)]
+pub struct Touch {
+    pub door: usize,
+    pub point: Vec3,
+    pub normal: Vec3,
 }
 
 /// Where a character stands (its location: the point on the ground under
@@ -158,8 +176,12 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
             out.push(Collider { normal: -normal, point: hit.point });
         }
     }
-    for door in env.doors.iter().filter(|d| d.solid) {
+    for (k, door) in env.doors.iter().enumerate().filter(|(_, d)| d.solid) {
+        let at = out.len();
         door_colliders(door, tree, v, initial, &mut out);
+        if let Some(t) = env.touched {
+            t.borrow_mut().extend(out[at..].iter().map(|c| Touch { door: k, point: c.point, normal: c.normal }));
+        }
     }
     out
 }
@@ -627,7 +649,7 @@ mod tests {
     #[test]
     fn a_walker_stops_short_of_a_wall_and_slides_along_it() {
         let q = room(&[(floor(0.0, 40.0, Vec3::ZERO), 0), (wall_at(10.0), 0)]);
-        let env = Env { quads: &q, doors: &[] };
+        let env = Env::new(&q, &[]);
         let mut at = Vec3::new(0.0, 0.0, 0.0);
         for _ in 0..60 {
             let tree = Tree::new(at, at.y, at.y + 18.0, PLAYER_LEAF);
@@ -657,7 +679,7 @@ mod tests {
         // its side; raised (feet 10.5 up, as in a tucked jump) it passes.
         let side = [Vec3::new(10.0, 0.0, 10.0), Vec3::new(10.0, 10.0, 10.0), Vec3::new(10.0, 10.0, -10.0), Vec3::new(10.0, 0.0, -10.0)];
         let q = room(&[(side, 0)]);
-        let env = Env { quads: &q, doors: &[] };
+        let env = Env::new(&q, &[]);
         let low = Tree::new(Vec3::new(5.5, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
         assert!(resolve(&env, &low, Vec3::X, true).x < 1e-5, "blocked");
         let high = Tree::new(Vec3::new(5.5, 0.0, 0.0), 10.5, 28.5, PLAYER_LEAF);
@@ -669,7 +691,7 @@ mod tests {
         // (One-sided: from its back it is no wall.)
         let back = [Vec3::new(10.0, 0.0, -40.0), Vec3::new(10.0, 40.0, -40.0), Vec3::new(10.0, 40.0, 40.0), Vec3::new(10.0, 0.0, 40.0)];
         let q = room(&[(back, 0)]);
-        let env = Env { quads: &q, doors: &[] };
+        let env = Env::new(&q, &[]);
         let tree = Tree::new(Vec3::new(6.0, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
         assert_eq!(resolve(&env, &tree, Vec3::X, true), Vec3::X);
     }
@@ -682,7 +704,7 @@ mod tests {
         let mut at = Vec3::ZERO;
         for _ in 0..30 {
             let doors = [door.clone()];
-            let env = Env { quads: &q, doors: &doors };
+            let env = Env::new(&q, &doors);
             let tree = Tree::new(at, 0.0, 18.0, PLAYER_LEAF);
             at += resolve(&env, &tree, Vec3::X, true);
         }
@@ -692,7 +714,7 @@ mod tests {
         assert!(gap > 3.0 && gap <= 4.0, "{gap}");
         door.solid = false;
         let doors = [door];
-        let env = Env { quads: &q, doors: &doors };
+        let env = Env::new(&q, &doors);
         let tree = Tree::new(at, 0.0, 18.0, PLAYER_LEAF);
         assert!((resolve(&env, &tree, Vec3::X, true).x - 1.0).abs() < 1e-5, "open: through");
     }

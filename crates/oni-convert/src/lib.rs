@@ -1385,6 +1385,32 @@ fn convert_fonts(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
 /// Emits `<root>/object_animations.json` — every `OBAN` scripted object
 /// animation (sliding doors, lifts, driving vehicles) as keyframed transforms.
 /// Returns the number of clips written.
+/// An object animation as `object_animations.json` writes it (and the door
+/// classes theirs): its name, flags by name, timing, the `scale` matrix (4×3,
+/// column-major) and its keys.
+pub(crate) fn object_animation_json(a: &oni_geom::objanim::ObjectAnimation) -> serde_json::Value {
+    let keys: Vec<serde_json::Value> = a
+        .keys
+        .iter()
+        .map(|k| {
+            serde_json::json!({
+                "frame": k.frame,
+                "translation": [k.translation[0], k.translation[1], k.translation[2]],
+                "rotation": [k.rotation[0], k.rotation[1], k.rotation[2], k.rotation[3]],
+            })
+        })
+        .collect();
+    serde_json::json!({
+        "name": a.name,
+        "flags": oni_schema::bit_names(&oni_schema::OBJECT_ANIMATION_FLAGS, a.flags),
+        "ticksPerFrame": a.ticks_per_frame,
+        "numFrames": a.num_frames,
+        "doorOpenFrames": a.door_open_frames,
+        "scale": a.scale,
+        "keyframes": keys,
+    })
+}
+
 fn convert_object_animations(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
     use oni_geom::objanim::{decode_object_animation, TAG_OBAN};
 
@@ -1393,25 +1419,7 @@ fn convert_object_animations(dat: &Dat<'_>, root: &Path) -> std::io::Result<usiz
         let Some(a) = decode_object_animation(dat, inst) else {
             continue;
         };
-        let keys: Vec<serde_json::Value> = a
-            .keys
-            .iter()
-            .map(|k| {
-                serde_json::json!({
-                    "frame": k.frame,
-                    "translation": [k.translation[0], k.translation[1], k.translation[2]],
-                    "rotation": [k.rotation[0], k.rotation[1], k.rotation[2], k.rotation[3]],
-                })
-            })
-            .collect();
-        clips.push(serde_json::json!({
-            "name": a.name,
-            "flags": a.flags,
-            "ticksPerFrame": a.ticks_per_frame,
-            "numFrames": a.num_frames,
-            "doorOpenFrames": a.door_open_frames,
-            "keyframes": keys,
-        }));
+        clips.push(object_animation_json(&a));
     }
     if clips.is_empty() {
         return Ok(0);

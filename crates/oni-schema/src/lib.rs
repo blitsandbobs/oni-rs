@@ -318,6 +318,9 @@ pub const LASER_FLAGS: [&str; 6] = ["", "", "", "initialActive", "reverseAnim", 
 
 /// Door flag bits (`OBJcDoorFlag_*`; bit index → name; only the authored
 /// ones are kept).
+/// `OBcAnimFlags_*` (`BFW_Object.h`): an object animation's flags.
+pub const OBJECT_ANIMATION_FLAGS: [&str; 5] = ["loop", "pingpong", "random", "autostart", "localized"];
+
 pub const DOOR_FLAGS: [&str; 13] = [
     "initialLocked",
     "",

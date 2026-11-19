@@ -168,7 +168,11 @@ fn main() {
     }
 
     eprintln!("loading {}...", scene_path.display());
-    let scene = gltf::load(&scene_path).expect("load scene");
+    let mut scene = gltf::load(&scene_path).expect("load scene");
+    // (Each double door's two leaves move apart.)
+    if let Some(dir) = scene_path.parent() {
+        doors::split_leaves(&mut scene, &doors::load(dir));
+    }
     eprintln!(
         "  {} primitives, {} textures",
         scene.prims.len(),

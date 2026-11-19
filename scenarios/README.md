@@ -45,6 +45,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
+| `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
@@ -94,6 +95,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | Call | Effect |
 |------|--------|
 | `input(forward, backward)` | Set the move keys (W/S). |
+| `door_leaves(id)` | Door id's leaf boxes this tick: `{{at, half, solid, paused}, …}`. |
 | `sight(id)` / `gun_through_wall(id)` | A fighter's gun sight this tick: `{from, to, target, laser, tunnel}` (target `none` / `environment` / `character`, laser `{r, g, b}` or nil, tunnel its sprite count), nil without one; whether its gun pokes through a wall. |
 | `bone(id, k)` / `held_gun(id)` | A fighter's posed bone k, or the gun in its hand: `{x, y, z, at}` (axes and place), nil without one. |
 | `hold_jump(on)` / `feet_offset()` | Hold (or release) jump — the held, higher jump; how far the player's posed body's lowest point (arms left out) is above its location (the original's `feetLocation`). |

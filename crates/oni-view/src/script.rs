@@ -204,7 +204,7 @@ impl ScriptHost {
             (Some(e), None) => cam.look_at(e, self.scene.center()),
             _ => {}
         }
-        self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
+        self.renderer.door_motion = self.world.door_motions();
         self.renderer.beams = self.world.beams.clone();
         self.renderer.sprites = self.world.sprites();
         self.renderer.decals = if self.show_decals { self.world.decal_draws() } else { Vec::new() };
@@ -850,6 +850,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // door_leaves(id) → {{at={x,y,z}, half={x,y,z}, solid, paused}, …}: door
+    // id's leaf boxes this tick.
+    let h = host.clone();
+    g.set(
+        "door_leaves",
+        lua.create_function(move |lua, id: u16| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            for (k, (at, half, solid, paused)) in host.world.door_leaves(id).into_iter().enumerate() {
+                let l = lua.create_table()?;
+                l.set("at", vec![at.x, at.y, at.z])?;
+                l.set("half", vec![half.x, half.y, half.z])?;
+                l.set("solid", solid)?;
+                l.set("paused", paused)?;
+                t.set(k + 1, l)?;
+            }
+            Ok(t)
+        })?,
+    )?;
     // Orders door `id`: "open", "close", "lock", "unlock", "jam", "unjam".
     let h = host.clone();
     g.set(
@@ -1445,7 +1464,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let Some(f) = host.world.fighters.get(id) else { return Ok((0.0, None)) };
             let a = deg.to_radians();
-            let env = crate::chrphys::Env { quads: &host.world.quads, doors: &[] };
+            let env = crate::chrphys::Env::new(&host.world.quads, &[]);
             let radius = if f.player { crate::chrphys::PLAYER_LEAF } else { crate::chrphys::AI_LEAF };
             let p = crate::chrphys::probe(&env, f.feet(), radius, Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
             Ok((p.free, p.ledge))

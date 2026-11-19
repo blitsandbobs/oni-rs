@@ -130,6 +130,8 @@ pub struct World {
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
     /// Each door's leaf as character collision sees it.
     door_boxes: Vec<crate::chrphys::DoorBox>,
+    /// Each door leaf's box in its own frame (what `door_boxes` places).
+    door_leaf_boxes: Vec<DoorLeaf>,
     door_links: Vec<Vec<(usize, usize)>>,
     /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
@@ -188,6 +190,15 @@ pub struct World {
     env_particles_started: bool,
 }
 
+/// A door leaf's box in its own frame (at its closed position, frame 0).
+#[derive(Clone, Copy, Debug)]
+struct DoorLeaf {
+    door: usize,
+    leaf: usize,
+    lo: Vec3,
+    hi: Vec3,
+}
+
 /// A breakable glass pane.
 struct Pane {
     quad: u32,
@@ -217,6 +228,7 @@ impl World {
             beams: Vec::new(),
             door_meshes: Vec::new(),
             door_boxes: Vec::new(),
+            door_leaf_boxes: Vec::new(),
             door_links: Vec::new(),
             env_hidden: Default::default(),
             door_applied: Vec::new(),
@@ -710,7 +722,7 @@ impl World {
             }
             for e in 0..self.lasers[k].emitters.len() {
                 let (from, dir, frame) = self.lasers[k].beam(e);
-                let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+                let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
                 let reach = self.lasers[k].reach(frame, || {
                     let len = crate::lasers::BEAM_LENGTH;
                     crate::chrphys::level_ray(&env, from, dir * len).map_or(len, |h| h.fraction * len)
@@ -768,22 +780,89 @@ impl World {
     }
 
     /// Gives the doors their closed leaves (by object id, from the level's
-    /// geometry): each fighter collides with them while closed.
+    /// geometry): while a door is closed they are its level quads; while it
+    /// moves or stands open each leaf is a box in its own frame (`OBrInit`'s
+    /// bounds: the geometry's), moving with it.
     pub fn attach_doors(&mut self, mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>) {
         self.door_meshes = self.doors.iter().map(|d| meshes.remove(&d.object_id).unwrap_or_default()).collect();
-        // Each leaf a box in the door's own frame (`OBrInit`'s bounds).
+        self.door_leaf_boxes.clear();
+        for (k, (d, (v, idx))) in self.doors.iter().zip(&self.door_meshes).enumerate() {
+            for l in 0..d.leaves.len() {
+                let inv = d.leaf_matrix(l, 0).inverse();
+                // (Each triangle to the leaf nearest its middle, as drawn.)
+                let pts: Vec<Vec3> = idx
+                    .chunks_exact(3)
+                    .map(|t| [0, 1, 2].map(|j| Vec3::from(v[t[j] as usize])))
+                    .filter(|t| d.leaf_of((t[0] + t[1] + t[2]) / 3.0) == l)
+                    .flatten()
+                    .map(|p| inv.transform_point3(p))
+                    .collect();
+                if pts.is_empty() {
+                    continue;
+                }
+                let (lo, hi) = pts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
+                self.door_leaf_boxes.push(DoorLeaf { door: k, leaf: l, lo, hi });
+            }
+        }
+        self.place_door_boxes();
+        self.mark_door_quads();
+    }
+
+    /// The door leaves' boxes where they stand this tick: solid while their
+    /// door isn't closed (its leaf objects exist).
+    fn place_door_boxes(&mut self) {
         self.door_boxes = self
-            .doors
+            .door_leaf_boxes
             .iter()
-            .zip(&self.door_meshes)
-            .map(|(d, (v, _))| {
-                let pts: Vec<Vec3> = v.iter().map(|p| Vec3::from(*p)).collect();
-                let mut b = crate::chrphys::DoorBox::around(&pts, d.position, d.axes);
-                b.solid = false;
-                b
+            .map(|b| {
+                let d = &self.doors[b.door];
+                let m = d.leaf_matrix(b.leaf, d.frame());
+                let axes = [m.x_axis.truncate(), m.y_axis.truncate(), m.z_axis.truncate()];
+                let len = Vec3::new(axes[0].length(), axes[1].length(), axes[2].length());
+                crate::chrphys::DoorBox {
+                    center: m.transform_point3((b.lo + b.hi) * 0.5),
+                    axes: axes.map(|a| a.normalize_or_zero()),
+                    half: (b.hi - b.lo) * 0.5 * len,
+                    solid: d.state != crate::doors::State::Closed,
+                }
             })
             .collect();
-        self.mark_door_quads();
+    }
+
+    /// Door `id`'s leaves this tick: each one's box (centre, half sizes),
+    /// whether it is solid, and the ticks it stays paused.
+    pub fn door_leaves(&self, id: u16) -> Vec<(Vec3, Vec3, bool, u16)> {
+        self.door_leaf_boxes
+            .iter()
+            .zip(&self.door_boxes)
+            .filter(|(b, _)| self.doors[b.door].id == id)
+            .map(|(b, w)| (w.center, w.half, w.solid, self.doors[b.door].paused[b.leaf.min(1)]))
+            .collect()
+    }
+
+    /// How each moving door leaf (object id, leaf) has moved from closed,
+    /// for drawing.
+    pub fn door_motions(&self) -> std::collections::HashMap<(u32, u8), glam::Mat4> {
+        self.doors
+            .iter()
+            .filter(|d| d.state != crate::doors::State::Closed)
+            .flat_map(|d| (0..d.leaves.len()).map(move |l| ((d.object_id, l as u8), d.leaf_motion(l))))
+            .collect()
+    }
+
+    /// Characters touched door leaves this tick (`OBrNotifyPhysicsCollision`):
+    /// a leaf moving into one in front of it pauses.
+    fn doors_touched(&mut self, touches: &[(usize, crate::chrphys::Touch)]) {
+        for &(who, t) in touches {
+            let Some(b) = self.door_leaf_boxes.get(t.door) else { continue };
+            let at = self.fighters[who].feet();
+            let d = &mut self.doors[b.door];
+            let was = d.paused[b.leaf.min(1)];
+            d.touched(b.leaf, t.point, t.normal, at);
+            if d.paused[b.leaf.min(1)] > was {
+                d.blocker = Some(who);
+            }
+        }
     }
 
     /// Each door's own level quads — its closed leaves, the "gunk" — as its
@@ -891,13 +970,27 @@ impl World {
                     if a.nav.as_ref().is_some_and(|n| n.state == crate::ai::navigate::State::Following));
                 near && (!closed_manual || walking)
             });
+            let leaf0_only = self.quirks.door_first_leaf_only();
             let d = &mut self.doors[k];
-            let started = if closed_manual && opener.is_some() {
+            let (tick, mut opener) = if closed_manual && opener.is_some() {
                 d.open();
-                true
+                (crate::doors::Tick { started: true, reopen: false }, opener)
             } else {
-                d.tick(opener.is_some())
+                (d.tick(opener.is_some(), leaf0_only), opener)
             };
+            let mut started = tick.started;
+            // Closing and blocked too long: it opens for whoever is in the way
+            // (`OBJrDoor_CharacterOpen`), if they may open it.
+            if tick.reopen {
+                let blocker = self.doors[k].blocker;
+                let feet = blocker.and_then(|b| self.fighters.get(b)).map(|f| f.feet());
+                if feet.is_some_and(|p| self.doors[k].may_open(p, false)) {
+                    self.doors[k].open();
+                    started = true;
+                    opener = blocker;
+                }
+            }
+            let d = &mut self.doors[k];
             if started {
                 eprintln!("door {} ({}): opens", d.id, d.class);
                 let events = d.events.clone();
@@ -910,6 +1003,7 @@ impl World {
                 self.mark_door_quads();
             }
         }
+        self.place_door_boxes();
         self.door_sounds();
     }
 
@@ -1340,7 +1434,7 @@ impl World {
             }
             let Some(mut brain) = self.fighters[i].brain.take() else { continue };
             let nav = self.nav.as_deref();
-            let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+            let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
             let me = view(&self.fighters, nav, &env, i, target);
             let them = view(&self.fighters, nav, &env, target, i);
             if let Some(m) = brain.melee_mut() {
@@ -1480,12 +1574,17 @@ impl World {
             moves.push(f.plan(held, pressed, &others));
         }
         self.collide(&mut moves);
-        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
-        for (f, m) in self.fighters.iter_mut().zip(moves) {
+        let touched = std::cell::RefCell::new(Vec::new());
+        let mut touches = Vec::new();
+        let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        env.touched = Some(&touched);
+        for (i, (f, m)) in self.fighters.iter_mut().zip(moves).enumerate() {
             if let Some(m) = m {
                 f.commit(m, &env);
+                touches.extend(touched.borrow_mut().drain(..).map(|t| (i, t)));
             }
         }
+        self.doors_touched(&touches);
         self.start_throws();
         for f in &mut self.fighters {
             f.apply_reaction();
@@ -1779,7 +1878,7 @@ impl World {
             let facing = fa.facing.facing + info.target_facing;
             let coll = fa.motion.coll.clone();
             let clip = coll.entries[t.target_clip].name.clone();
-            let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+            let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
             let victim = &mut self.fighters[t.target];
             if victim.alive() && !victim.motion.dying {
                 victim.be_thrown(a, coll, t.target_clip, fight, dest, facing, &env);

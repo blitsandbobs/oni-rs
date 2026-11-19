@@ -25,6 +25,14 @@ impl Quirks {
         self.faithful
     }
 
+    /// Whether a door counts as blocked only by its first leaf: the shipped
+    /// game tests the first leaf's pause twice where it meant each leaf, so
+    /// someone blocking only a double door's second leaf holds it shut for
+    /// good — it never turns back (Q14).
+    pub fn door_first_leaf_only(self) -> bool {
+        self.faithful
+    }
+
     /// Whether a melee technique ignores danger. The shipped game tests its
     /// "fearless" flag against the wrong set of bits — the ones holding the
     /// technique's start state — so it really depends on that state (Q5).

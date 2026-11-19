@@ -142,8 +142,8 @@ struct GpuPrim {
     count: u32,
     texture: usize,
     bucket: Bucket,
-    /// The door (object id) whose closed leaf this is: hidden while it is open.
-    door: Option<u32>,
+    /// The door (object id) and leaf this is: drawn where the leaf has moved.
+    door: Option<(u32, u8)>,
     /// The `env_show` reference it is drawn by.
     env_ref: Option<u32>,
     glass: Option<u32>,
@@ -183,7 +183,8 @@ pub struct Renderer {
     default_tex: wgpu::BindGroup,
     prims: Vec<GpuPrim>,
     /// Doors (object ids) open now: their closed leaves aren't drawn.
-    pub open_doors: std::collections::HashSet<u32>,
+    /// How each moving door leaf (object id, leaf) has moved from closed.
+    pub door_motion: std::collections::HashMap<(u32, u8), Mat4>,
     /// Level parts scripts have hidden (`env_show` references).
     pub hidden_refs: std::collections::HashSet<u32>,
     /// Broken glass panes (by quad) — not drawn.
@@ -525,7 +526,7 @@ impl Renderer {
             tex_bgs,
             default_tex,
             prims,
-            open_doors: Default::default(),
+            door_motion: Default::default(),
             hidden_refs: Default::default(),
             broken_glass: Default::default(),
             beams: Vec::new(),
@@ -733,11 +734,12 @@ impl Renderer {
             ] {
                 pass.set_pipeline(pipeline);
                 let shown = |p: &&GpuPrim| {
-                    p.door.is_none_or(|d| !self.open_doors.contains(&d)) && p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
+                    p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
                 for p in self.prims.iter().filter(|p| p.bucket == bucket).filter(shown) {
-                    draw_prim(&mut pass, p, Mat4::IDENTITY);
+                    let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
+                    draw_prim(&mut pass, p, model);
                 }
                 if let Some(b) = beams.as_ref().filter(|b| b.bucket == bucket) {
                     draw_prim(&mut pass, b, Mat4::IDENTITY);
@@ -847,6 +849,7 @@ impl Renderer {
                     blend: false,
                     additive: true,
                     door: None,
+                    leaf: 0,
                     visible: true,
                     collide: false,
                     env_ref: None,
@@ -922,6 +925,7 @@ impl Renderer {
             blend: false,
             additive: true,
             door: None,
+            leaf: 0,
             visible: true,
             collide: false,
             env_ref: None,
@@ -955,7 +959,7 @@ fn upload_prim(device: &wgpu::Device, p: &Prim) -> GpuPrim {
         count: p.indices.len() as u32,
         texture: p.texture.unwrap_or(usize::MAX),
         bucket,
-        door: p.door,
+        door: p.door.map(|d| (d, p.leaf)),
         env_ref: p.env_ref,
         glass: p.glass,
         bone: None,
