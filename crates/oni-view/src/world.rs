@@ -601,6 +601,32 @@ impl World {
         f.passive = false;
         agent.goal = crate::ai::goals::Goal::None;
         f.brain = Some(crate::ai::Brain::Agent(Box::new(agent)));
+        if let Some(p) = placed {
+            self.arm(id, p);
+        }
+    }
+
+    /// Arms fighter `id` as `p` was placed: its gun (as full as placed) and
+    /// what it carries.
+    pub fn arm(&mut self, id: usize, p: &crate::ai::level::Placed) {
+        {
+            let inv = &mut self.fighters[id].inventory;
+            inv.ammo = p.carries[0];
+            inv.cells = p.carries[1];
+            inv.hypos = p.carries[2];
+            inv.shield = p.carries[3];
+            inv.invisibility = p.carries[4];
+            if let Some(w) = p.weapon.as_deref() {
+                if self.give_weapon(id, w) {
+                    if let (Some(pc), Some(g)) = (p.ammo_percent, self.fighters[id].hand) {
+                        let gun = &mut self.armory.weapons[g];
+                        gun.ammo = (u32::from(gun.class.max_ammo) * pc.min(100) / 100) as u16;
+                    }
+                } else {
+                    eprintln!("ai: {}: no weapon class {w}", p.name);
+                }
+            }
+        }
     }
 
     /// Loads a level's data for its AI and scripts: placed characters,

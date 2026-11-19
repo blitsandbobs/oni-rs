@@ -160,6 +160,11 @@ pub struct Placed {
     pub pursue: Pursue,
     /// Its event scripts (`spawn`, `die`, `combat`, `hurt`, `alarm`, …).
     pub scripts: HashMap<String, String>,
+    /// The gun it starts with (its class name), how full (percent), and
+    /// what it carries besides: clips, cells, hypos, shield, invisibility.
+    pub weapon: Option<String>,
+    pub ammo_percent: Option<u32>,
+    pub carries: [u16; 5],
 }
 
 impl Placed {
@@ -244,6 +249,10 @@ impl LevelAi {
                 combat_id: c["combatProfileId"].as_u64().unwrap_or(0) as u16,
                 melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
                 hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
+                weapon: c["weapon"].as_str().filter(|w| !w.is_empty() && *w != "none").map(String::from),
+                ammo_percent: c["ammoPercent"].as_u64().map(|v| v as u32),
+                carries: ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"]
+                    .map(|k| c["inventory"][k]["use"].as_u64().unwrap_or(0) as u16),
                 alarm_groups: c["alarmGroups"]
                     .as_array()
                     .into_iter()

@@ -187,6 +187,7 @@ impl Mission {
                 f.max_hp = ((f.max_hp + p.hp_offset) as f32 * scale) as i32;
                 f.hp = f.max_hp;
             }
+            world.arm(0, p);
         }
         for c in placed.iter().filter(|c| !c.has("player") && !c.has("notInitiallyPresent")) {
             if let Some((script, arg)) = commands::spawn(&mut self.state, host, &c.name, false) {
