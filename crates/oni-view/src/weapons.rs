@@ -236,6 +236,7 @@ impl AiGun {
                 no_wild_shots: j["noWildShots"].as_bool().unwrap_or(false),
                 shooter_offset: vec3(&j["shooterOffset"]),
                 shooter_inverse: inverse,
+                ballistic: (f("ballisticSpeed") > 0.0).then(|| (f("ballisticSpeed"), f("ballisticGravity"))),
             },
             min_safe_distance: f("minSafeDistance"),
             max_range: f("maxRange"),

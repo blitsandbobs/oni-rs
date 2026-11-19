@@ -88,6 +88,31 @@ pub struct Gun {
     /// the shot's line onto the barrel (+X).
     pub shooter_offset: Vec3,
     pub shooter_inverse: Mat3,
+    /// A lobbed shot (grenades, superballs): its launch speed (units/s) and
+    /// gravity (× 98 units/s²).
+    pub ballistic: Option<(f32, f32)>,
+}
+
+/// The flatter of the two arcs that reach a point `to` away (horizontal
+/// distance and height) at launch speed `speed` under gravity `g`: the
+/// launch direction (unit), or none if it is out of reach.
+pub fn lob(to: Vec3, speed: f32, g: f32) -> Option<Vec3> {
+    let flat = Vec3::new(to.x, 0.0, to.z);
+    let (d, h) = (flat.length(), to.y);
+    let a = g * g / 4.0;
+    let b = g * h - speed * speed;
+    let c = d * d + h * h;
+    let disc = b * b - 4.0 * a * c;
+    if a <= 0.0 || disc < 0.0 {
+        return None;
+    }
+    let t2 = (-b - disc.sqrt()) / (2.0 * a);
+    if t2 <= 0.0 {
+        return None;
+    }
+    let t = t2.sqrt();
+    let (vx, vy) = (d / t, h / t + g * t / 2.0);
+    Some((flat.normalize_or(Vec3::Z) * vx + Vec3::Y * vy).normalize())
 }
 
 /// Targeting one character (`AI2tTargetingState`).
@@ -187,8 +212,14 @@ impl Targeting {
     /// while shooting. `gun` is the gun's world matrix now.
     pub fn aim(&mut self, shoulder: Vec3, gun: Mat4, shooting: bool) -> Vec3 {
         let aim_pt = if shooting { self.target_pt + self.error } else { self.target_pt };
-        let v = aim_pt - shoulder;
+        let mut v = aim_pt - shoulder;
         let len = v.length();
+        // A lobbed shot: up along its arc (none: straight at it).
+        if let Some((speed, g)) = self.gun.ballistic {
+            if let Some(dir) = lob(v, speed, g * 98.0) {
+                v = dir * len;
+            }
+        }
         self.near = ((len - 25.0) / (10.0 - 25.0)).clamp(0.0, 1.0);
         // (Nose to nose, the reference point pulls back along the barrel so
         // a muzzle inside the target doesn't swing the aim.)
@@ -329,7 +360,24 @@ mod tests {
             no_wild_shots: false,
             shooter_offset: Vec3::ZERO,
             shooter_inverse: Mat3::IDENTITY,
+            ballistic: None,
         }
+    }
+
+    #[test]
+    fn a_lob_lands_where_it_is_aimed() {
+        // 150 units/s, half gravity: a target 80 ahead and 5 below.
+        let (speed, g) = (150.0, 49.0);
+        let to = Vec3::new(0.0, -5.0, 80.0);
+        let dir = lob(to, speed, g).unwrap();
+        assert!(dir.y > 0.0, "it is thrown up");
+        // Fly it: where is it when it has come 80 across?
+        let v = dir * speed;
+        let t = 80.0 / v.z;
+        let y = v.y * t - g * t * t / 2.0;
+        assert!((y + 5.0).abs() < 0.01, "lands at {y}");
+        // Beyond reach: none.
+        assert!(lob(Vec3::new(0.0, 0.0, 1000.0), speed, g).is_none());
     }
 
     /// A gun at the origin pointing its barrel along `dir`.

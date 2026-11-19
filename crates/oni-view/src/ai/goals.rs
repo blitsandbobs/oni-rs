@@ -687,6 +687,13 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     if g.ai.max_range > 0.0 && from.distance(to) > g.ai.max_range {
         return false;
     }
+    // A lobbed shot needs an arc that reaches. (The arc itself isn't traced
+    // against the level: the straight line stands in.)
+    if let Some((speed, gravity)) = g.ai.aim.ballistic {
+        if crate::ai::ranged::lob(to - from, speed, gravity * 98.0).is_none() {
+            return false;
+        }
+    }
     if !(cx.sight)(from, to) {
         return false;
     }
