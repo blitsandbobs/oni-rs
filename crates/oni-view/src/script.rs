@@ -1181,6 +1181,31 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             mat(lua, w.armory.weapons[k].matrix.get()).map(Some)
         })?,
     )?;
+    // sight(id) → {from, to, target, laser, tunnel}: fighter id's gun sight
+    // this tick (nil without one); target "none" | "environment" |
+    // "character", laser its {r, g, b} (nil without one), tunnel how many
+    // sprites. gun_through_wall(id) → whether its gun pokes through a wall.
+    let h = host.clone();
+    g.set(
+        "sight",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let Some(s) = host.world.gun_sight(id) else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("from", vec![s.from.x, s.from.y, s.from.z])?;
+            t.set("to", vec![s.to.x, s.to.y, s.to.z])?;
+            t.set("target", match s.target {
+                crate::world::SightTarget::None => "none",
+                crate::world::SightTarget::Environment => "environment",
+                crate::world::SightTarget::Character => "character",
+            })?;
+            t.set("laser", s.laser.map(|c| c.to_vec()))?;
+            t.set("tunnel", s.tunnel.len())?;
+            Ok(Some(t))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set("gun_through_wall", lua.create_function(move |_, id: usize| Ok(h.borrow().world.gun_through_wall(id)))?)?;
     // show_decals(on): whether screenshots draw the decals (to compare).
     let h = host.clone();
     g.set("show_decals", lua.create_function(move |_, on: bool| {

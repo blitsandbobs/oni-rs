@@ -115,6 +115,9 @@ pub struct Sprite {
     /// Its colour (tint × alpha: additive).
     pub color: [f32; 3],
     pub texture: std::path::PathBuf,
+    /// A contrail (with an axis): the texture's u across it, v along it
+    /// (`M3rContrail_Draw`), where a sprite has u along its axis.
+    pub contrail: bool,
 }
 
 /// A batch of billboards sharing one texture.
@@ -829,6 +832,7 @@ impl Renderer {
             // (The texture's top row — v 0 — on the sprite's −Y side, as the
             // original's sprite drawing has it.)
             for (p, uv) in [(s.at - x - y, [0.0, 0.0]), (s.at + x - y, [1.0, 0.0]), (s.at + x + y, [1.0, 1.0]), (s.at - x + y, [0.0, 1.0])] {
+                let uv = if s.contrail { [uv[1], uv[0]] } else { uv };
                 verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: s.color });
             }
             idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

@@ -30,7 +30,7 @@ mod turrets;
 mod voices;
 mod weapons;
 pub use voices::{speech, vocal, Line, PainState, Speech};
-pub use weapons::{Armory, Item};
+pub use weapons::{Armory, Item, SightTarget};
 
 /// Characters further apart than this are never tested for touching.
 const CONTACT_RANGE: f32 = 25.0;

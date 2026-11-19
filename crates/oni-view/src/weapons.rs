@@ -116,6 +116,29 @@ pub struct WeaponClass {
     pub attachments: Vec<Attachment>,
     /// The click it makes empty (an impulse sound).
     pub empty_sound: String,
+    /// Its sight (`docs/WEAPONS.md`, *Sight*): where on the gun and which
+    /// way (gun space; a zero vector: none), how far it reaches, the laser's
+    /// colour (RGB), and the tunnel drawn along it.
+    pub sight: (Vec3, Vec3),
+    pub max_sight_distance: f32,
+    pub laser_color: [f32; 3],
+    pub tunnel: Option<Tunnel>,
+}
+
+/// Sprites spaced along a gun's sight (`WPtSprite` + count and spacing).
+#[derive(Clone, Debug)]
+pub struct Tunnel {
+    pub texture: String,
+    pub color: [f32; 3],
+    pub scale: f32,
+    pub count: u32,
+    pub spacing: f32,
+}
+
+/// An `#AARRGGBB` colour's RGB (0–1).
+fn rgb(j: &Json) -> [f32; 3] {
+    let v = j.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0x00FF_FFFF);
+    [((v >> 16) & 0xFF) as f32 / 255.0, ((v >> 8) & 0xFF) as f32 / 255.0, (v & 0xFF) as f32 / 255.0]
 }
 
 impl WeaponClass {
@@ -182,7 +205,19 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         })
         .unwrap_or_default();
     let r = &c["recoil"];
+    let v3 = |j: &Json| Vec3::new(f(&j[0]), f(&j[1]), f(&j[2]));
+    let tunnel = c["tunnel"]["texture"].as_str().map(|t| Tunnel {
+        texture: t.to_string(),
+        color: rgb(&c["tunnel"]["shade"]),
+        scale: f(&c["tunnel"]["scale"]),
+        count: c["tunnel"]["count"].as_u64().unwrap_or(0) as u32,
+        spacing: f(&c["tunnel"]["spacing"]),
+    });
     WeaponClass {
+        sight: (v3(&c["sight"]["position"]), v3(&c["sight"]["vector"])),
+        max_sight_distance: f(&c["maxSightDistance"]),
+        laser_color: rgb(&c["laserColor"]),
+        tunnel,
         name: name.to_string(),
         model: c["model"].as_str().map(|m| dir.join(m)),
         flags,

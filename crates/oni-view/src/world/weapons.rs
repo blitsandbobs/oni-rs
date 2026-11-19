@@ -483,6 +483,49 @@ fn matrix_lerp(a: Mat4, b: Mat4, t: f32) -> Mat4 {
     Mat4::from_rotation_translation(ra.lerp(rb, t), ta.lerp(tb, t))
 }
 
+/// What a gun's sight meets (`AMtRayResultType`): nothing, the level or an
+/// object, or a character (a living one).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SightTarget {
+    None,
+    Environment,
+    Character,
+}
+
+/// A gun's sight this tick (`ONiDrawWeaponSight`): from the sight on the
+/// gun to where it stops, what it meets, the laser's colour (a class with a
+/// laser) and the tunnel's sprites along it.
+#[derive(Clone, Debug)]
+pub struct GunSight {
+    pub from: Vec3,
+    pub to: Vec3,
+    pub target: SightTarget,
+    pub laser: Option<[f32; 3]>,
+    pub tunnel: Vec<Vec3>,
+}
+
+/// How far the sight looks for the level and objects (`AMcPickLimit`).
+const PICK_LIMIT: f32 = 1000.0;
+/// A sight that meets something stops this short of it.
+const SIGHT_SHORT: f32 = 2.0;
+/// The laser's half-width (`FXgLaser_Width`).
+const LASER_WIDTH: f32 = 0.2;
+
+/// Where a ray first meets fighter `f`'s body (its parts' boxes): the
+/// fraction along it.
+fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
+    f.character
+        .parts
+        .iter()
+        .filter_map(|part| {
+            let m = bones.get(part.bone)?;
+            let inv = m.inverse();
+            let (lo, hi) = part.bound_box;
+            ray_box(inv.transform_point3(from), inv.transform_vector3(ray), lo, hi).map(|(t, _)| t)
+        })
+        .min_by(f32::total_cmp)
+}
+
 /// How fast (along the surface's normal, per tick) a falling gun must hit
 /// to make its impact (`WPcImpact_MinVelocity`).
 const WEAPON_IMPACT_SPEED: f32 = 0.35;
@@ -510,6 +553,92 @@ impl World {
             data.cause = Cause::HitWall(Some(h.quad));
         }
         self.impact_effect(impact, material, crate::impacts::ANY, data, 1.0, None, None);
+    }
+
+    /// Whether fighter `who`'s gun pokes through a wall
+    /// (`ONrCharacter_IsGunThroughWall`): the level or a door between the
+    /// middle of its pelvis and any of the gun's shooting attachments, or the
+    /// gun's pivot. Such a gun neither fires nor shows its sight.
+    pub fn gun_through_wall(&self, who: usize) -> bool {
+        let Some(f) = self.fighters.get(who) else { return false };
+        let Some(w) = f.hand else { return false };
+        let gun = &self.armory.weapons[w];
+        let m = gun.matrix.get();
+        let bones = f.bones();
+        let pelvis = f
+            .character
+            .parts
+            .iter()
+            .find(|p| p.bone == 0)
+            .and_then(|p| Some(bones.first()?.transform_point3(p.bound_sphere?.0)))
+            .unwrap_or_else(|| f.feet() + Vec3::Y * f.motion.height());
+        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+        // (A long gun held over a ledge counts as through it, the original's
+        // known limit.)
+        let blocked = |to: Vec3| crate::chrphys::level_ray(&env, pelvis, to - pelvis).is_some();
+        gun.class.attachments.iter().filter(|a| a.ammo_used > 0).any(|a| blocked(m.transform_point3(a.matrix.w_axis.truncate())))
+            || blocked(m.w_axis.truncate())
+    }
+
+    /// Fighter `who`'s gun sight (`ONiDrawWeaponSight`): the player's, with
+    /// a gun that has ammo and isn't through a wall, and a sight. From the
+    /// sight along its direction to the first character (but itself), level
+    /// surface or door — at most the class's sight distance, stopping 2
+    /// short of what it meets.
+    pub fn gun_sight(&self, who: usize) -> Option<GunSight> {
+        let f = self.fighters.get(who).filter(|f| f.player && !f.gone)?;
+        let gun = &self.armory.weapons[f.hand?];
+        let class = &gun.class;
+        if gun.ammo == 0 || class.sight.1 == Vec3::ZERO || self.gun_through_wall(who) {
+            return None;
+        }
+        let m = gun.matrix.get();
+        let from = m.transform_point3(class.sight.0);
+        let dir = m.transform_vector3(class.sight.1).try_normalize()?;
+        let max = class.max_sight_distance;
+        // The nearest of the characters (any distance) and the level and
+        // objects (out to the pick limit).
+        let mut hit: Option<(f32, SightTarget)> = None;
+        for (j, o) in self.fighters.iter().enumerate() {
+            if j == who || o.gone {
+                continue;
+            }
+            if let Some(t) = ray_body(o, &o.bones(), from, dir * max) {
+                let d = t * max;
+                if hit.is_none_or(|(h, _)| d < h) {
+                    // (A dead one is no target.)
+                    hit = Some((d, if o.alive() { SightTarget::Character } else { SightTarget::None }));
+                }
+            }
+        }
+        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+        if let Some(h) = crate::chrphys::level_ray(&env, from, dir * PICK_LIMIT) {
+            let d = h.fraction * PICK_LIMIT;
+            if hit.is_none_or(|(h, _)| d < h) {
+                hit = Some((d, SightTarget::Environment));
+            }
+        }
+        let (to, target) = match hit {
+            Some((d, _)) if d > max => (from + dir * max, SightTarget::None),
+            Some((d, t)) if d > 1.0 / 1024.0 => (from + dir * d * (1.0 - (SIGHT_SHORT / d).clamp(0.0, 1.0)), t),
+            Some((d, t)) => (from + dir * d, t),
+            None => (from + dir * max, SightTarget::None),
+        };
+        // The tunnel: from a quarter-spacing in, one every spacing, while a
+        // whole spacing still fits.
+        let mut tunnel = Vec::new();
+        if let Some(tn) = &class.tunnel {
+            let dist = from.distance(to);
+            let mut at = tn.spacing * 0.25;
+            for _ in 0..tn.count {
+                if at + tn.spacing > dist {
+                    break;
+                }
+                tunnel.push(from + dir * at);
+                at += tn.spacing;
+            }
+        }
+        Some(GunSight { from, to, target, laser: class.has(flag::HAS_LASER).then_some(class.laser_color), tunnel })
     }
 
     /// Loads the weapon and particle classes (`common/`) and the level's
@@ -975,9 +1104,49 @@ impl World {
                     plane,
                     color: [channel(16), channel(8), channel(0)],
                     texture: textures.join(format!("{}.png", c.instance)),
+                    contrail: false,
                 })
             })
+            .chain((0..self.fighters.len()).filter_map(|who| self.gun_sight(who).map(|s| (who, s))).flat_map(|(who, s)| {
+                self.sight_sprites(who, &s, &textures)
+            }))
             .collect()
+    }
+
+    /// The sprites drawing a gun's sight (`ONiDrawLaserSight`,
+    /// `ONiDrawTunnel`): the laser, a camera-facing contrail 0.2 to each
+    /// side in the laser's colour (`laser_contrail`, additive); the tunnel's
+    /// sprites at 5 × their scale, in their shade.
+    fn sight_sprites(&self, who: usize, s: &GunSight, textures: &std::path::Path) -> Vec<crate::render::Sprite> {
+        let mut out = Vec::new();
+        let along = s.to - s.from;
+        if let Some(color) = s.laser.filter(|_| along.length() > 1e-3) {
+            out.push(crate::render::Sprite {
+                at: (s.from + s.to) * 0.5,
+                size: [along.length() * 0.5, LASER_WIDTH],
+                axis: Some(along),
+                plane: None,
+                color,
+                texture: textures.join("laser_contrail.png"),
+                contrail: true,
+            });
+        }
+        let class = self.fighters[who].hand.map(|w| &self.armory.weapons[w].class);
+        if let Some(t) = class.and_then(|c| c.tunnel.as_ref()) {
+            for &at in &s.tunnel {
+                let size = 5.0 * t.scale;
+                out.push(crate::render::Sprite {
+                    at,
+                    size: [size, size],
+                    axis: None,
+                    plane: None,
+                    color: t.color,
+                    texture: textures.join(format!("{}.png", t.texture)),
+                    contrail: false,
+                });
+            }
+        }
+        out
     }
 
     pub fn weapons(&self) -> &[Weapon] {
@@ -1418,7 +1587,8 @@ impl World {
         };
         let motion = Vec3::ZERO;
         let now = self.now as u64;
-        let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some();
+        // (A gun through a wall stops firing.)
+        let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some() || self.gun_through_wall(who);
         let inaccuracy = self.inaccuracies();
         let Armory { particles, weapons, .. } = &mut self.armory;
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);

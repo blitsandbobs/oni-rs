@@ -51,6 +51,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `effects.lua` | An effect rides what it struck: a phase-rifle bolt's glow stays on the dummy's struck part as the dummy moves. |
 | `reach.lua` | How high a jump reaches (the original's collision): on level 1's training a running jump gets from a small crate onto the tall one; the ledge after the laser room is out of reach of a jump but not of a flip. |
+| `sight.lua` | The gun's sight: from the marker on the gun, stopping 2 short of the wall or a character; red / blue lasers, a tunnel without one; none for others, an empty gun, or a gun through a wall (which doesn't fire). |
 | `gun_hold.lua` | The gun in the hand: it rides the hand through a pickup, points down the aim standing, is held to the aiming screen's reach; a left-handed ninja holds it in the left hand. |
 | `glass.lua` | A shot breaks a glass pane: level 1's range has 18 targets (references 3001–3018) that `env_broken` counts; `env_show` breaks and mends glass. |
 | `ai_shoot.lua` | An armed enemy that sees the player goes into combat, aims and fires; its shots land; empty, it fights hand to hand. |
@@ -93,6 +94,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | Call | Effect |
 |------|--------|
 | `input(forward, backward)` | Set the move keys (W/S). |
+| `sight(id)` / `gun_through_wall(id)` | A fighter's gun sight this tick: `{from, to, target, laser, tunnel}` (target `none` / `environment` / `character`, laser `{r, g, b}` or nil, tunnel its sprite count), nil without one; whether its gun pokes through a wall. |
 | `bone(id, k)` / `held_gun(id)` | A fighter's posed bone k, or the gun in its hand: `{x, y, z, at}` (axes and place), nil without one. |
 | `hold_jump(on)` / `feet_offset()` | Hold (or release) jump — the held, higher jump; how far the player's posed body's lowest point (arms left out) is above its location (the original's `feetLocation`). |
 | `strafe(left, right)` | Set the strafe keys (A/D sidestep). |

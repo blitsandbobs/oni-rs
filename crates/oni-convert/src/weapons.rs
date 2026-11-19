@@ -183,7 +183,26 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             .flatten()
             .filter(|g| g.tag == TAG_M3GM)
             .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)));
-        if let Some(c) = class(d, model) {
+        if let Some(mut c) = class(d, model) {
+            // Its sprites (`WPtSprite`: texture, shade, scale): the
+            // reticle, the reticle on a target, the sight's tunnel (with
+            // how many and how far apart).
+            let sprite = |at: usize| {
+                let r = le_u32(d, at);
+                let texture = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten().map(|t| crate::asset_name(dat, t));
+                texture.map(|t| json!({ "texture": t, "shade": format!("#{:08x}", le_u32(d, at + 4)), "scale": crate::le_f32(d, at + 8) }))
+            };
+            if let Some(v) = sprite(32) {
+                c["cursor"] = v;
+            }
+            if let Some(v) = sprite(44) {
+                c["cursorTargeted"] = v;
+            }
+            if let Some(mut v) = sprite(56) {
+                v["count"] = json!(le_u32(d, 68));
+                v["spacing"] = json!(crate::le_f32(d, 72));
+                c["tunnel"] = v;
+            }
             let name = c["name"].as_str().unwrap_or_default().to_string();
             out.insert(name, c);
         }
