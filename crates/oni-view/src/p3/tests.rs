@@ -20,7 +20,7 @@ struct Fake {
 impl Host for Fake {
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
         let to = from + ray;
-        (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 1, triangle: None })
+        (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 1, quad: None })
     }
     fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, _owner: Option<usize>) -> Option<CharHit> {
         let r = 5.0 + radius;

@@ -23,6 +23,8 @@ pub struct Quad {
     pub object_tag: u32,
     /// Its bounding box (min, max).
     pub bbox: [[f32; 3]; 2],
+    /// The script reference that shows and hides it (`env_show`), if any.
+    pub env_ref: Option<u32>,
 }
 
 /// A level's quads with the points, planes and textures they use.
@@ -78,6 +80,17 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
     let n_tex = u32_at(tm, 20)? as usize;
     let textures = (0..n_tex).map(|i| u32_at(tm, 24 + i * 4).filter(|r| r & 1 != 0).map(|r| (r >> 8) as usize)).collect();
     let n = u32_at(gg, 20)?.min(u32_at(gr, 20)?).min(u32_at(gc, 20)?) as usize;
+    // The quads scripts show and hide: parallel index arrays of quads and
+    // their references (the first reference of a quad counts).
+    let mut refs: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+    if let (Some(ri), Some(rr)) = (array(dat, d, 40), array(dat, d, 44)) {
+        let count = u32_at(ri, 20).unwrap_or(0).min(u32_at(rr, 20).unwrap_or(0)) as usize;
+        for i in 0..count {
+            if let (Some(q), Some(r)) = (u32_at(ri, 24 + i * 4), u32_at(rr, 24 + i * 4)) {
+                refs.entry(q).or_insert(r);
+            }
+        }
+    }
     let quads = (0..n)
         .map(|q| {
             // General: 4 point indices, 4 texcoord indices, 4 shades, flags,
@@ -92,6 +105,7 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
                 object_tag: at(13)?,
                 texture: gr.get(24 + q * 4..26 + q * 4).map(|b| u16::from_le_bytes([b[0], b[1]]))?,
                 plane: u32_at(gc, 24 + q * 28)?,
+                env_ref: refs.get(&(q as u32)).copied(),
                 bbox: {
                     let c = |k: usize| f32_at(gc, 28 + q * 28 + k * 4);
                     [[c(0)?, c(1)?, c(2)?], [c(3)?, c(4)?, c(5)?]]

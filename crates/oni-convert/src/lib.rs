@@ -995,6 +995,7 @@ fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
         for v in g.bbox.iter().flatten() {
             b.extend_from_slice(&v.to_le_bytes());
         }
+        u(&mut b, g.env_ref.unwrap_or(u32::MAX));
     }
     std::fs::create_dir_all(root)?;
     std::fs::write(root.join("quads.bin"), b)

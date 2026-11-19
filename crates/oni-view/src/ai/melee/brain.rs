@@ -26,7 +26,7 @@ pub struct View<'a> {
     pub motion: &'a Motion,
     /// For looking ahead along the floor (walls, ledges): the level's grids
     /// when it has them, else the collision geometry.
-    pub physics: &'a crate::physics::Physics,
+    pub env: &'a crate::chrphys::Env<'a>,
     pub nav: Option<&'a crate::nav::Navigation>,
     /// The body's cylinder: radius and height span above the feet, for an
     /// attack against it (`full`) and for planning our own (`planning`).
@@ -876,6 +876,7 @@ impl Melee {
 pub fn view<'a>(
     fighters: &'a [crate::fighter::Fighter],
     nav: Option<&'a crate::nav::Navigation>,
+    env: &'a crate::chrphys::Env<'a>,
     i: usize,
     observer: usize,
 ) -> View<'a> {
@@ -929,7 +930,7 @@ pub fn view<'a>(
         facing: f.facing.facing,
         velocity: f.velocity,
         motion: &f.motion,
-        physics: &f.physics,
+        env,
         nav,
         full,
         planning: (pr * 0.75, ph),
@@ -1111,7 +1112,10 @@ fn weigh_spacing(
 pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::physics::Probe {
     match me.nav {
         Some(nav) => nav.look(me.feet + Vec3::Y * 2.0, glam::Vec2::new(dir.x, dir.z), dist),
-        None => me.physics.probe(dir, dist, drop),
+        None => {
+            let radius = if me.player { crate::chrphys::PLAYER_LEAF } else { crate::chrphys::AI_LEAF };
+            crate::chrphys::probe(me.env, me.feet, radius, dir, dist, drop)
+        }
     }
 }
 

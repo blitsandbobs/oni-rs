@@ -20,6 +20,7 @@ mod ai;
 mod anim;
 mod app;
 mod camera;
+mod chrphys;
 mod classes;
 mod consoles;
 mod control;
@@ -282,57 +283,22 @@ fn main() {
     }
 }
 
-/// Concatenates all of the scene's triangles into one vertex/index buffer for a
-/// Rapier trimesh collider (the level's collision geometry).
-fn level_collision_mesh(scene: &gltf::Scene) -> (Vec<[f32; 3]>, Vec<u32>) {
-    let mut verts: Vec<[f32; 3]> = Vec::new();
-    let mut indices: Vec<u32> = Vec::new();
-    // (Doors' closed leaves collide on their own, while closed.)
-    // (Stair steps don't collide — the ramp under them does; invisible
-    // surfaces do.)
-    // (Glass panes collide on their own, until broken.)
-    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.env_ref.is_none() && p.glass.is_none() && p.collide) {
-        let base = verts.len() as u32;
-        verts.extend(p.vertices.iter().map(|v| v.pos));
-        indices.extend(p.indices.iter().map(|i| base + i));
-    }
-    (verts, indices)
-}
-
-/// Each collision triangle's texture (its file's name), in
-/// `level_collision_mesh`'s order: the floor's material for footsteps.
-fn floor_textures(scene: &gltf::Scene) -> Vec<String> {
-    let mut out = Vec::new();
-    for p in scene.prims.iter().filter(|p| p.door.is_none() && p.env_ref.is_none() && p.glass.is_none() && p.collide) {
-        let name = p
-            .texture
-            .and_then(|t| scene.textures.get(t))
-            .and_then(|t| t.file_stem())
-            .map(|s| s.to_string_lossy().into_owned())
-            .unwrap_or_default();
-        out.extend(std::iter::repeat_n(name, p.indices.len() / 3));
-    }
-    out
-}
-
 /// The level parts scripts show and hide (`env_show`), by reference: what
-/// collides, and what blocks sight.
+/// blocks sight. (What collides goes by the level's quads.)
 type Mesh = (Vec<[f32; 3]>, Vec<u32>);
 type Parts = std::collections::BTreeMap<u32, Mesh>;
-fn env_parts(scene: &gltf::Scene) -> (Parts, Parts) {
-    let (mut solid, mut opaque) = (Parts::new(), Parts::new());
+fn env_parts(scene: &gltf::Scene) -> Parts {
+    let mut opaque = Parts::new();
     for p in &scene.prims {
         let Some(r) = p.env_ref.filter(|_| p.door.is_none() && p.glass.is_none()) else { continue };
-        for (set, keep) in [(&mut solid, p.collide), (&mut opaque, !p.blend && p.visible)] {
-            if keep {
-                let (verts, indices) = set.entry(r).or_default();
-                let base = verts.len() as u32;
-                verts.extend(p.vertices.iter().map(|v| v.pos));
-                indices.extend(p.indices.iter().map(|i| base + i));
-            }
+        if !p.blend && p.visible {
+            let (verts, indices) = opaque.entry(r).or_default();
+            let base = verts.len() as u32;
+            verts.extend(p.vertices.iter().map(|v| v.pos));
+            indices.extend(p.indices.iter().map(|i| base + i));
         }
     }
-    (solid, opaque)
+    opaque
 }
 
 /// Each door's closed-leaf triangles, by its object id.

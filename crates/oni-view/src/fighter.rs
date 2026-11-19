@@ -24,19 +24,13 @@ use crate::anim::motion::{ClassTuning, Motion};
 use crate::anim::reaction;
 use crate::anim::types::{flag, st, ty, var};
 use crate::control::{Facing, MED_TURN, SLOW_TURN};
-use crate::physics::Physics;
+use crate::chrphys;
 use crate::quirks::Quirks;
 use crate::render::CharDraw;
 use crate::skel::Character;
 
-/// Downward pull each grounded tick, so the feet stay on the floor.
-const GROUND_STICK: f32 = 0.5;
-/// The pull grows to meet a floor this far below (stepping down slopes/stairs).
-const MAX_GROUND_STICK: f32 = 4.0;
 /// Vertical speed a character walks off a ledge with.
 const LEDGE_DROP_SPEED: f32 = 0.5;
-/// Grounded ticks with no floor beneath before the character falls.
-const LEDGE_GRACE: u16 = 11;
 /// Ticks airborne after which the fall is fatal.
 const MAX_AIR_FRAMES: u16 = 300;
 /// Share of the pending knockback applied each tick, and what remains.
@@ -51,7 +45,6 @@ const AUTO_FACE_ARC: f32 = std::f32::consts::FRAC_PI_2;
 /// A corpse slides at most this fast, and comes to rest after this many
 /// ticks on the ground.
 const CORPSE_MAX_SLIDE: f32 = 0.5;
-const CORPSE_SETTLE_TICKS: u16 = 120;
 /// A knocked-down training dummy lies this long before getting up.
 const DUMMY_DAZE_TICKS: u16 = 90;
 
@@ -78,7 +71,7 @@ pub struct Fighter {
     pub model: usize,
     /// Shared skeleton/mesh for posing, bounds, and blend capture.
     pub character: Rc<Character>,
-    pub physics: Physics,
+    pub physics: chrphys::Body,
     pub motion: Motion,
     /// Body yaw slew (`facing` / `desired_facing` / modifier).
     pub facing: Facing,
@@ -150,7 +143,14 @@ pub struct Fighter {
     pub please_block: bool,
     /// A corpse's drift, and how long it has rested on the ground.
     corpse_velocity: Vec3,
-    corpse_rest: u16,
+    /// This tick is grounded: the pull to the floor is still to add (and
+    /// whether it is the plain one — not reeling, not attacking).
+    ground_pull: Option<bool>,
+    /// Its drift as a dying body has begun.
+    corpse_started: bool,
+    /// The floor's height last tick (`deferred_maximum_height`): a floor up to
+    /// 6 above it may still be stepped onto.
+    pub deferred_max: f32,
     /// Ticks spent lying on the ground (for the dummy's get-up stand-in).
     down_ticks: u16,
     /// The AI driving this (non-player) character, if any.
@@ -172,7 +172,7 @@ pub struct Fighter {
     /// A footstep (or landing, or fall) this tick: its impact kind and
     /// where — the world plays its impact effect.
     pub step: Option<(usize, Vec3)>,
-    /// The level triangle it last stood on (the floor's material).
+    /// The level quad it last stood on (the floor's material).
     pub last_floor: Option<u32>,
     /// The clip and frame it played this tick (its animation sounds).
     pub played: Option<(usize, u16)>,
@@ -264,18 +264,16 @@ impl Fighter {
         character: Rc<Character>,
         anims: Rc<AnimCollection>,
         tuning: ClassTuning,
-        level_positions: &[[f32; 3]],
-        level_indices: &[u32],
         spawn_pos: Vec3,
         facing_yaw: f32,
         passive: bool,
         player: bool,
         quirks: Quirks,
     ) -> Fighter {
-        let (foot_offset, height, radius) = capsule_dims(&character);
+        let foot_offset = capsule_dims(&character);
         let part_spheres = part_spheres(&character);
         let feet = Vec3::new(spawn_pos.x, spawn_pos.y + foot_offset, spawn_pos.z);
-        let physics = Physics::new(level_positions, level_indices, feet, height, radius);
+        let physics = chrphys::Body { feet, grounded: false };
         let mut motion = Motion::new(anims, tuning);
         motion.idle_enabled = !passive;
         motion.feet_y = feet.y;
@@ -321,7 +319,9 @@ impl Fighter {
             pending_reaction: ty::NONE,
             please_block: false,
             corpse_velocity: Vec3::ZERO,
-            corpse_rest: 0,
+            ground_pull: None,
+            corpse_started: false,
+            deferred_max: feet.y,
             down_ticks: 0,
             brain: None,
             throwing: None,
@@ -368,9 +368,9 @@ impl Fighter {
     /// fighters (for auto-facing). Nudge `self.facing` (mouse / `turn`) before
     /// calling to turn.
     #[cfg(test)]
-    pub fn tick(&mut self, held: u32, opponents: &[Opponent]) {
+    pub fn tick(&mut self, held: u32, opponents: &[Opponent], env: &chrphys::Env) {
         if let Some(world) = self.plan(held, 0, opponents) {
-            self.commit(world);
+            self.commit(world, env);
         }
     }
 
@@ -382,8 +382,8 @@ impl Fighter {
         let ch = self.character.clone();
         self.motion.now += 1;
         if self.motion.corpse {
-            self.drift_as_corpse();
-            return None;
+            self.ground_pull = None;
+            return self.drift_as_corpse();
         }
         // The dead, and anyone being thrown, have no control.
         let held = if self.motion.dying || ty::is_thrown(self.motion.kind) {
@@ -419,12 +419,15 @@ impl Fighter {
 
         // This tick's character-local movement.
         self.take_off();
+        // (Grounded, the pull to the floor is added when the move is made:
+        // it depends on the level.)
+        self.ground_pull = None;
         let local = if self.motion.air.frames > 0 {
             self.fly()
         } else {
-            let mut d = self.motion.root_delta();
-            d.y -= self.ground_stick();
-            d
+            let c = self.motion.current();
+            self.ground_pull = Some(!reaction::is_victim(self.motion.kind) && c.attacks.is_empty());
+            self.motion.root_delta()
         };
         let mut world = Quat::from_rotation_y(self.facing.facing) * local;
 
@@ -600,6 +603,7 @@ impl Fighter {
     /// Being thrown by fighter `by`: plays the victim clip `clip` of the
     /// thrower's collection `coll`, moved to `dest` (sliding against walls on
     /// the way) and turned to `facing`.
+    #[allow(clippy::too_many_arguments)]
     pub fn be_thrown(
         &mut self,
         by: usize,
@@ -608,11 +612,14 @@ impl Fighter {
         fight: bool,
         dest: Vec3,
         facing: f32,
+        env: &chrphys::Env,
     ) {
         let ch = self.character.clone();
         self.motion.thrown(&ch, coll, clip, fight);
         self.knockback = Vec3::ZERO;
-        self.physics.slide(dest - self.physics.feet);
+        let tree = self.tree();
+        let at = chrphys::shove(env, &tree, self.physics.feet, dest);
+        self.teleport(at);
         self.facing = Facing::new(facing);
         self.thrown_by = Some(by);
         self.throwing = None;
@@ -621,18 +628,57 @@ impl Fighter {
 
     /// The second half of a tick: apply the (possibly adjusted) move against
     /// the level, detect landing / ledges, and update the placement.
-    pub fn commit(&mut self, world: Vec3) {
-        let before = self.physics.feet;
-        let grounded = self.physics.slide(world);
-        if grounded {
-            if let Some(t) = self.physics.floor_triangle(2.0) {
-                self.last_floor = Some(t);
+    pub fn commit(&mut self, mut world: Vec3, env: &chrphys::Env) {
+        let start = self.physics.feet;
+        if let Some(plain) = self.ground_pull.take() {
+            world.y -= chrphys::ground_gravity(env.quads, start, plain);
+        }
+        // What doesn't go down meets the level and the doors (a dying body:
+        // not the doors); what goes down is the floor pass's.
+        let tree = self.tree();
+        let rising = Vec3::new(world.x, world.y.max(0.0), world.z);
+        let gravity = world.y.min(0.0);
+        let no_doors = chrphys::Env { quads: env.quads, doors: &[] };
+        let env = if self.motion.corpse { &no_doors } else { env };
+        self.physics.feet += chrphys::resolve(env, &tree, rising, self.player);
+        if gravity != 0.0 {
+            let landing = is_landing(self.motion.kind);
+            let in_air = self.motion.air.frames > 0;
+            let footing = chrphys::Footing {
+                start,
+                gravity,
+                height: self.motion.height(),
+                feet_offset: self.feet_offset(),
+                airborne: in_air || landing,
+            };
+            if in_air || landing {
+                self.last_floor = None;
+            }
+            let ground = chrphys::find_ground(env.quads, &mut self.physics.feet, &footing, &mut self.deferred_max);
+            if let Some(g) = ground {
+                self.last_floor = Some(g.quad);
+                if in_air && !landing {
+                    self.land(g.height);
+                } else if landing && in_air {
+                    self.motion.air.frames = 0;
+                }
+            }
+            // Grounded with nothing underfoot: after 12 ticks it falls.
+            let air = &mut self.motion.air;
+            if air.frames == 0 && ground.is_none() {
+                if air.off_ground == 0 {
+                    air.jump_height = self.physics.feet.y;
+                }
+                air.off_ground += 1;
+            } else {
+                air.off_ground = 0;
+            }
+            if air.off_ground > 11 {
+                self.motion.please_jump = true;
             }
         }
-        self.velocity = self.physics.feet - before;
-        if world.y < 0.0 {
-            self.touch_ground(grounded);
-        }
+        self.physics.grounded = self.motion.air.frames == 0 && self.motion.air.off_ground == 0;
+        self.velocity = self.physics.feet - start;
 
         self.replace();
         if std::mem::take(&mut self.motion.new_clip) {
@@ -719,42 +765,55 @@ impl Fighter {
         moved
     }
 
-    /// The downward pull that keeps a grounded character on the floor: the
-    /// gap to a floor within reach (so stepping down a slope stays planted),
-    /// at least the base stick. Attacks always use the base stick.
-    fn ground_stick(&self) -> f32 {
-        if !self.motion.current().attacks.is_empty() {
-            return GROUND_STICK;
+    /// The body's extent (`ONrCharacter` bounding box): the lowest point of
+    /// its parts' spheres (arms left out) above the location — the
+    /// "feet" in the air — and the top of the box (at least 16 above that
+    /// lowest point, and 2 above the location).
+    fn extent(&self) -> (f32, f32) {
+        let bones = self.bones();
+        let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
+        for p in self.character.parts.iter().filter(|p| p.bone <= 10) {
+            let (Some((c, r)), Some(m)) = (p.bound_sphere, bones.get(p.bone)) else { continue };
+            let y = m.transform_point3(c).y;
+            lo = lo.min(y - r);
+            hi = hi.max(y + r);
         }
-        match self.physics.ground_below(MAX_GROUND_STICK) {
-            Some(d) if d < MAX_GROUND_STICK => d.max(GROUND_STICK),
-            _ => GROUND_STICK,
+        let loc = self.physics.feet.y;
+        if !lo.is_finite() {
+            return (0.0, loc + 16.0);
         }
+        let top = hi.max(lo + 16.0).max(loc + 2.0);
+        ((lo - loc).max(0.0), top)
     }
 
-    /// After a downward move: land if airborne and now on the floor; count
-    /// floorless ticks if grounded, falling after a short grace.
-    fn touch_ground(&mut self, grounded: bool) {
-        let feet_y = self.physics.feet.y;
-        if self.motion.air.frames > 0 {
-            self.motion.air.off_ground = 0;
-            if grounded && !is_landing(self.motion.kind) {
-                self.land(feet_y);
-            }
-            return;
+    /// Its stack of spheres where it stands (`ONrCharacter_UpdateSphereTree`):
+    /// from the location on the ground, from the lowest point of the body in
+    /// the air, to the top of the body; the player's spheres a little wider.
+    pub fn tree(&self) -> chrphys::Tree {
+        let (fo, top) = self.extent();
+        let at = self.physics.feet;
+        let bottom = if self.motion.air.frames > 0 { at.y + fo } else { at.y };
+        chrphys::Tree::new(at, bottom, top, if self.player { chrphys::PLAYER_LEAF } else { chrphys::AI_LEAF })
+    }
+
+    /// Put somewhere directly (`ONrCharacter_Teleport`): the floor memory
+    /// starts there.
+    pub fn teleport(&mut self, at: Vec3) {
+        self.physics.feet = at;
+        self.deferred_max = at.y;
+        self.replace();
+    }
+
+    /// Placed on the floor under it (`ONrCharacter_SnapToFloor`): lifted
+    /// onto one within reach, or dropped onto one just below.
+    pub fn snap_to_floor(&mut self, quads: &crate::quads::Quads) {
+        self.deferred_max = self.physics.feet.y;
+        let (h, fall) = (self.motion.height(), self.motion.tuning.fall_gravity);
+        if let Some(g) = chrphys::snap_to_floor(quads, &mut self.physics.feet, h, fall, &mut self.deferred_max) {
+            self.last_floor = Some(g.quad);
         }
-        let air = &mut self.motion.air;
-        if grounded {
-            air.off_ground = 0;
-        } else {
-            if air.off_ground == 0 {
-                air.jump_height = feet_y;
-            }
-            air.off_ground += 1;
-            if air.off_ground > LEDGE_GRACE {
-                self.motion.please_jump = true;
-            }
-        }
+        self.motion.feet_y = self.physics.feet.y;
+        self.replace();
     }
 
     /// Touchdown: fall damage by the height fallen since takeoff, then ask for
@@ -896,39 +955,43 @@ impl Fighter {
         self.please_block = false;
     }
 
-    /// A finished death reaction: the body keeps its pose and slides to rest.
-    fn drift_as_corpse(&mut self) {
-        if self.corpse_rest >= CORPSE_SETTLE_TICKS {
-            return;
+    /// A dying body's drift (the original's `Dead_2_Moving`): from its
+    /// flight or its last shove, slowing — no faster than its last move
+    /// allowed — and falling; once it has settled, it moves no more. Returns
+    /// the tick's move.
+    fn drift_as_corpse(&mut self) -> Option<Vec3> {
+        if self.settled {
+            return None;
         }
-        if self.corpse_rest == 0 && self.corpse_velocity == Vec3::ZERO {
+        if !std::mem::replace(&mut self.corpse_started, true) {
             // Start from the leftover motion: flight, or the last shove.
             self.corpse_velocity = if self.motion.air.frames > 0 {
-                Quat::from_rotation_y(self.facing.facing) * self.motion.air.velocity
+                if self.quirks.corpse_flight_unturned() {
+                    self.motion.air.velocity
+                } else {
+                    Quat::from_rotation_y(self.facing.facing) * self.motion.air.velocity
+                }
             } else {
                 self.knockback
             };
         }
         let mut v = self.corpse_velocity;
-        let flat = Vec3::new(v.x, 0.0, v.z);
-        if flat.length() > CORPSE_MAX_SLIDE {
-            let capped = flat.normalize() * CORPSE_MAX_SLIDE;
-            v.x = capped.x;
-            v.z = capped.z;
+        let speed = Vec3::new(self.velocity.x, 0.0, self.velocity.z).length();
+        if speed > CORPSE_MAX_SLIDE {
+            v.x *= CORPSE_MAX_SLIDE / speed;
+            v.z *= CORPSE_MAX_SLIDE / speed;
         }
-        if self.physics.grounded {
+        if self.motion.air.off_ground == 0 && self.motion.air.frames == 0 {
             v.x *= 0.5;
             v.z *= 0.5;
             v.y = -0.5;
-            self.corpse_rest += 1;
         } else {
             v.x *= 0.8;
             v.z *= 0.8;
             v.y = (v.y - 0.5).clamp(-10.0, 2.0);
         }
         self.corpse_velocity = v;
-        self.physics.slide(v);
-        self.replace();
+        Some(v)
     }
 
     /// This tick's controls for a non-player character: its AI's, if it has
@@ -1015,18 +1078,7 @@ impl Fighter {
     /// (`feetLocation`: the parts' bounding spheres, arms left out; never
     /// below the location).
     pub fn feet_offset(&self) -> f32 {
-        let bones = self.bones();
-        let lowest = self
-            .character
-            .parts
-            .iter()
-            .filter(|p| p.bone <= 10)
-            .filter_map(|p| {
-                let (c, r) = p.bound_sphere?;
-                Some(bones.get(p.bone)?.transform_point3(c).y - r)
-            })
-            .fold(f32::INFINITY, f32::min);
-        (lowest - self.feet().y).max(0.0)
+        self.extent().0
     }
 
     /// Body part `part`'s matrix, shared (it follows the part each tick).
@@ -1227,21 +1279,20 @@ fn part_spheres(ch: &Character) -> Vec<(usize, Vec3, f32)> {
 /// Capsule dimensions from a character's rest pose: `(foot_offset, height,
 /// radius)` where `foot_offset` is the feet's Y relative to the pelvis origin
 /// (negative).
-fn capsule_dims(ch: &Character) -> (f32, f32, f32) {
+fn capsule_dims(ch: &Character) -> f32 {
     let world = ch.pose(None, 0.0);
-    let (mut mn, mut mx) = (Vec3::splat(f32::INFINITY), Vec3::splat(f32::NEG_INFINITY));
+    let mut lowest = f32::INFINITY;
     for part in &ch.parts {
         let m = world.get(part.bone).copied().unwrap_or(Mat4::IDENTITY);
         for v in &part.vertices {
-            let p = m.transform_point3(Vec3::from_array(v.pos));
-            mn = mn.min(p);
-            mx = mx.max(p);
+            lowest = lowest.min(m.transform_point3(Vec3::from_array(v.pos)).y);
         }
     }
-    let foot_offset = mn.y;
-    let height = (mx.y - mn.y).max(2.0);
-    let radius = ((mx.x - mn.x).max(mx.z - mn.z) * 0.5).clamp(0.5, 3.0);
-    (foot_offset, height, radius)
+    if lowest.is_finite() {
+        lowest
+    } else {
+        0.0
+    }
 }
 
 #[cfg(test)]
@@ -1249,28 +1300,24 @@ mod tests {
     use super::*;
     use crate::anim::collection::tests::konoko;
 
-    /// A big flat floor at y = 0.
-    fn floor() -> (Vec<[f32; 3]>, Vec<u32>) {
+    /// The same floor as level quads (what characters stand on).
+    fn floor_quads() -> crate::quads::Quads {
         let e = 500.0;
-        (
-            vec![[-e, 0.0, -e], [e, 0.0, -e], [e, 0.0, e], [-e, 0.0, e]],
-            vec![0, 1, 2, 0, 2, 3],
-        )
+        let c = |x: f32, z: f32| Vec3::new(x, 0.0, z);
+        crate::quads::tests::room(&[([c(-e, -e), c(-e, e), c(e, e), c(e, -e)], 0)])
     }
+
 
     fn konoko_at(y: f32) -> Option<Fighter> {
         let coll = konoko()?;
         let model = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../generated/oni/common/characters/konoko_body_high/model.glb");
         let ch = Rc::new(crate::skel::load_character(&model).ok()?);
-        let (v, i) = floor();
         Some(Fighter::new(
             0,
             ch,
             coll,
             ClassTuning::default(),
-            &v,
-            &i,
             Vec3::new(0.0, y, 0.0),
             0.0,
             false,
@@ -1284,11 +1331,11 @@ mod tests {
     fn fall_and_land(f: &mut Fighter) -> Option<u16> {
         let mut was_airborne = false;
         for _ in 0..600 {
-            f.tick(0, &[]);
+            f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] });
             if f.airborne() {
                 was_airborne = true;
             } else if was_airborne {
-                f.tick(0, &[]); // the landing request is taken on the next tick
+                f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // the landing request is taken on the next tick
                 return Some(f.motion.kind);
             }
         }
@@ -1318,10 +1365,10 @@ mod tests {
             return;
         };
         for _ in 0..30 {
-            f.tick(0, &[]); // settle onto the floor
+            f.tick(0, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // settle onto the floor
         }
         let hp0 = f.hp;
-        f.tick(key::JUMP, &[]); // press jump for one tick
+        f.tick(key::JUMP, &[], &chrphys::Env { quads: &floor_quads(), doors: &[] }); // press jump for one tick
         let landed = fall_and_land(&mut f).expect("takes off and lands");
         assert_eq!(f.hp, hp0, "a jump on flat ground is harmless");
         assert!(

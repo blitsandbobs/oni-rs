@@ -24,7 +24,8 @@ step(5)
 local c = place("Bay4_Comguy_1")
 local s = place("Alarm_Bay4_Striker_1")
 step(30)
-teleport(c, 420, 102, 480) -- on the console's floor
+teleport(c, 426, 102, 480) -- on the console's floor (clear of the crates: no one is
+                           -- pushed out of what they're put into)
 step(30)
 assert(console_state(6) == "active", "the alarm console is armed")
 alarm(c, 6)

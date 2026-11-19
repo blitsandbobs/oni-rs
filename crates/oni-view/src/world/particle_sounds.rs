@@ -42,7 +42,7 @@ impl World {
                     let Some(impact) = impacts.impact(&impact) else { continue };
                     let material = match hit {
                         Some(k) if k.env && k.id > 0 => impacts.material("Glass"),
-                        Some(k) if k.env => k.triangle.and_then(|t| self.floor_materials.get(t as usize).copied().flatten()),
+                        Some(k) if k.env => k.quad.and_then(|q| self.quad_material(q)),
                         Some(k) => self.struck_material(k.id as usize, k.point),
                         None => None,
                     }

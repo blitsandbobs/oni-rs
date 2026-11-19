@@ -130,11 +130,12 @@ pub struct World {
     /// The level's doors, and each one's closed leaf (for collision).
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
+    /// Each door's leaf as character collision sees it.
+    door_boxes: Vec<crate::chrphys::DoorBox>,
     door_links: Vec<Vec<(usize, usize)>>,
     /// Level parts scripts show and hide (`env_show`): the solid ones (each
     /// fighter's physics holds them after the doors), the opaque ones (sight
     /// holds them after the doors), and the references hidden now.
-    env_solid: Vec<(u32, crate::Mesh)>,
     env_opaque: Vec<u32>,
     pub env_hidden: std::collections::HashSet<u32>,
     /// Whether each door's leaf is solid in the colliders now.
@@ -154,8 +155,6 @@ pub struct World {
     pub level_ai: Rc<crate::ai::level::LevelAi>,
     now: i64,
     rng: u32,
-    level_positions: Vec<[f32; 3]>,
-    level_indices: Vec<u32>,
     /// Guns and the particles their shots are (`docs/WEAPONS.md`).
     pub armory: Armory,
     /// The level's breakable glass panes (each fighter's physics holds them
@@ -172,9 +171,6 @@ pub struct World {
     /// (`common/anim_sounds.json`).
     pub impacts: Option<Rc<crate::impacts::Impacts>>,
     pub anim_sounds: Option<Rc<crate::anim_sounds::AnimSounds>>,
-    /// Each collision triangle's texture, and its material.
-    pub floor_textures: Vec<String>,
-    floor_materials: Vec<Option<u16>>,
     /// The level's quads (decals are laid on them; `levels/NN/quads.bin`).
     pub quads: crate::quads::Quads,
     /// Health → colour (`game_settings.json`): melee flashes' tint.
@@ -205,12 +201,11 @@ struct Pane {
     /// Its middle and how far its corners reach from it.
     centre: Vec3,
     radius: f32,
-    mesh: crate::Mesh,
 }
 
 impl World {
     /// An empty world over the given level collision mesh.
-    pub fn new(level_positions: Vec<[f32; 3]>, level_indices: Vec<u32>) -> World {
+    pub fn new() -> World {
         World {
             fighters: Vec::new(),
             quirks: Quirks::FIXED,
@@ -227,8 +222,8 @@ impl World {
             lasers: Vec::new(),
             beams: Vec::new(),
             door_meshes: Vec::new(),
+            door_boxes: Vec::new(),
             door_links: Vec::new(),
-            env_solid: Vec::new(),
             env_opaque: Vec::new(),
             env_hidden: Default::default(),
             door_applied: Vec::new(),
@@ -238,8 +233,6 @@ impl World {
             last_controls: 0,
             now: 0,
             rng: 0x9E37_79B9,
-            level_positions,
-            level_indices,
             armory: Armory::default(),
             glass: Vec::new(),
             broken_glass: Default::default(),
@@ -248,8 +241,6 @@ impl World {
             audio: crate::audio::Audio::empty(),
             impacts: None,
             anim_sounds: None,
-            floor_textures: Vec::new(),
-            floor_materials: Vec::new(),
             quads: Default::default(),
             health_color: Vec::new(),
             additive_textures: Default::default(),
@@ -273,25 +264,15 @@ impl World {
             kind.character.clone(),
             kind.anims.clone(),
             kind.tuning,
-            &self.level_positions,
-            &self.level_indices,
             pos,
             facing_yaw,
             passive,
             player,
             self.quirks,
         );
-        for (k, (v, i)) in self.door_meshes.iter().enumerate() {
-            let n = f.physics.add_door(v, i);
-            f.physics.set_door(n, self.doors[k].solid());
-        }
-        for (r, (v, i)) in &self.env_solid {
-            let n = f.physics.add_door(v, i);
-            f.physics.set_door(n, !self.env_hidden.contains(r));
-        }
-        for p in &self.glass {
-            let n = f.physics.add_door(&p.mesh.0, &p.mesh.1);
-            f.physics.set_door(n, !p.broken);
+        // Placed on the floor under it.
+        if !self.quads.quads.is_empty() {
+            f.snap_to_floor(&self.quads);
         }
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
@@ -736,9 +717,10 @@ impl World {
             }
             for e in 0..self.lasers[k].emitters.len() {
                 let (from, dir, frame) = self.lasers[k].beam(e);
-                let level = self.fighters.first().map(|p| &p.physics);
+                let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
                 let reach = self.lasers[k].reach(frame, || {
-                    level.and_then(|p| p.ray(from, dir, crate::lasers::BEAM_LENGTH)).unwrap_or(crate::lasers::BEAM_LENGTH)
+                    let len = crate::lasers::BEAM_LENGTH;
+                    crate::chrphys::level_ray(&env, from, dir * len).map_or(len, |h| h.fraction * len)
                 });
                 let hit = self.fighters.first().filter(|p| p.player && !p.gone).and_then(|p| {
                     p.body_spheres()
@@ -796,6 +778,19 @@ impl World {
     /// geometry): each fighter collides with them while closed.
     pub fn attach_doors(&mut self, mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>) {
         self.door_meshes = self.doors.iter().map(|d| meshes.remove(&d.object_id).unwrap_or_default()).collect();
+        // Each leaf a box in the door's own frame (`OBrInit`'s bounds).
+        self.door_boxes = self
+            .doors
+            .iter()
+            .zip(&self.door_meshes)
+            .map(|(d, (v, _))| {
+                let pts: Vec<Vec3> = v.iter().map(|p| Vec3::from(*p)).collect();
+                let mut b = crate::chrphys::DoorBox::around(&pts, d.position, d.axes);
+                b.solid = d.solid();
+                b
+            })
+            .collect();
+        self.mark_door_quads();
         self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
         if let Some(sight) = self.sight.as_mut() {
             for (k, (v, i)) in self.door_meshes.iter().enumerate() {
@@ -803,23 +798,29 @@ impl World {
                 sight.set_door(k, self.doors[k].solid());
             }
         }
-        for f in &mut self.fighters {
-            for (k, (v, i)) in self.door_meshes.iter().enumerate() {
-                let n = f.physics.add_door(v, i);
-                f.physics.set_door(n, self.doors[k].solid());
+    }
+
+    /// The doors' own level quads never stop characters (`Oni_Object.c`):
+    /// their boxes do instead.
+    pub(crate) fn mark_door_quads(&mut self) {
+        let ids: std::collections::HashSet<u32> = self.doors.iter().map(|d| d.object_id).collect();
+        for q in &mut self.quads.quads {
+            if q.object_tag >> 24 == 3 && ids.contains(&(q.object_tag & 0x00FF_FFFF)) {
+                q.flags |= crate::quads::flag::NO_COLLISION;
             }
         }
     }
 
+    /// A level quad's material (its texture's).
+    pub(crate) fn quad_material(&self, q: u32) -> Option<u16> {
+        let quad = self.quads.quads.get(q as usize)?;
+        self.impacts.as_ref()?.texture_material(self.quads.textures.get(quad.texture as usize)?)
+    }
+
+
     /// Gives the world the level parts scripts can hide (after the doors):
     /// solid and sight-blocking until hidden.
-    pub fn attach_env(&mut self, solid: crate::Parts, opaque: crate::Parts) {
-        self.env_solid = solid.into_iter().collect();
-        for f in &mut self.fighters {
-            for (_, (v, i)) in &self.env_solid {
-                f.physics.add_door(v, i);
-            }
-        }
+    pub fn attach_env(&mut self, opaque: crate::Parts) {
         self.env_opaque = opaque.keys().copied().collect();
         if let Some(sight) = self.sight.as_mut() {
             for (v, i) in opaque.values() {
@@ -836,25 +837,15 @@ impl World {
                 let n = mesh.0.len().max(1) as f32;
                 let centre = mesh.0.iter().fold(Vec3::ZERO, |a, v| a + Vec3::from(*v)) / n;
                 let radius = mesh.0.iter().map(|v| Vec3::from(*v).distance(centre)).fold(0.0, f32::max);
-                Pane { quad, env_ref, broken: false, centre, radius, mesh }
+                Pane { quad, env_ref, broken: false, centre, radius }
             })
             .collect();
-        for f in &mut self.fighters {
-            for p in &self.glass {
-                f.physics.add_door(&p.mesh.0, &p.mesh.1);
-            }
-        }
     }
 
-    /// Where pane colliders start among each fighter's switchable parts.
-    fn glass_base(&self) -> usize {
-        self.doors.len() + self.env_solid.len()
-    }
 
     /// Breaks (or, `broken` false, mends) glass pane `k`: not drawn, not
     /// solid.
     fn set_glass(&mut self, k: usize, broken: bool) {
-        let base = self.glass_base();
         let Some(p) = self.glass.get_mut(k) else { return };
         if p.broken == broken {
             return;
@@ -867,9 +858,6 @@ impl World {
         }
         if let Some(q) = self.quads.quads.get_mut(p.quad as usize) {
             q.flags = if broken { q.flags | crate::quads::flag::BROKEN_GLASS } else { q.flags & !crate::quads::flag::BROKEN_GLASS };
-        }
-        for f in &mut self.fighters {
-            f.physics.set_door(base + k, !broken);
         }
     }
 
@@ -890,14 +878,14 @@ impl World {
         } else {
             self.env_hidden.insert(r);
         }
-        let doors = self.doors.len();
-        for (j, (pr, _)) in self.env_solid.iter().enumerate() {
-            if *pr == r {
-                for f in &mut self.fighters {
-                    f.physics.set_door(doors + j, on);
-                }
+        for q in self.quads.quads.iter_mut().filter(|q| q.env_ref == Some(r)) {
+            if on {
+                q.flags &= !crate::quads::flag::BROKEN_GLASS;
+            } else {
+                q.flags |= crate::quads::flag::BROKEN_GLASS;
             }
         }
+        let doors = self.doors.len();
         if let Some(sight) = self.sight.as_mut() {
             for (j, pr) in self.env_opaque.iter().enumerate() {
                 if *pr == r {
@@ -942,11 +930,11 @@ impl World {
             // (Its sound and its leaf follow its state — whoever changed
             // it: this tick, a script, the Action key.)
             let solid = self.doors[k].solid();
+            if let Some(b) = self.door_boxes.get_mut(k) {
+                b.solid = solid;
+            }
             if self.door_applied.get(k).is_some_and(|&was| was != solid) {
                 self.door_applied[k] = solid;
-                for f in &mut self.fighters {
-                    f.physics.set_door(k, solid);
-                }
                 if let Some(sight) = self.sight.as_mut() {
                     sight.set_door(k, solid);
                 }
@@ -1158,7 +1146,7 @@ impl World {
                 if there {
                     f.facing.facing = k.facing;
                     f.facing.desired_facing = k.facing;
-                    f.physics.feet = k.stand();
+                    f.teleport(k.stand());
                     f.motion.force_stand(&ch);
                     let anim = if k.punch { ty("consolePunch") } else { ty("console") };
                     if f.motion.request(&ch, Urge::Force, false, anim).is_none() {
@@ -1209,7 +1197,7 @@ impl World {
                 let n = interp.max(1);
                 play.interp = Some((delta / n as f32, n));
             }
-            _ => f.physics.feet = film.start,
+            _ => f.teleport(film.start),
         }
         f.film = Some(play);
         Some(film.length)
@@ -1229,7 +1217,7 @@ impl World {
     /// Puts fighter `id` at `at` (feet), facing `facing` if given.
     pub fn teleport(&mut self, id: usize, at: Vec3, facing: Option<f32>) {
         if let Some(f) = self.fighters.get_mut(id) {
-            f.physics.feet = at;
+            f.teleport(at);
             if let Some(y) = facing {
                 f.facing.facing = y;
                 f.facing.desired_facing = y;
@@ -1382,8 +1370,9 @@ impl World {
             }
             let Some(mut brain) = self.fighters[i].brain.take() else { continue };
             let nav = self.nav.as_deref();
-            let me = view(&self.fighters, nav, i, target);
-            let them = view(&self.fighters, nav, target, i);
+            let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+            let me = view(&self.fighters, nav, &env, i, target);
+            let them = view(&self.fighters, nav, &env, target, i);
             if let Some(m) = brain.melee_mut() {
                 *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
             }
@@ -1521,9 +1510,10 @@ impl World {
             moves.push(f.plan(held, pressed, &others));
         }
         self.collide(&mut moves);
+        let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
         for (f, m) in self.fighters.iter_mut().zip(moves) {
             if let Some(m) = m {
-                f.commit(m);
+                f.commit(m, &env);
             }
         }
         self.start_throws();
@@ -1579,7 +1569,7 @@ impl World {
             if let Some((kind, at)) = self.fighters[i].step.take() {
                 let f = &self.fighters[i];
                 let impact = f.sounds.anim.get(kind).and_then(|n| self.impacts.as_ref()?.impact(n));
-                let material = f.last_floor.and_then(|t| self.floor_materials.get(t as usize).copied().flatten());
+                let material = f.last_floor.and_then(|q| self.quad_material(q));
                 if let (Some(impact), Some(material)) = (impact, material) {
                     let modifier = f.sounds.modifier;
                     let data = crate::p3::effect::Data::new(self.armory.particles.tick, at);
@@ -1819,9 +1809,10 @@ impl World {
             let facing = fa.facing.facing + info.target_facing;
             let coll = fa.motion.coll.clone();
             let clip = coll.entries[t.target_clip].name.clone();
+            let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
             let victim = &mut self.fighters[t.target];
             if victim.alive() && !victim.motion.dying {
-                victim.be_thrown(a, coll, t.target_clip, fight, dest, facing);
+                victim.be_thrown(a, coll, t.target_clip, fight, dest, facing, &env);
                 eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
                 let at = self.fighters[a].feet();
                 self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0, Some(a), Some(t.target));

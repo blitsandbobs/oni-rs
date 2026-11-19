@@ -117,10 +117,12 @@ pub struct ShotHost<'a> {
     now: u64,
     /// Noises the hits make (gunshot impacts), for the world to spread.
     pub sounds: Vec<(Vec3, f32, Option<usize>)>,
-    /// Glass: where the panes start among the switchable parts, each pane
+    /// Glass: each pane's quad and its
     /// (broken, middle, reach), and the ones shots broke.
-    glass_base: usize,
+    pane_quads: Vec<u32>,
     panes: Vec<(bool, Vec3, f32)>,
+    /// The doors' leaves (what shots hit besides the level).
+    pub doors: &'a [crate::chrphys::DoorBox],
     pub broke: Vec<usize>,
     /// Each fighter's extra spread (degrees) on its shots, and turrets'.
     inaccuracy: Vec<f32>,
@@ -139,7 +141,7 @@ impl<'a> ShotHost<'a> {
     pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), pane_quads: Vec::new(), panes: Vec::new(), doors: &[], broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -283,9 +285,6 @@ impl ShotHost<'_> {
     fn break_pane(&mut self, k: usize) {
         self.panes[k].0 = true;
         self.broke.push(k);
-        for f in self.fighters.iter_mut() {
-            f.physics.set_door(self.glass_base + k, false);
-        }
         self.sounds.push((self.panes[k].1, 300.0, None));
     }
 }
@@ -304,14 +303,23 @@ impl Host for ShotHost<'_> {
     }
 
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
-        let f = self.fighters.first()?;
-        let base = self.glass_base;
-        let n = self.panes.len();
-        f.physics.cast_triangle(from, ray).map(|(fraction, normal, part, triangle)| {
+        let env = crate::chrphys::Env { quads: self.quads?, doors: self.doors };
+        // (A pane broken earlier this tick is passed through.)
+        let mut start = 0.0f32;
+        for _ in 0..4 {
+            let at = from + ray * start;
+            let h = crate::chrphys::level_ray(&env, at, ray * (1.0 - start))?;
+            let fraction = start + h.fraction * (1.0 - start);
+            let pane = h.quad.and_then(|q| self.pane_quads.iter().position(|&p| p == q));
+            if pane.is_some_and(|k| self.panes[k].0) {
+                start = (fraction + 1e-4).min(1.0);
+                continue;
+            }
             // A glass pane: surface = its index + 1.
-            let surface = part.filter(|&k| k >= base && k - base < n).map_or(0, |k| (k - base + 1) as u32);
-            EnvHit { fraction, normal, surface, triangle }
-        })
+            let surface = pane.map_or(0, |k| k as u32 + 1);
+            return Some(EnvHit { fraction, normal: h.normal, surface, quad: h.quad });
+        }
+        None
     }
 
     fn breakable(&self, surface: u32) -> bool {
@@ -507,6 +515,12 @@ impl World {
         self.game_sounds = super::objects_sound::GameSounds::load(common);
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
         self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
+        self.mark_door_quads();
+        // (Anyone placed before the level's quads were known.)
+        for k in 0..self.fighters.len() {
+            let quads = &self.quads;
+            self.fighters[k].snap_to_floor(quads);
+        }
         let flags: serde_json::Value =
             std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         self.additive_textures = flags["additive"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
@@ -520,10 +534,6 @@ impl World {
             .filter_map(|p| Some((p["health"].as_f64()? as f32, u32::from_str_radix(p["color"].as_str()?.trim_start_matches('#'), 16).ok()?)))
             .collect();
         self.env_particles_started = false;
-        self.floor_materials = match &self.impacts {
-            Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
-            None => Vec::new(),
-        };
         let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
         let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
         for w in doc["weapons"].as_array().into_iter().flatten() {
@@ -1573,7 +1583,8 @@ impl World {
             let floor = if gun.resting {
                 None
             } else {
-                self.fighters.first().and_then(|f| f.physics.cast(gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0)).map(|(t, _, _)| gun.position.y + 2.0 - 40.0 * t)
+                let env = crate::chrphys::Env { quads: &self.quads, doors: &self.door_boxes };
+                crate::chrphys::level_ray(&env, gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0).map(|h| gun.position.y + 2.0 - 40.0 * h.fraction)
             };
             // Landing hard enough (`WPcImpact_MinVelocity`): the floor's
             // "Weapon" impact.
@@ -1586,12 +1597,13 @@ impl World {
         }
         // The shots.
         let tick = self.now as u32;
-        let glass_base = self.glass_base();
+        let pane_quads: Vec<u32> = self.glass.iter().map(|p| p.quad).collect();
         let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
         let inaccuracy = self.inaccuracies();
         let spread = self.turret_spread();
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
-        host.glass_base = glass_base;
+        host.pane_quads = pane_quads;
+        host.doors = &self.door_boxes;
         host.set_spread(inaccuracy, spread);
         host.panes = panes;
         host.quads = Some(&self.quads);

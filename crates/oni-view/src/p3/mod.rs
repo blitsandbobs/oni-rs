@@ -147,8 +147,8 @@ pub struct Collision {
     /// The level surface, or the character index.
     pub id: u32,
     pub t: f64,
-    /// A level hit's triangle (its material), when known.
-    pub triangle: Option<u32>,
+    /// A level hit's quad (its material), when known.
+    pub quad: Option<u32>,
     /// A character hit's body part.
     pub part: Option<u32>,
 }
@@ -159,8 +159,8 @@ pub struct EnvHit {
     pub fraction: f32,
     pub normal: Vec3,
     pub surface: u32,
-    /// The level triangle hit (its material), when known.
-    pub triangle: Option<u32>,
+    /// The level quad hit (its material), when known.
+    pub quad: Option<u32>,
 }
 
 /// What a particle wants heard (`docs/AUDIO.md`, *Particles*): the world
@@ -820,7 +820,7 @@ impl System {
                     dir: ray * k.fraction,
                     id: k.surface,
                     t: cur + dt * f64::from(k.fraction),
-                    triangle: k.triangle,
+                    quad: k.quad,
                     part: None,
                 });
             }
@@ -836,7 +836,7 @@ impl System {
                     dir: r * k.fraction,
                     id: k.who as u32,
                     t: cur + dt * f64::from(limit * k.fraction),
-                    triangle: None,
+                    quad: None,
                     part: Some(k.part as u32),
                 });
             }

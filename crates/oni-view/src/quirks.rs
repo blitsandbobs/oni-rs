@@ -18,6 +18,13 @@ impl Quirks {
     pub const FIXED: Quirks = Quirks { faithful: false };
     pub const FAITHFUL: Quirks = Quirks { faithful: true };
 
+    /// Whether a body killed in the air flies on with its flight unturned:
+    /// the shipped game keeps the flight in the body's own frame but moves it
+    /// as if it were the world's (Q13).
+    pub fn corpse_flight_unturned(self) -> bool {
+        self.faithful
+    }
+
     /// Whether a melee technique ignores danger. The shipped game tests its
     /// "fearless" flag against the wrong set of bits — the ones holding the
     /// technique's start state — so it really depends on that state (Q5).

@@ -62,6 +62,8 @@ pub struct ClassTuning {
     pub knockdown_resistant: bool,
     /// Airborne integration (see `oni_geom::charclass::AirConstants`).
     pub jump_gravity: f32,
+    /// Falling's pull (only placing a character uses it).
+    pub fall_gravity: f32,
     pub jump_amount: f32,
     pub max_velocity: f32,
     pub jump_accel_amount: f32,
@@ -80,6 +82,7 @@ impl Default for ClassTuning {
             max_hit_points: 100,
             knockdown_resistant: false,
             jump_gravity: 0.06,
+            fall_gravity: 0.55,
             jump_amount: 1.1,
             max_velocity: -4.0,
             jump_accel_amount: 0.03,

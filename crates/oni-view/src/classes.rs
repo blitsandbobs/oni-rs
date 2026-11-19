@@ -193,6 +193,9 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     if let Some(v) = f(&air["jumpGravity"]) {
         t.jump_gravity = v;
     }
+    if let Some(v) = f(&air["fallGravity"]) {
+        t.fall_gravity = v;
+    }
     if let Some(v) = f(&air["jumpAmount"]) {
         t.jump_amount = v;
     }

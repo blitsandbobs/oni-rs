@@ -10,18 +10,33 @@ use glam::Vec3;
 
 /// `AKcGQ_Flag_*` (`BFW_Akira.h`).
 pub mod flag {
+    pub const JELLO: u32 = 1 << 5;
     pub const TRIANGLE: u32 = 1 << 6;
     pub const TRANSPARENT: u32 = 1 << 7;
     pub const DRAW_BOTH_SIDES: u32 = 1 << 9;
     pub const NO_COLLISION: u32 = 1 << 11;
     pub const INVISIBLE: u32 = 1 << 13;
     pub const NO_OBJECT_COLLISION: u32 = 1 << 14;
+    pub const NO_CHARACTER_COLLISION: u32 = 1 << 15;
+    /// Set by the original's importer: a floor or ceiling (`|n.y| > 0.5`),
+    /// else a wall.
+    #[allow(dead_code)] // (Everything that isn't a wall: queries skip walls.)
+    pub const FLOOR_CEILING: u32 = 1 << 19;
+    pub const WALL: u32 = 1 << 20;
     pub const BROKEN_GLASS: u32 = 1 << 18;
     pub const NO_DECAL: u32 = 1 << 23;
     /// What objects (and particles) pass through.
     pub const OBJ_COL_SKIP: u32 = NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS;
     /// Drawn from both sides (the decal code's two-sided test: without jello).
     pub const TWO_SIDED: u32 = TRANSPARENT | DRAW_BOTH_SIDES;
+    /// What characters pass through.
+    pub const CHR_COL_SKIP: u32 = NO_COLLISION | NO_CHARACTER_COLLISION | BROKEN_GLASS;
+    /// The room graph's portals (door, ghost, stairs up / down): the
+    /// original's importer leaves them out of the octree every query uses,
+    /// so nothing ever meets them (`AKcGQ_Flag_PathfindingMask`).
+    pub const PATHFINDING: u32 = 0xF;
+    /// Two-sided as collision counts it (`AKcGQ_Flag_2Sided`: with jello).
+    pub const AK_2SIDED: u32 = TRANSPARENT | DRAW_BOTH_SIDES | JELLO;
 }
 
 /// `UUcEpsilon` and the "sloppy" one.
@@ -44,6 +59,8 @@ pub struct Quad {
     pub object_tag: u32,
     pub min: Vec3,
     pub max: Vec3,
+    /// The script reference that shows and hides it (`env_show`).
+    pub env_ref: Option<u32>,
 }
 
 impl Quad {
@@ -73,6 +90,55 @@ pub struct Quads {
     /// Per texture-map entry, the texture's name (as its PNG is named).
     pub textures: Vec<String>,
     pub quads: Vec<Quad>,
+    /// Which quads lie over each square of the ground (a lookup only: the
+    /// queries' answers don't depend on it).
+    grid: Grid,
+}
+
+/// Quads by the squares (in x and z) their boxes cover.
+#[derive(Clone, Debug, Default)]
+struct Grid {
+    origin: [f32; 2],
+    size: [usize; 2],
+    cells: Vec<Vec<u32>>,
+}
+
+/// A grid square's side.
+const CELL: f32 = 32.0;
+
+impl Grid {
+    fn build(quads: &[Quad]) -> Grid {
+        if quads.is_empty() {
+            return Grid::default();
+        }
+        let (mut lo, mut hi) = ([f32::MAX; 2], [f32::MIN; 2]);
+        for q in quads {
+            lo = [lo[0].min(q.min.x), lo[1].min(q.min.z)];
+            hi = [hi[0].max(q.max.x), hi[1].max(q.max.z)];
+        }
+        let size = [((hi[0] - lo[0]) / CELL) as usize + 1, ((hi[1] - lo[1]) / CELL) as usize + 1];
+        let mut g = Grid { origin: lo, size, cells: vec![Vec::new(); size[0] * size[1]] };
+        for (k, q) in quads.iter().enumerate().filter(|(_, q)| q.flags & flag::PATHFINDING == 0) {
+            let (x0, z0, x1, z1) = g.span(q.min, q.max);
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    g.cells[z * size[0] + x].push(k as u32);
+                }
+            }
+        }
+        g
+    }
+
+    /// The squares a box covers (clamped to the grid).
+    fn span(&self, lo: Vec3, hi: Vec3) -> (usize, usize, usize, usize) {
+        let cell = |v: f32, o: f32, n: usize| (((v - o) / CELL).floor().max(0.0) as usize).min(n - 1);
+        (
+            cell(lo.x, self.origin[0], self.size[0]),
+            cell(lo.z, self.origin[1], self.size[1]),
+            cell(hi.x, self.origin[0], self.size[0]),
+            cell(hi.z, self.origin[1], self.size[1]),
+        )
+    }
 }
 
 impl Quads {
@@ -105,7 +171,7 @@ impl Quads {
         let mut quads = Vec::with_capacity(nq);
         for _ in 0..nq {
             let w = |k: usize| u32::from_le_bytes(b[at + k * 4..at + k * 4 + 4].try_into().unwrap());
-            if at + 72 > b.len() {
+            if at + 76 > b.len() {
                 return None;
             }
             quads.push(Quad {
@@ -117,10 +183,35 @@ impl Quads {
                 object_tag: w(11),
                 min: Vec3::new(f(at + 48)?, f(at + 52)?, f(at + 56)?),
                 max: Vec3::new(f(at + 60)?, f(at + 64)?, f(at + 68)?),
+                env_ref: Some(w(18)).filter(|&r| r != u32::MAX),
             });
-            at += 72;
+            at += 76;
         }
-        Some(Quads { points, planes, textures, quads })
+        let grid = Grid::build(&quads);
+        Some(Quads { points, planes, textures, quads, grid })
+    }
+
+    /// Rebuilds the lookup grid (after adding quads by hand).
+    #[cfg(test)]
+    pub fn rebuild_grid(&mut self) {
+        self.grid = Grid::build(&self.quads);
+    }
+
+    /// The quads whose boxes might meet the box `lo`–`hi`, in quad order.
+    fn candidates(&self, lo: Vec3, hi: Vec3) -> Vec<u32> {
+        if self.grid.cells.is_empty() {
+            return (0..self.quads.len() as u32).filter(|&k| self.quads[k as usize].flags & flag::PATHFINDING == 0).collect();
+        }
+        let (x0, z0, x1, z1) = self.grid.span(lo, hi);
+        let mut out: Vec<u32> = Vec::new();
+        for z in z0..=z1 {
+            for x in x0..=x1 {
+                out.extend_from_slice(&self.grid.cells[z * self.grid.size[0] + x]);
+            }
+        }
+        out.sort_unstable();
+        out.dedup();
+        out
     }
 
     /// A plane by its index (negated if its top bit is set): normal, d.
@@ -144,7 +235,10 @@ impl Quads {
     /// (The original's ties fall in its octree's order; here by quad index.)
     pub fn sphere(&self, center: Vec3, radius: f32, vector: Vec3, skip: u32) -> Vec<Hit> {
         let mut hits = Vec::new();
-        for (k, q) in self.quads.iter().enumerate() {
+        let end = center + vector;
+        let pad = Vec3::splat(radius + 0.01);
+        for k in self.candidates(center.min(end) - pad, center.max(end) + pad) {
+            let q = &self.quads[k as usize];
             if q.flags & skip != 0 {
                 continue;
             }
@@ -152,7 +246,7 @@ impl Quads {
                 if hits.len() >= MAX_COLLISIONS {
                     break;
                 }
-                hits.push(Hit { quad: k as u32, point, distance: point.distance(center) });
+                hits.push(Hit { quad: k, point, distance: point.distance(center) });
             }
         }
         hits.sort_by_key(|h| (round_256(h.distance), h.quad));
@@ -167,9 +261,9 @@ impl Quads {
         // (A quick reject on the boxes, wide enough never to change the
         // answer.)
         let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
-        self.quads
-            .iter()
-            .enumerate()
+        self.candidates(lo, hi)
+            .into_iter()
+            .map(|k| (k as usize, &self.quads[k as usize]))
             .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())
             .filter_map(|(k, q)| {
                 let point = self.quad_line(q, start, end)?;
@@ -181,7 +275,7 @@ impl Quads {
 
     /// `AKrGQ_SphereVector`: whether a sphere at `center` swept along
     /// `vector` touches quad `q`, and where.
-    fn sphere_vector(&self, q: &Quad, center: Vec3, radius: f32, vector: Vec3) -> Option<Vec3> {
+    pub fn sphere_vector(&self, q: &Quad, center: Vec3, radius: f32, vector: Vec3) -> Option<Vec3> {
         let end = center + vector;
         // (The raw plane, its sign bit ignored.)
         let [a, b, c, d] = self.planes[(q.plane & 0x7FFF_FFFF) as usize];
@@ -346,17 +440,20 @@ pub(crate) mod tests {
             } else {
                 3
             };
+            let kind = if n.y.abs() > 0.5 { flag::FLOOR_CEILING } else { flag::WALL };
             q.quads.push(Quad {
                 points: [base, base + 1, base + 2, base + 3],
-                flags: flags | (proj << 25),
+                flags: flags | kind | (proj << 25),
                 plane: q.planes.len() as u32 - 1,
                 shades: [0xFFFF_FFFF; 4],
                 texture: 0,
                 object_tag: u32::MAX,
                 min,
                 max,
+                env_ref: None,
             });
         }
+        q.rebuild_grid();
         q
     }
 

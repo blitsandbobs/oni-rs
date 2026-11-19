@@ -386,9 +386,8 @@ mod tests {
         for dir in dirs {
             let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
             let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
-            // (No level geometry: one huge floor far below.)
-            let floor = vec![[-1e5, -5000.0, -1e5], [1e5, -5000.0, -1e5], [0.0, -5000.0, 1e5]];
-            let mut host = Headless { world: World::new(floor, vec![0, 1, 2]), classes };
+            // (No level geometry: nothing to stand on.)
+            let mut host = Headless { world: World::new(), classes };
             host.world.load_level(&dir);
             let Ok(player) = host.kind("konoko_generic") else { continue };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
@@ -425,8 +424,7 @@ mod tests {
         for dir in dirs {
             let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
             let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
-            let floor = vec![[-1e5, -5000.0, -1e5], [1e5, -5000.0, -1e5], [0.0, -5000.0, 1e5]];
-            let mut host = Headless { world: World::new(floor, vec![0, 1, 2]), classes };
+            let mut host = Headless { world: World::new(), classes };
             host.world.load_level(&dir);
             let Ok(player) = host.kind("konoko_generic") else { continue };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);

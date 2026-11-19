@@ -226,9 +226,7 @@ impl ApplicationHandler for App {
                     let spawn_pos = cv.placement.transform_point3(Vec3::ZERO);
                     let (mn, mx) = cv.aabb(0.0);
                     let player_height = (mx.y - mn.y).max(2.0);
-                    let (verts, idx) = crate::level_collision_mesh(&scene);
-                    let mut world = crate::world::World::new(verts, idx);
-                    world.floor_textures = crate::floor_textures(&scene);
+                    let mut world = crate::world::World::new();
                     if self.faithful {
                         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
                     }
@@ -244,8 +242,8 @@ impl ApplicationHandler for App {
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
                     world.attach_doors(crate::door_meshes(&scene));
-                    let (solid, opaque) = crate::env_parts(&scene);
-                    world.attach_env(solid, opaque);
+                    let opaque = crate::env_parts(&scene);
+                    world.attach_env(opaque);
                     world.attach_glass(crate::glass_parts(&scene));
                     world.attach_weapons(&self.cast.level_dir.join("../../common"));
                     if self.mission {

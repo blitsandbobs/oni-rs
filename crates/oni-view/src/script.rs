@@ -124,10 +124,7 @@ impl ScriptHost {
         let mut renderer = Renderer::new(&gpu, &scene, particles, format);
         let kind = classes.kind(&cast.player, |ch| renderer.add_character(&gpu, ch))?;
         let spawn_pos = charview.placement.transform_point3(Vec3::ZERO);
-
-        let (verts, idx) = crate::level_collision_mesh(&scene);
-        let mut world = World::new(verts, idx);
-        world.floor_textures = crate::floor_textures(&scene);
+        let mut world = World::new();
         if faithful {
             world.set_quirks(Quirks::FAITHFUL);
         }
@@ -137,8 +134,8 @@ impl ScriptHost {
         let (ov, oi) = crate::opaque_mesh(&scene);
         world.sight = Some(crate::physics::Sight::new(&ov, &oi));
         world.attach_doors(crate::door_meshes(&scene));
-        let (solid, opaque) = crate::env_parts(&scene);
-        world.attach_env(solid, opaque);
+        let opaque = crate::env_parts(&scene);
+        world.attach_env(opaque);
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
         if world.nav.is_none() {
@@ -1399,7 +1396,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let Some(f) = host.world.fighters.get(id) else { return Ok((0.0, None)) };
             let a = deg.to_radians();
-            let p = f.physics.probe(Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
+            let env = crate::chrphys::Env { quads: &host.world.quads, doors: &[] };
+            let radius = if f.player { crate::chrphys::PLAYER_LEAF } else { crate::chrphys::AI_LEAF };
+            let p = crate::chrphys::probe(&env, f.feet(), radius, Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
             Ok((p.free, p.ledge))
         })?,
     )?;

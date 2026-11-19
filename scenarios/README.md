@@ -50,6 +50,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
 | `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `effects.lua` | An effect rides what it struck: a phase-rifle bolt's glow stays on the dummy's struck part as the dummy moves. |
+| `reach.lua` | How high a jump reaches (the original's collision): on level 1's training a running jump gets from a small crate onto the tall one; the ledge after the laser room is out of reach of a jump but not of a flip. |
 | `glass.lua` | A shot breaks a glass pane: level 1's range has 18 targets (references 3001–3018) that `env_broken` counts; `env_show` breaks and mends glass. |
 | `ai_shoot.lua` | An armed enemy that sees the player goes into combat, aims and fires; its shots land; empty, it fights hand to hand. |
 | `ai_gun.lua` | An unarmed enemy that shoots goes for a loaded gun lying near, bends for it and shoots with it. |
