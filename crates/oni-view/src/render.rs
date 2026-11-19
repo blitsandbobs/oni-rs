@@ -468,12 +468,13 @@ impl Renderer {
             });
             let (verts, indices) = batches.entry(tex).or_default();
             let base = verts.len() as u32;
-            // Corners CCW: (-,-) (+,-) (+,+) (-,+); v flipped so the PNG is upright.
+            // Corners CCW: (-,-) (+,-) (+,+) (-,+); the texture's top row on
+            // the sprite's −Y side, as the original draws sprites.
             for (cx, cy, u, v) in [
-                (-1.0, -1.0, 0.0, 1.0),
-                (1.0, -1.0, 1.0, 1.0),
-                (1.0, 1.0, 1.0, 0.0),
-                (-1.0, 1.0, 0.0, 0.0),
+                (-1.0, -1.0, 0.0, 0.0),
+                (1.0, -1.0, 1.0, 0.0),
+                (1.0, 1.0, 1.0, 1.0),
+                (-1.0, 1.0, 0.0, 1.0),
             ] {
                 verts.push(ParticleVertex {
                     center: p.position.to_array(),
@@ -825,7 +826,9 @@ impl Renderer {
             let (x, y) = (x * s.size[0], y * s.size[1]);
             let (verts, idx) = by_texture.entry(t).or_default();
             let base = verts.len() as u32;
-            for (p, uv) in [(s.at - x - y, [0.0, 1.0]), (s.at + x - y, [1.0, 1.0]), (s.at + x + y, [1.0, 0.0]), (s.at - x + y, [0.0, 0.0])] {
+            // (The texture's top row — v 0 — on the sprite's −Y side, as the
+            // original's sprite drawing has it.)
+            for (p, uv) in [(s.at - x - y, [0.0, 0.0]), (s.at + x - y, [1.0, 0.0]), (s.at + x + y, [1.0, 1.0]), (s.at - x + y, [0.0, 1.0])] {
                 verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: s.color });
             }
             idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);

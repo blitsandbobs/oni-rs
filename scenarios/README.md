@@ -91,6 +91,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | Call | Effect |
 |------|--------|
 | `input(forward, backward)` | Set the move keys (W/S). |
+| `hold_jump(on)` / `feet_offset()` | Hold (or release) jump — the held, higher jump; how far the player's posed body's lowest point (arms left out) is above its location (the original's `feetLocation`). |
 | `strafe(left, right)` | Set the strafe keys (A/D sidestep). |
 | `walk(on)` / `crouch(on)` | Hold the walk / crouch modifier. |
 | `jump()` / `airborne()` | Tap jump / read whether the character is in the air. |

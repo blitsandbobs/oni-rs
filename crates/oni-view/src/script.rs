@@ -310,6 +310,28 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // feet_offset() → how far the player's posed body's lowest point (its
+    // parts' bounding spheres, arms left out) is above its location.
+    let h = host.clone();
+    g.set(
+        "feet_offset",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let Some(f) = host.world.player() else { return Ok(0.0) };
+            Ok(f.feet_offset())
+        })?,
+    )?;
+
+    // Holds (or lets go of) jump (a press, then held: the higher jump).
+    let h = host.clone();
+    g.set(
+        "hold_jump",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().hold(key::JUMP, on);
+            Ok(())
+        })?,
+    )?;
+
     // Holds (or lets go of) fire 1.
     let h = host.clone();
     g.set(

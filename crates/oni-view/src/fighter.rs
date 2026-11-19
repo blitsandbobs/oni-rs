@@ -1011,6 +1011,24 @@ impl Fighter {
             .collect()
     }
 
+    /// How far the posed body's lowest point is above the location
+    /// (`feetLocation`: the parts' bounding spheres, arms left out; never
+    /// below the location).
+    pub fn feet_offset(&self) -> f32 {
+        let bones = self.bones();
+        let lowest = self
+            .character
+            .parts
+            .iter()
+            .filter(|p| p.bone <= 10)
+            .filter_map(|p| {
+                let (c, r) = p.bound_sphere?;
+                Some(bones.get(p.bone)?.transform_point3(c).y - r)
+            })
+            .fold(f32::INFINITY, f32::min);
+        (lowest - self.feet().y).max(0.0)
+    }
+
     /// Body part `part`'s matrix, shared (it follows the part each tick).
     pub fn part_matrix(&mut self, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
         if self.part_cells.is_empty() {
