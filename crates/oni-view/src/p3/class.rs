@@ -434,6 +434,10 @@ pub struct Class {
     pub dodge_radius: f32,
     pub alert_radius: f32,
     pub scale: Value,
+    /// A separate height (when the class has one), and how its sprite is
+    /// drawn (0 = facing the camera; 2, 3, 5, 6, 7 = along its direction).
+    pub y_scale: Option<Value>,
+    pub sprite_type: u32,
     pub alpha: Value,
     /// Texture (sprite) or model (geometry) name.
     pub instance: String,
@@ -709,6 +713,8 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         dodge_radius: f32_of(&c["dodgeRadius"]),
         alert_radius: f32_of(&c["alertRadius"]),
         scale: value(&c["appearance"]["scale"], &vars),
+        y_scale: names("flags").iter().any(|n| n == "separateYScale").then(|| value(&c["appearance"]["yScale"], &vars)),
+        sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,
         alpha: value(&c["appearance"]["alpha"], &vars),
         instance: c["appearance"]["instance"].as_str().unwrap_or("").to_string(),
         attractor,

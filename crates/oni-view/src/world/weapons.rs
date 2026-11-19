@@ -586,16 +586,40 @@ impl World {
             .collect()
     }
 
-    /// The shots in flight as short glowing streaks (from, to, colour) —
-    /// until particles are drawn as their sprites.
-    pub fn shot_streaks(&self) -> Vec<(Vec3, Vec3, [f32; 3])> {
+    /// The particles to draw, as sprites: each class's texture at its
+    /// scale — facing the camera, or stretched along its flight for the
+    /// directional sprite kinds. (Models, contrails' trails, tint and fading
+    /// aren't drawn yet.)
+    pub fn sprites(&self) -> Vec<crate::render::Sprite> {
+        use p3::class::{cflag, Value};
         let sys = &self.armory.particles;
+        let textures = self.level_dir.join("../../common/textures");
+        let read = |v: &Value, vars: &[p3::Val]| -> Option<f32> {
+            match v {
+                Value::Float(x) => Some(*x),
+                Value::Range(a, b) => Some((a + b) / 2.0),
+                Value::Bell(m, _) => Some(*m),
+                Value::Var(i) => vars.get(*i)?.f(),
+                _ => None,
+            }
+        };
         sys.iter()
-            .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0 && p.velocity.length_squared() > 100.0)
-            .filter(|(_, p)| !sys.class(p.class).has(p3::class::cflag::INVISIBLE))
-            .map(|(_, p)| {
-                let at = sys.world_position(p);
-                (at - p.velocity / 60.0, at, [1.0, 0.75, 0.35])
+            .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0)
+            .filter_map(|(_, p)| {
+                let c = sys.class(p.class);
+                if c.has(cflag::INVISIBLE) || c.has(cflag::GEOMETRY) || c.instance.is_empty() {
+                    return None;
+                }
+                let x = read(&c.scale, &p.vars)?;
+                let y = c.y_scale.as_ref().and_then(|v| read(v, &p.vars)).unwrap_or(x);
+                let axis = matches!(c.sprite_type, 2 | 3 | 5 | 6 | 7).then(|| {
+                    if c.has(cflag::ORIENTATION) {
+                        sys.world_orientation(p).y_axis
+                    } else {
+                        p.velocity
+                    }
+                });
+                Some(crate::render::Sprite { at: sys.world_position(p), size: [x, y], axis, texture: textures.join(format!("{}.png", c.instance)) })
             })
             .collect()
     }

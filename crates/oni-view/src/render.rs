@@ -82,6 +82,16 @@ struct BillboardPush {
     _pad1: f32,
 }
 
+/// A particle sprite: where, its half-size (x, y), and — for a sprite
+/// stretched along its flight — the direction its x runs; else it faces the
+/// camera.
+pub struct Sprite {
+    pub at: glam::Vec3,
+    pub size: [f32; 2],
+    pub axis: Option<glam::Vec3>,
+    pub texture: std::path::PathBuf,
+}
+
 /// A batch of billboards sharing one texture.
 struct ParticleGroup {
     vbuf: wgpu::Buffer,
@@ -152,6 +162,10 @@ pub struct Renderer {
     char_models: Vec<CharModel>,
     /// Rigid models loaded by file (guns), drawn as one-bone characters.
     models_by_path: std::collections::HashMap<std::path::PathBuf, Option<usize>>,
+    /// Particles to draw this frame (glowing sprites), and textures loaded
+    /// for them by file.
+    pub sprites: Vec<Sprite>,
+    textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -434,6 +448,8 @@ impl Renderer {
             beams: Vec::new(),
             char_models: Vec::new(),
             models_by_path: Default::default(),
+            sprites: Vec::new(),
+            textures_by_path: Default::default(),
             particles: particle_groups,
             depth: None,
         }
@@ -547,6 +563,7 @@ impl Renderer {
     ) {
         self.ensure_depth(&gpu.device, w, h);
         let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
+        let sprites = self.sprite_prims(gpu, cam_right, cam_up);
         gpu.queue.write_buffer(
             &self.uniform_buf,
             0,
@@ -622,6 +639,9 @@ impl Renderer {
                 if let Some(b) = beams.as_ref().filter(|b| b.bucket == bucket) {
                     draw_prim(&mut pass, b, Mat4::IDENTITY);
                 }
+                for p in sprites.iter().filter(|p| p.bucket == bucket) {
+                    draw_prim(&mut pass, p, Mat4::IDENTITY);
+                }
                 for d in characters {
                     let Some(cm) = self.char_models.get(d.model) else {
                         continue;
@@ -664,6 +684,61 @@ impl Renderer {
 const BEAM_WIDTH: f32 = 0.25;
 
 impl Renderer {
+    /// A texture from a PNG file, loaded once.
+    fn texture_index(&mut self, gpu: &Gpu, path: &std::path::Path) -> usize {
+        if let Some(&i) = self.textures_by_path.get(path) {
+            return i;
+        }
+        let (w, h, rgba) = load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 255, 255, 255]));
+        self.tex_bgs.push(make_texture_bg(gpu, &self.tex_bgl, &self.sampler, w, h, &rgba));
+        let i = self.tex_bgs.len() - 1;
+        self.textures_by_path.insert(path.to_path_buf(), i);
+        i
+    }
+
+    /// This frame's particle sprites as additive textured quads, one mesh
+    /// per texture.
+    fn sprite_prims(&mut self, gpu: &Gpu, right: glam::Vec3, up: glam::Vec3) -> Vec<GpuPrim> {
+        let forward = right.cross(up).normalize_or_zero();
+        let sprites = std::mem::take(&mut self.sprites);
+        let mut by_texture: std::collections::BTreeMap<usize, (Vec<Vertex>, Vec<u32>)> = Default::default();
+        for s in &sprites {
+            let t = self.texture_index(gpu, &s.texture);
+            let (x, y) = match s.axis.and_then(|a| a.try_normalize()) {
+                // Stretched along its flight, turned to face the camera.
+                Some(a) => (a, a.cross(forward).try_normalize().unwrap_or(up)),
+                None => (right, up),
+            };
+            let (x, y) = (x * s.size[0], y * s.size[1]);
+            let (verts, idx) = by_texture.entry(t).or_default();
+            let base = verts.len() as u32;
+            for (p, uv) in [(s.at - x - y, [0.0, 1.0]), (s.at + x - y, [1.0, 1.0]), (s.at + x + y, [1.0, 0.0]), (s.at - x + y, [0.0, 0.0])] {
+                verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: [1.0, 1.0, 1.0] });
+            }
+            idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        }
+        by_texture
+            .into_iter()
+            .map(|(t, (vertices, indices))| {
+                let prim = Prim {
+                    vertices,
+                    indices,
+                    texture: None,
+                    blend: false,
+                    additive: true,
+                    door: None,
+                    visible: true,
+                    collide: false,
+                    env_ref: None,
+                    glass: None,
+                };
+                let mut g = upload_prim(&gpu.device, &prim);
+                g.texture = t;
+                g
+            })
+            .collect()
+    }
+
     /// This frame's laser beams as one additive strip mesh.
     fn beam_prim(&self, device: &wgpu::Device, right: glam::Vec3, up: glam::Vec3) -> Option<GpuPrim> {
         if self.beams.is_empty() {

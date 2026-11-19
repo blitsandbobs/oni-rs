@@ -209,7 +209,7 @@ impl ScriptHost {
         }
         self.renderer.open_doors = self.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
         self.renderer.beams = self.world.beams.clone();
-        self.renderer.beams.extend(self.world.shot_streaks());
+        self.renderer.sprites = self.world.sprites();
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();

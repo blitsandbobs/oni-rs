@@ -585,7 +585,7 @@ impl State {
         if let Some(pw) = &self.play {
             self.renderer.open_doors = pw.world.doors.iter().filter(|d| !d.solid()).map(|d| d.object_id).collect();
             self.renderer.beams = pw.world.beams.clone();
-            self.renderer.beams.extend(pw.world.shot_streaks());
+            self.renderer.sprites = pw.world.sprites();
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
         }
