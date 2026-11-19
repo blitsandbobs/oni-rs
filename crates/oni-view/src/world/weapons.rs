@@ -586,6 +586,30 @@ impl World {
             .collect()
     }
 
+    /// The particles that are models (superballs, grenades, darts, shells,
+    /// casings): each one's model and world matrix — its position, its
+    /// orientation, its class's scale.
+    pub fn particle_models(&self) -> Vec<(std::path::PathBuf, Mat4)> {
+        use p3::class::{cflag, Value};
+        let sys = &self.armory.particles;
+        let models = self.level_dir.join("../../common/models");
+        sys.iter()
+            .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0)
+            .filter_map(|(_, p)| {
+                let c = sys.class(p.class);
+                if !c.has(cflag::GEOMETRY) || c.has(cflag::INVISIBLE) || c.instance.is_empty() {
+                    return None;
+                }
+                let scale = match c.scale {
+                    Value::Float(x) if x > 0.0 => x,
+                    _ => 1.0,
+                };
+                let m = Mat4::from_mat3_translation(sys.world_orientation(p) * scale, sys.world_position(p));
+                Some((models.join(format!("{}.glb", c.instance)), m))
+            })
+            .collect()
+    }
+
     /// The particles to draw, as sprites: each class's texture at its
     /// scale — facing the camera, or stretched along its flight for the
     /// directional sprite kinds. (Models, contrails' trails, tint and fading

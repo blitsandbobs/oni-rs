@@ -217,6 +217,7 @@ impl ScriptHost {
             .world
             .gun_draws()
             .into_iter()
+            .chain(self.world.particle_models())
             .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
             .collect();
         let draws: Vec<CharDraw> = self
