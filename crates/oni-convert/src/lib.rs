@@ -35,6 +35,7 @@ mod particles;
 mod materials;
 mod particle_defs;
 mod weapons;
+mod sounds;
 mod turrets;
 
 use std::collections::BTreeMap;
@@ -314,6 +315,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 laser_classes = lasers::classes(&dat, &registry);
                 weapons::write_classes(&dat, &root)?;
                 turrets::write_classes(&dat, &root)?;
+                sounds::write(&dat, raw, &root)?;
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");
