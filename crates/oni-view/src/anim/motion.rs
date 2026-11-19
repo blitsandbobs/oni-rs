@@ -60,6 +60,8 @@ pub struct ClassTuning {
     pub max_hit_points: i32,
     /// Shrugs off light hits and is only staggered by knockdowns.
     pub knockdown_resistant: bool,
+    /// Holds its gun in the left hand.
+    pub left_handed: bool,
     /// Airborne integration (see `oni_geom::charclass::AirConstants`).
     pub jump_gravity: f32,
     /// Falling's pull (only placing a character uses it).
@@ -81,6 +83,7 @@ impl Default for ClassTuning {
             idle_restart_delay: 600,
             max_hit_points: 100,
             knockdown_resistant: false,
+            left_handed: false,
             jump_gravity: 0.06,
             fall_gravity: 0.55,
             jump_amount: 1.1,

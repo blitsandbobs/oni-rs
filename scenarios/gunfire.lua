@@ -17,7 +17,7 @@ step(40)
 facing(0)
 step(5)
 assert(give_weapon(0, "w1_tap"), "a pistol")
-step(2)
+step(12) -- (the gun swings from the hand to the aim over 8 ticks)
 
 local clips, ambients = {}, {}
 local function listen(n)

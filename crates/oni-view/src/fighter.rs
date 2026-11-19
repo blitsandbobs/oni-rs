@@ -222,6 +222,11 @@ pub struct Fighter {
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
     pub ai_aim: Option<(f32, f32)>,
+    /// Aiming its gun exactly (`ONrCharacter_DoExactAiming`): since when it
+    /// last wasn't (the gun swings from the hand to the aim over 8 ticks),
+    /// and whether the swing is done.
+    pub exact_aim_since: u64,
+    pub exact_aim_done: bool,
     /// Partial-body clips playing over the body: the recoil, and the
     /// inventory one (holster, draw, reload).
     pub overlays: [Option<Overlay>; 2],
@@ -320,6 +325,8 @@ impl Fighter {
             please_block: false,
             corpse_velocity: Vec3::ZERO,
             ground_pull: None,
+            exact_aim_since: 0,
+            exact_aim_done: false,
             corpse_started: false,
             deferred_max: feet.y,
             down_ticks: 0,
@@ -1132,6 +1139,39 @@ impl Fighter {
             Mat4::from_rotation_translation(Quat::from_rotation_y(self.facing.facing), origin);
     }
 
+    /// The aiming screen this tick (the original's `aimingScreen`): for a
+    /// clip that aims (no overlay forbidding it), not a block, not reeling —
+    /// the class's screen for the clip's aiming type and variant.
+    fn screen(&self, dont_aim: bool) -> Option<&crate::anim::aim::Screen> {
+        let c = self.motion.current();
+        if dont_aim || !c.has_flag(flag::DO_AIM) || c.anim_type == ty::BLOCK || reaction::is_victim(c.anim_type) {
+            return None;
+        }
+        crate::anim::aim::find(&self.aiming, c.aiming_type, c.varient)
+    }
+
+    /// Whether an overlay playing now forbids aiming.
+    fn overlay_dont_aim(&self) -> bool {
+        self.overlays.iter().flatten().any(|o| self.motion.clip_of(o.clip).has_flag(flag::DONT_AIM))
+    }
+
+    /// The aiming screen for the held gun: one for a gun variant, if aiming
+    /// exactly is possible now.
+    pub fn gun_screen(&self) -> Option<&crate::anim::aim::Screen> {
+        use crate::anim::types::var;
+        let any_gun = var::RIGHTY_PISTOL | var::LEFTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_RIFLE;
+        self.screen(self.overlay_dont_aim()).filter(|s| s.varient() & any_gun != 0)
+    }
+
+    /// The bone the gun is held in (the left hand for a left-handed class).
+    pub fn gun_hand(&self) -> usize {
+        if self.motion.tuning.left_handed {
+            14
+        } else {
+            18
+        }
+    }
+
     /// Posed bone world-matrices (placement baked in) for rendering: the
     /// body's clip, the overlays on it, and — holding a gun, when the clip
     /// allows — the aim pose (`docs/WEAPONS.md`, *Aim poses*).
@@ -1165,11 +1205,10 @@ impl Fighter {
     /// reeling), no overlay forbidding it — the class's screen for the clip,
     /// bent toward the aim (yaw off the body, pitch with recoil).
     fn aim_layer(&self, dont_aim: bool) -> Option<crate::skel::Layer> {
-        let c = self.motion.current();
-        if self.hand.is_none() || dont_aim || !c.has_flag(flag::DO_AIM) || reaction::is_victim(c.anim_type) || !self.alive() {
+        if self.hand.is_none() || !self.alive() {
             return None;
         }
-        let s = crate::anim::aim::find(&self.aiming, c.aiming_type, c.varient)?;
+        let s = self.screen(dont_aim)?;
         let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
         let yaw = wrap(self.facing.aim() - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         let pitch = (self.aiming_ud + self.recoil).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);

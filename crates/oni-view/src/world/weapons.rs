@@ -16,8 +16,6 @@ use crate::fighter::Fighter;
 use crate::p3::{self, CharHit, EnvHit, Host, Target};
 use crate::weapons::{flag, Report, Weapon, WeaponClasses};
 
-/// The hand bone a gun hangs from (`right_handfist`).
-const HAND_BONE: usize = 18;
 /// Picking up: how near (XZ) and how far below / above the feet a gun may
 /// be to start reaching for it.
 const PICKUP_RADIUS: f32 = 8.0;
@@ -454,16 +452,35 @@ impl Host for ShotHost<'_> {
     }
 }
 
-/// A gun's world matrix in fighter `f`'s hand this tick: at the hand, and —
-/// for an aiming character — pointing straight down its aim (`yaw` the aim
-/// direction, `pitch` up positive). The gun's barrel is its +X, its top +Z.
-fn hand_matrix(f: &Fighter, bones: &[Mat4], aim: Option<(f32, f32)>) -> Mat4 {
-    let hand = bones.get(HAND_BONE).copied().unwrap_or(f.placement);
-    let Some((yaw, pitch)) = aim else { return hand };
+/// The gun in fighter `f`'s hand (the original's weapon matrix): the hand's
+/// own matrix (a left hand's turned half round its X), so the gun follows
+/// the hand as the clip holds it. The gun's barrel is its +X, its top +Z.
+fn hand_matrix(f: &Fighter, bones: &[Mat4]) -> Mat4 {
+    let hand = bones.get(f.gun_hand()).copied().unwrap_or(f.placement);
+    if f.motion.tuning.left_handed {
+        hand * Mat4::from_rotation_x(std::f32::consts::PI)
+    } else {
+        hand
+    }
+}
+
+/// The gun aimed exactly (`ONrCharacter_DoExactAiming`'s goal): at the
+/// hand, its barrel straight down the aim (`yaw`, `pitch` up positive), its
+/// top toward the world's up.
+fn aim_matrix(at: Vec3, yaw: f32, pitch: f32) -> Mat4 {
     let d = Vec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
     let up = (Vec3::Y - d * d.y).try_normalize().unwrap_or(Vec3::Z);
-    let rot = Mat3::from_cols(d, up.cross(d), up);
-    Mat4::from_mat3_translation(rot, hand.w_axis.truncate())
+    Mat4::from_mat3_translation(Mat3::from_cols(d, up.cross(d), up), at)
+}
+
+/// How many ticks the gun takes to swing from the hand to the aim.
+const EXACT_AIM_TICKS: u64 = 8;
+
+/// The blend of two gun matrices (`MUrMatrix_Lerp`): place and turn apart.
+fn matrix_lerp(a: Mat4, b: Mat4, t: f32) -> Mat4 {
+    let (_, ra, ta) = a.to_scale_rotation_translation();
+    let (_, rb, tb) = b.to_scale_rotation_translation();
+    Mat4::from_rotation_translation(ra.lerp(rb, t), ta.lerp(tb, t))
 }
 
 /// How fast (along the surface's normal, per tick) a falling gun must hit
@@ -999,6 +1016,13 @@ impl World {
         self.armory.weapons[w].assign(who);
         self.fighters[who].hand = Some(w);
         self.set_weapon_varient(who);
+        // In the hand from this frame on (the original rebuilds the
+        // weapon's matrix before drawing); the swing to the aim starts over.
+        let f = &mut self.fighters[who];
+        f.exact_aim_since = self.now as u64;
+        f.exact_aim_done = false;
+        let m = hand_matrix(f, &f.bones());
+        self.armory.weapons[w].matrix.set(m);
     }
 
     /// Fighter `who` lets go of the gun in its hand (`knock`: thrown clear,
@@ -1521,14 +1545,42 @@ impl World {
                 continue;
             }
             let bones = f.bones();
+            // Aiming (the player always; an AI with a target) in a clip with
+            // a gun's aiming screen: the gun swings to the aim, clipped to
+            // the screen's reach; else it rides the hand.
             let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
-                Some((f.facing.aim() + lr, (f.aiming_ud + f.recoil + ud).clamp(-1.5, 1.5)))
+                Some((f.facing.aim() + lr, f.aiming_ud + f.recoil + ud))
             } else {
-                f.ai_aim.map(|(y, p)| (y, (p + f.recoil).clamp(-1.5, 1.5)))
+                f.ai_aim.map(|(y, p)| (y, p + f.recoil))
             };
             let f = &self.fighters[who];
-            let m = hand_matrix(f, &bones, aim);
+            let hand = hand_matrix(f, &bones);
+            let exact = aim.and_then(|a| f.gun_screen().map(|s| (a, s)));
+            let m = match exact {
+                Some(((yaw, pitch), s)) => {
+                    let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+                    let rel = wrap(yaw - f.facing.facing).clamp(-s.yaw.0[0] * f32::from(s.yaw.1[0]), s.yaw.0[1] * f32::from(s.yaw.1[1]));
+                    let pitch = pitch.clamp(-s.pitch.0[0] * f32::from(s.pitch.1[0]), s.pitch.0[1] * f32::from(s.pitch.1[1]));
+                    let goal = aim_matrix(hand.w_axis.truncate(), f.facing.facing + rel, pitch);
+                    let f = &mut self.fighters[who];
+                    let since = now.saturating_sub(f.exact_aim_since);
+                    if !f.exact_aim_done && since > EXACT_AIM_TICKS {
+                        f.exact_aim_done = true;
+                    }
+                    if f.exact_aim_done {
+                        goal
+                    } else {
+                        matrix_lerp(hand, goal, since as f32 / EXACT_AIM_TICKS as f32)
+                    }
+                }
+                None => {
+                    let f = &mut self.fighters[who];
+                    f.exact_aim_since = now;
+                    f.exact_aim_done = false;
+                    hand
+                }
+            };
             let before = self.armory.weapons[w].position;
             let Armory { particles, weapons, .. } = &mut self.armory;
             let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);

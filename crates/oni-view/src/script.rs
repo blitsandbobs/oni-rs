@@ -1153,6 +1153,34 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(Some(t))
         })?,
     )?;
+    // bone(id, k) / held_gun(id) → {x={…}, y={…}, z={…}, at={…}}: a
+    // fighter's posed bone k, or the gun in its hand (nil without one).
+    let mat = |lua: &mlua::Lua, m: glam::Mat4| -> mlua::Result<mlua::Table> {
+        let t = lua.create_table()?;
+        for (k, c) in [("x", m.x_axis), ("y", m.y_axis), ("z", m.z_axis), ("at", m.w_axis)] {
+            t.set(k, vec![c.x, c.y, c.z])?;
+        }
+        Ok(t)
+    };
+    let h = host.clone();
+    g.set(
+        "bone",
+        lua.create_function(move |lua, (id, k): (usize, usize)| {
+            let host = h.borrow();
+            let Some(m) = host.world.fighters.get(id).and_then(|f| f.bones().get(k).copied()) else { return Ok(None) };
+            mat(lua, m).map(Some)
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "held_gun",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let w = &host.world;
+            let Some(k) = w.fighters.get(id).and_then(|f| f.hand) else { return Ok(None) };
+            mat(lua, w.armory.weapons[k].matrix.get()).map(Some)
+        })?,
+    )?;
     // show_decals(on): whether screenshots draw the decals (to compare).
     let h = host.clone();
     g.set("show_decals", lua.create_function(move |_, on: bool| {

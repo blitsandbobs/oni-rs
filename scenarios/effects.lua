@@ -15,7 +15,7 @@ step(40)
 facing(0)
 step(5)
 assert(give_weapon(0, "w3_phr"), "a phase rifle")
-step(2)
+step(12) -- (the gun swings from the hand to the aim over 8 ticks)
 local hp0 = hp(d)
 fire(1)
 local glow

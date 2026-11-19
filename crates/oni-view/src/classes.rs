@@ -190,6 +190,9 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     if let Some(v) = stats["knockdownResistant"].as_bool() {
         t.knockdown_resistant = v;
     }
+    if let Some(v) = stats["leftHanded"].as_bool() {
+        t.left_handed = v;
+    }
     if let Some(v) = f(&air["jumpGravity"]) {
         t.jump_gravity = v;
     }

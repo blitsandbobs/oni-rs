@@ -19,7 +19,7 @@ step(5)
 assert(give_weapon(0, "w1_tap"), "the pistol class exists")
 local class, ammo = weapon(0)
 assert(class == "w1_tap" and ammo == 10, "a full pistol in hand: " .. tostring(class) .. " " .. tostring(ammo))
-step(2)
+step(12) -- (the gun swings from the hand to the aim over 8 ticks)
 
 local before = hp(d)
 fire(1)
