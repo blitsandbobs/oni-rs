@@ -29,8 +29,10 @@ pub mod flag {
     pub const HAS_LASER: u32 = 1 << 11;
     pub const DONT_FADE_OUT: u32 = 1 << 12;
     pub const USE_AMMO_CONTINUOUSLY: u32 = 1 << 13;
+    /// The AI fires it one press at a time.
+    pub const AI_SINGLE_SHOT: u32 = 1 << 14;
 }
-const FLAG_NAMES: [(&str, u32); 14] = [
+const FLAG_NAMES: [(&str, u32); 15] = [
     ("big", flag::BIG),
     ("unstorable", flag::UNSTORABLE),
     ("energy", flag::ENERGY),
@@ -45,6 +47,7 @@ const FLAG_NAMES: [(&str, u32); 14] = [
     ("hasLaser", flag::HAS_LASER),
     ("dontFadeOut", flag::DONT_FADE_OUT),
     ("useAmmoContinuously", flag::USE_AMMO_CONTINUOUSLY),
+    ("aiSingleShot", flag::AI_SINGLE_SHOT),
 ];
 
 /// A dropped gun lies this long before fading (ticks), and fades this long.
@@ -100,6 +103,8 @@ pub struct WeaponClass {
     pub pickup_offset: Vec3,
     /// How loud a shot is to the AI (ranges of hearing), per shooter.
     pub detection_volume: [f32; 2],
+    /// How the AI shoots it (`docs/AI.md`, *Shooting*).
+    pub ai: AiGun,
     pub attachments: Vec<Attachment>,
 }
 
@@ -187,7 +192,49 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         aiming_speed: f(&c["aimingSpeed"]),
         pickup_offset: vec3(&c["pickupOffset"]),
         detection_volume: [f(&c["ai"]["detectionVolume"]), f(&c["aiAlternate"]["detectionVolume"])],
+        ai: AiGun::from_json(&c["ai"]),
         attachments,
+    }
+}
+
+/// What the AI knows of shooting a gun (its primary fire).
+#[derive(Clone, Copy, Debug)]
+pub struct AiGun {
+    pub aim: crate::ai::ranged::Gun,
+    pub min_safe_distance: f32,
+    /// 0 = unlimited.
+    pub max_range: f32,
+    /// Which of the class's shooting skills applies.
+    pub skill_index: usize,
+    /// Ticks of melee after this gun stuns or floors the target (not acted
+    /// on yet).
+    #[allow(dead_code)]
+    pub melee_assist: u32,
+}
+
+impl AiGun {
+    fn from_json(j: &Json) -> AiGun {
+        let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
+        let m: Vec<f32> = j["shooterInverse"].as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default();
+        let inverse = if m.len() >= 9 {
+            glam::Mat3::from_cols(Vec3::new(m[0], m[1], m[2]), Vec3::new(m[3], m[4], m[5]), Vec3::new(m[6], m[7], m[8]))
+        } else {
+            glam::Mat3::IDENTITY
+        };
+        AiGun {
+            aim: crate::ai::ranged::Gun {
+                aim_radius: f("aimRadius").max(0.1),
+                burst_radius: f("burstRadius"),
+                prediction_speed: f("predictionSpeed"),
+                no_wild_shots: j["noWildShots"].as_bool().unwrap_or(false),
+                shooter_offset: vec3(&j["shooterOffset"]),
+                shooter_inverse: inverse,
+            },
+            min_safe_distance: f("minSafeDistance"),
+            max_range: f("maxRange"),
+            skill_index: j["shootSkillIndex"].as_u64().unwrap_or(0) as usize,
+            melee_assist: j["meleeAssistTimer"].as_u64().unwrap_or(0) as u32,
+        }
     }
 }
 

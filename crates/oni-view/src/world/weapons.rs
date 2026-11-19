@@ -122,13 +122,15 @@ pub struct ShotHost<'a> {
     glass_base: usize,
     panes: Vec<(bool, Vec3, f32)>,
     pub broke: Vec<usize>,
+    /// Each fighter's extra spread (degrees) on its shots.
+    inaccuracy: Vec<f32>,
 }
 
 impl<'a> ShotHost<'a> {
     fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::physics::Sight>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new() }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), glass_base: 0, panes: Vec::new(), broke: Vec::new(), inaccuracy: Vec::new() }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -414,6 +416,10 @@ impl Host for ShotHost<'_> {
     fn clear(&mut self, from: Vec3, to: Vec3) -> bool {
         self.sight.is_none_or(|s| s.clear(from, to))
     }
+
+    fn inaccuracy(&self, owner: u32) -> f32 {
+        p3::owner::character(owner).and_then(|c| self.inaccuracy.get(c)).copied().unwrap_or(0.0)
+    }
 }
 
 /// A gun's world matrix in fighter `f`'s hand this tick: at the hand, and —
@@ -564,6 +570,84 @@ impl World {
         let Some(f) = self.fighters.get(who) else { return false };
         let Some(w) = f.hand else { return false };
         self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !f.reloading()
+    }
+
+    /// The gun in fighter `who`'s hand as its AI's targeting sees it.
+    pub(super) fn gun_view(&self, who: usize) -> Option<crate::ai::goals::GunView> {
+        let f = self.fighters.get(who)?;
+        let w = f.hand?;
+        let gun = &self.armory.weapons[w];
+        let ai = gun.class.ai;
+        Some(crate::ai::goals::GunView {
+            matrix: gun.matrix.get(),
+            ai,
+            skill: f.shooting.get(ai.skill_index).copied().unwrap_or_default(),
+            params: f.targeting,
+            usable: gun.ammo > 0 || self.has_reload(who, w) || f.reloading(),
+        })
+    }
+
+    /// The AIs' aim and triggers this tick (`docs/AI.md`, *Shooting*): each
+    /// aim swings toward where its goals want the barrel — at most a sixth of
+    /// a turn a second × its speed × the gun's aiming speed, never more than
+    /// 130° off the body (then straight ahead) — and the trigger is held
+    /// while its targeting says so. Returns each fighter's trigger bits.
+    pub(super) fn ai_guns(&mut self) -> Vec<u32> {
+        use std::f32::consts::{PI, TAU};
+        let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
+        let mut out = vec![0u32; self.fighters.len()];
+        for (i, f) in self.fighters.iter_mut().enumerate() {
+            let Some(crate::ai::Brain::Agent(a)) = f.brain.as_ref() else {
+                f.ai_aim = None;
+                continue;
+            };
+            let (want, speed, trigger) = (a.aim, a.aim_speed, a.trigger);
+            let Some(w) = f.hand else {
+                f.ai_aim = None;
+                continue;
+            };
+            let Some(dir) = want.filter(|_| f.alive()) else {
+                f.ai_aim = None;
+                continue;
+            };
+            let mut yaw = dir.x.atan2(dir.z);
+            let mut pitch = dir.y.clamp(-1.0, 1.0).asin();
+            if wrap(yaw - f.facing.facing).abs() > 130f32.to_radians() {
+                yaw = f.facing.facing;
+                pitch = 0.0;
+            }
+            let (cy, cp) = f.ai_aim.unwrap_or((f.facing.facing, 0.0));
+            let (dy, dp) = (wrap(yaw - cy), pitch - cp);
+            let step = TAU / 60.0 * speed * self.armory.weapons[w].class.aiming_speed.max(0.01);
+            let dist = (dy * dy + dp * dp).sqrt();
+            f.ai_aim = Some(if dist <= step { (yaw, pitch) } else { (cy + dy * step / dist, cp + dp * step / dist) });
+            // (A gun that fires one shot a press waits for its chamber.)
+            let gun = &self.armory.weapons[w];
+            let single = gun.class.has(flag::AI_SINGLE_SHOT) && (gun.chamber > 0 || gun.reload_time > 0);
+            if trigger && !single {
+                out[i] = key::FIRE1;
+            }
+        }
+        out
+    }
+
+    /// Each fighter's extra shot spread (degrees): an AI's skill with its
+    /// gun, widened by the difficulty if it is the player's enemy; players
+    /// shoot true.
+    fn inaccuracies(&self) -> Vec<f32> {
+        let player_team = self.fighters.first().map(|p| p.team());
+        self.fighters
+            .iter()
+            .map(|f| {
+                if f.player {
+                    return 0.0;
+                }
+                let Some(w) = f.hand else { return 0.0 };
+                let skill = f.shooting.get(self.armory.weapons[w].class.ai.skill_index).map_or(0.0, |s| s.gun_inaccuracy);
+                let hostile = player_team.is_some_and(|t| f.team().regards(t) == crate::ai::perception::Relation::Hostile);
+                skill * if hostile { self.difficulty.inaccuracy } else { 1.0 }
+            })
+            .collect()
     }
 
     /// How fast the gun in fighter `who`'s hand aims (scales the mouse).
@@ -1055,10 +1139,12 @@ impl World {
             return;
         };
         let motion = Vec3::ZERO;
-        let Armory { particles, weapons, .. } = &mut self.armory;
         let now = self.now as u64;
         let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some();
+        let inaccuracy = self.inaccuracies();
+        let Armory { particles, weapons, .. } = &mut self.armory;
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
+        host.inaccuracy = inaccuracy;
         let gun = &mut weapons[w];
         if busy {
             gun.release_trigger(particles, &mut host, false);
@@ -1082,7 +1168,7 @@ impl World {
         if empty {
             // Out of ammo: a single press reloads; a held trigger just clicks.
             gun_release(&mut self.armory, &mut self.fighters, self.sight.as_ref(), now, w);
-            if single && !self.reload(who) {
+            if (single || !self.fighters[who].player) && !self.reload(who) {
                 self.armory.weapons[w].reports.push(Report::Empty);
             }
         }
@@ -1155,10 +1241,12 @@ impl World {
                 continue;
             }
             let bones = f.bones();
-            let aim = f.player.then(|| {
+            let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
-                (f.facing.aim() + lr, (f.aiming_ud + f.recoil + ud).clamp(-1.5, 1.5))
-            });
+                Some((f.facing.aim() + lr, (f.aiming_ud + f.recoil + ud).clamp(-1.5, 1.5)))
+            } else {
+                f.ai_aim.map(|(y, p)| (y, (p + f.recoil).clamp(-1.5, 1.5)))
+            };
             let f = &self.fighters[who];
             let m = hand_matrix(f, &bones, aim);
             let before = self.armory.weapons[w].position;
@@ -1185,7 +1273,16 @@ impl World {
             for r in reports {
                 match r {
                     Report::Shot { recoil, volume } => {
-                        self.fighters[who].recoil_speed += recoil;
+                        let f = &mut self.fighters[who];
+                        let compensation = f
+                            .shooting
+                            .get(self.armory.weapons[w].class.ai.skill_index)
+                            .filter(|_| !f.player)
+                            .map_or(0.0, |s| s.recoil_compensation);
+                        f.recoil_speed += recoil * (1.0 - compensation);
+                        if let Some(crate::ai::Brain::Agent(a)) = f.brain.as_mut() {
+                            a.fired();
+                        }
                         let kind = oni_type(&self.armory.weapons[w].class.recoil_anim);
                         self.start_overlay(who, crate::fighter::RECOIL, kind, crate::anim::types::st::ANYTHING, false);
                         if volume > 0.0 {
@@ -1214,8 +1311,10 @@ impl World {
         let tick = self.now as u32;
         let glass_base = self.glass_base();
         let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
+        let inaccuracy = self.inaccuracies();
         let mut host = ShotHost::new(&mut self.fighters, self.sight.as_ref(), now);
         host.glass_base = glass_base;
+        host.inaccuracy = inaccuracy;
         host.panes = panes;
         self.armory.particles.update(tick, &mut host);
         let sounds = std::mem::take(&mut host.sounds);

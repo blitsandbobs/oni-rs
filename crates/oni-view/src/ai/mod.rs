@@ -14,6 +14,7 @@ pub mod level;
 pub mod melee;
 pub mod navigate;
 pub mod perception;
+pub mod ranged;
 
 use std::f32::consts::{PI, TAU};
 

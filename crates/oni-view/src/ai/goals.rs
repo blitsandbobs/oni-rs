@@ -294,6 +294,23 @@ impl Flat for Vec3 {
 pub struct Other {
     pub feet: Vec3,
     pub alive: bool,
+    /// Where shots aim (its pelvis), how tall it is, and whether it is no
+    /// enemy of this character (shots mustn't pass through it).
+    pub pelvis: Vec3,
+    pub height: f32,
+    pub friend: bool,
+}
+
+/// The gun in an AI's hand, as targeting sees it.
+#[derive(Clone, Copy, Debug)]
+pub struct GunView {
+    /// Its world matrix now (barrel +X).
+    pub matrix: glam::Mat4,
+    pub ai: crate::weapons::AiGun,
+    pub skill: crate::ai::ranged::Skill,
+    pub params: crate::ai::ranged::Params,
+    /// Loaded, or with something to reload it.
+    pub usable: bool,
 }
 
 /// What a goal can see and use this tick.
@@ -323,6 +340,14 @@ pub struct Ctx<'a> {
     pub melee_profile: Option<Rc<Profile>>,
     pub daze: (u32, u32),
     pub quirks: Quirks,
+    /// The gun in its hand.
+    pub gun: Option<GunView>,
+}
+
+impl crate::ai::ranged::Random for Rng {
+    fn unit(&mut self) -> f32 {
+        Rng::unit(self)
+    }
 }
 
 impl Ctx<'_> {
@@ -556,6 +581,43 @@ pub enum Primary {
     GetUp,
 }
 
+/// Whether the gun in hand has a clear line of fire at the target: within
+/// its range, through no wall, and past no friend (a cylinder round each).
+fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
+    let Some(g) = cx.gun else { return true };
+    let from = g.matrix.w_axis.truncate();
+    let Some(t) = cx.others.iter().find(|o| o.feet == target_feet) else { return true };
+    let to = t.pelvis;
+    if g.ai.max_range > 0.0 && from.distance(to) > g.ai.max_range {
+        return false;
+    }
+    if !(cx.sight)(from, to) {
+        return false;
+    }
+    let d = to - from;
+    let flat = Vec3::new(d.x, 0.0, d.z);
+    cx.others.iter().enumerate().filter(|(i, o)| *i != cx.me && o.alive && o.friend && o.feet != target_feet).all(|(_, o)| {
+        // The segment against a vertical cylinder of radius 4.
+        let rel = Vec3::new(from.x - o.feet.x, 0.0, from.z - o.feet.z);
+        let a = flat.length_squared();
+        if a < 1e-6 {
+            return true;
+        }
+        let b = 2.0 * rel.dot(flat);
+        let c = rel.length_squared() - 16.0;
+        let disc = b * b - 4.0 * a * c;
+        if disc < 0.0 {
+            return true;
+        }
+        let s = (-b - disc.sqrt()) / (2.0 * a);
+        if !(0.0..=1.0).contains(&s) {
+            return true;
+        }
+        let y = from.y + d.y * s;
+        !(o.feet.y..=o.feet.y + o.height + 8.0).contains(&y)
+    })
+}
+
 /// Range bands.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Band {
@@ -588,6 +650,13 @@ pub struct Combat {
     last_melee_hit: u64,
     daze: Option<u32>,
     advance_goal: Option<Vec3>,
+    /// Shooting: its aim on the target, whether it has a line of fire, and
+    /// whether this is the first sight of this enemy (startle shots).
+    targeting: Option<Box<crate::ai::ranged::Targeting>>,
+    have_los: bool,
+    first_sight: bool,
+    /// How much too close for the gun the target is (0–1).
+    too_close: f32,
 }
 
 /// An AI character's goals (behaviour per `docs/GOALS.md`).
@@ -630,6 +699,11 @@ pub struct Agent {
     /// Waiting for a patrol script to finish.
     waiting_script: bool,
     rng: Rng,
+    /// Shooting: the way its gun's barrel should point (aiming with the
+    /// gun), how fast the aim may swing (×), and whether to hold the trigger.
+    pub aim: Option<Vec3>,
+    pub aim_speed: f32,
+    pub trigger: bool,
 }
 
 impl Agent {
@@ -659,6 +733,9 @@ impl Agent {
             fight_timer: 0,
             use_console: None,
             waiting_script: false,
+            aim: None,
+            aim_speed: 1.0,
+            trigger: false,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
     }
@@ -1768,6 +1845,10 @@ impl Agent {
             last_melee_hit: 0,
             daze: None,
             advance_goal: None,
+            targeting: None,
+            have_los: true,
+            first_sight: true,
+            too_close: 0.0,
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
@@ -2038,6 +2119,65 @@ impl Agent {
                 (true, Some(n)) => Some(n.saturating_sub(1)),
             };
         }
+        self.shoot(target, cx);
+    }
+
+    /// The gun this tick (`docs/AI.md`, *Shooting*): lead the target, aim
+    /// the barrel (the shot's line through the aim point, with the skill's
+    /// error), and hold the trigger while the gun points close enough.
+    fn shoot(&mut self, target: usize, cx: &mut Ctx) {
+        self.aim = None;
+        self.trigger = false;
+        let behavior = {
+            let k = self.combat();
+            let index = match k.band {
+                Band::Long | Band::None => 0,
+                Band::Medium => 1,
+                Band::Short => 2,
+                Band::MediumRetreat => 3,
+                Band::LongRetreat => 4,
+            };
+            self.profile.behavior[index].clone()
+        };
+        let Some(g) = cx.gun.filter(|g| g.usable) else {
+            self.combat().targeting = None;
+            return;
+        };
+        let k = self.combat();
+        let melee_kind = matches!(behavior.as_str(), "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee");
+        if k.target_dead || k.primary == Primary::Melee || melee_kind || cx.fallen {
+            return;
+        }
+        let Some(t) = cx.others.get(target) else { return };
+        let (at, shoulder) = (t.pelvis, cx.pelvis);
+        let first = std::mem::replace(&mut k.first_sight, false);
+        let targeting = k
+            .targeting
+            .get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(g.params, g.ai.aim, g.skill, first, at, shoulder)));
+        targeting.predict(at, shoulder);
+        // (Staring, it looks with the gun lowered and never fires.)
+        let shooting = behavior != "stare";
+        let dir = targeting.aim(shoulder, g.matrix, shooting);
+        // (Backing off hard, it doesn't fire.)
+        let backing = k.primary == Primary::Retreat && k.too_close > 0.2;
+        let fire = targeting.execute(shooting && k.have_los && !backing, g.matrix);
+        let speed = targeting.aim_speed;
+        if shooting {
+            self.aim = Some(dir);
+        }
+        self.aim_speed = speed;
+        self.trigger = fire;
+    }
+
+    /// Its gun fired a shot: targeting moves on (new error, the pause).
+    pub fn fired(&mut self) {
+        let mut rng = std::mem::replace(&mut self.rng, Rng(1));
+        if let Goal::Combat(k) = &mut self.goal {
+            if let Some(t) = k.targeting.as_mut() {
+                t.fired(&mut rng);
+            }
+        }
+        self.rng = rng;
     }
 
     /// The combat layer's decision (every 5 ticks): the range band, the
@@ -2101,6 +2241,7 @@ impl Agent {
                 "ifPunched" => k.last_melee_hit > 0 && now < k.last_melee_hit + RECENTLY_HURT,
                 _ => base == Band::Short,
             };
+            let armed = cx.gun.is_some_and(|g| g.usable);
             match behavior {
                 "stare" => w[HOLD] = 1.0,
                 "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee" => w[MELEE] = 1.0,
@@ -2108,6 +2249,13 @@ impl Agent {
                     w[FIND_ALARM] = 1.2;
                     w[RETREAT] = 0.8;
                 }
+                // Shooting, armed: hold and fire, or charge while firing.
+                "firingCharge" if armed => {
+                    w[ADVANCE] = 1.0;
+                    w[HOLD] = 0.2;
+                    k.advance = (20.0, 80.0);
+                }
+                _ if armed => w[HOLD] = 1.0,
                 // Shooting behaviours, unarmed (no guns yet, #10): fight
                 // back hand to hand if the profile says so, else the
                 // no-gun option (looking for a gun finds none).
@@ -2126,6 +2274,36 @@ impl Agent {
                             }
                             _ => w[MELEE] = 0.8,
                         }
+                    }
+                }
+            }
+            // Too close for the gun (`docs/AI.md`, *Shooting*): back off — or,
+            // if it would fight back hand to hand, melee.
+            let min_safe = cx.gun.map_or(0.0, |g| g.ai.min_safe_distance);
+            k.too_close = 0.0;
+            if armed && min_safe > 0.0 && dist < min_safe {
+                let tc = (1.5 * (1.0 - dist / min_safe)).min(1.0);
+                k.too_close = tc;
+                if tc >= 0.75 {
+                    w[HOLD] *= 1.0 - tc;
+                    w[ADVANCE] *= 1.0 - tc;
+                    if fight_back {
+                        w[MELEE] = w[MELEE].max(tc);
+                    } else {
+                        w[RETREAT] = tc;
+                        k.retreat = (min_safe, 1.5 * min_safe);
+                    }
+                }
+            }
+            // A gun with no line of fire (or out of range): close in.
+            if armed {
+                k.have_los = line_of_fire(target_feet, cx);
+                if !k.have_los && w[MELEE] < 1.0 {
+                    w[ADVANCE] = 1.2;
+                    w[HOLD] = 0.4;
+                    k.advance = (12.0, 30.0);
+                    if dist < 18.0 {
+                        w[MELEE] = w[MELEE].max(0.7);
                     }
                 }
             }

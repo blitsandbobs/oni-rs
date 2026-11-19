@@ -85,6 +85,9 @@ pub struct CharKind {
     pub death_delete: u32,
     /// Its aiming screens (upper-body aim poses).
     pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
+    /// How its AI shoots: skill per weapon slot, and targeting settings.
+    pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
+    pub targeting: crate::ai::ranged::Params,
 }
 
 /// All fighters in the level + the static collision mesh new capsules resolve
@@ -232,6 +235,8 @@ impl World {
         f.class_combat = kind.class_combat;
         f.death_delete = kind.death_delete;
         f.aiming = kind.aiming.clone();
+        f.shooting = kind.shooting.clone();
+        f.targeting = kind.targeting;
         if !player {
             f.perception = Some(crate::ai::perception::Perception::new(
                 kind.perception,
@@ -452,11 +457,19 @@ impl World {
     fn with_agent(&mut self, i: usize, run: impl FnOnce(&mut crate::ai::goals::Agent, &mut crate::ai::goals::Ctx)) {
         use crate::ai::goals::{Ctx, Other};
         use crate::anim::types::st;
+        let me_team = self.fighters[i].team();
         let others: Vec<Other> = self
             .fighters
             .iter()
-            .map(|f| Other { feet: f.feet(), alive: f.alive() && !f.motion.dying })
+            .map(|f| Other {
+                feet: f.feet(),
+                alive: f.alive() && !f.motion.dying,
+                pelvis: f.feet() + Vec3::Y * f.motion.height(),
+                height: f.motion.height() * 2.0,
+                friend: f.team().regards(me_team) != crate::ai::perception::Relation::Hostile,
+            })
             .collect();
+        let gun = self.gun_view(i);
         let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
@@ -497,6 +510,7 @@ impl World {
                 melee_profile,
                 daze,
                 quirks,
+                gun,
             };
             run(&mut agent, &mut cx);
         }
@@ -1385,8 +1399,8 @@ impl World {
         for f in &mut self.fighters {
             f.apply_reaction();
         }
-        // Guns and shots.
-        let mut gun_controls = vec![0u32; self.fighters.len()];
+        // Guns and shots: the player's buttons, the AIs' triggers.
+        let mut gun_controls = self.ai_guns();
         if let Some(c) = gun_controls.first_mut() {
             *c = controls;
         }

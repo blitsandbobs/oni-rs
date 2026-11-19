@@ -184,6 +184,11 @@ pub struct Fighter {
     pub weapon_empty: bool,
     /// Its class's aiming screens.
     pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
+    /// Its AI's shooting skills and targeting settings, and where its aim
+    /// points now (absolute yaw, pitch) while it aims a gun.
+    pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
+    pub targeting: crate::ai::ranged::Params,
+    pub ai_aim: Option<(f32, f32)>,
     /// Partial-body clips playing over the body: the recoil, and the
     /// inventory one (holster, draw, reload).
     pub overlays: [Option<Overlay>; 2],
@@ -305,6 +310,9 @@ impl Fighter {
             overlays: [None; 2],
             pickup: None,
             aiming: Rc::new(Vec::new()),
+            shooting: Rc::new(Vec::new()),
+            targeting: Default::default(),
+            ai_aim: None,
         }
     }
 

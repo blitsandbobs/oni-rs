@@ -123,6 +123,10 @@ impl Classes {
             class_combat: crate::ai::goals::ClassCombat::from_json(&c["perception"]),
             death_delete: c["stats"]["deathDeleteDelay"].as_u64().unwrap_or(0) as u32,
             aiming: Rc::new(crate::anim::aim::load(&c["aiming"], &self.anim_dir)),
+            shooting: Rc::new(
+                c["perception"]["shootingSkill"].as_array().map(|a| a.iter().map(crate::ai::ranged::Skill::from_json).collect()).unwrap_or_default(),
+            ),
+            targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)
@@ -158,6 +162,7 @@ impl Classes {
             block: pick("blockMultiplier"),
             player_hp: pick("playerHpMultiplier"),
             enemy_hp: pick("enemyHpMultiplier"),
+            inaccuracy: pick("inaccuracyMultiplier"),
         }
     }
 }
