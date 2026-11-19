@@ -237,9 +237,12 @@ impl Targeting {
         let r = Mat3::from_mat4(gun);
         let s = self.gun.shooter_inverse * (r.transpose() * self.desired);
         let (axial, off) = (s.x, (s.y * s.y + s.z * s.z).sqrt());
-        // (As shipped, near and far are read the wrong way round: the strict
-        // cone and the class's angle apply nose to nose, and every target
-        // beyond 25 units gets four times the tolerance.)
+        // SHIPPED BALANCE — kept on purpose, in every mode (not a `--faithful`
+        // quirk): the original reads `near` the wrong way round in this gate,
+        // so the strict cone and the class's best aiming angle apply nose to
+        // nose, and every target beyond 25 units gets four times the
+        // tolerance (below). That *is* the game's AI accuracy — Oni was
+        // balanced on it. Don't "fix" it (`docs/AI.md`, *Shooting*).
         let ratio = 0.5 + self.near * (2.0 - 0.5);
         if off > 0.0 && axial / off < ratio {
             self.aim_speed = 1.0;
@@ -257,6 +260,7 @@ impl Targeting {
         if self.thwarted > 30 {
             tol += 0.1 * (self.thwarted - 30) as f32;
         }
+        // SHIPPED BALANCE (see above): ×4 tolerance beyond 25 units.
         if self.near < 1.0 {
             tol *= 1.0 + 3.0 * (1.0 - self.near);
         } else {
