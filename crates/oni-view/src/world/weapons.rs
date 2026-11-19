@@ -454,7 +454,35 @@ fn hand_matrix(f: &Fighter, bones: &[Mat4], aim: Option<(f32, f32)>) -> Mat4 {
     Mat4::from_mat3_translation(rot, hand.w_axis.truncate())
 }
 
+/// How fast (along the surface's normal, per tick) a falling gun must hit
+/// to make its impact (`WPcImpact_MinVelocity`).
+const WEAPON_IMPACT_SPEED: f32 = 0.35;
+
 impl World {
+    /// A falling object's impact on the floor under `at`
+    /// (`WPiGenerateFallImpact`): on the quad's material, at any weight, with
+    /// no decal size and no one to blame.
+    fn fall_impact(&mut self, at: Vec3, impact: &str) {
+        use p3::effect::{Cause, Data};
+        let Some(impacts) = self.impacts.clone() else { return };
+        let Some(impact) = impacts.impact(impact) else { return };
+        let hit = self.quads.ray(at + Vec3::Y * 2.0, Vec3::Y * -4.0, crate::quads::flag::OBJ_COL_SKIP);
+        let quad = hit.and_then(|h| self.quads.quads.get(h.quad as usize).map(|q| (h, q)));
+        let material = quad
+            .and_then(|(_, q)| self.quads.textures.get(q.texture as usize))
+            .and_then(|t| impacts.texture_material(t))
+            .or_else(|| impacts.material("Base"))
+            .or_else(|| impacts.material("Default"));
+        let Some(material) = material else { return };
+        let mut data = Data::new(self.armory.particles.tick, at);
+        if let Some((h, q)) = quad {
+            data.position = h.point;
+            data.normal = self.quads.plane(q.plane).0;
+            data.cause = Cause::HitWall(Some(h.quad));
+        }
+        self.impact_effect(impact, material, crate::impacts::ANY, data, 1.0, None, None);
+    }
+
     /// Loads the weapon and particle classes (`common/`) and the level's
     /// placed guns (`items.json`).
     pub fn attach_weapons(&mut self, common: &Path) {
@@ -1518,7 +1546,14 @@ impl World {
             } else {
                 self.fighters.first().and_then(|f| f.physics.cast(gun.position + Vec3::Y * 2.0, Vec3::Y * -40.0)).map(|(t, _, _)| gun.position.y + 2.0 - 40.0 * t)
             };
-            self.armory.weapons[w].tick_free(floor);
+            // Landing hard enough (`WPcImpact_MinVelocity`): the floor's
+            // "Weapon" impact.
+            if let Some(speed) = self.armory.weapons[w].tick_free(floor) {
+                if speed > WEAPON_IMPACT_SPEED {
+                    let at = self.armory.weapons[w].position;
+                    self.fall_impact(at, "Weapon");
+                }
+            }
         }
         // The shots.
         let tick = self.now as u32;

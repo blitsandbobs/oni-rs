@@ -76,11 +76,21 @@ assert(weapon(0) == "w1_tap" and holster_of(0) == nil, "drawn again")
 
 -- A rifle on the floor at her feet: with a gun in hand but the holster
 -- empty she bends for it (the pickup clip), takes it at the clip's action
--- frame, and the pistol drops.
+-- frame, and the pistol drops (landing with the floor's impact sound).
 local x, y, z = pos()
 assert(spawn_weapon("w3_phr", x, y + 1, z + 3))
 swap()
-step(60)
+local landed = {}
+for _ = 1, 60 do
+    step(1)
+    for _, c in ipairs(channels()) do
+        if c.clip and c.clip:match("hit") then landed[c.clip] = true end
+    end
+end
+local heard = {}
+for c in pairs(landed) do heard[#heard + 1] = c end
+print("the pistol lands:", table.concat(heard, " "))
+assert(#heard > 0, "the dropped pistol lands with a sound by the floor's material")
 assert(weapon(0) == "w3_phr", "picked up the rifle: " .. tostring(weapon(0)))
 assert(weapons_lying() >= 1, "the pistol is on the floor")
 print("pickup ok")

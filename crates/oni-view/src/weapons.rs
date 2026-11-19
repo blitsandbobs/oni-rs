@@ -638,7 +638,10 @@ impl Weapon {
 
     /// One tick lying free: falling until it lands (`floor` = the height
     /// below, if any), then lying, fading and going.
-    pub fn tick_free(&mut self, floor: Option<f32>) {
+    /// A free gun's tick: falls onto `floor`, then lies there and fades.
+    /// Returns how fast it was going down when it landed, if it did.
+    pub fn tick_free(&mut self, floor: Option<f32>) -> Option<f32> {
+        let mut landed = None;
         if !self.resting {
             // (A falling gun's physics is approximated: the characters'
             // jump gravity, its upward speed capped as Oni caps it.)
@@ -647,6 +650,7 @@ impl Weapon {
             match floor {
                 Some(y) if next.y <= y => {
                     self.position = Vec3::new(next.x, y, next.z);
+                    landed = Some(-self.velocity.y);
                     self.velocity = Vec3::ZERO;
                     self.resting = true;
                 }
@@ -665,6 +669,7 @@ impl Weapon {
                 self.gone = true;
             }
         }
+        landed
     }
 }
 
