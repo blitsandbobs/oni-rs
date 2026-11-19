@@ -363,6 +363,77 @@ end, 400)
 print("rifle picked up after", took)
 assert(took, "picked up the rifle")
 
+-- The two training droids, one after the other: face each, aim at its
+-- chest and fire the rifle until it falls (cells come out, and she
+-- reloads, when it runs dry); the second's fall ends the lesson.
+local function refill_cells()
+    -- Dry: the training puts out cells at two spots; collect, reload.
+    if select(2, weapon(0)) > 0 then return end
+    for _ = 1, 4 do
+        for _, at in ipairs({{-652, -458}, {-660, -452}}) do
+            visit(at[1], at[2], -297)
+            step(10)
+            local c0 = select(2, inventory(0))
+            wait_for(function()
+                if select(2, inventory(0)) > c0 then return true end
+                swap()
+                return false
+            end, 120)
+        end
+        if select(2, inventory(0)) > 0 then break end
+        step(120)
+    end
+    step(60)
+    reload(0)
+    step(140)
+end
+local function shoot_down(name)
+    local id = wait_for(function() return named(name) ~= nil end, 600) and named(name)
+    assert(id, name .. " is there")
+    for _ = 1, 40 do
+        if hp(id) <= 0 then return true end
+        refill_cells()
+        -- Close in (40 units, on its -X side), and lead it: the bolt starts
+        -- slow and speeds up, reaching it in about 12 ticks.
+        local x1, _, z1 = pos_of(id)
+        step(2)
+        local x, y, z = pos_of(id)
+        local vx, vz = (x - x1) / 2, (z - z1) / 2
+        teleport(0, x - 40, -297, z)
+        step(4)
+        x, y, z = pos_of(id)
+        local tx, tz = x + vx * 16, z + vz * 16
+        local px, py, pz = pos()
+        facing(math.deg(math.atan(tx - px, tz - pz)))
+        local flat = math.sqrt((tx - px) ^ 2 + (tz - pz) ^ 2)
+        aim(0, math.atan((y + 10) - (py + 11), math.max(flat, 1)))
+        step(2)
+        fire(1)
+        step(60)
+    end
+    return hp(id) <= 0
+end
+local killed1 = shoot_down("dum_train_shoot")
+print("first droid down:", killed1)
+assert(killed1, "shot the first droid")
+local killed2 = shoot_down("dum_train_shoot2")
+print("second droid down:", killed2)
+assert(killed2, "shot the second droid")
+took = wait_for(function() return showing("xlastreview") end, 2400)
+print("on to the last review after", took)
+assert(took, "the shooting lesson ends")
+
+-- The last review console: Action at it ends the training.
+assert(console_state(12) == "active", "the last review console is on")
+teleport(0, -659.7, -297, -470.1)
+facing(90)
+step(10)
+action()
+took = wait_for(function() return console_state(12) == "triggered" end, 400)
+print("last review used after", took)
+assert(took, "Action at the last review console uses it")
+step(120)
+
 local info = mission_info()
 print("tasks", info.tasks, "errors", #info.errors)
 for _, e in ipairs(info.errors) do print("  " .. e) end
