@@ -95,6 +95,11 @@ fn ai_params(d: &[u8], o: usize) -> Value {
         "ballisticSpeed": le_f32(d, o + 108),
         "ballisticGravity": le_f32(d, o + 112),
         "dodgePattern": [le_f32(d, o + 116), le_f32(d, o + 120), le_f32(d, o + 124)],
+        // Where the shot leaves the gun (gun space): its direction, its
+        // offset off that line, and the turn from it onto the barrel.
+        "shooterDirection": vec3(d, o + 52),
+        "shooterOffset": vec3(d, o + 64),
+        "shooterInverse": (0..12).map(|k| le_f32(d, o + 4 + k * 4)).collect::<Vec<_>>(),
     })
 }
 

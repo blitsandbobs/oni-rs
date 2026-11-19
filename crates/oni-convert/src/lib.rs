@@ -468,7 +468,48 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
             "gunRunningPickupPercent": int("ai2_behavior.combat_parameters.gun_runningpickup_percentage"),
             "defaultCombatProfileId": int("ai2_behavior.default_combat_id"),
         },
+        "dodge": {
+            "reactTicks": int("ai2_behavior.dodge_react_frames"),
+            "timeScale": float("ai2_behavior.dodge_time_scale"),
+            "weightScale": float("ai2_behavior.dodge_weight_scale"),
+        },
+        "targeting": {
+            "startleMissRatio": float("ai2_behavior.combat_parameters.targeting_params.startle_miss_angle"),
+            "startleMissDistance": float("ai2_behavior.combat_parameters.targeting_params.startle_miss_distance"),
+            "predictAmount": float("ai2_behavior.combat_parameters.targeting_params.predict_amount"),
+            "predictPositionDelay": int("ai2_behavior.combat_parameters.targeting_params.predict_positiondelayframes"),
+            "predictDelay": int("ai2_behavior.combat_parameters.targeting_params.predict_delayframes"),
+            "predictVelocity": int("ai2_behavior.combat_parameters.targeting_params.predict_velocityframes"),
+            "predictTrend": int("ai2_behavior.combat_parameters.targeting_params.predict_trendframes"),
+        },
+        "shootingSkill": shooting_skill(rec),
     })
+}
+
+/// A class's shooting skill per weapon slot (`AI2tShootingSkill` ×13; a
+/// gun picks its slot by `shootSkillIndex`).
+fn shooting_skill(rec: &oni_template::Record) -> Vec<serde_json::Value> {
+    let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value) else {
+        return Vec::new();
+    };
+    slots
+        .iter()
+        .map(|s| {
+            let float = |name: &str| match s.get(name).map(|e| &e.value) {
+                Some(oni_template::Value::Float(f)) => *f,
+                _ => 0.0,
+            };
+            serde_json::json!({
+                "recoilCompensation": float("recoil_compensation"),
+                "bestAimingSine": float("best_aiming_angle"),
+                "shotErrorPercent": float("shot_error"),
+                "shotDecay": float("shot_decay"),
+                "gunInaccuracy": float("gun_inaccuracy"),
+                "delayMin": s.int("delay_min").unwrap_or(0),
+                "delayMax": s.int("delay_max").unwrap_or(0),
+            })
+        })
+        .collect()
 }
 
 /// Appends this file's canonical `ONCC` character classes to `out` as JSON.
