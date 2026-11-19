@@ -321,6 +321,17 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 sounds::write(&dat, raw, &root)?;
                 impacts::write(&dat, raw, &root)?;
                 anim_sounds::write(&dat, raw, &root)?;
+                std::fs::write(
+                    root.join("laser_classes.json"),
+                    serde_json::to_string_pretty(&serde_json::json!({ "classes": lasers::class_sounds(&dat) }))?,
+                )?;
+                let door_classes = doors::class_sounds(&dat);
+                if !door_classes.is_empty() {
+                    std::fs::write(
+                        root.join("door_classes.json"),
+                        serde_json::to_string_pretty(&serde_json::json!({ "classes": door_classes }))?,
+                    )?;
+                }
                 let profiles = patrols::combat_profiles(&dat, raw);
                 if !profiles.is_empty() {
                     let dir = output_dir.join("common");
@@ -423,7 +434,27 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
             _ => Vec::new(),
         }
     };
+    // The game's event and condition sounds (impulse / ambient names; empty:
+    // silent): `event_soundname[18][32]` @2000, `condition_soundname[5][32]`
+    // @2576.
+    let d = dat.instance_data(inst)?;
+    const EVENTS: [&str; 18] = [
+        "doorSuccess", "doorFail", "doorLock", "doorUnlock", "useHypo", "healthFull", "inventoryFail", "receiveAmmo",
+        "receiveCell", "receiveHypo", "receiveLsi", "compass", "objectiveNew", "objectivePrompt", "objectiveComplete",
+        "autosave", "timerTick", "timerSuccess",
+    ];
+    const CONDITIONS: [&str; 5] = ["healthLow", "healthOver", "shield", "invis", "timerCritical"];
+    let names = |at: usize, keys: &[&str]| -> serde_json::Map<String, serde_json::Value> {
+        keys.iter().enumerate().map(|(k, n)| (n.to_string(), serde_json::json!(cstr(d, at + k * 32, 32)))).collect()
+    };
+    let (events, conditions) = if d.len() >= 2576 + 5 * 32 { (names(2000, &EVENTS), names(2576, &CONDITIONS)) } else { Default::default() };
     Some(serde_json::json!({
+        "eventSounds": events,
+        "conditionSounds": conditions,
+        "boostedHealth": match rec.get("boosted_health").map(|e| &e.value) {
+            Some(oni_template::Value::Float(f)) => *f,
+            _ => 1.5,
+        },
         "difficulty": {
             "levels": ["easy", "normal", "hard"],
             "noticeMultiplier": floats("notice_multipliers"),

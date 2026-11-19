@@ -394,11 +394,34 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             } else if let Some(f) = host.world().level_ai.flags.get(&(flag as i16)) {
                 eprintln!("TARGET flag {flag} at ({:.0}, {:.0}, {:.0})", f.at.x, f.at.y, f.at.z);
             }
+            host.world().event_sound_ui("compass");
             nil()
         }
         "objective_set" => {
             state.objective = int(a(0));
             eprintln!("script: objective {:?}", state.objective);
+            // (The HUD's new-objective prompt and its sound.)
+            host.world().event_sound_ui("objectiveNew");
+            nil()
+        }
+        "objective_complete" => {
+            host.world().event_sound("objectiveComplete", None);
+            nil()
+        }
+        "save_game" => {
+            // (Saving isn't modelled; an autosave's sound and message are.)
+            if a(1).and_then(text).is_some_and(|t| t == "autosave") {
+                host.world().event_sound("autosave", None);
+                eprintln!("script: autosave");
+            }
+            nil()
+        }
+        "begin_cutscene" | "end_cutscene" => {
+            host.world().in_cutscene = name == "begin_cutscene";
+            nil()
+        }
+        "letterbox" => {
+            host.world().letterbox = truthy(a(0)) && int(a(0)) != Some(0);
             nil()
         }
         "win" | "lose" => {

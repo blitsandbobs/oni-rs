@@ -11,6 +11,30 @@ use crate::{cstr, le_f32, le_u16};
 
 const NAME: usize = 63;
 
+/// The door classes' sounds (`DOOR`): the impulse played opening and
+/// closing (names[32] @28, @60) and the noise the AI hears (u32 type @20,
+/// −1 none; f32 radius @24).
+pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
+    const TAG_DOOR: oni_dat::FourCc = oni_dat::FourCc(u32::from_be_bytes(*b"DOOR"));
+    dat.instances
+        .iter()
+        .filter(|i| i.tag == TAG_DOOR)
+        .filter_map(|i| {
+            let d = dat.instance_data(i)?;
+            if d.len() < 92 {
+                return None;
+            }
+            let name = i.name.as_deref()?.trim_start_matches("DOOR").to_string();
+            let mut c = json!({ "open": cstr(d, 28, 32), "close": cstr(d, 60, 32) });
+            let kind = crate::le_u32(d, 20);
+            if kind < crate::impacts::AI_SOUNDS.len() as u32 {
+                c["ai"] = json!({ "type": crate::impacts::AI_SOUNDS[kind as usize], "radius": le_f32(d, 24) });
+            }
+            Some((name, c))
+        })
+        .collect()
+}
+
 /// A level's doors.
 pub fn doors(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
     let (version, objects) = crate::objects::read(dat, raw, "Door");

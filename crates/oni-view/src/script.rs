@@ -1019,6 +1019,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // powerup(id, kind [, amount]) gives a powerup the game's way (`ammo`,
+    // `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took.
+    let h = host.clone();
+    g.set(
+        "powerup",
+        lua.create_function(move |_, (id, kind, amount): (usize, String, Option<u16>)| Ok(h.borrow_mut().world.give_powerup(id, &kind, amount, false)))?,
+    )?;
     // dialog() → whether a scripted dialogue line is on.
     let h = host.clone();
     g.set("dialog", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.dialog_playing()))?)?;

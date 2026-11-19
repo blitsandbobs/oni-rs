@@ -23,6 +23,7 @@ use crate::skel::Character;
 /// The head's bone (the listener's ear height).
 const HEAD_BONE: usize = 10;
 
+mod objects_sound;
 mod particle_sounds;
 mod turrets;
 mod voices;
@@ -175,6 +176,13 @@ pub struct World {
     /// followed for flybys (where each was last).
     particle_ambients: std::collections::HashMap<crate::p3::Handle, usize>,
     flybys: Vec<(crate::p3::Handle, Vec3)>,
+    /// The game's event and condition sounds, and the object classes'
+    /// (`docs/AUDIO.md`, *Objects and the game*).
+    pub(crate) game_sounds: objects_sound::GameSounds,
+    /// A cutscene or letterbox is on (no compass / objective sounds; the
+    /// condition loops hushed).
+    pub in_cutscene: bool,
+    pub letterbox: bool,
 }
 
 /// A breakable glass pane.
@@ -232,6 +240,9 @@ impl World {
             floor_materials: Vec::new(),
             particle_ambients: Default::default(),
             flybys: Vec::new(),
+            game_sounds: Default::default(),
+            in_cutscene: false,
+            letterbox: false,
         }
     }
 
@@ -701,6 +712,7 @@ impl World {
         self.beams.clear();
         for k in 0..self.lasers.len() {
             self.lasers[k].tick();
+            self.laser_sounds(k, false);
             if !self.lasers[k].beaming() {
                 continue;
             }
@@ -724,6 +736,7 @@ impl World {
                         l.triggered = true;
                         eprintln!("laser {}: tripped", l.id);
                         let events = l.events.clone();
+                        self.laser_sounds(k, true);
                         self.run_events(&events, Some(0));
                     }
                 } else {
@@ -905,8 +918,8 @@ impl World {
                 let events = d.events.clone();
                 self.run_events(&events, opener);
             }
-            // (Its leaf follows its state — whoever changed it: this tick,
-            // a script, the Action key.)
+            // (Its sound and its leaf follow its state — whoever changed
+            // it: this tick, a script, the Action key.)
             let solid = self.doors[k].solid();
             if self.door_applied.get(k).is_some_and(|&was| was != solid) {
                 self.door_applied[k] = solid;
@@ -918,6 +931,7 @@ impl World {
                 }
             }
         }
+        self.door_sounds();
     }
 
     /// Each door's portals: those whose midpoint it stands within half the
@@ -970,19 +984,29 @@ impl World {
             self.run_events(&events, Some(i));
         } else {
             eprintln!("door {}: locked", self.doors[k].id);
+            let at = self.doors[k].position;
+            self.event_sound("doorFail", Some(at));
         }
         true
     }
 
     /// Locks / unlocks / jams / unjams door `id` (`ALL` / -1: every door).
     pub fn door_set(&mut self, id: i64, lock: Option<bool>, jam: Option<bool>) {
+        let mut sounds = Vec::new();
         for d in self.doors.iter_mut().filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id) {
             if let Some(l) = lock {
+                // (Locking or unlocking sounds only if it changes.)
+                if d.locked != l {
+                    sounds.push((if l { "doorLock" } else { "doorUnlock" }, d.position));
+                }
                 d.locked = l;
             }
             if let Some(j) = jam {
                 d.jammed = j;
             }
+        }
+        for (event, at) in sounds {
+            self.event_sound(event, Some(at));
         }
     }
 
@@ -1001,9 +1025,13 @@ impl World {
         let Some(k) = self.consoles.get_mut(c) else { return };
         if !k.active || k.triggered {
             eprintln!("console {}: {}", k.id, if k.active { "already used" } else { "locked" });
+            let what = if k.active { "console_already_used" } else { "console_locked" };
+            self.console_sound(c, user, what);
             return;
         }
         k.triggered = true;
+        self.console_sound(c, user, "console_activate");
+        let k = &mut self.consoles[c];
         eprintln!("console {} ({}): used", k.id, k.class);
         let events = k.events.clone();
         self.run_events(&events, user);
@@ -1536,6 +1564,7 @@ impl World {
         }
         self.particle_sounds();
         self.voices_tick();
+        self.conditions_tick();
         self.audio.tick(self.sight.as_ref());
     }
 

@@ -462,6 +462,7 @@ impl World {
         self.audio.realtime = realtime;
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
+        self.game_sounds = super::objects_sound::GameSounds::load(common);
         self.floor_materials = match &self.impacts {
             Some(i) => self.floor_textures.iter().map(|t| i.texture_material(t)).collect(),
             None => Vec::new(),
@@ -520,6 +521,12 @@ impl World {
         let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return 0 };
         let amount = amount.unwrap_or(POWERUP_DEFAULT[kind]);
         let give = if ignore_max { amount } else { self.could_receive(who, kind, amount) };
+        // (The player hears what it got: ammo, cells, hypos, the LSI.)
+        if give > 0 && self.fighters[who].player {
+            if let Some(event) = ["receiveAmmo", "receiveCell", "receiveHypo", "", "", "receiveLsi"].get(kind).filter(|e| !e.is_empty()) {
+                self.event_sound(event, None);
+            }
+        }
         let inv = &mut self.fighters[who].inventory;
         match kind {
             0 => inv.ammo += give,
@@ -1233,7 +1240,16 @@ impl World {
             self.swap(who);
         }
         if pressed & key::RELOAD != 0 {
+            // (A pointless reload — full, or nothing to load — fails aloud
+            // for the player.)
+            let pointless = self.fighters[who].hand.is_some_and(|w| {
+                let gun = &self.armory.weapons[w];
+                gun.ammo >= gun.class.max_ammo || !self.has_reload(who, w)
+            });
             self.reload(who);
+            if pointless && self.fighters[who].player {
+                self.event_sound("inventoryFail", None);
+            }
         }
         if pressed & key::DROP != 0 {
             self.drop_weapon(who, false);

@@ -25,6 +25,15 @@ assert(active == false and #beams() == 0, "they start off")
 for id = 1, 3 do laser(id, "activate") end
 step(1)
 assert(#beams() == 3, "three beams")
+-- Active and showing, each hums (its class's ambient; at most three copies).
+local function hums()
+    local n = 0
+    for _, s in ipairs(sounds()) do
+        if s.name == "trigger_active" and (s.stage == "in" or s.stage == "body") then n = n + 1 end
+    end
+    return n
+end
+assert(hums() > 0, "the lasers hum")
 local z0 = z_of(1)
 step(100)
 local z1 = z_of(1)
@@ -53,6 +62,7 @@ assert(hit[1] and hit[2] and not hit[3], "the beams at her legs and chest, not o
 laser(-1, "hide")
 step(1)
 assert(#beams() == 0, "hidden")
+assert(hums() == 0, "hidden, they are quiet")
 laser(-1, "show")
 laser(1, "deactivate")
 step(1)

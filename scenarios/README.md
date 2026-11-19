@@ -49,6 +49,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `ai_dodge.lua` | An armed soldier holding its ground steps off the line of a gun spraying at it once the danger has lasted its reaction time. |
 | `ambience.lua` | Level 1's sound objects: a box eases its ambient in over 2 s and out after leaving (then halted); a sphere's ambient plays placed while near and plays out once left. |
 | `gunfire.lua` | Level 1's pistol: the report and the bullet's whine (particle ambients), wall hits by material, ricochets and casings, and the click as a held trigger runs dry. |
+| `object_sounds.lua` | Level 1: door 18 opening plays its class's sound; ammo taken the game's way plays the receive sound; low health starts its loop, healing ends it. |
 | `script_sound.lua` | Level 1's opening: its music starts, and Shinatama's lines play one at a time, each blocking script waiting for the last. |
 | `voices.lua` | Level 1: a striker punched again and again grunts and cries out as it dies; an AI striker seeing the player says its startle line. |
 | `impacts.lua` | Level 1: Konoko's running footsteps sound by the floor (tile) and her light weight; a punch landing on a dummy sounds by the struck part, and swooshes (her variant's punch sound). |
@@ -109,6 +110,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
+| `powerup(id, kind [, amount])` | Give a powerup the game's way (`ammo`, `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took. |
 | `dialog()` | Whether a scripted dialogue line is on. |
 | `saying(id)` | The line a character is saying (an ambient's name), or nil. |
 | `sounds()` | The playing ambient sounds (`docs/AUDIO.md`): each `name`, `stage` (`in`, `body`, `stopping`, `out`, `detailonly`), `clip` (the sound playing now), `left` / `right` gains. |

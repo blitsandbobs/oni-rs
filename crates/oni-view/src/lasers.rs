@@ -28,6 +28,8 @@ pub struct Emitter {
 #[derive(Clone, Debug)]
 pub struct Laser {
     pub id: u16,
+    /// Its class (its sounds).
+    pub class: String,
     pub position: Vec3,
     pub axes: [Vec3; 3],
     pub color: [f32; 3],
@@ -227,6 +229,7 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
                 events: l["events"].as_array().into_iter().flatten().map(crate::consoles::event).collect(),
                 track: tracks.get(l["class"].as_str().unwrap_or("")).cloned().unwrap_or_default(),
                 reach: Vec::new(),
+                class: l["class"].as_str().unwrap_or("").to_string(),
             };
             laser.reset();
             laser
@@ -248,6 +251,7 @@ mod tests {
     fn laser(ping_pong: bool) -> Laser {
         let track: Vec<[f32; 6]> = (0..101).map(|f| [0.0, 0.0, f as f32 * 0.3, -1.0, 0.0, 0.0]).collect();
         let mut l = Laser {
+            class: String::new(),
             id: 1,
             position: Vec3::ZERO,
             axes: [Vec3::X, Vec3::Y, Vec3::Z],

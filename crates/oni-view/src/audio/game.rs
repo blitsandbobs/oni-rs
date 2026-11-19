@@ -109,6 +109,31 @@ impl Audio {
         }
     }
 
+    /// Starts ambient `name` unplaced at `volume` (the sound system's own
+    /// start: no handle, no earshot) — its playing id.
+    pub fn simple_start(&mut self, name: &str, volume: f32) -> Option<u32> {
+        self.start(name, None, volume, None)
+    }
+
+    /// Fades an unplaced ambient started with `simple_start`.
+    pub fn simple_volume(&mut self, id: u32, volume: f32, seconds: f32) {
+        self.ambient_volume(id, volume, seconds);
+    }
+
+    /// Stops an unplaced ambient started with `simple_start` (it plays out).
+    pub fn simple_stop(&mut self, id: u32) {
+        self.stop(id);
+    }
+
+    /// Plays impulse `name` at `at` straight through the sound system — no
+    /// earshot or wall check (the consoles' way).
+    pub fn impulse_simple(&mut self, name: &str, at: Vec3) -> Option<usize> {
+        if self.script_only {
+            return None;
+        }
+        self.impulse_system(name, Some(at), 1.0, 0)
+    }
+
     /// Halts a started ambient at once (no out sound).
     pub fn ambient_halt(&mut self, handle: usize) {
         let Some(h) = self.handles.get_mut(handle).and_then(Option::take) else { return };

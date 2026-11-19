@@ -66,6 +66,22 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<Str
         .collect()
 }
 
+/// The laser classes' sounds (`TRIG`): the ambient while active
+/// (`active_soundname[32]` @36) and the impulse when tripped
+/// (`trigger_soundname[32]` @68).
+pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
+    dat.instances
+        .iter()
+        .filter(|i| i.tag == TAG_TRIG)
+        .filter_map(|i| {
+            let d = dat.instance_data(i)?;
+            (d.len() >= 100).then(|| {
+                (i.name.as_deref().unwrap_or("").trim_start_matches("TRIG").to_string(), json!({ "active": cstr(d, 36, 32), "trigger": cstr(d, 68, 32) }))
+            })
+        })
+        .collect()
+}
+
 /// A level's laser triggers.
 pub fn lasers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
     let (_, objects) = crate::objects::read(dat, raw, "Trigger");
