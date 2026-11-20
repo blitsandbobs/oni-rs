@@ -369,6 +369,43 @@ impl System {
                     p.position += p.velocity * dt;
                 }
             }
+            // The offset position spiralled about the particle's direction
+            // (`P3iAction_MoveSpiral`): its angle `theta` (a variable, in
+            // degrees) turns at the rate; the offset lies at the radius (0:
+            // the current one) on the orientation's X and Z axes, or, without
+            // one, on axes across the velocity.
+            Kind::MoveSpiral => {
+                let v = var!(0);
+                if !c.has(cflag::OFFSET_POS) || !(has_v || has_o) {
+                    return none;
+                }
+                let mut radius = f!(0);
+                if radius.abs() < 0.01 {
+                    radius = p.offset.length();
+                }
+                let rate = f!(1);
+                let mut theta = getf(p, v) + dt * rate;
+                while theta < 0.0 {
+                    theta += 360.0;
+                }
+                while theta > 360.0 {
+                    theta -= 360.0;
+                }
+                p.vars[v] = Val::F(theta);
+                // (As shipped: the sine from the cosine, negative below 180°.)
+                let cos = theta.to_radians().cos();
+                let mut sin = (1.0 - cos * cos).max(0.0).sqrt();
+                if theta < 180.0 {
+                    sin = -sin;
+                }
+                let (across, up) = if has_o {
+                    (p.orientation.x_axis, p.orientation.z_axis)
+                } else {
+                    let across = Vec3::new(-p.velocity.z, 0.0, p.velocity.x).normalize_or_zero();
+                    (across, across.cross(p.velocity).normalize_or_zero())
+                };
+                p.offset = radius * (cos * across - sin * up);
+            }
             Kind::MoveGravity => {
                 if has_v {
                     let g = f!(0);
@@ -631,7 +668,8 @@ impl System {
             Kind::StopLink => p.link = None,
             Kind::BreakLink => p.flags |= pflag::BREAK_LINKS_TO_ME,
             // Sound, impact effects (decals, sparks by material), colour,
-            // spirals and the rest are not modelled yet (#23, #24).
+            // drift, the spiral tangent and the rest are not modelled yet
+            // (#23, #24).
             _ => {}
         }
         none

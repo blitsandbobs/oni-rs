@@ -70,6 +70,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out; it is drawn only from in front of its one-sided wall, and fades to 20/255 when the wall goes see-through. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
+| `deadly_brain.lua` | Level 2's Deadly Brain started: its readouts spiral out from the emitter to their radius (30–90) around the brain (`moveSpiral`). |
 | `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `effects.lua` | An effect rides what it struck: a phase-rifle bolt's glow stays on the dummy's struck part as the dummy moves. |
 | `reach.lua` | How high a jump reaches (the original's collision): on level 1's training a running jump gets from a small crate onto the tall one; the ledge after the laser room is out of reach of a jump but not of a flip. |
