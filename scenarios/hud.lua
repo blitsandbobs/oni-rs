@@ -33,6 +33,7 @@ F.t_fade_in = function() C.fade_in(30) end
 F.t_fill = function() C.ui_fill_element("all", 1) end
 F.t_hide = function() C.ui_show_element("left", 0) end
 F.t_say = function() C.sound_dialog_play("c00_01_29shinatama") end
+F.t_brain = function() C.sound_dialog_play("brain07final") end
 ]])
 
 -- A message with a time: up, then gone (after its time; the last 64 ticks
@@ -131,6 +132,14 @@ for t = 1, 900 do
 end
 print("the subtitle went after", gone)
 assert(gone and gone > 60, "and goes once the line is over")
+
+-- A line keyed by name rather than number (the Deadly Brain's, level 2):
+-- found by its whole name.
+mission_call("t_brain")
+step(2)
+print("brain subtitle:", hud().subtitles[1])
+assert(has(hud().subtitles, "Deadly Brain"), "the brain's subtitle is up")
+for _ = 1, 2400 do step(1) if #hud().subtitles == 0 then break end end
 
 -- Scripts fill and hide parts of it.
 mission_call("t_fill")

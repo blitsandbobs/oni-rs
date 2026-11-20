@@ -54,7 +54,7 @@ pub struct State {
     pub message_until: HashMap<String, u64>,
     /// The game's message texts (`message`), and dialogue subtitles.
     pub texts: HashMap<String, String>,
-    pub subtitles: HashMap<String, String>,
+    pub subtitles: crate::hud::Subtitles,
     /// Errors that stopped a script (logged once each).
     pub errors: Vec<String>,
     /// Commands that reported a problem and carried on (the original logs
@@ -92,12 +92,9 @@ impl State {
     /// name's first letter), its markup stripped.
     pub fn message_text(&self, name: &str) -> Option<String> {
         let key = name.to_ascii_lowercase();
-        // Subtitles are keyed by a number the name (after its first letter)
-        // starts with: `c00_01_29shinatama` → `00_01_29`.
-        let rest = key.get(1..).unwrap_or("");
-        let raw = self.texts.get(&key).or_else(|| {
-            self.subtitles.iter().filter(|(k, _)| rest.starts_with(k.as_str())).max_by_key(|(k, _)| k.len()).map(|(_, v)| v)
-        })?;
+        // (Else the subtitles, by the name without its first letter, as the
+        // `message` command looks — `crate::hud::Hud::message`.)
+        let raw = self.texts.get(&key).map(String::as_str).or_else(|| self.subtitles.find(name.get(1..).unwrap_or("")))?;
         // `[o.text]` / `[c.text]`: styled spans.
         let mut out = String::new();
         let mut chars = raw.chars().peekable();
@@ -158,14 +155,11 @@ impl Mission {
             .ok()
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or_default();
-        let table = |k: &str| -> HashMap<String, String> {
-            doc[k]
-                .as_object()
-                .map(|m| m.iter().map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())).collect())
-                .unwrap_or_default()
-        };
-        state.texts = table("messages");
-        state.subtitles = table("subtitles");
+        state.texts = doc["messages"]
+            .as_object()
+            .map(|m| m.iter().map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())).collect())
+            .unwrap_or_default();
+        state.subtitles = crate::hud::Subtitles::from_json(&doc["subtitles"]);
         Ok(Mission { lua, tasks: Vec::new(), state })
     }
 

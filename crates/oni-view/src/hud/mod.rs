@@ -175,7 +175,7 @@ pub struct Hud {
     texture_sizes: HashMap<String, [f32; 2]>,
     /// The message tables (`messages`, `subtitles`), by lowercase name.
     pub texts: HashMap<String, String>,
-    pub subtitle_texts: HashMap<String, String>,
+    pub subtitle_texts: Subtitles,
     /// Which level (the autoprompts' ranges).
     pub level: u16,
     /// The rings shown (`ui_show_element left/right`).
@@ -225,7 +225,7 @@ impl Default for Hud {
             fonts: Fonts::default(),
             texture_sizes: HashMap::new(),
             texts: HashMap::new(),
-            subtitle_texts: HashMap::new(),
+            subtitle_texts: Subtitles::default(),
             level: 0,
             show: [true, true],
             filled: 0,
@@ -252,6 +252,39 @@ impl Default for Hud {
             now: 0,
             restored_at: None,
         }
+    }
+}
+
+/// The dialogue subtitles (`SUBT subtitles`), in the table's order.
+#[derive(Clone, Debug, Default)]
+pub struct Subtitles(Vec<(String, String)>);
+
+impl Subtitles {
+    /// From `messages.json`'s `subtitles`: `[key, text]` pairs.
+    pub fn from_json(v: &serde_json::Value) -> Subtitles {
+        Subtitles(
+            v.as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|p| Some((p[0].as_str()?.to_string(), p[1].as_str()?.to_string())))
+                .collect(),
+        )
+    }
+
+    /// A line's subtitle (`SSiSubtitleArray_FindByNumber`): the first entry,
+    /// in the table's order, whose key the name begins with (ignoring case)
+    /// — a numbered key (`01_02_50`) against the name after its first letter
+    /// (`c01_02_50griffin`), any other (`brain07final`) against the whole
+    /// name. (First, not best: a key that is the start of another wins if it
+    /// comes first, as the shipped table has it once.)
+    pub fn find(&self, name: &str) -> Option<&str> {
+        self.0
+            .iter()
+            .find(|(k, _)| {
+                let n = if k.starts_with(|c: char| c.is_ascii_digit()) { name.get(1..).unwrap_or("") } else { name };
+                n.get(..k.len()).is_some_and(|p| p.eq_ignore_ascii_case(k))
+            })
+            .map(|(_, t)| t.as_str())
     }
 }
 
@@ -283,7 +316,7 @@ impl Hud {
             additive,
             fonts: Fonts::load(common),
             texts: table("messages"),
-            subtitle_texts: table("subtitles"),
+            subtitle_texts: Subtitles::from_json(&doc["subtitles"]),
             level,
             autoprompts,
             ..Hud::default()
@@ -300,11 +333,10 @@ impl Hud {
         self.texts.get(&name.to_ascii_lowercase()).map(String::as_str)
     }
 
-    /// A subtitle by the name a script gives (`SSrSubtitle_Find`, the name
-    /// after its first letter: `c00_01_29shinatama` → `00_01_29`).
+    /// A dialogue line's subtitle, by the line's name (`SSrSubtitle_Find`;
+    /// see [`Subtitles::find`]).
     pub fn subtitle_text(&self, name: &str) -> Option<&str> {
-        let rest = name.get(1..).unwrap_or("").to_ascii_lowercase();
-        self.subtitle_texts.iter().filter(|(k, _)| rest.starts_with(k.as_str())).max_by_key(|(k, _)| k.len()).map(|(_, v)| v.as_str())
+        self.subtitle_texts.find(name)
     }
 
     /// `message name [ticks]` (`AIiScript_Message`): from the messages table
@@ -314,7 +346,10 @@ impl Hud {
         if let Some(t) = self.message_text(name).map(str::to_string) {
             self.messages.print(&t, Some(name), ticks);
             true
-        } else if let Some(t) = self.subtitle_text(name).map(str::to_string) {
+        } else if let Some(t) = self.subtitle_texts.find(name.get(1..).unwrap_or("")).map(str::to_string) {
+            // (The subtitles, by the name without its first letter — which
+            // the lookup then strips again for a numbered entry, so a
+            // numbered line is never found this way; as shipped.)
             self.console.print(&t, Some(name), ticks);
             true
         } else {
@@ -972,6 +1007,25 @@ fn text_draws(fonts: &Fonts, laid: &[(text::Segment, f32, String)]) -> Vec<Overl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subtitles_match_as_the_original_finds_them() {
+        let t = Subtitles::from_json(&serde_json::json!([
+            ["00_01_113", "line 113"],
+            ["brain07final", "Deadly Brain: hello"],
+            ["00_01_11", "line 11"],
+            ["gift_field", "field"],
+            ["gift_fields", "fields"],
+        ]));
+        // A numbered key against the name after its first letter.
+        assert_eq!(t.find("c00_01_113shinatama"), Some("line 113"));
+        assert_eq!(t.find("C00_01_11Shinatama"), Some("line 11"));
+        // Any other key against the whole name.
+        assert_eq!(t.find("brain07final"), Some("Deadly Brain: hello"));
+        // The first in the table's order, not the best.
+        assert_eq!(t.find("gift_fields"), Some("field"));
+        assert_eq!(t.find("nothing"), None);
+    }
 
     #[test]
     fn a_fall_leaves_a_shadow_that_fades() {

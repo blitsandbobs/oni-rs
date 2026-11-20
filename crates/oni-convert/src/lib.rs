@@ -1437,17 +1437,26 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
         let Some(d) = dat.instance_data(inst) else { continue };
         let name = inst.name.as_deref().unwrap_or("").trim_start_matches("SUBT").to_string();
         let (base, count) = (le_u32(d, 16) as usize, le_u32(d, 20) as usize);
+        // (Messages are found by exact name; subtitles by the first entry, in
+        // the table's order, whose key the line's name starts with — so they
+        // keep their order: `[key, text]` pairs.)
+        let ordered = name == "subtitles";
         let mut table = serde_json::Map::new();
+        let mut pairs = Vec::new();
         for k in 0..count {
             let at = base + le_u32(d, 24 + 4 * k) as usize;
             let key = cstr(raw, at, 256);
             let text = cstr(raw, at + key.len() + 1, 1024);
             if !key.is_empty() {
-                table.insert(key, serde_json::json!(text));
+                if ordered {
+                    pairs.push(serde_json::json!([key, text]));
+                } else {
+                    table.insert(key, serde_json::json!(text));
+                }
             }
         }
-        n += table.len();
-        out.insert(name, serde_json::Value::Object(table));
+        n += table.len() + pairs.len();
+        out.insert(name, if ordered { serde_json::Value::Array(pairs) } else { serde_json::Value::Object(table) });
     }
     if n == 0 {
         return Ok(0);
