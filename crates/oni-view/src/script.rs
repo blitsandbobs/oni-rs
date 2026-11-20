@@ -1659,6 +1659,20 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // timer() → (what it shows now or nil, ticks left, mode "on" | "fail"),
+    // or nil with no countdown running (`world/timer.rs`).
+    let h = host.clone();
+    g.set(
+        "timer",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            Ok(match w.timer.as_ref() {
+                Some(t) => (w.timer_text(), Some(t.ticks), Some(if t.mode == crate::world::timer::Mode::On { "on" } else { "fail" })),
+                None => (None, None, None),
+            })
+        })?,
+    )?;
     // passive_of(id) → whether fighter id's AI is passive (`ai2_passive`, a
     // cutscene); script_id_of(id) → the id the scripts know it by (the
     // player 0, a `chr_create`d character its setup's; nil for the rest).

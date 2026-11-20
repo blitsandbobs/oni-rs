@@ -29,6 +29,7 @@ mod flow;
 mod hypo;
 mod hud;
 mod lens;
+pub mod timer;
 pub use hud::hit_quadrant;
 mod objects;
 mod objects_sound;
@@ -163,6 +164,10 @@ pub struct World {
     last_hypo_key: u32,
     /// The lens flares' fades (`world/lens.rs`): each's state and opacity.
     pub lens: std::collections::HashMap<crate::p3::Handle, (lens::LensState, f32)>,
+    /// The countdown timer (`world/timer.rs`), and the script of one just
+    /// run out (the mission runs it).
+    pub timer: Option<timer::Timer>,
+    pub timer_expired: Option<String>,
     /// The quads see-through this tick (the camera's jello).
     pub jello: Vec<u32>,
     /// The level's placed objects as authored, and those scripts have made.
@@ -278,6 +283,8 @@ impl World {
             hypo: Default::default(),
             last_hypo_key: 0,
             lens: Default::default(),
+            timer: None,
+            timer_expired: None,
             jello: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
@@ -1827,6 +1834,7 @@ impl World {
         }
         self.particle_sounds();
         self.voices_tick();
+        self.timer_tick();
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
         for i in 0..self.fighters.len() {

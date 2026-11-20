@@ -226,6 +226,11 @@ impl Triggers {
 pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String>)> {
     let mut out = Vec::new();
 
+    // A countdown run out: its script, once.
+    if let Some(script) = host.world().timer_expired.take() {
+        out.push((script, Vec::new()));
+    }
+
     // Character events.
     let n = host.world().fighters.len();
     for id in 0..n {
@@ -1252,6 +1257,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         // --- scripted movement (`docs/AI.md`, *Scripted movement*) -----------
+        // --- the countdown timer (`world/timer.rs`) ----------------------------
+        "timer_start" => {
+            let (Some(seconds), Some(script)) = (float(a(0)), a(1).and_then(text)) else {
+                state.warn("timer_start: expected <seconds> <script>".into());
+                return nil();
+            };
+            host.world().timer_start(seconds, &script);
+            nil()
+        }
+        "timer_stop" => {
+            host.world().timer_stop();
+            nil()
+        }
         "ai2_takecontrol" => {
             // (`AI2iScript_TakeControl`: the AI movement system takes the
             // player — no sprint, no look offset — or lets go.)

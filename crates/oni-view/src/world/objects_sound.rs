@@ -202,7 +202,7 @@ impl World {
             // (The shield's loop was taken out of the game.)
             None,
             (invis > 0.0).then(|| fade(1.0 - invis / MAX_INVISIBILITY)),
-            None,
+            self.timer_critical().then_some(1.0),
         ];
         for (k, want) in wanted.into_iter().enumerate() {
             match (want, self.game_sounds.playing[k]) {

@@ -53,6 +53,8 @@ impl World {
             shield: i.shield,
             invisibility: i.invisibility,
             lsi: i.lsi,
+            timer: self.timer_text(),
+            timer_on: self.timer.is_some(),
             feet: p.feet(),
             facing: p.facing.aim(),
             gun: p.hand.map(|w| gun(w, true)).or_else(|| p.holster.map(|w| gun(w, false))),

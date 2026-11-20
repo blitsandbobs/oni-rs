@@ -54,6 +54,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
+| `timer.lua` | The countdown: `timer_start` shows 0:12 → 0:11 → 0:09.3, blinking under twenty seconds; at zero its script runs and 0:00.0 blinks five seconds; `timer_stop` ends one early (no script). |
 | `script_ai.lua` | Scripts steering characters (level 2): `chr_create` makes setup 1050 at its flag, known by its script id; a cutscene makes the AIs passive and puts Konoko's gun away, its end undoes both; `ai2_takecontrol` + `ai2_movetoflag` walk her to a flag and turn her to its facing, `ai2_lookatchar` turns her toward someone; `ai2_makeblind` / `ai2_forget`. |
 | `auto_aim.lua` | Konoko's arm follows her gun: aiming 30° and 60° to each side, and when auto-aim turns the gun onto an enemy 4° off her aim (the gun stays in her hand). |
 | `downed.lua` | A downed Striker doesn't turn while it lies: not toward Konoko walking round it, not when ordered to face elsewhere. |
@@ -170,6 +171,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `laser(id, what [, factor])` / `laser_state(id)` / `beams()` | Order a laser trigger (`activate`, `deactivate`, `reset`, `hide`, `show`, `speed`); its active / on / triggered state and beams out; every beam now (`{x1,y1,z1,x2,y2,z2}`). |
 | `eye_of(id)` | Where an agent's eyes look (degrees; nil: along its body). |
 | `mission_exec(code)` | Defines script functions of the scenario's own (translated-Lua form, `F.name = function() C.command(…) end`) in the running mission; run them with `mission_call`. |
+| `timer()` | The countdown: what it shows now (nil while blinked off), ticks left, `on` / `fail`; nils with none. |
 | `passive_of(id)` / `script_id_of(id)` | Whether an AI is passive (a script, a cutscene); the id the scripts know a character by (the player 0, a `chr_create`d character its setup's; nil otherwise). |
 | `place(name)` / `goals(id)` / `goal_of(id)` | Goals: place one of the level's characters by name (class, position, job, alerts, profiles; returns its id); give a spawned character default goals (idle); what an agent is doing (`job patrol <path> @<waypoint>`, `pursuit goTo`, `combat Melee → 2`, `idle`, …). `nav_state(id)` also reads an agent's current walk. |
 | `watch(id)` / `alert_of(id)` / `contact_of(id, other)` / `team(id, name)` / `noise(x, y, z, kind, volume [, maker])` | Perception: make a placed character watch and listen; its alert level; how sure it is of another (`definite` … `forgotten`, nil); set its team; make a noise (`interesting`, `danger`, `melee`, `gunshot`, `ignore`). |

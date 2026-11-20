@@ -137,6 +137,10 @@ pub struct Player {
     pub shield: u16,
     pub invisibility: u16,
     pub lsi: bool,
+    /// The countdown's display this frame (None: none, or blinked off), and
+    /// whether one runs at all (the LSI icon dims meanwhile).
+    pub timer: Option<String>,
+    pub timer_on: bool,
     pub feet: Vec3,
     /// Its aim (radians; what the compass turns with).
     pub facing: f32,
@@ -659,7 +663,16 @@ impl Hud {
                 }
             }
             if p.lsi {
-                out.push(sprite(Some(self.texture("lsi_icon")), rc, [54.0, 54.0], false, [1.0, 1.0, 1.0, fl(el::LSI, self)]));
+                // (A third as bright while a countdown runs.)
+                let dim = if p.timer_on { 1.0 / 3.0 } else { 1.0 };
+                out.push(sprite(Some(self.texture("lsi_icon")), rc, [54.0, 54.0], false, [1.0, 1.0, 1.0, fl(el::LSI, self) * dim]));
+            }
+            // The countdown (`ONrGameState_Timer_Display`): the default
+            // font, bold, white, centred on the ring's middle.
+            if let Some(t) = p.timer.as_deref() {
+                if let Some(font) = self.fonts.fonts.iter().find(|f| f.size == 7 && f.style == "bold").cloned() {
+                    out.push(timer_draw(&font, t, rc));
+                }
             }
         }
     }
@@ -811,6 +824,24 @@ fn arc(texture: Option<PathBuf>, c: [f32; 2], outer: f32, inner: f32, tex_w: f32
 
 /// Text segments as glyph cells: a drop shadow a pixel down and right
 /// (25 % grey), then the text in its colour.
+/// The countdown's text, centred across `center`, its baseline half the
+/// plain font's ascent below it (as `ONrGameState_Timer_Display` places it).
+fn timer_draw(font: &text::Font, s: &str, center: [f32; 2]) -> OverlayDraw {
+    let width: i32 = s.chars().filter_map(|c| font.glyph(c)).map(|g| g[3]).sum();
+    let mut x = (center[0] - (width / 2) as f32).floor();
+    let top = (center[1] + (font.ascending / 2) as f32 - font.ascending as f32).floor();
+    let (aw, ah) = (font.atlas_size[0], font.atlas_size[1]);
+    let mut tris = Vec::new();
+    for ch in s.chars() {
+        let Some([gx, gy, gw, adv]) = font.glyph(ch) else { continue };
+        let (cw, chh) = (gw as f32, font.cell_height() as f32);
+        let (u0, v0, u1, v1) = (gx as f32 / aw, gy as f32 / ah, (gx as f32 + cw) / aw, (gy as f32 + chh) / ah);
+        tris.extend_from_slice(&[[x, top, u0, v0], [x + cw, top, u1, v0], [x + cw, top + chh, u1, v1], [x, top, u0, v0], [x + cw, top + chh, u1, v1], [x, top + chh, u0, v1]]);
+        x += adv as f32;
+    }
+    OverlayDraw { texture: Some(font.atlas.clone()), tris, color: [1.0, 1.0, 1.0, 1.0], additive: false }
+}
+
 fn text_draws(fonts: &Fonts, laid: &[(text::Segment, f32, String)]) -> Vec<OverlayDraw> {
     let mut out = Vec::new();
     for (shadow, (dx, rgb)) in [(true, (1.0, 0x404040)), (false, (0.0, 0))] {
