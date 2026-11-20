@@ -7,10 +7,20 @@
 //! quad the player can't see through and no character. A flare with lens
 //! frames fades in and out over them as it is seen or hidden
 //! (`P3rLensFlare_Fade`); one without just shows or not.
+//!
+//! Before the ray, the original asks whether the point's octree leaf was
+//! seen (`AKrEnvironment_PointIsVisible`: a leaf the camera's visibility
+//! rays crossed lately) — off the screen, it isn't, and the flare fades
+//! out. Here: within the view's frustum, widened by a leaf's side
+//! (`AKcMinOTDim`, 16), and short of the far plane. (Without that cut every
+//! flare cast a ray across the level every tick: most of a tick's time.)
 
 use glam::Vec3;
 
 use super::World;
+
+/// An octree leaf's side at its smallest (`AKcMinOTDim`).
+const LEAF: f32 = 16.0;
 use crate::p3::Handle;
 
 /// A flare's fade (`P3cLensFrames_*`): how it stands, and the frames into
@@ -79,12 +89,26 @@ const NEAR: f32 = 5.0;
 impl World {
     /// Whether a lens flare's point is seen from the camera, `tolerance`
     /// in front of it counting as seen.
+    /// Whether a point `to` from the camera is on the screen, give or take
+    /// an octree leaf (see the module notes).
+    fn in_view(&self, to: Vec3) -> bool {
+        let (v, cam) = (self.camera.view, &self.camera);
+        let ahead = to.dot(v.view);
+        if ahead <= NEAR || ahead > cam.far + LEAF {
+            return false;
+        }
+        let right = v.view.cross(v.up).normalize_or_zero();
+        let up = right.cross(v.view);
+        let tan_y = (cam.fov * 0.5).tan();
+        // A leaf's side, as a slack at right angles to the edge planes.
+        let slack = |tan: f32| LEAF * (1.0 + tan * tan).sqrt();
+        to.dot(up).abs() <= ahead * tan_y + slack(tan_y) && to.dot(right).abs() <= ahead * tan_y * cam.aspect + slack(tan_y * cam.aspect)
+    }
+
     fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[(usize, Vec<glam::Mat4>)]) -> bool {
         let v = self.camera.view;
         let to = at - v.location;
-        // (Behind the camera: not drawn. Off to the side it is left to the
-        // drawing, as the original's area test, coarse, doesn't cut it.)
-        if to.dot(v.view) <= NEAR {
+        if !self.in_view(to) {
             return false;
         }
         let from = v.location + v.view * NEAR;

@@ -8,7 +8,11 @@ locomotion state machine, collision — without a window. They replace the old
 
 Run them all with `scenarios/run_all.sh` (and again with `--faithful`): a
 scenario fails when its script errors (an `assert`), which makes `oni-view
---script` exit non-zero.
+--script` exit non-zero. They run 8 at a time (`-j N` to change; `-j 1` one
+by one), each its own process; the report comes in file order. A pass takes
+about 9 s (one by one, about 30 s; the longest, `mission.lua`, plays the
+whole training in about 6.5 s). Scenarios that write files (screenshots)
+must each use their own path.
 
 ## Running
 

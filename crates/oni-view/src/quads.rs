@@ -118,6 +118,11 @@ struct Grid {
 /// A grid square's side.
 const CELL: f32 = 32.0;
 
+thread_local! {
+    /// [`Quads::candidates`]' scratch: per quad, the query that last saw it.
+    static SEEN: std::cell::RefCell<(Vec<u32>, u32)> = const { std::cell::RefCell::new((Vec::new(), 0)) };
+}
+
 impl Grid {
     fn build(quads: &[Quad]) -> Grid {
         if quads.is_empty() {
@@ -209,20 +214,41 @@ impl Quads {
         self.grid = Grid::build(&self.quads);
     }
 
-    /// The quads whose boxes might meet the box `lo`–`hi`, in quad order.
-    fn candidates(&self, lo: Vec3, hi: Vec3) -> Vec<u32> {
+    /// The quads whose boxes might meet the box `lo`–`hi`, each once — in
+    /// quad order if `ordered` (only callers whose answer depends on the
+    /// order ask: the rest pick by an explicit key).
+    fn candidates(&self, lo: Vec3, hi: Vec3, ordered: bool) -> Vec<u32> {
         if self.grid.cells.is_empty() {
             return (0..self.quads.len() as u32).filter(|&k| self.quads[k as usize].flags & flag::PATHFINDING == 0).collect();
         }
         let (x0, z0, x1, z1) = self.grid.span(lo, hi);
         let mut out: Vec<u32> = Vec::new();
-        for z in z0..=z1 {
-            for x in x0..=x1 {
-                out.extend_from_slice(&self.grid.cells[z * self.grid.size[0] + x]);
+        // A quad spans every cell it overlaps: a stamp per quad keeps the
+        // first sighting (sorting the repeats away was most of a tick).
+        SEEN.with_borrow_mut(|(stamps, now)| {
+            if stamps.len() < self.quads.len() {
+                stamps.resize(self.quads.len(), 0);
             }
+            *now = now.wrapping_add(1);
+            if *now == 0 {
+                stamps.fill(0);
+                *now = 1;
+            }
+            for z in z0..=z1 {
+                for x in x0..=x1 {
+                    for &k in &self.grid.cells[z * self.grid.size[0] + x] {
+                        let s = &mut stamps[k as usize];
+                        if *s != *now {
+                            *s = *now;
+                            out.push(k);
+                        }
+                    }
+                }
+            }
+        });
+        if ordered {
+            out.sort_unstable();
         }
-        out.sort_unstable();
-        out.dedup();
         out
     }
 
@@ -249,7 +275,7 @@ impl Quads {
         let mut hits = Vec::new();
         let end = center + vector;
         let pad = Vec3::splat(radius + 0.01);
-        for k in self.candidates(center.min(end) - pad, center.max(end) + pad) {
+        for k in self.candidates(center.min(end) - pad, center.max(end) + pad, true) {
             let q = &self.quads[k as usize];
             if q.flags & skip != 0 {
                 continue;
@@ -273,7 +299,7 @@ impl Quads {
         // (A quick reject on the boxes, wide enough never to change the
         // answer.)
         let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
-        self.candidates(lo, hi)
+        self.candidates(lo, hi, false)
             .into_iter()
             .map(|k| (k as usize, &self.quads[k as usize]))
             .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())
@@ -293,7 +319,7 @@ impl Quads {
         let end = start + vector;
         let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
         let mut hits: Vec<Hit> = self
-            .candidates(lo, hi)
+            .candidates(lo, hi, false)
             .into_iter()
             .map(|k| (k, &self.quads[k as usize]))
             .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())

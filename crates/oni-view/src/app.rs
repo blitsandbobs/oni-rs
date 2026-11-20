@@ -736,7 +736,9 @@ impl State {
         }
 
         // The game camera (`world/camera.rs`).
-        self.cam = pw.world.camera.render_camera(self.config.width as f32 / self.config.height as f32);
+        let aspect = self.config.width as f32 / self.config.height as f32;
+        pw.world.camera.aspect = aspect;
+        self.cam = pw.world.camera.render_camera(aspect);
         self.flow_check();
     }
 

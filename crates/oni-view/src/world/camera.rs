@@ -93,6 +93,8 @@ pub struct GameCamera {
     /// far plane (`gs_farclipplane_set`).
     pub fov: f32,
     pub far: f32,
+    /// The screen's width over its height, as last drawn (16:9 until then).
+    pub aspect: f32,
     /// Placed behind the player yet (at the level's start).
     pub placed: bool,
 }
@@ -110,6 +112,7 @@ impl Default for GameCamera {
             canter_unarmed: CANTER_UNARMED,
             fov: crate::camera::GAME_FOV_Y,
             far: crate::camera::GAME_FAR,
+            aspect: 16.0 / 9.0,
             placed: false,
         }
     }
