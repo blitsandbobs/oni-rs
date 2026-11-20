@@ -29,6 +29,7 @@ pub(super) const INTERRUPT_ON_STOP: u32 = 1;
 pub(super) const PLAY_ONCE: u32 = 2;
 pub(super) const PAN: u32 = 4;
 
+#[derive(Default)]
 pub(super) struct AmbientDef {
     pub priority: u8,
     pub flags: u32,
@@ -63,6 +64,37 @@ pub(super) struct Defs {
     pub ambients: HashMap<String, AmbientDef>,
     pub groups: HashMap<String, Group>,
     pub impulses: HashMap<String, ImpulseDef>,
+}
+
+impl Defs {
+    /// The ambient a script names, as the original finds it
+    /// (`OSrAmbient_GetByName`): its hash table compares names ignoring case,
+    /// but finds only those in the name's hash bucket — and its hash
+    /// (`AUrString_GetHashValue`, which keeps little more than the last few
+    /// letters) mostly agrees across case. So `c00_01_106Shinatama` finds
+    /// `c00_01_106shinatama`. The exact name first; else one equal ignoring
+    /// case with the same hash.
+    pub fn ambient_name(&self, name: &str) -> Option<String> {
+        if self.ambients.contains_key(name) {
+            return Some(name.to_string());
+        }
+        let h = original_hash(name);
+        self.ambients.keys().find(|k| k.eq_ignore_ascii_case(name) && original_hash(k) == h).cloned()
+    }
+}
+
+/// `AUrString_GetHashValue` as shipped: the Dragon Book's hash, but masking
+/// with the top bits where it meant to clear them.
+fn original_hash(s: &str) -> u32 {
+    let mut v: u32 = 0;
+    for &c in s.as_bytes() {
+        v = (v << 4).wrapping_add(u32::from(c));
+        let i = v & 0xf000_0000;
+        if i != 0 {
+            v = (v ^ (i >> 24)) & i;
+        }
+    }
+    v
 }
 
 fn f(j: &Value) -> f32 {
@@ -151,5 +183,28 @@ impl Defs {
             );
         }
         d
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn names_are_found_as_the_original_finds_them() {
+        // The shipped hash keeps little of a long name's start: the case of
+        // an early letter doesn't change it.
+        assert_eq!(original_hash("c00_01_106Shinatama"), original_hash("c00_01_106shinatama"));
+        assert_eq!(original_hash("c00_01_106shinatama"), 0x0068_a831);
+        // A late letter's case does.
+        assert_ne!(original_hash("abc"), original_hash("abC"));
+        let mut defs = Defs::default();
+        for name in ["c00_01_106shinatama", "abc"] {
+            defs.ambients.insert(name.to_string(), AmbientDef::default());
+        }
+        assert_eq!(defs.ambient_name("c00_01_106shinatama").as_deref(), Some("c00_01_106shinatama"));
+        assert_eq!(defs.ambient_name("c00_01_106Shinatama").as_deref(), Some("c00_01_106shinatama"));
+        assert_eq!(defs.ambient_name("abC"), None, "another bucket: not found, as shipped");
+        assert_eq!(defs.ambient_name("nothing"), None);
     }
 }

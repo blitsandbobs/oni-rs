@@ -70,10 +70,6 @@ impl World {
                 *h = h.saturating_sub(crate::hud::HITS_FADE);
             }
         }
-        // A dialogue line's subtitle stays while it plays.
-        if !self.audio.dialog_playing() {
-            self.hud.subtitles_done();
-        }
         let player = self.hud_player().unwrap_or_default();
         let (letterbox, cutscene) = (self.letterbox, self.in_cutscene || self.now < 30);
         if let Some(sound) = self.hud.tick(&player, letterbox, cutscene) {

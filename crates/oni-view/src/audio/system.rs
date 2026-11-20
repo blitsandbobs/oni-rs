@@ -453,6 +453,11 @@ impl Audio {
     }
 
     /// Halts playing ambient `id` at once: no out sound.
+    /// The sounds playing (their names), in start order.
+    pub fn playing_names(&self) -> Vec<String> {
+        self.playing.iter().map(|p| p.name.clone()).collect()
+    }
+
     pub(super) fn halt(&mut self, id: u32) {
         if let Some(k) = self.playing.iter().position(|p| p.id == id) {
             let p = self.playing.remove(k);

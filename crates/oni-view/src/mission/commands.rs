@@ -687,21 +687,24 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // --- sound (`docs/AUDIO.md`, *Scripts*) ---------------------------------
         // One dialogue voice: a line still on drops a plain play, holds a
         // `_block` play until it is over, is cut off by `_interrupt`. Its
-        // subtitle (no HUD yet: in the terminal).
+        // subtitle shows for its length and a second.
         "sound_dialog_play" | "sound_dialog_play_block" | "sound_dialog_play_interrupt" => {
             let Some(line) = a(0).and_then(text) else { return nil() };
             match host.world().audio.dialog_start(&line, name.ends_with("_interrupt")) {
                 Err(_) if name.ends_with("_block") => Ok((Value::Nil, Value::Boolean(true), None, None)),
                 Err(_) => nil(),
-                // (No such line: nothing, quietly — as shipped.)
-                Ok(_) => {
+                // (No such line: nothing, quietly, no subtitle — as shipped.)
+                Ok(None) => nil(),
+                Ok(Some(duration)) => {
                     if let Some(t) = state.message_text(&line) {
                         eprintln!("SAY ({line}): {t}");
                     }
-                    // Its subtitle, with the option on, while it plays.
+                    // Its subtitle, with the option on, for its length and a
+                    // second more (`OSrInGameDialog_Play`,
+                    // `OScSubtitleStayTime`).
                     let world = host.world();
                     let letterboxed = world.letterbox;
-                    world.hud.subtitle(&line, 0, letterboxed);
+                    world.hud.subtitle(&line, duration + 60, letterboxed);
                     nil()
                 }
             }

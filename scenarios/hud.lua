@@ -32,7 +32,7 @@ F.t_fade_out = function() C.fade_out(0, 0, 0, 30) end
 F.t_fade_in = function() C.fade_in(30) end
 F.t_fill = function() C.ui_fill_element("all", 1) end
 F.t_hide = function() C.ui_show_element("left", 0) end
-F.t_say = function() C.sound_dialog_play("c00_01_29shinatama") end
+F.t_say = function() C.sound_dialog_play("c00_01_29Shinatama") end
 F.t_brain = function() C.sound_dialog_play("brain07final") end
 ]])
 
@@ -119,7 +119,10 @@ mission_call("t_fade_in")
 step(31)
 assert(hud().fade == 0, "and back in")
 
--- A dialogue line, subtitles on: its subtitle stays while it plays.
+-- A dialogue line, subtitles on: its subtitle stays for its length and a
+-- second (`OSrInGameDialog_Play`). Named with a capital its sound doesn't
+-- have — as level 2's scripts name Shinatama's lines — it is still found (the
+-- original's lookup ignores case where its hash agrees).
 subtitles(true)
 mission_call("t_say")
 step(2)
@@ -139,7 +142,11 @@ mission_call("t_brain")
 step(2)
 print("brain subtitle:", hud().subtitles[1])
 assert(has(hud().subtitles, "Deadly Brain"), "the brain's subtitle is up")
-for _ = 1, 2400 do step(1) if #hud().subtitles == 0 then break end end
+-- Its line runs 123 ticks; the subtitle a second more (then fades).
+local brain_gone
+for t = 1, 2400 do step(1) if #hud().subtitles == 0 then brain_gone = t break end end
+print("the brain's subtitle went after", brain_gone)
+assert(brain_gone and brain_gone >= 123 + 60 - 2, "up for the line and a second more")
 
 -- Scripts fill and hide parts of it.
 mission_call("t_fill")

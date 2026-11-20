@@ -31,6 +31,8 @@ impl Audio {
     /// `sound_music_start` / `sound_ambient_start`: ambient `name`, unplaced,
     /// at `volume` (0–1), in the first free slot. False: unknown, or no slot.
     pub fn script_start(&mut self, name: &str, volume: f32) -> bool {
+        let Some(name) = self.defs.ambient_name(name) else { return false };
+        let name = name.as_str();
         let Some(def) = self.defs.ambients.get_mut(name) else { return false };
         let Some(slot) = (0..SLOTS).find(|&k| self.script_slots.get(k).is_none_or(Option::is_none)) else { return false };
         def.priority = HIGHEST;
@@ -66,8 +68,9 @@ impl Audio {
 
     /// Plays dialogue line `name` (unplaced, at full volume): if a line is
     /// still on, `interrupt` cuts it off, else this one must wait (`Busy`).
-    /// False: no such line.
-    pub fn dialog_start(&mut self, name: &str, interrupt: bool) -> Result<bool, Busy> {
+    /// Its length in ticks (`OSiAmbient_GetSimpleDuration`, 120 when
+    /// unknown); none: no such line.
+    pub fn dialog_start(&mut self, name: &str, interrupt: bool) -> Result<Option<u32>, Busy> {
         if self.dialog.playing {
             if !interrupt {
                 return Err(Busy);
@@ -77,7 +80,9 @@ impl Audio {
             }
             self.dialog = Dialog::default();
         }
-        let Some(def) = self.defs.ambients.get_mut(name) else { return Ok(false) };
+        let Some(name) = self.defs.ambient_name(name) else { return Ok(None) };
+        let name = name.as_str();
+        let Some(def) = self.defs.ambients.get_mut(name) else { return Ok(None) };
         def.priority = HIGHEST;
         let play = self.start(name, None, 1.0, None);
         let duration = u64::from(self.ambient_duration(name));
@@ -87,7 +92,8 @@ impl Audio {
             (d, _) => Some(self.tick + d),
         };
         self.dialog = Dialog { playing: true, play, end };
-        Ok(true)
+        // (Its length for the subtitle: unknown, 120 ticks.)
+        Ok(Some(if duration == 0 { DEFAULT_DURATION as u32 } else { duration as u32 }))
     }
 
     /// Whether a dialogue line is on.

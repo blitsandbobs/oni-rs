@@ -377,18 +377,6 @@ impl Hud {
         }
     }
 
-    /// The dialogue is over: its subtitles (printed for as long as it
-    /// plays) fade.
-    pub fn subtitles_done(&mut self) {
-        for area in [&mut self.subtitles, &mut self.console] {
-            for e in &mut area.entries {
-                if e.timer == 0 && e.tag.as_deref() == Some("dialog") {
-                    e.timer = text::IMMEDIATE_FADE;
-                }
-            }
-        }
-    }
-
     /// `objective_set n [silent]` (`ONiInGameUI_ObjectiveSet`): a new one,
     /// unless silent, is prompted. Returns whether it is new.
     pub fn objective_set(&mut self, n: i64, silent: bool) -> bool {

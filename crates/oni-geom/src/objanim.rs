@@ -78,9 +78,14 @@ impl ObjectAnimation {
             Some(b) if a.frame != frame && b.frame > a.frame => {
                 let u = (frame - a.frame) as f32 / (b.frame - a.frame) as f32;
                 let lerp = |x: f32, y: f32| x + (y - x) * u;
+                // The short way round (`MUrQuat_Lerp`): the second key
+                // negated when the two point apart — else the turn between
+                // them swings the long way (the brain's lasers jumped).
+                let dot: f32 = (0..4).map(|i| a.rotation[i] * b.rotation[i]).sum();
+                let sign = if dot < 0.0 { -1.0 } else { 1.0 };
                 (
                     std::array::from_fn::<f32, 3, _>(|i| lerp(a.translation[i], b.translation[i])),
-                    std::array::from_fn::<f32, 4, _>(|i| lerp(a.rotation[i], b.rotation[i])),
+                    std::array::from_fn::<f32, 4, _>(|i| lerp(a.rotation[i], sign * b.rotation[i])),
                 )
             }
             _ => (a.translation, a.rotation),
@@ -172,4 +177,36 @@ pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectA
         keys,
         scale: std::array::from_fn(|i| read_f32(d, OFF_SCALE + i * 4).unwrap_or(0.0)),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Two keys a quarter-turn apart about Y, the second stored with its
+    /// quaternion negated (the same rotation): halfway is an eighth of a
+    /// turn — the short way, as `MUrQuat_Lerp` takes it.
+    #[test]
+    fn keys_turn_the_short_way() {
+        let h = std::f32::consts::FRAC_PI_4; // half of a quarter-turn
+        let key = |frame, q: [f32; 4]| ObjAnimKey { frame, translation: [0.0; 3], rotation: q };
+        let anim = ObjectAnimation {
+            name: None,
+            flags: 0,
+            ticks_per_frame: 1,
+            num_frames: 11,
+            door_open_frames: 0,
+            keys: vec![key(0, [0.0, 0.0, 0.0, 1.0]), key(10, [0.0, -h.sin(), 0.0, -h.cos()])],
+            scale: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        };
+        // The X axis's turn at each frame: steps of about 9° (a lerp, not a
+        // slerp: within a degree). The long way round would be far off.
+        let angle = |f| {
+            let m = anim.matrix(f);
+            m[2].atan2(m[0]).to_degrees().abs()
+        };
+        for f in 0..=10 {
+            assert!((angle(f) - 9.0 * f as f32).abs() < 1.0, "frame {f}: {}°", angle(f));
+        }
+    }
 }
