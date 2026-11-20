@@ -26,6 +26,7 @@ const HEAD_BONE: usize = 10;
 mod env_particles;
 pub mod camera;
 mod flow;
+pub mod fog;
 mod hypo;
 mod hud;
 mod lens;
@@ -173,6 +174,8 @@ pub struct World {
     /// The placed objects see-through this tick (the camera's jello on
     /// objects, `OBcFlags_JelloObjects`).
     pub jello_objects: Vec<usize>,
+    /// The fog (`world/fog.rs`).
+    pub fog: fog::FogState,
     /// The level's placed objects as authored, and those scripts have made.
     pub object_setups: Vec<objects::Setup>,
     pub objects: Vec<objects::Object>,
@@ -292,6 +295,7 @@ impl World {
             timer_expired: None,
             jello: Vec::new(),
             jello_objects: Vec::new(),
+            fog: Default::default(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
             objects: Vec::new(),
@@ -786,6 +790,8 @@ impl World {
     /// paths, flags, films, combat profiles, consoles.
     pub fn load_level(&mut self, level_dir: &std::path::Path) {
         self.level_dir = level_dir.to_path_buf();
+        // (Each level starts from the draw engine's fog.)
+        self.fog = Default::default();
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
         self.doors = crate::doors::load(level_dir);
@@ -1616,6 +1622,7 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
+        self.fog.tick();
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.
         let controls = if self.input_enabled { controls & self.key_mask } else { 0 };

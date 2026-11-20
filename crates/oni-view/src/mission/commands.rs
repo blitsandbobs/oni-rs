@@ -366,12 +366,34 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "@get" => {
             let k = a(0).and_then(text).unwrap_or_default();
-            done(state.vars.get(&k).cloned().unwrap_or(Value::Integer(0)))
+            // (The fog's are the draw engine's.)
+            let fog = host.world().fog.fog;
+            let v = match k.as_str() {
+                "gl_fog_red" => Some(fog.color[0]),
+                "gl_fog_green" => Some(fog.color[1]),
+                "gl_fog_blue" => Some(fog.color[2]),
+                "gl_fog_start" => Some(fog.start),
+                "gl_fog_end" => Some(fog.end),
+                _ => None,
+            };
+            match v {
+                Some(v) => done(Value::Number(f64::from(v))),
+                None => done(state.vars.get(&k).cloned().unwrap_or(Value::Integer(0))),
+            }
         }
         "@set" => {
             let k = a(0).and_then(text).unwrap_or_default();
-            // (The camera's tunables are engine variables.)
+            // (The fog's and the camera's tunables are engine variables.)
             if let Some(v) = float(a(1)) {
+                let fog = &mut host.world().fog.fog;
+                match k.as_str() {
+                    "gl_fog_red" => fog.color[0] = v,
+                    "gl_fog_green" => fog.color[1] = v,
+                    "gl_fog_blue" => fog.color[2] = v,
+                    "gl_fog_start" => fog.start = v,
+                    "gl_fog_end" => fog.end = v,
+                    _ => {}
+                }
                 let cam = &mut host.world().camera;
                 match k.as_str() {
                     "cm_distance" => cam.distance = v,
@@ -656,6 +678,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "gs_fov_set" => {
             if let Some(deg) = float(a(0)) {
                 host.world().camera.fov = deg.to_radians();
+            }
+            nil()
+        }
+        // The fog's start / end eased over frames (`gl_fog_start_changeto`).
+        "gl_fog_start_changeto" | "gl_fog_end_changeto" => {
+            if let Some(v) = float(a(0)) {
+                let frames = int(a(1)).unwrap_or(0) as i32;
+                let fog = &mut host.world().fog;
+                if name == "gl_fog_start_changeto" {
+                    fog.start_to(v, frames);
+                } else {
+                    fog.end_to(v, frames);
+                }
             }
             nil()
         }

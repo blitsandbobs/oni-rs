@@ -58,6 +58,26 @@ impl Gpu {
 #[derive(Clone, Copy, Pod, Zeroable)]
 struct Uniforms {
     view_proj: [[f32; 4]; 4],
+    /// The fog's colour (rgb), and its start and end in screen depth (−1 at
+    /// the near plane, 1 at the far).
+    fog_color: [f32; 4],
+    fog: [f32; 4],
+}
+
+/// The fog (`gl_fog_*`, `docs/RENDERING.md`): linear in screen depth between
+/// its start and end (−1 near, 1 far), toward its colour.
+#[derive(Clone, Copy, Debug)]
+pub struct Fog {
+    pub color: [f32; 3],
+    pub start: f32,
+    pub end: f32,
+}
+
+impl Default for Fog {
+    /// The draw engine's (`FOG_COLOR_GL`, `ONI_FOG_START`, `ONI_FOG_END`).
+    fn default() -> Fog {
+        Fog { color: [0.25; 3], start: 0.975, end: 1.0 }
+    }
 }
 
 /// One corner of a billboard quad. The world position is built in the vertex
@@ -280,6 +300,8 @@ pub struct Renderer {
     pub anim_time: u32,
     /// Where the camera is this frame (billboard sprites turn toward it).
     pub eye: glam::Vec3,
+    /// This frame's fog.
+    pub fog: Fog,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -306,7 +328,7 @@ impl Renderer {
             label: Some("uniform"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -423,7 +445,7 @@ impl Renderer {
         let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
         let blend_cull_pipeline = culled("alpha culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_main");
         let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_main");
-        let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_main", wgpu::CompareFunction::Always);
+        let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_nofog", wgpu::CompareFunction::Always);
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
         // depth-tested against the scene but with no depth write.
@@ -703,6 +725,7 @@ impl Renderer {
             animated: Default::default(),
             anim_time: 0,
             eye: glam::Vec3::ZERO,
+            fog: Fog::default(),
             particles: particle_groups,
             depth: None,
         }
@@ -850,6 +873,8 @@ impl Renderer {
             0,
             bytemuck::bytes_of(&Uniforms {
                 view_proj: view_proj.to_cols_array_2d(),
+                fog_color: [self.fog.color[0], self.fog.color[1], self.fog.color[2], 1.0],
+                fog: [self.fog.start, self.fog.end, 0.0, 0.0],
             }),
         );
 
@@ -1529,7 +1554,7 @@ fn generate_mips(w: u32, h: u32, base: Vec<u8>) -> Vec<(u32, u32, Vec<u8>)> {
 }
 
 /// Loads a PNG as RGBA8.
-fn load_png(path: &Path) -> std::io::Result<(u32, u32, Vec<u8>)> {
+pub(crate) fn load_png(path: &Path) -> std::io::Result<(u32, u32, Vec<u8>)> {
     let file = std::fs::File::open(path)?;
     let decoder = png::Decoder::new(file);
     let mut reader = decoder.read_info().map_err(std::io::Error::other)?;
@@ -1549,8 +1574,21 @@ fn load_png(path: &Path) -> std::io::Result<(u32, u32, Vec<u8>)> {
 }
 
 const SHADER: &str = r#"
-struct Uniforms { view_proj: mat4x4<f32> };
+struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
+fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
+    let z = depth * 2.0 - 1.0;
+    let span = u.fog.y - u.fog.x;
+    var f = 1.0;
+    if (span > 0.0) {
+        f = clamp((u.fog.y - z) / span, 0.0, 1.0);
+    } else if (z >= u.fog.y) {
+        f = 0.0;
+    }
+    return mix(u.fog_color.rgb, rgb, f);
+}
+
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -1586,6 +1624,13 @@ fn lit(in: VSOut) -> vec4<f32> {
 
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    let c = lit(in);
+    return vec4<f32>(fogged(c.rgb, in.clip.z), c.a);
+}
+
+// Unfogged (lens flares: drawn with the fog off).
+@fragment
+fn fs_nofog(in: VSOut) -> @location(0) vec4<f32> {
     return lit(in);
 }
 
@@ -1594,14 +1639,14 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 @fragment
 fn fs_jello(in: VSOut) -> @location(0) vec4<f32> {
     let c = lit(in);
-    return vec4<f32>(c.rgb, c.a * (20.0 / 255.0));
+    return vec4<f32>(fogged(c.rgb, in.clip.z), c.a * (20.0 / 255.0));
 }
 
 // An object in the camera's way: drawn at 31 of 255 (`OBrDraw`).
 @fragment
 fn fs_jello_object(in: VSOut) -> @location(0) vec4<f32> {
     let c = lit(in);
-    return vec4<f32>(c.rgb, c.a * (31.0 / 255.0));
+    return vec4<f32>(fogged(c.rgb, in.clip.z), c.a * (31.0 / 255.0));
 }
 "#;
 
@@ -1634,8 +1679,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 /// Decals: the texture times the corners' light, its alpha times the
 /// decal's opacity.
 const DECAL_SHADER: &str = r#"
-struct Uniforms { view_proj: mat4x4<f32> };
+struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
+fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
+    let z = depth * 2.0 - 1.0;
+    let span = u.fog.y - u.fog.x;
+    var f = 1.0;
+    if (span > 0.0) {
+        f = clamp((u.fog.y - z) / span, 0.0, 1.0);
+    } else if (z >= u.fog.y) {
+        f = 0.0;
+    }
+    return mix(u.fog_color.rgb, rgb, f);
+}
+
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -1657,7 +1715,7 @@ fn vs_main(@location(0) pos: vec3<f32>, @location(1) uv: vec2<f32>, @location(2)
 @fragment
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let texel = textureSample(tex, samp, in.uv);
-    return vec4<f32>(texel.rgb * in.color.rgb, texel.a * in.color.a);
+    return vec4<f32>(fogged(texel.rgb * in.color.rgb, in.clip.z), texel.a * in.color.a);
 }
 "#;
 
@@ -1665,8 +1723,21 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 /// built from each vertex's `center`/`size`/`corner` using the camera's
 /// world-space right/up basis (pushed per draw).
 const PARTICLE_SHADER: &str = r#"
-struct Uniforms { view_proj: mat4x4<f32> };
+struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
+// The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
+fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
+    let z = depth * 2.0 - 1.0;
+    let span = u.fog.y - u.fog.x;
+    var f = 1.0;
+    if (span > 0.0) {
+        f = clamp((u.fog.y - z) / span, 0.0, 1.0);
+    } else if (z >= u.fog.y) {
+        f = 0.0;
+    }
+    return mix(u.fog_color.rgb, rgb, f);
+}
+
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -1696,6 +1767,7 @@ fn vs_main(
 fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     // Additive sprite: the glow texture is added (SrcAlpha, One). The dark
     // surround of these textures contributes ~0, leaving a clean glow.
-    return textureSample(tex, samp, in.uv);
+    let c = textureSample(tex, samp, in.uv);
+    return vec4<f32>(fogged(c.rgb, in.clip.z), c.a);
 }
 "#;

@@ -58,6 +58,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
 | `cinematics.lua` | Cutscene portraits: a name tag slides from off the right to the top right (inset 20 × 65), slides away and goes on `cinematic_stop`; −1 takes the texture's size; a missing texture shows nothing; `end_cutscene` takes them all. |
 | `flinch.lua` | Flinches: a pistol shot plays the Striker's hit overlay over his idle; a punch from behind on the knockdown-resistant Mutant Muro only flinches him. |
+| `fog.lua` | The fog: the draw engine's on a level (grey 0.25, 0.975–1); a script's red fog reddens the far warehouse and none doesn't; `gl_fog_start_changeto` eases the start over its frames. |
 | `timer.lua` | The countdown: `timer_start` shows 0:12 → 0:11 → 0:09.3, blinking under twenty seconds; at zero its script runs and 0:00.0 blinks five seconds; `timer_stop` ends one early (no script). |
 | `script_ai.lua` | Scripts steering characters (level 2): `chr_create` makes setup 1050 at its flag, known by its script id; a cutscene makes the AIs passive and puts Konoko's gun away, its end undoes both; `ai2_takecontrol` + `ai2_movetoflag` walk her to a flag and turn her to its facing, `ai2_lookatchar` turns her toward someone; `ai2_makeblind` / `ai2_forget`. |
 | `ambush.lua` | Level 2's ambush: after the intro both partner cops fight the Strikers, the Strikers come out of their room (doors linked to pathfinding connections as the original links them) and reach Konoko in her room though no route leads there (the advance's local walk). |
@@ -159,6 +160,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
+| `fog()` / `image_mean(path, x0, y0, x1, y1)` | The fog now: `r, g, b, start, end` (screen depth); a saved screenshot's mean colour over a region (fractions), `r, g, b`. |
 | `jello_objects()` | The placed objects see-through this tick (in the camera's way), by name. |
 | `text_console()` / `text_console_key(k)` | The data console showing its text, `{name, page (from 1), pages, last, lines}` or nil; presses Space (`"next"`) or Esc (`"close"`) on it. |
 | `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |

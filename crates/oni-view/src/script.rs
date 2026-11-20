@@ -213,6 +213,7 @@ impl ScriptHost {
         self.renderer.jello = self.world.jello.clone();
         self.renderer.anim_time = self.world.game_tick();
         self.renderer.eye = cam.eye;
+        self.renderer.fog = self.world.fog.fog;
         self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
@@ -616,6 +617,38 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // image_mean(path, x0, y0, x1, y1) → r, g, b (0–1): a saved screenshot's
+    // mean colour over a region (fractions of its width and height).
+    g.set(
+        "image_mean",
+        lua.create_function(move |_, (path, x0, y0, x1, y1): (String, f32, f32, f32, f32)| {
+            let (w, h, rgba) = crate::render::load_png(std::path::Path::new(&path)).map_err(mlua::Error::external)?;
+            let (ax, bx) = ((x0 * w as f32) as u32, ((x1 * w as f32) as u32).min(w));
+            let (ay, by) = ((y0 * h as f32) as u32, ((y1 * h as f32) as u32).min(h));
+            let mut sum = [0.0f64; 3];
+            let mut n = 0.0;
+            for y in ay..by {
+                for x in ax..bx {
+                    let k = ((y * w + x) * 4) as usize;
+                    for c in 0..3 {
+                        sum[c] += f64::from(rgba[k + c]) / 255.0;
+                    }
+                    n += 1.0;
+                }
+            }
+            let n = f64::max(n, 1.0);
+            Ok((sum[0] / n, sum[1] / n, sum[2] / n))
+        })?,
+    )?;
+    // fog() → r, g, b, start, end: the fog now (screen depth: −1 near, 1 far).
+    let h = host.clone();
+    g.set(
+        "fog",
+        lua.create_function(move |_, ()| {
+            let f = h.borrow().world.fog.fog;
+            Ok((f.color[0], f.color[1], f.color[2], f.start, f.end))
+        })?,
+    )?;
     // jello_objects() → {name, …}: the placed objects see-through this tick
     // (in the camera's way).
     let h = host.clone();

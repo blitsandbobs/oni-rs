@@ -880,6 +880,7 @@ impl State {
             self.renderer.jello = pw.world.jello.clone();
             self.renderer.anim_time = pw.world.game_tick();
             self.renderer.eye = self.cam.eye;
+            self.renderer.fog = pw.world.fog.fog;
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),
