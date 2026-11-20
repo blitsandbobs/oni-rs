@@ -1300,18 +1300,23 @@ impl World {
                 }
                 let x = read(&c.scale, &p.vars)?;
                 let y = c.y_scale.as_ref().and_then(|v| read(v, &p.vars)).unwrap_or(x);
-                let axis = matches!(c.sprite_type, 2 | 3 | 5 | 6 | 7).then(|| {
-                    if c.has(cflag::ORIENTATION) {
-                        sys.world_orientation(p).y_axis
-                    } else {
-                        p.velocity
-                    }
-                });
-                // (Flat: lying perpendicular to its direction, its Y.)
-                let plane = (c.sprite_type == 4 && c.has(cflag::ORIENTATION)).then(|| {
-                    let o = sys.world_orientation(p);
-                    [o.x_axis, o.z_axis]
-                });
+                // How it lies (`MSrGeomContext_Method_Sprite_Draw`): its
+                // direction its orientation's Y, else its velocity; the
+                // fixed kinds from its orientation's axes.
+                let o = c.has(cflag::ORIENTATION).then(|| sys.world_orientation(p));
+                let dir = o.map_or(p.velocity, |o| o.y_axis);
+                let mode = match (c.sprite_type, o) {
+                    (1, _) => crate::render::SpriteMode::Rotated(dir),
+                    (2 | 5 | 6, _) => crate::render::SpriteMode::Billboard(dir),
+                    // Arrow: along its direction, upright along its up.
+                    (3, Some(o)) => crate::render::SpriteMode::Fixed([o.y_axis, o.z_axis]),
+                    // Flat: across its direction.
+                    (4, Some(o)) => crate::render::SpriteMode::Fixed([o.x_axis, o.z_axis]),
+                    // Discus: along its direction and its right.
+                    (7, Some(o)) => crate::render::SpriteMode::Fixed([o.y_axis, o.x_axis]),
+                    _ => crate::render::SpriteMode::Facing,
+                };
+                let rotation = read(&c.rotation, &p.vars).unwrap_or(0.0);
                 // Its tint (ARGB) and alpha: additive, so fainter is darker.
                 let shade = match &c.tint {
                     Value::Shade(s) | Value::ShadeRange(s, _) | Value::ShadeBell(s, _) => *s,
@@ -1331,8 +1336,8 @@ impl World {
                 Some(crate::render::Sprite {
                     at: sys.world_position(p),
                     size: [x, y],
-                    axis: if plane.is_some() { None } else { axis },
-                    plane,
+                    mode,
+                    rotation,
                     color: [channel(16), channel(8), channel(0)],
                     texture: self.particle_texture(p),
                     contrail: false,
@@ -1356,8 +1361,8 @@ impl World {
             out.push(crate::render::Sprite {
                 at: (s.from + s.to) * 0.5,
                 size: [along.length() * 0.5, LASER_WIDTH],
-                axis: Some(along),
-                plane: None,
+                mode: crate::render::SpriteMode::Billboard(along),
+                rotation: 0.0,
                 color,
                 texture: textures.join("laser_contrail.png"),
                 contrail: true,
@@ -1371,8 +1376,8 @@ impl World {
                 out.push(crate::render::Sprite {
                     at,
                     size: [size, size],
-                    axis: None,
-                    plane: None,
+                    mode: crate::render::SpriteMode::Facing,
+                    rotation: 0.0,
                     color: t.color,
                     texture: textures.join(format!("{}.png", t.texture)),
                     contrail: false,
@@ -1398,8 +1403,8 @@ impl World {
                 out.push(crate::render::Sprite {
                     at: s.to,
                     size: [size * 0.5, size * 0.5],
-                    axis: None,
-                    plane: None,
+                    mode: crate::render::SpriteMode::Facing,
+                    rotation: 0.0,
                     color: sp.color,
                     texture: textures.join(format!("{}.png", sp.texture)),
                     contrail: false,

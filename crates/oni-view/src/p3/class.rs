@@ -470,10 +470,13 @@ pub struct Class {
     /// The impulse a projectile makes passing the listener.
     pub flyby: Option<Rc<str>>,
     pub scale: Value,
-    /// A separate height (when the class has one), and how its sprite is
-    /// drawn (0 = facing the camera; 2, 3, 5, 6, 7 = along its direction).
+    /// A separate height (when the class has one), how its sprite is drawn
+    /// (`M3cGeomState_SpriteMode_*`: 0 normal, 1 rotated, 2 billboard, 3
+    /// arrow, 4 flat, 5 / 6 contrails, 7 discus; `World::sprites`) and its
+    /// turn in its own plane (degrees).
     pub y_scale: Option<Value>,
     pub sprite_type: u32,
+    pub rotation: Value,
     pub alpha: Value,
     /// Its colour (a shade: ARGB).
     pub tint: Value,
@@ -766,6 +769,7 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         scale: value(&c["appearance"]["scale"], &vars),
         y_scale: names("flags").iter().any(|n| n == "separateYScale").then(|| value(&c["appearance"]["yScale"], &vars)),
         sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,
+        rotation: value(&c["appearance"]["rotation"], &vars),
         alpha: value(&c["appearance"]["alpha"], &vars),
         tint: value(&c["appearance"]["tint"], &vars),
         instance: c["appearance"]["instance"].as_str().unwrap_or("").to_string(),

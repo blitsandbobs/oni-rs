@@ -108,10 +108,10 @@ struct BillboardPush {
 pub struct Sprite {
     pub at: glam::Vec3,
     pub size: [f32; 2],
-    pub axis: Option<glam::Vec3>,
-    /// Lying in this plane (its two axes) instead of facing the camera — a
-    /// "flat" sprite, perpendicular to its direction.
-    pub plane: Option<[glam::Vec3; 2]>,
+    /// How it lies (`MSrGeomContext_Method_Sprite_Draw`).
+    pub mode: SpriteMode,
+    /// Its turn in its own plane (degrees).
+    pub rotation: f32,
     /// Its colour (tint × alpha: additive).
     pub color: [f32; 3],
     pub texture: std::path::PathBuf,
@@ -120,6 +120,19 @@ pub struct Sprite {
     pub contrail: bool,
     /// Drawn over everything, without the depth test (a lens flare).
     pub no_depth: bool,
+}
+
+/// How a sprite lies: its X (along its width) and Y (its height).
+#[derive(Clone, Copy, Debug)]
+pub enum SpriteMode {
+    /// Facing the camera: the screen's X and Y.
+    Facing,
+    /// Facing the camera, turned on screen toward this direction.
+    Rotated(glam::Vec3),
+    /// Along this direction, turned about it to face the camera.
+    Billboard(glam::Vec3),
+    /// Lying along these two axes (arrow, flat, discus).
+    Fixed([glam::Vec3; 2]),
 }
 
 /// One corner of a screen-space overlay triangle (the HUD, text, the
@@ -261,6 +274,8 @@ pub struct Renderer {
     animated: std::collections::HashMap<usize, (crate::texanim::TexAnim, Vec<usize>)>,
     /// The game time this frame (ticks): what the textures animate by.
     pub anim_time: u32,
+    /// Where the camera is this frame (billboard sprites turn toward it).
+    pub eye: glam::Vec3,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -681,6 +696,7 @@ impl Renderer {
             tex_anims: Default::default(),
             animated: Default::default(),
             anim_time: 0,
+            eye: glam::Vec3::ZERO,
             particles: particle_groups,
             depth: None,
         }
@@ -1204,17 +1220,31 @@ impl Renderer {
     /// This frame's particle sprites as additive textured quads, one mesh
     /// per texture.
     fn sprite_prims(&mut self, gpu: &Gpu, right: glam::Vec3, up: glam::Vec3) -> Vec<GpuPrim> {
-        let forward = right.cross(up).normalize_or_zero();
         let sprites = std::mem::take(&mut self.sprites);
         let mut by_texture: std::collections::BTreeMap<(usize, bool), (Vec<Vertex>, Vec<u32>)> = Default::default();
         for s in &sprites {
             let t = self.texture_index(gpu, &s.texture);
-            let (x, y) = match (s.plane, s.axis.and_then(|a| a.try_normalize())) {
-                (Some([u, v]), _) => (u.normalize_or(right), v.normalize_or(up)),
-                // Stretched along its flight, turned to face the camera.
-                (None, Some(a)) => (a, a.cross(forward).try_normalize().unwrap_or(up)),
-                (None, None) => (right, up),
+            let (mut x, mut y) = match s.mode {
+                SpriteMode::Facing => (right, up),
+                // Its direction's on-screen heading becomes its X.
+                SpriteMode::Rotated(d) => {
+                    let (ox, oy) = (right.dot(d), up.dot(d));
+                    let l = (ox * ox + oy * oy).sqrt();
+                    let (ox, oy) = if l * l < 1e-8 { (1.0, 0.0) } else { (ox / l, oy / l) };
+                    (ox * right + oy * up, oy * right - ox * up)
+                }
+                // Along its direction; across it, square to the line of
+                // sight to it.
+                SpriteMode::Billboard(d) => {
+                    let x = d.try_normalize().unwrap_or(glam::Vec3::Y);
+                    (x, x.cross(s.at - self.eye).try_normalize().unwrap_or(up))
+                }
+                SpriteMode::Fixed([u, v]) => (u, v),
             };
+            if s.rotation != 0.0 {
+                let (sin, cos) = s.rotation.to_radians().sin_cos();
+                (x, y) = (x * cos - y * sin, x * sin + y * cos);
+            }
             let (x, y) = (x * s.size[0], y * s.size[1]);
             let (verts, idx) = by_texture.entry((t, s.no_depth)).or_default();
             let base = verts.len() as u32;

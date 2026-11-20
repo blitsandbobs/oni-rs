@@ -208,6 +208,7 @@ impl ScriptHost {
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
         self.renderer.anim_time = self.world.game_tick();
+        self.renderer.eye = cam.eye;
         self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();

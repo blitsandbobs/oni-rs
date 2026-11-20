@@ -22,25 +22,53 @@ pub(super) fn basis(dir: Vec3, up: Vec3) -> Mat3 {
     Mat3::from_cols(right, d, up)
 }
 
-/// The direction for an orientation choice.
-fn orient_vector(o: Orient, parent: Option<Mat3>, offset: Vec3, dir: Vec3) -> Vec3 {
-    match o {
-        Orient::Axis { world, axis, negative } => {
-            let m = if world { Mat3::IDENTITY } else { parent.unwrap_or(Mat3::IDENTITY) };
-            let v = m.col(axis);
-            if negative { -v } else { v }
+/// An emitted particle's orientation (`P3rConstructOrientation`): its
+/// forward (Y) from `dir_o`, its up (Z) as near `up_o` as square to it.
+/// `parent`: the emitter's orientation; `offset`: where the particle starts
+/// from the emitter; `vel`: the way it is sent.
+fn construct_orientation(dir_o: Orient, up_o: Orient, parent: Option<Mat3>, offset: Vec3, vel: Vec3) -> Mat3 {
+    let p = parent.unwrap_or(Mat3::IDENTITY);
+    let axis = |world: bool, axis: usize, negative: bool| {
+        let v = if world { Mat3::IDENTITY } else { p }.col(axis);
+        if negative { -v } else { v }
+    };
+    // Up along the very axis it faces (the same space): the next axis's +
+    // instead (X → Y, Y → Z, Z → X; the original's table).
+    let up_o = match (dir_o, up_o) {
+        (Orient::Axis { world: w1, axis: a1, .. }, Orient::Axis { world: w2, axis: a2, .. }) if w1 == w2 && a1 == a2 => {
+            Orient::Axis { world: w1, axis: (a1 + 1) % 3, negative: false }
         }
-        Orient::Velocity => dir,
-        Orient::ReverseVelocity => -dir,
-        Orient::TowardsEmitter | Orient::AwayFromEmitter => {
-            let v = if offset.length_squared() > 1e-12 {
-                offset
-            } else {
-                parent.unwrap_or(Mat3::IDENTITY).z_axis
-            };
-            if o == Orient::TowardsEmitter { -v } else { v }
-        }
-    }
+        _ => up_o,
+    };
+    // Its forward: a missing velocity or offset falls back to the parent's
+    // Y or Z (unturned).
+    let dir = match dir_o {
+        Orient::Axis { world, axis: a, negative } => axis(world, a, negative),
+        Orient::Velocity => vel.try_normalize().unwrap_or(p.y_axis),
+        Orient::ReverseVelocity => vel.try_normalize().map_or(p.y_axis, |v| -v),
+        Orient::TowardsEmitter => offset.try_normalize().map_or(p.z_axis, |v| -v),
+        Orient::AwayFromEmitter => offset.try_normalize().unwrap_or(p.z_axis),
+    };
+    // Its up hint — none for a missing one (then world Y).
+    let up = match up_o {
+        Orient::Axis { world, axis: a, negative } => axis(world, a, negative),
+        Orient::Velocity => vel,
+        Orient::ReverseVelocity => -vel,
+        Orient::TowardsEmitter => -offset,
+        Orient::AwayFromEmitter => offset,
+    };
+    let right = match dir.cross(up).try_normalize() {
+        Some(r) => r,
+        // Aligned: world Y as the up; facing straight up or down, +Z as the
+        // right.
+        None => match Vec3::new(-dir.z, 0.0, dir.x).try_normalize() {
+            Some(r) => r,
+            None if dir.y.abs() < 1e-12 => return Mat3::IDENTITY,
+            None => Vec3::Z,
+        },
+    };
+    let up = right.cross(dir).normalize_or_zero();
+    Mat3::from_cols(right, dir, up)
 }
 
 impl System {
@@ -174,10 +202,12 @@ impl System {
                     char_value = Some(c);
                     d
                 }
+                // On the cone's edge — at its angle exactly, not within it —
+                // a burst spread evenly round from the offset.
                 Direction::Ring => {
-                    let (a, b) = (df(self, 0), df(self, 1));
+                    let (phi, b) = (df(self, 0).to_radians(), df(self, 1));
                     let th = b.to_radians() + i as f32 * TAU / count.max(1) as f32;
-                    self.cone(a, 0.0, Some(th)).0.normalize()
+                    Vec3::new(th.cos() * phi.sin(), phi.cos(), th.sin() * phi.sin())
                 }
                 Direction::Offset => Vec3::new(df(self, 0), df(self, 1), df(self, 2)),
                 Direction::Inaccurate => {
@@ -264,9 +294,7 @@ impl System {
             // Orientation.
             if cc.has(cflag::ORIENTATION) {
                 let po = parent_orient.map(|o| m3.map_or(o, |m| m * o));
-                let fwd = orient_vector(def.orient_dir, po, off, d);
-                let up = orient_vector(def.orient_up, po, off, d);
-                child.orientation = basis(fwd, up);
+                child.orientation = construct_orientation(def.orient_dir, def.orient_up, po, off, d);
             }
             // An attractor handed down by the emitter.
             if let Some(a) = cc.attractor.as_ref() {

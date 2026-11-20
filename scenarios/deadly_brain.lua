@@ -2,7 +2,8 @@
 -- particles throw holographic readouts that stand around the brain, each
 -- spiralled out to its own angle and radius (30–90) from the emitter —
 -- `moveSpiral` sets their offset position. Unported, they stayed inside it.
--- Each shows its own frame of the animated readout texture. Its steam and
+-- Each stands upright facing out, and shows its own frame of the animated
+-- readout texture. Its steam and
 -- coolant run too.
 --
 --   cargo run --release -p oni-view -- \
@@ -27,6 +28,13 @@ for _, q in ipairs(readouts) do
   far = math.max(far, d)
 end
 print(string.format("%d readouts, %d out at their radius, the farthest %.1f", #readouts, placed, far))
+-- Each faces out level along its ring (an exact 90° ring round the upright
+-- emitter), so its arrow sprite stands upright (`P3rConstructOrientation`:
+-- no up to be had towards the emitter, world up).
+local level = 0
+for _, q in ipairs(readouts) do if math.abs(q[5]) < 0.01 then level = level + 1 end end
+print("facing out level:", level, "of", #readouts)
+assert(level == #readouts, "every readout faces out level, standing upright")
 assert(#readouts > 30, "a cloud of readouts")
 assert(placed >= #readouts - 1 and far < 91, "each at its radius, 30–90, around the brain")
 
