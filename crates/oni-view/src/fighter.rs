@@ -649,10 +649,7 @@ impl Fighter {
     /// the AI turn rate, not mid-reaction or mid-throw) and, for a fresh
     /// attack, forgets the combo in progress.
     pub fn follow(&mut self, d: &crate::ai::melee::brain::Output) {
-        let c = self.motion.current();
-        let locked = reaction::is_victim(self.motion.kind)
-            || c.has_flag(flag::THROW_SOURCE)
-            || c.has_flag(flag::THROW_TARGET);
+        let locked = crate::anim::decide::cannot_turn(&self.motion, false);
         if let (Some(yaw), false) = (d.face, locked) {
             let cap = crate::ai::MAX_TURN;
             let delta = (yaw - self.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
@@ -1175,6 +1172,17 @@ impl Fighter {
             target,
             now: m.now,
         };
+        // (The AI turns only a body whose clip lets it: not lying, blocking,
+        // reeling or in a throw — `AI2rExecutor` asks `ONrCharacter_IsUnableToTurn`.)
+        let locked = crate::anim::decide::cannot_turn(&self.motion, false).then_some(self.facing);
+        let keys = self.think_turning(senses);
+        if let Some(f) = locked {
+            self.facing = f;
+        }
+        keys
+    }
+
+    fn think_turning(&mut self, senses: crate::ai::Senses) -> u32 {
         match self.brain.as_mut() {
             Some(brain) => brain.think(&senses, &mut self.facing, &mut self.avoid),
             None if self.passive => self.dummy_controls(),

@@ -633,8 +633,10 @@ fn settle(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
 
 // --- turning --------------------------------------------------------------------
 
-/// Whether the current clip keeps the body from turning on its own.
-fn cannot_turn(m: &Motion, player: bool) -> bool {
+/// Whether the current clip keeps the body from turning on its own
+/// (`ONrCharacter_IsUnableToTurn`; `player`: turned by its own controls,
+/// not by the AI).
+pub fn cannot_turn(m: &Motion, player: bool) -> bool {
     let by_kind = match m.kind {
         ty::STAND | ty::CROUCH => {
             // Players turn only through the step-turn clips while at rest.
