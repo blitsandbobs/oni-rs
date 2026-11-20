@@ -203,7 +203,6 @@ pub struct Renderer {
     opaque_cull_pipeline: wgpu::RenderPipeline,
     blend_cull_pipeline: wgpu::RenderPipeline,
     additive_cull_pipeline: wgpu::RenderPipeline,
-    jello_cull_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_additive_pipeline: wgpu::RenderPipeline,
     /// The HUD's textures (unfiltered, as the original draws it), by file.
@@ -395,7 +394,6 @@ impl Renderer {
         let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
         let blend_cull_pipeline = culled("alpha culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_main");
         let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_main");
-        let jello_cull_pipeline = culled("jello culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_main", wgpu::CompareFunction::Always);
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
@@ -637,7 +635,6 @@ impl Renderer {
             opaque_cull_pipeline,
             blend_cull_pipeline,
             additive_cull_pipeline,
-            jello_cull_pipeline,
             overlay_pipeline,
             overlay_additive_pipeline,
             overlay_textures: Default::default(),
@@ -907,7 +904,10 @@ impl Renderer {
                         if *n == 0 || !shown(&p) {
                             continue;
                         }
-                        pass.set_pipeline(if p.cull { &self.jello_cull_pipeline } else { &self.jello_pipeline });
+                        // (Both sides: the original counts a jello quad two-sided,
+                        // `AKcGQ_Flag_2Sided`, so from behind it is still faintly
+                        // there.)
+                        pass.set_pipeline(&self.jello_pipeline);
                         pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()));
                         pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
