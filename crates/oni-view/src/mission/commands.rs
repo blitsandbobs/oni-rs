@@ -306,6 +306,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
     let done = |v: Value| Ok((v, Value::Boolean(false), None, None));
     let nil = || done(Value::Nil);
     let _ = lua;
+    // (`ONI_TRACE_COMMANDS=1`: each engine command a script calls, with the
+    // tick — a stalled one shows again every tick it waits.)
+    if !name.starts_with('@') && std::env::var_os("ONI_TRACE_COMMANDS").is_some() {
+        let shown: Vec<String> = args.iter().map(|v| match v {
+            Value::String(s) => format!("{:?}", s.to_string_lossy()),
+            other => format!("{other:?}"),
+        }).collect();
+        eprintln!("cmd {} {name}({})", state.now, shown.join(", "));
+    }
     match name {
         // --- the prelude's requests --------------------------------------
         "@word" => {

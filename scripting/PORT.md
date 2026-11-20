@@ -88,6 +88,23 @@ The Lua side is thin; the work is host functions backed by engine subsystems:
 with stubbed functions and doc comments, so the shape is pinned down before any
 subsystem is wired. It is not loaded by the engine yet.
 
+## Checking the levels' scripts
+
+- `scripting/shakedown.sh [ticks]` runs every level's own scripts headless —
+  from its start and from save points 1–4, the player idle, 8 at a time
+  (about 45 s at the default minute each) — and reports per run the script
+  errors, crashes and where the player ended (an idle player is often beaten
+  up or knocked off a ledge: not a fault), then the commands skipped.
+- `python3 scripting/script_commands.py` lists every engine command the
+  translated scripts use that has no handler, by levels and calls — also those
+  no idle run reaches. Some are the original scripts' own mistakes (a typo
+  such as a missing space, a function only another level defines); the
+  original skips those too, as the port does.
+- `ONI_TRACE_COMMANDS=1` (any `oni-view` run) prints each engine command a
+  script calls, with the tick; a stalled one (a blocking dialogue line, a
+  camera move) shows again each tick it waits — the quickest way to see where
+  a level's script is.
+
 ## Not in scope yet
 - The translator tool (`.bsl` → `.lua`).
 - Validating translated scripts against original BSL execution order / semantics
