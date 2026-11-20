@@ -1775,13 +1775,19 @@ impl World {
                 self.sound(stimulus, at, volume, Some(i), None);
             }
         }
-        // What the player hears: from their ear (feet across, head high),
-        // turned with their facing.
-        if let Some(p) = self.fighters.first() {
-            let feet = p.feet();
-            let head = p.bones().get(HEAD_BONE).map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
-            let f = p.facing.facing;
-            self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
+        // What the player hears (`ONrGameState_UpdateSoundManager`): with the
+        // camera following, from their ear (feet across, head high), turned
+        // with their facing; else (a script's camera) from the camera.
+        let following = matches!(self.camera.mode, camera::Mode::Follow { .. });
+        match self.fighters.first() {
+            Some(p) if following => {
+                let feet = p.feet();
+                let head = p.bones().get(HEAD_BONE).map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
+                let f = p.facing.facing;
+                self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
+            }
+            _ if !following => self.audio.listen(self.camera.view.location, self.camera.view.view),
+            _ => {}
         }
         self.particle_sounds();
         self.voices_tick();
