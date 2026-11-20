@@ -74,7 +74,11 @@ const DONT_SWITCH_FARTHER: f32 = 3.5;
 const SWITCH_IF_NOT_SHOT: u64 = 150;
 const SWITCH_IF_NOT_PUNCHED: u64 = 90;
 /// Never advance closer than this.
+/// Within this an advance has always closed in
+/// (`AI2cManeuver_Advance_AbsoluteMinDist`).
 const ADVANCE_MIN: f32 = 6.0;
+/// How near a route's advance stops (`AI2cManeuver_Advance_StopDist`).
+const AI2_ADVANCE_STOP: f32 = 4.0;
 
 /// Standing still, the body turns to where it looks once that is more than
 /// this off its facing (the head covers the rest).
@@ -754,6 +758,45 @@ enum Band {
     LongRetreat,
 }
 
+/// How an advance moves: by a route through the rooms, or walking a heading
+/// (the local move: straight at the target, or the clearest way near it).
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AdvanceWay {
+    Route,
+    Steer(f32),
+}
+
+/// The local move's urgency by the worst square on it
+/// (`AI2cManeuver_Primary_LocalWeights`: clear, near a wall, border 1, border 2,
+/// semi-passable; the rest 0).
+fn local_weight(sq: crate::nav::Square) -> f32 {
+    use crate::nav::Square::*;
+    match sq {
+        Clear => 1.0,
+        NearWall => 0.85,
+        Border1 => 0.7,
+        Border2 => 0.6,
+        SemiPassable => 0.3,
+        _ => 0.0,
+    }
+}
+
+/// The local path search toward `heading` (`AI2rFindLocalPath`): the
+/// heading, then ±15°, ±30°, ±45°, ±60°, each probed 15 ahead stopping at
+/// border 3 (3 squares of escape); the first that gets there, and its worst
+/// square.
+fn fan(heading: f32, from: Vec3, cx: &Ctx) -> Option<(f32, crate::nav::Square)> {
+    const LOCAL_DISTANCE: f32 = 15.0;
+    const STEP: f32 = 15.0 * PI / 180.0;
+    std::iter::once(0.0)
+        .chain((1..=4).flat_map(|k| [k as f32 * STEP, -(k as f32) * STEP]))
+        .map(|off| heading + off)
+        .find_map(|h| {
+            let p = (cx.probe)(from, glam::Vec2::new(h.sin(), h.cos()), LOCAL_DISTANCE, crate::nav::Square::Border3)?;
+            p.stopped.is_none().then_some((h, p.worst))
+        })
+}
+
 /// Fighting an enemy.
 #[derive(Clone, Debug)]
 pub struct Combat {
@@ -778,6 +821,8 @@ pub struct Combat {
     /// When its advance last found no route (it walks without one for 90
     /// ticks before asking again).
     route_failed: Option<u64>,
+    /// How the last advance check said to move (`AI2iManeuver_CheckAdvance`).
+    advance_way: Option<AdvanceWay>,
     /// Shooting: its aim on the target, whether it has a line of fire, and
     /// whether this is the first sight of this enemy (startle shots).
     targeting: Option<Box<crate::ai::ranged::Targeting>>,
@@ -1036,38 +1081,84 @@ impl Agent {
         self.look = Look::At(at);
     }
 
-    /// How the combat advance moves (`AI2iManeuver_CheckAdvance`): within
-    /// 50, straight at the target if the floor allows (a clear local probe,
-    /// no square past border 2); else by a route through the rooms; failing
-    /// that — no route, as a door can make — along the first of the
-    /// directions fanned ±15°, ±30°… to ±60° round the target's that is
-    /// clear for 15 short of border 3 (`AI2rFindLocalPath`). The walk with no
-    /// route needs none: across an opening a door has shut to the room
-    /// search, the target is still reached.
-    fn advance_move(&mut self, target: Vec3, dist: f32, min: f32, cx: &Ctx) {
+    /// The advance's viability check (`AI2iManeuver_CheckAdvance`;
+    /// `docs/AI.md`, *Combat advance*): its weight now — and how it moves,
+    /// or None if it doesn't. `weight` is its weight so far, `second` the
+    /// best other choice's.
+    ///
+    /// Within 50 it first probes straight at the target (stopping only at
+    /// danger; an escape out of a bad area must have a clear line). Close in
+    /// (urgency 0: within the advance's near distance) it stops when
+    /// within 6, or the straight walk is good, or nothing blocks the line.
+    /// Its weight takes the urgency (at least half); below the second
+    /// choice, no. Then: a straight walk no worse than border 2 is taken;
+    /// else a route through the rooms, unless it would be a simple one (the
+    /// straight walk reached it, over rough ground) — then, as with no
+    /// route, the first of the target's direction and ±15°…±60° clear for
+    /// 15 short of border 3. The walk's worst square scales the weight
+    /// (clear 1 … semi-passable 0.3); below the second choice, no.
+    fn check_advance(&mut self, target: Vec3, dist: f32, weight: f32, second: f32, cx: &Ctx) -> (f32, Option<AdvanceWay>) {
         use crate::nav::Square;
         const LOCAL_TRY: f32 = 50.0;
-        const LOCAL_DISTANCE: f32 = 15.0;
-        const FAN: f32 = 60.0 * PI / 180.0;
-        const FAN_STEPS: i32 = 4;
-        let pace = self.mode.pace(cx.alert(), true);
+        let (min, max) = self.combat().advance;
+        let urgency = if dist > max {
+            1.0
+        } else if dist < min {
+            0.0
+        } else {
+            (dist - min) / (max - min).max(1e-3)
+        };
         let to = (target - cx.feet).with_y_zero();
         let heading = to.x.atan2(to.z);
-        let dir = |h: f32| glam::Vec2::new(h.sin(), h.cos());
         let from = cx.feet + Vec3::Y * 2.0;
-        // Straight at it.
-        if dist < LOCAL_TRY {
-            if let Some(p) = (cx.probe)(from, dir(heading), dist, Square::Danger) {
-                if p.stopped.is_none() && p.worst < Square::Border3 {
-                    self.nav = None;
-                    self.dest = None;
-                    self.steer = Some((heading, pace));
-                    return;
-                }
-            }
+        // The line from the pelvis to the target's middle
+        // (`AI2rManeuver_CheckBlockage`: the level, characters skipped).
+        let target_mid = target + Vec3::Y * (cx.pelvis.y - cx.feet.y);
+        let blocked = || !(cx.sight)(cx.pelvis, target_mid, crate::quads::flag::CHR_COL_SKIP);
+        let straight = if dist < LOCAL_TRY { (cx.probe)(from, glam::Vec2::new(heading.sin(), heading.cos()), dist, Square::Danger) } else { None };
+        let mut reached = straight.is_some_and(|p| p.stopped.is_none());
+        if reached && straight.is_some_and(|p| p.escaped) {
+            reached = !blocked();
         }
-        // A route: kept while it holds; a fresh one when the target has
-        // moved on. One that failed is asked for again after 90 ticks.
+        let close_enough = if urgency > 0.0 {
+            false
+        } else if dist < ADVANCE_MIN || reached {
+            true
+        } else {
+            !blocked()
+        };
+        if close_enough {
+            return (0.0, None);
+        }
+        let weight = weight * urgency.max(0.5);
+        if weight < second {
+            return (0.0, None);
+        }
+        let worst = straight.map_or(Square::Impassable, |p| p.worst);
+        if reached && worst < Square::Border3 {
+            let weight = weight * local_weight(worst);
+            return if weight < second { (weight, None) } else { (weight, Some(AdvanceWay::Steer(heading))) };
+        }
+        // A route — if there is one and it isn't simple.
+        let simple = reached;
+        if !simple && (cx.path_length)(cx.feet, target).is_some() {
+            return (weight, Some(AdvanceWay::Route));
+        }
+        match fan(heading, from, cx) {
+            Some((h, worst)) => {
+                let weight = weight * local_weight(worst);
+                if weight < second { (weight, None) } else { (weight, Some(AdvanceWay::Steer(h))) }
+            }
+            None => (0.0, None),
+        }
+    }
+
+    /// The advance by a route (the check chose one): followed while it
+    /// holds, a fresh one when the target has moved on. One the planner
+    /// can't find (a door it can't open shuts the way) is known at once: it
+    /// walks the clearest way toward the target instead
+    /// (`AI2rFindLocalPath`) and asks again after 90 ticks.
+    fn advance_move(&mut self, target: Vec3, min: f32, cx: &Ctx) {
         const RETRY: u64 = 90;
         if self.path_failed() || self.nav.as_ref().is_some_and(|n| n.plan_failed) {
             self.combat().route_failed = Some(cx.now);
@@ -1084,14 +1175,10 @@ impl Agent {
             }
             return;
         }
-        // No route: walk the clearest way toward it.
         self.combat().advance_goal = None;
-        let step = FAN / FAN_STEPS as f32;
-        let tries = std::iter::once(0.0).chain((1..=FAN_STEPS).flat_map(|k| [k as f32 * step, -(k as f32) * step]));
-        self.steer = tries
-            .map(|off| heading + off)
-            .find(|&h| (cx.probe)(from, dir(h), LOCAL_DISTANCE, Square::Border3).is_some_and(|p| p.stopped.is_none()))
-            .map(|h| (h, pace));
+        let to = (target - cx.feet).with_y_zero();
+        let pace = self.mode.pace(cx.alert(), true);
+        self.steer = fan(to.x.atan2(to.z), cx.feet + Vec3::Y * 2.0, cx).map(|(h, _)| (h, pace));
     }
 
     fn halt(&mut self) {
@@ -2113,6 +2200,7 @@ impl Agent {
             daze: None,
             advance_goal: None,
             route_failed: None,
+            advance_way: None,
             targeting: None,
             have_los: true,
             first_sight: true,
@@ -2372,10 +2460,17 @@ impl Agent {
             }
             Primary::Advance => {
                 let (min, _) = self.combat().advance;
-                if dist <= min {
-                    self.halt();
-                } else {
-                    self.advance_move(target_feet, dist, min, cx);
+                match self.combat().advance_way {
+                    // (Toward where the target is now, along the way the
+                    // check found clear.)
+                    // (Not on into the target before the next check.)
+                    Some(AdvanceWay::Steer(_)) if dist <= AI2_ADVANCE_STOP => self.halt(),
+                    Some(AdvanceWay::Steer(heading)) => {
+                        self.nav = None;
+                        self.dest = None;
+                        self.steer = Some((heading, self.mode.pace(cx.alert(), true)));
+                    }
+                    _ => self.advance_move(target_feet, min.max(AI2_ADVANCE_STOP), cx),
                 }
             }
             Primary::Retreat => {
@@ -2804,13 +2899,10 @@ impl Agent {
             let k = self.combat();
             match best {
                 ADVANCE => {
-                    let (min, max) = k.advance;
-                    if dist <= min.max(ADVANCE_MIN) {
-                        w[ADVANCE] = 0.0;
-                    } else {
-                        let urgency = ((dist - min) / (max - min).max(1e-3)).clamp(0.0, 1.0);
-                        w[ADVANCE] *= urgency.max(0.5);
-                    }
+                    let second = w.iter().enumerate().filter(|&(i, _)| i != ADVANCE).map(|(_, v)| *v).fold(0.0, f32::max);
+                    let (weight, way) = self.check_advance(target_feet, dist, w[ADVANCE], second, cx);
+                    w[ADVANCE] = weight;
+                    self.combat().advance_way = way;
                 }
                 RETREAT => {
                     w[MELEE] = 0.0;

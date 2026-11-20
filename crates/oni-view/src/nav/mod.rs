@@ -55,6 +55,8 @@ pub struct LocalProbe {
     pub stopped: Option<Square>,
     /// The worst square it crossed (on good ground).
     pub worst: Square,
+    /// It started in a bad area and walked out of it (an escape path).
+    pub escaped: bool,
 }
 
 /// A way out of a room into another.
@@ -294,6 +296,7 @@ impl Navigation {
         const ESCAPE: f32 = 3.0 * grid::SQUARE;
         let mut room = self.room_at(from);
         let mut worst = Square::Clear;
+        let mut escaped = false;
         let mut was_good = false;
         let mut last_good = 0.0;
         let mut t = 0.0;
@@ -309,8 +312,9 @@ impl Navigation {
             let sq = room.map_or(Square::Impassable, |r| self.rooms[r].square_at(p.x, p.z));
             if sq >= stop {
                 if was_good || t > ESCAPE {
-                    return LocalProbe { free: last_good, stopped: Some(sq), worst };
+                    return LocalProbe { free: last_good, stopped: Some(sq), worst, escaped };
                 }
+                escaped = true;
             } else {
                 was_good = true;
                 last_good = t;
@@ -318,7 +322,7 @@ impl Navigation {
             }
             t += STEP;
         }
-        LocalProbe { free: dist, stopped: None, worst }
+        LocalProbe { free: dist, stopped: None, worst, escaped }
     }
 
     /// The room a point is in (behaviour per `docs/PATHFINDING.md`): inside
