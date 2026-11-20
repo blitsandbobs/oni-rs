@@ -1659,6 +1659,29 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // overlays_of(id) → the partial-body clips playing on fighter id: a list
+    // of {slot = "recoil" | "inventory" | "hit", clip, type, frame}.
+    let h = host.clone();
+    g.set(
+        "overlays_of",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            if let Some(f) = host.world.fighters.get(id) {
+                for (slot, o) in f.overlays.iter().enumerate() {
+                    let Some(o) = o else { continue };
+                    let c = f.motion.clip_of(o.clip);
+                    let e = lua.create_table()?;
+                    e.set("slot", ["recoil", "inventory", "hit"][slot])?;
+                    e.set("clip", f.motion.coll.entries[o.clip].name.clone())?;
+                    e.set("type", c.anim_type)?;
+                    e.set("frame", o.frame)?;
+                    t.push(e)?;
+                }
+            }
+            Ok(t)
+        })?,
+    )?;
     // timer() → (what it shows now or nil, ticks left, mode "on" | "fail"),
     // or nil with no countdown running (`world/timer.rs`).
     let h = host.clone();

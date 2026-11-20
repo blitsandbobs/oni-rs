@@ -263,9 +263,9 @@ pub struct Fighter {
     /// and whether the swing is done.
     pub exact_aim_since: u64,
     pub exact_aim_done: bool,
-    /// Partial-body clips playing over the body: the recoil, and the
-    /// inventory one (holster, draw, reload).
-    pub overlays: [Option<Overlay>; 2],
+    /// Partial-body clips playing over the body: the recoil, the inventory
+    /// one (holster, draw, reload), and a hit reaction (a flinch).
+    pub overlays: [Option<Overlay>; 3],
     /// An item it is bending to pick up, and whether the pickup clip has
     /// started.
     pub pickup: Option<(crate::world::Item, bool, u16)>,
@@ -283,6 +283,7 @@ pub struct Overlay {
 /// Overlay slots.
 pub const RECOIL: usize = 0;
 pub const INVENTORY: usize = 1;
+pub const HIT_REACTION: usize = 2;
 
 /// Being lifted by a weapon's "picked up" damage (`inAirControl.pickup*`).
 #[derive(Clone, Copy, Debug, Default)]
@@ -429,7 +430,7 @@ impl Fighter {
             infinite_ammo: false,
             weapon_immune: false,
             weapon_empty: false,
-            overlays: [None; 2],
+            overlays: [None; 3],
             pickup: None,
             aiming: Rc::new(Vec::new()),
             shooting: Rc::new(Vec::new()),
@@ -1049,6 +1050,22 @@ impl Fighter {
 
     /// Takes damage and a shove. Stuns end (a new hit sets its own); at zero
     /// health the character dies: its death reaction plays (a knockdown that
+    /// A minor hit reaction (`ONrCharacter_MinorHitReaction`): the class's
+    /// hit overlay — an AI's own if its class has one — flinches the upper
+    /// body over whatever it plays (a bullet's normal damage; a light blow
+    /// a knockdown-resistant character shrugs off).
+    pub fn minor_hit_reaction(&mut self) {
+        use crate::anim::types::{st, ty};
+        let m = &self.motion;
+        let clip = (!self.player)
+            .then(|| m.coll.lookup(ty::HIT_OVERLAY_AI, st::ANYTHING, m.varient))
+            .flatten()
+            .or_else(|| m.coll.lookup(ty::HIT_OVERLAY, st::ANYTHING, m.varient));
+        if let Some(clip) = clip {
+            self.overlays[HIT_REACTION] = Some(Overlay { clip, frame: 0, magic: false });
+        }
+    }
+
     /// was already chosen, else a frontal knockdown) and it stops acting.
     pub fn take_damage(&mut self, damage: i32, knockback: Vec3) {
         let m = &mut self.motion;

@@ -2298,10 +2298,11 @@ impl World {
                 resistant: fb.motion.tuning.knockdown_resistant,
             };
             let mut chosen = reaction::adapt(kind, victim, quirks);
-            if chosen != ty::HIT_OVERLAY {
-                // (An overlay flinch — a resistant character shrugging off a
-                // light hit — has no full-body clip; partial-body overlays
-                // are not modelled yet.)
+            if chosen == ty::HIT_OVERLAY {
+                // A resistant character shrugging off a light hit: a flinch
+                // over what it plays (`ONrCharacter_MinorHitReaction`).
+                fb.minor_hit_reaction();
+            } else {
                 if victim.resistant && chosen == ty::STAGGER && kind != ty::STAGGER {
                     as_stagger = true;
                     stun = stun.max(30);

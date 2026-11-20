@@ -57,6 +57,7 @@ pub mod ty {
     pub const PK: u16 = 50;
     pub const KP: u16 = 51;
     pub const HIT_OVERLAY: u16 = 57;
+    pub const HIT_OVERLAY_AI: u16 = 232;
     pub const CROUCH_RUN: u16 = 58;
     pub const CROUCH_WALK: u16 = 59;
     pub const CROUCH_RUN_BACKWARDS: u16 = 60;

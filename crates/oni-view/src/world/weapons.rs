@@ -24,6 +24,7 @@ const PICKUP_ABOVE: f32 = 18.0;
 
 /// Damage kinds (`P3tEnumDamageType`).
 mod damage {
+    pub const NORMAL: u32 = 0;
     pub const MINOR_STUN: u32 = 1;
     pub const MAJOR_STUN: u32 = 2;
     pub const MINOR_KNOCKDOWN: u32 = 3;
@@ -231,6 +232,7 @@ impl<'a> ShotHost<'a> {
         let current = f.motion.current().anim_type;
         if !f.unstoppable && f.alive() {
             match kind {
+                damage::NORMAL => f.minor_hit_reaction(),
                 damage::MINOR_STUN if stun > 0 => {
                     f.pending_reaction = ty::STUN;
                     f.motion.dizzy_stun = f.motion.dizzy_stun.max(stun);
@@ -1574,7 +1576,7 @@ impl World {
         if f.overlays[crate::fighter::INVENTORY].is_some() && reaction::is_knockdown(f.motion.current().anim_type) {
             f.overlays[crate::fighter::INVENTORY] = None;
         }
-        for slot in [crate::fighter::RECOIL, crate::fighter::INVENTORY] {
+        for slot in [crate::fighter::RECOIL, crate::fighter::INVENTORY, crate::fighter::HIT_REACTION] {
             let f = &self.fighters[who];
             let Some(o) = f.overlays[slot] else { continue };
             // (An overlay's own animation sound, on its own frame.)
