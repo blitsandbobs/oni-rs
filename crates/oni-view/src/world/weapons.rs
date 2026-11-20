@@ -1249,6 +1249,16 @@ impl World {
         Some((mesh, alpha, s.texture.clone()))
     }
 
+    /// The animated textures, by file stem.
+    pub fn texture_anims(&self) -> &std::collections::HashMap<String, crate::texanim::TexAnim> {
+        &self.texture_anims
+    }
+
+    /// The game time (ticks) things animate by: the particles' clock.
+    pub fn game_tick(&self) -> u32 {
+        self.armory.particles.tick
+    }
+
     /// The texture particle `p` shows now: its class's, or — animated — the
     /// frame showing, its time from the particle's birth (with a texture
     /// time) or the game's, started at its random index (with a texture

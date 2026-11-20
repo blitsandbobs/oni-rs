@@ -252,6 +252,15 @@ pub struct Renderer {
     /// for them by file.
     pub sprites: Vec<Sprite>,
     textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
+    /// The scene's and models' textures by index, their files (to find the
+    /// animated ones).
+    tex_paths: std::collections::HashMap<usize, std::path::PathBuf>,
+    /// The animated textures (by file stem) and, for each loaded one, its
+    /// frames' texture indices (`texanim`).
+    tex_anims: std::collections::HashMap<String, crate::texanim::TexAnim>,
+    animated: std::collections::HashMap<usize, (crate::texanim::TexAnim, Vec<usize>)>,
+    /// The game time this frame (ticks): what the textures animate by.
+    pub anim_time: u32,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
 }
@@ -556,8 +565,10 @@ impl Renderer {
         // Textures (missing/unreadable → magenta placeholder). Scene textures
         // keep their indices; character textures are appended and mapped.
         let mut tex_bgs = Vec::with_capacity(scene.textures.len());
+        let mut tex_paths = std::collections::HashMap::new();
         for path in &scene.textures {
             let (w, h, rgba) = load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
+            tex_paths.insert(tex_bgs.len(), path.clone());
             tex_bgs.push(make_texture_bg(gpu, &tex_bgl, &sampler, w, h, &rgba));
         }
         let default_tex = make_texture_bg(gpu, &tex_bgl, &sampler, 1, 1, &[200, 200, 200, 255]);
@@ -666,6 +677,10 @@ impl Renderer {
             models_by_path: Default::default(),
             sprites: Vec::new(),
             textures_by_path: Default::default(),
+            tex_paths,
+            tex_anims: Default::default(),
+            animated: Default::default(),
+            anim_time: 0,
             particles: particle_groups,
             depth: None,
         }
@@ -722,7 +737,9 @@ impl Renderer {
                         load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
                     self.tex_bgs
                         .push(make_texture_bg(gpu, &self.tex_bgl, &self.sampler, w, h, &rgba));
-                    self.tex_bgs.len() - 1
+                    let i = self.tex_bgs.len() - 1;
+                    self.tex_paths.insert(i, path.clone());
+                    i
                 })
             });
             let bucket = if part.additive {
@@ -754,6 +771,10 @@ impl Renderer {
                 bone: Some(part.bone),
                 cull: false,
             });
+        }
+        // (Its animated textures' frames, once the table is known.)
+        for i in char_tex.into_values() {
+            self.animate_texture(gpu, i);
         }
         self.char_models.push(CharModel { prims });
         self.char_models.len() - 1
@@ -855,7 +876,7 @@ impl Renderer {
                     0,
                     bytemuck::cast_slice(&model.to_cols_array()),
                 );
-                let bg = self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex);
+                let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);
                 pass.set_bind_group(1, bg, &[]);
                 pass.set_vertex_buffer(0, p.vbuf.slice(..));
                 pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -886,7 +907,7 @@ impl Renderer {
                         // (Partly see-through: the solid rest only, here.)
                         Some((solid, n, _, _)) => {
                             pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&model.to_cols_array()));
-                            pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
+                            pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
                             pass.set_vertex_buffer(0, p.vbuf.slice(..));
                             pass.set_index_buffer(solid.slice(..), wgpu::IndexFormat::Uint32);
                             pass.draw_indexed(0..*n, 0, 0..1);
@@ -909,7 +930,7 @@ impl Renderer {
                         // there.)
                         pass.set_pipeline(&self.jello_pipeline);
                         pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()));
-                        pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
+                        pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
                         pass.set_index_buffer(seen.slice(..), wgpu::IndexFormat::Uint32);
                         pass.draw_indexed(0..*n, 0, 0..1);
@@ -1114,6 +1135,57 @@ impl Renderer {
             let bg = tex.and_then(|t| self.tex_bgs.get(t)).unwrap_or(&self.overlay_white);
             pass.set_bind_group(0, bg, &[]);
             pass.draw(range, 0..1);
+        }
+    }
+
+    /// Takes the animated textures (`common/texture_animations.json`) and
+    /// loads the frames of those among the scene's and models' textures;
+    /// models added later get theirs as they load.
+    pub fn attach_texture_anims(&mut self, gpu: &Gpu, anims: &std::collections::HashMap<String, crate::texanim::TexAnim>) {
+        self.tex_anims = anims.clone();
+        let loaded: Vec<usize> = self.tex_paths.keys().copied().collect();
+        for i in loaded {
+            self.animate_texture(gpu, i);
+        }
+    }
+
+    /// The animated textures loaded, by file stem, with the frame each
+    /// shows now (sorted by name).
+    pub fn animated_textures(&self) -> Vec<(String, usize)> {
+        let mut out: Vec<(String, usize)> = self
+            .animated
+            .iter()
+            .filter_map(|(i, (anim, _))| {
+                let stem = self.tex_paths.get(i)?.file_stem()?.to_string_lossy().into_owned();
+                Some((stem, anim.frame(self.anim_time, 0)))
+            })
+            .collect();
+        out.sort();
+        out.dedup_by(|a, b| a.0 == b.0);
+        out
+    }
+
+    /// Loads texture `i`'s frames if it animates.
+    fn animate_texture(&mut self, gpu: &Gpu, i: usize) {
+        if self.animated.contains_key(&i) {
+            return;
+        }
+        let Some(stem) = self.tex_paths.get(&i).and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()) else { return };
+        let Some(anim) = self.tex_anims.get(&stem).cloned() else { return };
+        let mut frames = vec![i];
+        for f in anim.frames.iter().skip(1) {
+            frames.push(self.texture_index(gpu, f));
+        }
+        self.animated.insert(i, (anim, frames));
+    }
+
+    /// The texture showing for texture `i` now: an animated one's frame at
+    /// the game time (`M3iResolveTexture`; the level's draws carry no random
+    /// index of their own: 0).
+    fn shown(&self, i: usize) -> usize {
+        match self.animated.get(&i) {
+            Some((anim, frames)) => frames[anim.frame(self.anim_time, 0).min(frames.len() - 1)],
+            None => i,
         }
     }
 

@@ -100,6 +100,7 @@ fn mission_level(
     world.attach_weapons(&oni_root.join("common"));
     // (After the weapons: that is where the level quads load.)
     renderer.attach_quads(&scene, &world.quads);
+    renderer.attach_texture_anims(gpu, world.texture_anims());
     let mut m = crate::mission::Mission::load(&level_dir)?;
     m.state.vars.insert("save_point".into(), mlua::Value::Integer(save_point));
     {
@@ -374,6 +375,7 @@ impl ApplicationHandler for App {
                     world.attach_weapons(&self.cast.level_dir.join("../../common"));
                     // (After the weapons: that is where the level quads load.)
                     renderer.attach_quads(&scene, &world.quads);
+                    renderer.attach_texture_anims(&gpu, world.texture_anims());
                     if self.mission {
                         // The level's own scripts populate it.
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
@@ -857,6 +859,7 @@ impl State {
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
             self.renderer.jello = pw.world.jello.clone();
+            self.renderer.anim_time = pw.world.game_tick();
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

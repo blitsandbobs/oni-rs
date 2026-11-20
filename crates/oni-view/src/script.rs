@@ -135,6 +135,7 @@ impl ScriptHost {
         world.attach_weapons(&cast.level_dir.join("../../common"));
         // (After the weapons: that is where the level quads load.)
         renderer.attach_quads(&scene, &world.quads);
+        renderer.attach_texture_anims(&gpu, world.texture_anims());
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }
@@ -206,6 +207,7 @@ impl ScriptHost {
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
+        self.renderer.anim_time = self.world.game_tick();
         self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
@@ -1343,6 +1345,24 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                     }
                 }
                 out.set(out.raw_len() + 1, v)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    // animated_textures() → {{name, frame}, …}: the animated textures the
+    // level and its models draw, and the frame each shows at the game time
+    // (as of the last screenshot).
+    let h = host.clone();
+    g.set(
+        "animated_textures",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let out = lua.create_table()?;
+            for (k, (name, frame)) in host.renderer.animated_textures().into_iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("name", name)?;
+                t.set("frame", frame)?;
+                out.set(k + 1, t)?;
             }
             Ok(out)
         })?,

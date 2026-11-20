@@ -71,6 +71,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out; it is drawn only from in front of its one-sided wall, and fades to 20/255 when the wall goes see-through. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
 | `deadly_brain.lua` | Level 2's Deadly Brain started: its readouts spiral out from the emitter to their radius (30–90) around the brain (`moveSpiral`). |
+| `animated_textures.lua` | Level 3's goo runs through its 15 frames at 5 ticks each by the game time: five ticks on, one frame on. |
 | `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `effects.lua` | An effect rides what it struck: a phase-rifle bolt's glow stays on the dummy's struck part as the dummy moves. |
 | `reach.lua` | How high a jump reaches (the original's collision): on level 1's training a running jump gets from a small crate onto the tall one; the ledge after the laser room is out of reach of a jump but not of a flip. |
@@ -157,6 +158,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
 | `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |
 | `ray(x1, y1, z1, x2, y2, z2)` | The first level quad between two points (any flags): `{quad, at={x,y,z}, flags, object_tag, jello}`, or nil. |
+| `animated_textures()` / `particle_textures(class)` | The animated textures the level and its models draw, `{name, frame}` each (as of the last screenshot); the texture (file stem) each live particle of a class shows now. |
 | `decals_drawn(x, y, z)` | The decals drawn from that eye now: `{quad, alpha}` each (alpha 0–1, as drawn), in drawing order. |
 | `look_mode(on)` / `aim_lr([v])` | Hold the look-mode key; read (or set) the player's look-mode turn (radians). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
