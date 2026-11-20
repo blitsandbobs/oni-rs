@@ -6,7 +6,8 @@ locomotion state machine, collision — without a window. They replace the old
 (which assert) instead of in bespoke CLI flags.
 
 
-Run them all with `scenarios/run_all.sh` (and again with `--faithful`): a
+`scripts/check.sh` runs both passes (with clippy and the tests) in parallel
+— the commit gate. Run them all with `scenarios/run_all.sh` (and again with `--faithful`): a
 scenario fails when its script errors (an `assert`), which makes `oni-view
 --script` exit non-zero. They run 8 at a time (`-j N` to change; `-j 1` one
 by one), each its own process; the report comes in file order. A pass takes

@@ -369,41 +369,55 @@ mod tests {
         }
     }
 
+    /// Runs `check` on every converted level with translated scripts, each
+    /// on its own thread (a level's world is its own), and returns their
+    /// failures in level order. None without the converted assets.
+    fn each_level(check: impl Fn(&Path, u16, &Path) -> Vec<String> + Sync) -> Vec<String> {
+        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni");
+        let Ok(levels) = std::fs::read_dir(root.join("levels")) else { return Vec::new() };
+        let mut dirs: Vec<PathBuf> = levels.flatten().map(|e| e.path()).filter(|p| p.join("scripts.lua").exists()).collect();
+        dirs.sort();
+        std::thread::scope(|s| {
+            let runs: Vec<_> = dirs
+                .iter()
+                .map(|dir| {
+                    let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
+                    let (root, check) = (&root, &check);
+                    std::thread::Builder::new()
+                        .name(format!("level {level}"))
+                        .stack_size(64 << 20)
+                        .spawn_scoped(s, move || check(root, level, dir))
+                        .expect("a level's thread")
+                })
+                .collect();
+            runs.into_iter().flat_map(|r| r.join().unwrap_or_else(|_| vec!["a level's check panicked".into()])).collect()
+        })
+    }
+
     /// Every level's translated scripts load and begin — characters
     /// spawned, `main` running for 10 s of game time — without a script
     /// error. (Skipped when the converted assets aren't there.)
     #[test]
     fn every_level_begins_without_script_errors() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni");
-        let Ok(levels) = std::fs::read_dir(root.join("levels")) else { return };
-        let mut dirs: Vec<PathBuf> = levels.flatten().map(|e| e.path()).filter(|p| p.join("scripts.lua").exists()).collect();
-        dirs.sort();
-        let mut failures = Vec::new();
-        for dir in dirs {
-            let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
-            let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
+        let failures = each_level(|root, level, dir| {
+            let Ok(classes) = crate::classes::Classes::open(root, level) else { return Vec::new() };
             // (No level geometry: nothing to stand on.)
             let mut host = Headless { world: World::new(), classes };
-            host.world.load_level(&dir);
-            let Ok(player) = host.kind("konoko_generic") else { continue };
+            host.world.load_level(dir);
+            let Ok(player) = host.kind("konoko_generic") else { return Vec::new() };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
-            let mut m = match Mission::load(&dir) {
+            let mut m = match Mission::load(dir) {
                 Ok(m) => m,
-                Err(e) => {
-                    failures.push(format!("{}: {e}", dir.display()));
-                    continue;
-                }
+                Err(e) => return vec![format!("{}: {e}", dir.display())],
             };
             m.begin(&mut host);
             for _ in 0..600 {
                 host.world.step(0);
                 m.tick(&mut host);
             }
-            for e in &m.state.errors {
-                failures.push(format!("level {level}: {e}"));
-            }
             eprintln!("level {level}: {} spawned, {} tasks, {} errors", m.state.spawned.len(), m.tasks(), m.state.errors.len());
-        }
+            m.state.errors.iter().map(|e| format!("level {level}: {e}")).collect()
+        });
         assert!(failures.is_empty(), "{failures:#?}");
     }
 
@@ -412,19 +426,13 @@ mod tests {
     /// a script error anywhere is reported. (Skipped without assets.)
     #[test]
     fn every_trigger_volume_runs_without_script_errors() {
-        let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni");
-        let Ok(levels) = std::fs::read_dir(root.join("levels")) else { return };
-        let mut dirs: Vec<PathBuf> = levels.flatten().map(|e| e.path()).filter(|p| p.join("scripts.lua").exists()).collect();
-        dirs.sort();
-        let mut report = Vec::new();
-        for dir in dirs {
-            let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
-            let Ok(classes) = crate::classes::Classes::open(&root, level) else { continue };
+        let report = each_level(|root, level, dir| {
+            let Ok(classes) = crate::classes::Classes::open(root, level) else { return Vec::new() };
             let mut host = Headless { world: World::new(), classes };
-            host.world.load_level(&dir);
-            let Ok(player) = host.kind("konoko_generic") else { continue };
+            host.world.load_level(dir);
+            let Ok(player) = host.kind("konoko_generic") else { return Vec::new() };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
-            let Ok(mut m) = Mission::load(&dir) else { continue };
+            let Ok(mut m) = Mission::load(dir) else { return Vec::new() };
             m.begin(&mut host);
             let centres: Vec<glam::Vec3> = m
                 .state
@@ -454,10 +462,8 @@ mod tests {
             for w in &m.state.warnings {
                 eprintln!("  level {level} warning: {w}");
             }
-            for e in &m.state.errors {
-                report.push(format!("level {level}: {e}"));
-            }
-        }
+            m.state.errors.iter().map(|e| format!("level {level}: {e}")).collect()
+        });
         assert!(report.is_empty(), "{report:#?}");
     }
 }
