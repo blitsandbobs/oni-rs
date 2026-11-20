@@ -1464,6 +1464,7 @@ impl Fighter {
         CharDraw {
             model: self.model,
             bones,
+            see_through: false,
         }
     }
 

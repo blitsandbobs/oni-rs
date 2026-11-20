@@ -216,7 +216,7 @@ impl ScriptHost {
         self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
-        let mut guns: Vec<(usize, Vec<Mat4>)> = self
+        let mut guns: Vec<(usize, Vec<Mat4>, bool)> = self
             .world
             .gun_draws()
             .into_iter()
@@ -224,12 +224,18 @@ impl ScriptHost {
             .chain(self.world.turret_draws())
             .chain(self.world.object_draws())
             .chain(self.world.powerup_draws())
-            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m])))
+            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false)))
             .collect();
+        // (Objects in the camera's way, see-through.)
+        for (path, m) in self.world.object_jello_draws() {
+            if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
+                guns.push((k, vec![m], true));
+            }
+        }
         // (Consoles' screens, textured by their state.)
         for (path, tex, m) in self.world.console_draws() {
             if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                guns.push((k, vec![m]));
+                guns.push((k, vec![m], false));
             }
         }
         let draws: Vec<CharDraw> = self
@@ -238,7 +244,7 @@ impl ScriptHost {
             .iter()
             .zip(&bones)
             .map(|(f, b)| f.draw(b))
-            .chain(guns.iter().map(|(m, b)| CharDraw { model: *m, bones: b }))
+            .chain(guns.iter().map(|(m, b, see_through)| CharDraw { model: *m, bones: b, see_through: *see_through }))
             .collect();
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
@@ -610,6 +616,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // jello_objects() → {name, …}: the placed objects see-through this tick
+    // (in the camera's way).
+    let h = host.clone();
+    g.set(
+        "jello_objects",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            let names = w.object_states();
+            Ok(w.jello_objects.iter().filter_map(|&k| names.get(k).map(|n| n.0.clone())).collect::<Vec<_>>())
+        })?,
+    )?;
     // text_console() → {name, page, pages, last, lines} or nil: the data
     // console showing its text (page from 1; lines: the page's strings).
     // text_console_key("next" | "close"): Space / Esc on it.

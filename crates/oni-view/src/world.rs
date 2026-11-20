@@ -170,6 +170,9 @@ pub struct World {
     pub timer_expired: Option<String>,
     /// The quads see-through this tick (the camera's jello).
     pub jello: Vec<u32>,
+    /// The placed objects see-through this tick (the camera's jello on
+    /// objects, `OBcFlags_JelloObjects`).
+    pub jello_objects: Vec<usize>,
     /// The level's placed objects as authored, and those scripts have made.
     pub object_setups: Vec<objects::Setup>,
     pub objects: Vec<objects::Object>,
@@ -288,6 +291,7 @@ impl World {
             timer: None,
             timer_expired: None,
             jello: Vec::new(),
+            jello_objects: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
             objects: Vec::new(),

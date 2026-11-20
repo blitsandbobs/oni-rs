@@ -265,10 +265,21 @@ impl World {
             .collect()
     }
 
-    /// What to draw for the objects: each shown one's models and matrix.
+    /// What to draw for the objects: each shown one's models and matrix —
+    /// all but those see-through this frame ([`World::object_jello_draws`]).
     pub fn object_draws(&self) -> Vec<(PathBuf, Mat4)> {
+        self.object_models(false)
+    }
+
+    /// The objects see-through this frame (the camera's jello: drawn at
+    /// 31 of 255, `OBrDraw`).
+    pub fn object_jello_draws(&self) -> Vec<(PathBuf, Mat4)> {
+        self.object_models(true)
+    }
+
+    fn object_models(&self, see_through: bool) -> Vec<(PathBuf, Mat4)> {
         (0..self.objects.len())
-            .filter(|&k| self.objects[k].flags & oflag::INVISIBLE == 0)
+            .filter(|&k| self.objects[k].flags & oflag::INVISIBLE == 0 && self.jello_objects.contains(&k) == see_through)
             .flat_map(|k| {
                 let m = self.object_matrix(k);
                 self.object_setups[self.objects[k].setup].models.iter().map(move |p| (p.clone(), m))

@@ -46,6 +46,15 @@ impl Quirks {
         self.faithful
     }
 
+    /// Whether the camera's see-through test on objects reads its ray's
+    /// vector as the far end (`PHrCollision_Point` hands `CLrSphere_Line` a
+    /// vector for a point): the segment runs from the camera toward the
+    /// world's origin, so objects between the camera and the player rarely
+    /// go see-through (Q17).
+    pub fn jello_object_ray_as_point(self) -> bool {
+        self.faithful
+    }
+
     /// Whether a melee technique ignores danger. The shipped game tests its
     /// "fearless" flag against the wrong set of bits — the ones holding the
     /// technique's start state — so it really depends on that state (Q5).

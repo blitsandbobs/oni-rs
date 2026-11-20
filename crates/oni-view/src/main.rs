@@ -417,6 +417,7 @@ fn run_screenshot(
         Some(m) => vec![CharDraw {
             model: m,
             bones: &bones,
+            see_through: false,
         }],
         None => Vec::new(),
     };

@@ -53,6 +53,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
+| `object_jello.lua` | Level 3's van: its rear door between Konoko and the camera goes see-through (fixed) and stays solid as shipped (Q17, the ray read as a point); away from it nothing is. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
 | `cinematics.lua` | Cutscene portraits: a name tag slides from off the right to the top right (inset 20 × 65), slides away and goes on `cinematic_stop`; −1 takes the texture's size; a missing texture shows nothing; `end_cutscene` takes them all. |
@@ -158,6 +159,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
+| `jello_objects()` | The placed objects see-through this tick (in the camera's way), by name. |
 | `text_console()` / `text_console_key(k)` | The data console showing its text, `{name, page (from 1), pages, last, lines}` or nil; presses Space (`"next"`) or Esc (`"close"`) on it. |
 | `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |
 | `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |

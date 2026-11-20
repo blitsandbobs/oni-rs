@@ -336,6 +336,7 @@ impl World {
 
     /// Clears last tick's see-through walls (`M3rGeom_Clear_Jello`).
     fn jello_clear(&mut self) {
+        self.jello_objects.clear();
         for q in std::mem::take(&mut self.jello) {
             if let Some(q) = self.quads.quads.get_mut(q as usize) {
                 q.flags &= !flag::JELLO;
@@ -384,7 +385,33 @@ impl World {
             self.quads.quads[q as usize].flags |= flag::JELLO;
         }
         self.jello = jello;
+        // The objects the ray from the camera to the same point passes
+        // through (each in use, by its sphere): drawn see-through this
+        // frame.
+        let end = if self.quirks.jello_object_ray_as_point() { to_focus } else { v.location + to_focus };
+        self.jello_objects = (0..self.objects.len())
+            .filter(|&k| {
+                let r = self.object_setups[self.objects[k].setup].radius;
+                segment_meets_sphere(v.location, end, self.object_matrix(k).w_axis.truncate(), r)
+            })
+            .collect();
     }
+}
+
+/// Whether the segment from `a` to `b` meets the sphere (`CLrSphere_Line`):
+/// either end inside it, or its nearest point between them.
+fn segment_meets_sphere(a: Vec3, b: Vec3, centre: Vec3, r: f32) -> bool {
+    let r2 = r * r;
+    if a.distance_squared(centre) < r2 || b.distance_squared(centre) < r2 {
+        return true;
+    }
+    let ab = b - a;
+    let len2 = ab.length_squared();
+    if len2 <= 0.0 {
+        return false;
+    }
+    let u = (centre - a).dot(ab) / len2;
+    u > 0.0 && u < 1.0 && (a + ab * u).distance_squared(centre) < r2
 }
 
 impl GameCamera {

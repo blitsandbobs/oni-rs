@@ -206,12 +206,16 @@ struct CharModel {
 pub struct CharDraw<'a> {
     pub model: usize,
     pub bones: &'a [Mat4],
+    /// Drawn see-through (an object in the camera's way: 31 of 255).
+    pub see_through: bool,
 }
 
 pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     jello_pipeline: wgpu::RenderPipeline,
+    /// The objects in the camera's way (31 of 255).
+    object_jello_pipeline: wgpu::RenderPipeline,
     /// The one-sided level quads' pipelines (backs culled).
     opaque_cull_pipeline: wgpu::RenderPipeline,
     blend_cull_pipeline: wgpu::RenderPipeline,
@@ -413,6 +417,7 @@ impl Renderer {
         let opaque_pipeline = make_pipeline("opaque", None, true);
         // See-through walls (the camera's jello): faint, see-through.
         let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
+        let object_jello_pipeline = make_pipeline_with("object jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello_object");
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         let additive_pipeline = make_pipeline("additive", Some(additive), false);
         let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
@@ -658,6 +663,7 @@ impl Renderer {
             opaque_pipeline,
             blend_pipeline,
             jello_pipeline,
+            object_jello_pipeline,
             opaque_cull_pipeline,
             blend_cull_pipeline,
             additive_cull_pipeline,
@@ -953,13 +959,27 @@ impl Renderer {
                     }
                     pass.set_pipeline(pipeline);
                 }
+                // The objects in the camera's way, faint (`OBrDraw`'s jello
+                // alpha, 31 of 255): all their parts, with what is seen
+                // through.
+                if bucket == Bucket::Alpha && characters.iter().any(|d| d.see_through) {
+                    pass.set_pipeline(&self.object_jello_pipeline);
+                    for d in characters.iter().filter(|d| d.see_through) {
+                        let Some(cm) = self.char_models.get(d.model) else { continue };
+                        for p in &cm.prims {
+                            let model = p.bone.and_then(|i| d.bones.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+                            draw_prim(&mut pass, p, model);
+                        }
+                    }
+                    pass.set_pipeline(pipeline);
+                }
                 if let Some(b) = beams.as_ref().filter(|b| b.bucket == bucket) {
                     draw_prim(&mut pass, b, Mat4::IDENTITY);
                 }
                 for p in sprites.iter().filter(|p| p.bucket == bucket) {
                     draw_prim(&mut pass, p, Mat4::IDENTITY);
                 }
-                for d in characters {
+                for d in characters.iter().filter(|d| !d.see_through) {
                     let Some(cm) = self.char_models.get(d.model) else {
                         continue;
                     };
@@ -1575,6 +1595,13 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 fn fs_jello(in: VSOut) -> @location(0) vec4<f32> {
     let c = lit(in);
     return vec4<f32>(c.rgb, c.a * (20.0 / 255.0));
+}
+
+// An object in the camera's way: drawn at 31 of 255 (`OBrDraw`).
+@fragment
+fn fs_jello_object(in: VSOut) -> @location(0) vec4<f32> {
+    let c = lit(in);
+    return vec4<f32>(c.rgb, c.a * (31.0 / 255.0));
 }
 "#;
 
