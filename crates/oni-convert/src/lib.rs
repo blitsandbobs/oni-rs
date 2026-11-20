@@ -1095,6 +1095,7 @@ struct NodeSpec {
     blend: bool,
     additive: bool,
     self_illum: bool,
+    one_sided: bool,
 }
 
 /// Looks up a texture's Oni render flags `(additive, self_illuminated)` by name
@@ -1267,6 +1268,7 @@ fn convert_environment(
                 blend: g.blend,
                 additive,
                 self_illum,
+                one_sided: !g.two_sided,
             });
         }
 
@@ -1284,6 +1286,7 @@ fn convert_environment(
                 blend: false,
                 additive: false,
                 self_illum: false,
+                one_sided: false,
             });
             for g in &obj.groups {
                 let m = push_mesh(&mut meshes, g);
@@ -1308,6 +1311,7 @@ fn convert_environment(
                     blend: g.blend,
                     additive,
                     self_illum,
+                    one_sided: !g.two_sided,
                 });
             }
             object_infos.push(EnvObjectInfo {
@@ -1331,6 +1335,7 @@ fn convert_environment(
                 blend: s.blend,
                 additive: s.additive,
                 self_illum: s.self_illum,
+                one_sided: s.one_sided,
             })
             .collect();
         std::fs::create_dir_all(root)?;
@@ -2018,6 +2023,7 @@ fn convert_characters(
                 blend: false,
                 additive: false,
                 self_illum: false,
+                one_sided: false,
                 // Prefer the per-part body texture; fall back to the mesh base map.
                 texture_uri: part_textures
                     .get(i)

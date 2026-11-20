@@ -66,6 +66,7 @@ fn main() -> ExitCode {
                 blend: false,
                 additive: false,
                 self_illum: false,
+            one_sided: false,
                 texture_uri: p
                     .mesh
                     .base_texture

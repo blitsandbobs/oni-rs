@@ -55,6 +55,8 @@ const GQ_RENDER_SIZE: usize = 4; // textureMapIndex(2) + alpha(2)
 // AKtGQ flags (BFW_Akira.h).
 const GQ_FLAG_TRIANGLE: u32 = 1 << 6;
 const GQ_FLAG_TRANSPARENT: u32 = 1 << 7;
+/// `AKcGQ_Flag_2Sided`: transparent, jello, draw-both-sides.
+const GQ_FLAG_TWO_SIDED: u32 = (1 << 7) | (1 << 5) | (1 << 9);
 const GQ_FLAG_INVISIBLE: u32 = 1 << 13;
 /// What characters don't collide with (`AKcGQ_Flag_Chr_Col_Skip`): no
 /// collision, no character collision, broken glass. (Stairs are drawn as
@@ -107,6 +109,10 @@ pub struct TextureGroup {
     /// A breakable pane (its texture's material is glass): each breakable
     /// quad is its own group, numbered by its quad index.
     pub glass: Option<u32>,
+    /// Drawn from both sides (`AKcGQ_Flag_2Sided`: transparent, jello or
+    /// draw-both-sides); the rest are drawn only from the front — the side
+    /// their plane faces — as the original culls them.
+    pub two_sided: bool,
     /// Vertex positions (per quad corner).
     pub positions: Vec<[f32; 3]>,
     /// Vertex texture coordinates.
@@ -185,6 +191,14 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
     let pa = resolve(dat, read_u32(d, OFF_POINT_ARRAY)?)?;
     let ta = resolve(dat, read_u32(d, OFF_TEXCOORD_ARRAY)?)?;
     let gg = resolve(dat, read_u32(d, OFF_GQ_GENERAL)?)?;
+    // Each quad's plane (its front: the side the original draws it from).
+    let gq = crate::gq::extract_quads(dat, akev);
+    let plane_of = |q: usize| -> Option<[f32; 3]> {
+        let g = gq.as_ref()?;
+        let p = g.quads.get(q)?.plane;
+        let [a, b, c, _] = *g.planes.get((p & 0x7FFF_FFFF) as usize)?;
+        Some(if p & 0x8000_0000 != 0 { [-a, -b, -c] } else { [a, b, c] })
+    };
     let gr = resolve(dat, read_u32(d, OFF_GQ_RENDER)?)?;
     let tm = resolve(dat, read_u32(d, OFF_TEXMAP_ARRAY)?)?;
 
@@ -231,7 +245,7 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
     }
 
     // (Groups: texture, blend, visible, collide, script reference, pane.)
-    type Groups = BTreeMap<(u16, bool, bool, bool, Option<u32>, Option<u32>), TextureGroup>;
+    type Groups = BTreeMap<(u16, bool, bool, bool, Option<u32>, Option<u32>, bool), TextureGroup>;
     let mut buckets: BTreeMap<u32, Groups> = BTreeMap::new();
 
     for q in 0..num_gq {
@@ -268,12 +282,13 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
         let object_tag = read_u32(gg, go + GQ_OBJECT_TAG)?;
         let blend = flags & GQ_FLAG_TRANSPARENT != 0;
         let is_triangle = flags & GQ_FLAG_TRIANGLE != 0;
+        let two_sided = flags & GQ_FLAG_TWO_SIDED != 0;
 
         let glass = tex_lookup(tex_index as usize).0.filter(|&i| breakable(i)).map(|_| q as u32);
         let grp = buckets
             .entry(object_tag)
             .or_default()
-            .entry((tex_index, blend, visible, collide, remap.get(&q).copied(), glass))
+            .entry((tex_index, blend, visible, collide, remap.get(&q).copied(), glass, two_sided))
             .or_default();
         if grp.tex_instance.is_none() {
             grp.glass = glass;
@@ -284,6 +299,7 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
             grp.visible = visible;
             grp.collide = collide;
             grp.env_ref = remap.get(&q).copied();
+            grp.two_sided = two_sided;
         }
         let base = grp.positions.len() as u32;
         // A triangle quad uses only its first 3 corners.
@@ -297,7 +313,12 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
         // Per-corner baked-lighting shades (M3tQuadSplit.shades[4] @ +32).
         let e1 = sub(corners[1], corners[0]);
         let e2 = sub(corners[2], corners[0]);
-        let n = normalize(cross(e1, e2));
+        let mut n = normalize(cross(e1, e2));
+        // Wound to face along the quad's plane: the front the renderer keeps.
+        let flip = plane_of(q).is_some_and(|p| n[0] * p[0] + n[1] * p[1] + n[2] * p[2] < 0.0);
+        if flip {
+            n = [-n[0], -n[1], -n[2]];
+        }
         for k in 0..corner_count {
             grp.positions.push(corners[k]);
             grp.texcoords.push(tc(uvidx[k])?);
@@ -305,12 +326,13 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
             let shade = read_u32(gg, go + GQ_SHADES + k * 4).unwrap_or(0x00FF_FFFF);
             grp.colors.push(shade_rgb(shade));
         }
-        if is_triangle {
-            grp.indices.extend_from_slice(&[base, base + 1, base + 2]);
-        } else {
-            grp.indices
-                .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
-        }
+        let tris: &[u32] = match (is_triangle, flip) {
+            (true, false) => &[0, 1, 2],
+            (true, true) => &[0, 2, 1],
+            (false, false) => &[0, 1, 2, 0, 2, 3],
+            (false, true) => &[0, 2, 1, 0, 3, 2],
+        };
+        grp.indices.extend(tris.iter().map(|i| base + i));
     }
 
     // Static world.

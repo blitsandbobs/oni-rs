@@ -47,6 +47,9 @@ pub struct Prim {
     pub env_ref: Option<u32>,
     /// A breakable glass pane, by its quad (`…__glass<N>`).
     pub glass: Option<u32>,
+    /// Drawn from its front only (its material says `doubleSided: false`: a
+    /// level quad the original culls from behind).
+    pub one_sided: bool,
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
@@ -171,6 +174,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
     // Returns (texture index, blend, additive, self_illuminated).
     let mut material_texture = |mat_idx: usize| -> (Option<usize>, bool, bool, bool) {
         let mat = &json["materials"][mat_idx];
+        // (Sidedness is read on its own, below.)
         let blend = mat["alphaMode"].as_str() == Some("BLEND");
         let additive = mat["extras"]["additive"].as_bool().unwrap_or(false);
         let self_illum = mat["extras"]["selfIllum"].as_bool().unwrap_or(false);
@@ -245,6 +249,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 .as_u64()
                 .map(|m| material_texture(m as usize))
                 .unwrap_or((None, false, false, false));
+            let one_sided = prim["material"].as_u64().is_some_and(|m| json["materials"][m as usize]["doubleSided"].as_bool() == Some(false));
             // Self-lit / additive surfaces ignore baked lighting (full bright).
             let full_bright = additive || self_illum;
 
@@ -290,6 +295,7 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 collide,
                 env_ref,
                 glass,
+                one_sided,
             });
         }
     }

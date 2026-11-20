@@ -177,6 +177,8 @@ struct GpuPrim {
     /// Bone index for a character part (world matrix comes from the pose), or
     /// `None` for pre-baked world-space environment geometry (identity model).
     bone: Option<usize>,
+    /// Culled from behind (a one-sided level quad).
+    cull: bool,
 }
 
 /// One uploaded character model (its bone-local parts). Several world instances
@@ -197,6 +199,11 @@ pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     jello_pipeline: wgpu::RenderPipeline,
+    /// The one-sided level quads' pipelines (backs culled).
+    opaque_cull_pipeline: wgpu::RenderPipeline,
+    blend_cull_pipeline: wgpu::RenderPipeline,
+    additive_cull_pipeline: wgpu::RenderPipeline,
+    jello_cull_pipeline: wgpu::RenderPipeline,
     overlay_pipeline: wgpu::RenderPipeline,
     overlay_additive_pipeline: wgpu::RenderPipeline,
     /// The HUD's textures (unfiltered, as the original draws it), by file.
@@ -323,7 +330,7 @@ impl Renderer {
             ],
         };
 
-        let make_pipeline_full = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction| {
+        let make_pipeline_cull = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction, cull: Option<wgpu::Face>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pipeline_layout),
@@ -345,7 +352,9 @@ impl Renderer {
                 }),
                 primitive: wgpu::PrimitiveState {
                     topology: wgpu::PrimitiveTopology::TriangleList,
-                    cull_mode: None, // doubleSided
+                    // (Two-sided, but for the level's one-sided quads:
+                    // their backs culled, as the original culls them.)
+                    cull_mode: cull,
                     ..Default::default()
                 },
                 depth_stencil: Some(wgpu::DepthStencilState {
@@ -369,13 +378,24 @@ impl Renderer {
             },
             alpha: wgpu::BlendComponent::OVER,
         };
+        let make_pipeline_full = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction| {
+            make_pipeline_cull(label, blend, depth_write, fragment, depth_compare, None)
+        };
         let make_pipeline_with = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| make_pipeline_full(label, blend, depth_write, fragment, wgpu::CompareFunction::Less);
+        // The one-sided level quads' twins: backs culled.
+        let culled = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
+            make_pipeline_cull(label, blend, depth_write, fragment, wgpu::CompareFunction::Less, Some(wgpu::Face::Back))
+        };
         let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| make_pipeline_with(label, blend, depth_write, "fs_main");
         let opaque_pipeline = make_pipeline("opaque", None, true);
         // See-through walls (the camera's jello): faint, see-through.
         let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         let additive_pipeline = make_pipeline("additive", Some(additive), false);
+        let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
+        let blend_cull_pipeline = culled("alpha culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_main");
+        let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_main");
+        let jello_cull_pipeline = culled("jello culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_main", wgpu::CompareFunction::Always);
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
@@ -614,6 +634,10 @@ impl Renderer {
             opaque_pipeline,
             blend_pipeline,
             jello_pipeline,
+            opaque_cull_pipeline,
+            blend_cull_pipeline,
+            additive_cull_pipeline,
+            jello_cull_pipeline,
             overlay_pipeline,
             overlay_additive_pipeline,
             overlay_textures: Default::default(),
@@ -731,6 +755,7 @@ impl Renderer {
                 env_ref: None,
                 glass: None,
                 bone: Some(part.bone),
+                cull: false,
             });
         }
         self.char_models.push(CharModel { prims });
@@ -839,18 +864,22 @@ impl Renderer {
                 pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..p.count, 0, 0..1);
             };
-            for (bucket, pipeline) in [
-                (Bucket::Opaque, &self.opaque_pipeline),
-                (Bucket::Alpha, &self.blend_pipeline),
-                (Bucket::Additive, &self.additive_pipeline),
-                (Bucket::Flare, &self.flare_pipeline),
+            for (bucket, pipeline, cull_pipeline) in [
+                (Bucket::Opaque, &self.opaque_pipeline, &self.opaque_cull_pipeline),
+                (Bucket::Alpha, &self.blend_pipeline, &self.blend_cull_pipeline),
+                (Bucket::Additive, &self.additive_pipeline, &self.additive_cull_pipeline),
+                (Bucket::Flare, &self.flare_pipeline, &self.flare_pipeline),
             ] {
-                pass.set_pipeline(pipeline);
                 let shown = |p: &&GpuPrim| {
                     p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
+                let mut current: Option<bool> = None;
                 for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p)) {
+                    if current != Some(p.cull) {
+                        pass.set_pipeline(if p.cull { cull_pipeline } else { pipeline });
+                        current = Some(p.cull);
+                    }
                     let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
                     match self.jello_cache.1.get(&k) {
                         // (Partly see-through: the solid rest only, here.)
@@ -866,12 +895,12 @@ impl Renderer {
                 }
                 // The see-through walls, with what is seen through.
                 if bucket == Bucket::Alpha && !self.jello_cache.1.is_empty() {
-                    pass.set_pipeline(&self.jello_pipeline);
                     for (&k, (_, _, seen, n)) in &self.jello_cache.1 {
                         let p = &self.prims[k];
                         if *n == 0 || !shown(&p) {
                             continue;
                         }
+                        pass.set_pipeline(if p.cull { &self.jello_cull_pipeline } else { &self.jello_pipeline });
                         pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()));
                         pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
@@ -1124,6 +1153,7 @@ impl Renderer {
                     collide: false,
                     env_ref: None,
                     glass: None,
+                    one_sided: false,
                 };
                 let mut g = upload_prim(&gpu.device, &prim);
                 g.texture = t;
@@ -1203,6 +1233,7 @@ impl Renderer {
             collide: false,
             env_ref: None,
             glass: None,
+            one_sided: false,
         };
         Some(upload_prim(device, &prim))
     }
@@ -1236,6 +1267,7 @@ fn upload_prim(device: &wgpu::Device, p: &Prim) -> GpuPrim {
         env_ref: p.env_ref,
         glass: p.glass,
         bone: None,
+        cull: p.one_sided,
     }
 }
 

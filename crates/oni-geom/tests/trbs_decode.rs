@@ -60,6 +60,7 @@ fn level0_characters_decode() {
             blend: false,
             additive: false,
             self_illum: false,
+            one_sided: false,
             texture_uri: None,
         })
         .collect();

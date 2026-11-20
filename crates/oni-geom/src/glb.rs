@@ -267,6 +267,9 @@ pub struct SceneNode<'a> {
     pub additive: bool,
     /// Self-illuminated (full-bright) material — carried in material `extras`.
     pub self_illum: bool,
+    /// Drawn from its front only (the material's `doubleSided` false): a
+    /// level quad the original culls from behind.
+    pub one_sided: bool,
 }
 
 /// Serializes a node hierarchy (each node carrying a mesh) to a `.glb`.
@@ -279,7 +282,7 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
 
     // Deduplicate textures/materials by (URI, blend, additive, self_illum).
     let mut tex_uris: Vec<String> = Vec::new();
-    let mut mat_for_uri: std::collections::BTreeMap<(String, bool, bool, bool), usize> =
+    let mut mat_for_uri: std::collections::BTreeMap<(String, bool, bool, bool, bool), usize> =
         std::collections::BTreeMap::new();
     let mut tex_for_uri: std::collections::BTreeMap<String, usize> =
         std::collections::BTreeMap::new();
@@ -303,7 +306,7 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
         // Resolve material, deduplicated by (texture, blend, additive, selfIllum).
         let mat = match &n.texture_uri {
             Some(uri) => *mat_for_uri
-                .entry((uri.clone(), n.blend, n.additive, n.self_illum))
+                .entry((uri.clone(), n.blend, n.additive, n.self_illum, n.one_sided))
                 .or_insert_with(|| {
                     let img = *tex_for_uri.entry(uri.clone()).or_insert_with(|| {
                         let i = tex_uris.len();
@@ -327,7 +330,8 @@ pub fn scene_to_glb(nodes: &[SceneNode]) -> Vec<u8> {
                     };
                     let m = materials.len();
                     materials.push(format!(
-                        "{{\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{img}}},\"metallicFactor\":0,\"roughnessFactor\":1}},\"doubleSided\":true{alpha}{extras}}}"
+                        "{{\"pbrMetallicRoughness\":{{\"baseColorTexture\":{{\"index\":{img}}},\"metallicFactor\":0,\"roughnessFactor\":1}},\"doubleSided\":{}{alpha}{extras}}}",
+                        !n.one_sided
                     ));
                     m
                 }),
