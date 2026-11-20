@@ -734,6 +734,8 @@ impl World {
             }
         }
         if let Some(pl) = placed {
+            f.unkillable = pl.has("unkillable");
+            f.infinite_ammo = pl.has("infiniteAmmo");
             f.max_hp += pl.hp_offset;
             // Enemies of the player are as tough as the difficulty says.
             if pl.team.regards(player_team) == crate::ai::perception::Relation::Hostile {

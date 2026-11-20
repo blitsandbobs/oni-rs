@@ -606,6 +606,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // lock_of(id) → the frames fighter `id`'s scripted animation still holds
+    // it (`animationLockFrames`; 0: free).
+    let h = host.clone();
+    g.set("lock_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0, |f| f.motion.lock_frames)))?)?;
     let h = host.clone();
     g.set(
         "facing_of",

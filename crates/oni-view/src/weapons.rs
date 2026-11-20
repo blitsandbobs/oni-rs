@@ -344,6 +344,10 @@ pub struct Weapon {
     pub class: Rc<WeaponClass>,
     /// Who holds it (a fighter index).
     pub owner: Option<usize>,
+    /// Its holder never runs out (`ONcCharacterFlag_InfiniteAmmo`): the gun
+    /// stays full and a shot spends nothing (`WPrGetAmmo`,
+    /// `WPrStartShooter`).
+    pub infinite_ammo: bool,
     /// Its world matrix (gun space → world), shared with its particles.
     pub matrix: Rc<Cell<Mat4>>,
     /// A free gun: where it lies and which way.
@@ -387,6 +391,7 @@ impl Weapon {
             ammo: class.max_ammo,
             class,
             owner: None,
+            infinite_ammo: false,
             matrix: Rc::new(Cell::new(Mat4::from_rotation_translation(glam::Quat::from_rotation_y(yaw), position))),
             position,
             yaw,
@@ -556,7 +561,9 @@ impl Weapon {
         }
         self.send(sys, host, event::PULSE, shooter, motion);
         let a = self.class.attachments[i].clone();
-        self.ammo = self.ammo.saturating_sub(a.ammo_used);
+        if !self.infinite_ammo {
+            self.ammo = self.ammo.saturating_sub(a.ammo_used);
+        }
         if self.ammo == 0 {
             self.stop_background(sys, host);
         } else if !self.chamber_delay {
@@ -674,6 +681,9 @@ impl Weapon {
     /// One tick in a hand: `hand` is the gun's world matrix this tick,
     /// `motion` how far the gun moved.
     pub fn tick_held(&mut self, sys: &mut System, host: &mut dyn Host, hand: Mat4, motion: Vec3) {
+        if self.infinite_ammo {
+            self.ammo = self.class.max_ammo;
+        }
         self.matrix.set(hand);
         self.position = hand.w_axis.truncate();
         if !self.background && self.ammo > 0 && self.particles.iter().all(Option::is_none) {
@@ -703,7 +713,9 @@ impl Weapon {
                         if self.ammo < a.ammo_used {
                             self.release_trigger(sys, host, true);
                         } else {
-                            self.ammo -= a.ammo_used;
+                            if !self.infinite_ammo {
+                                self.ammo -= a.ammo_used;
+                            }
                             if self.class.has(flag::AUTOFIRE) {
                                 self.pulse(sys, host, i, a.shooter, motion);
                             } else {

@@ -91,6 +91,12 @@ pub struct Fighter {
     pub max_hp: i32,
     /// Takes no damage (`chr_invincible`).
     pub invincible: bool,
+    /// Can't be killed but by an act of god (placed `unkillable`): a blow
+    /// that would leaves it on 1 and defeats it (`ONrCharacter_TakeDamage`).
+    pub unkillable: bool,
+    /// It has been defeated (its defeated script's cue): a blow an
+    /// unkillable one couldn't survive, or death.
+    pub defeated: bool,
     /// Removed from the level (`chr_delete`): not simulated or drawn.
     pub gone: bool,
     /// A film it is playing (its controls come from the recording).
@@ -428,6 +434,8 @@ impl Fighter {
             last_particle: None,
             last_impact: Vec3::ZERO,
             infinite_ammo: false,
+            unkillable: false,
+            defeated: false,
             weapon_immune: false,
             weapon_empty: false,
             overlays: [None; 3],
@@ -987,6 +995,7 @@ impl Fighter {
             if self.invincible {
             return;
         }
+        let damage = self.survive(damage);
         self.hp = (self.hp - damage).max(0);
         // A hurt eats into the hypo still to come, two and a half times over
         // (`ONcDamage_HurtHypoScale`); dead, it is gone.
@@ -1067,6 +1076,27 @@ impl Fighter {
     }
 
     /// was already chosen, else a frontal knockdown) and it stops acting.
+    /// The damage an unkillable one takes of `damage`: what leaves it on 1
+    /// if it would die — which defeats it (knocked down, `ONiCharacter_
+    /// Defeated` and `_RunDeathAnimation`).
+    fn survive(&mut self, damage: i32) -> i32 {
+        if !self.unkillable || damage <= 0 || self.hp > damage {
+            return damage;
+        }
+        self.defeated = true;
+        let ch = self.character.clone();
+        // (A knockdown — unless already reeling to the floor, not yet on
+        // it.)
+        let c = self.motion.current();
+        let to_ground = matches!(c.to_state, st::FALLEN_BACK | st::FALLEN_FRONT);
+        let on_ground = to_ground && c.from_state == c.to_state;
+        if on_ground || !reaction::is_victim(self.motion.kind) || !to_ground {
+            self.pending_reaction = ty::NONE;
+            self.motion.knock(&ch, ty::KNOCKDOWN_HEAD, self.quirks);
+        }
+        (self.hp - 1).max(0)
+    }
+
     pub fn take_damage(&mut self, damage: i32, knockback: Vec3) {
         let m = &mut self.motion;
         m.hit_stun = 0;
@@ -1076,6 +1106,8 @@ impl Fighter {
         if m.dying {
             return;
         }
+        let damage = self.survive(damage);
+        let m = &mut self.motion;
         if damage > 0 {
             // The least pain the blow calls for: heavy blown up, medium
             // knocked down or landing dead.

@@ -245,11 +245,12 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         };
         let Some(scripts) = state.scripts.get(&id) else { continue };
         let (dying, hurt) = (f.motion.dying || f.hp <= 0, f.hp < f.max_hp && !f.invincible);
+        let defeated = dying || f.defeated;
         let alarmed = std::mem::take(&mut host.world().fighters[id].alarmed);
         // (Its gun empty with nothing to reload it.)
         let dry = host.world().has_empty_weapon(id);
         let fired = state.fired.entry(id).or_default();
-        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("outOfAmmo", dry), ("defeated", dying), ("die", dying)] {
+        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("outOfAmmo", dry), ("defeated", defeated), ("die", dying)] {
             if now && fired.insert(event) {
                 if let Some(s) = scripts.get(event) {
                     out.push((s.clone(), vec![name.clone()]));
@@ -814,10 +815,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
             if let Some(f) = host.world().fighters.get_mut(id) {
                 if hp <= 0 && f.alive() {
-                    let (was, all) = (f.invincible, f.hp);
-                    f.invincible = false;
+                    // (An act of god: kills even the invincible and the
+                    // unkillable.)
+                    let (was, unkillable, all) = (f.invincible, f.unkillable, f.hp);
+                    (f.invincible, f.unkillable) = (false, false);
                     f.take_damage(all, Vec3::ZERO);
-                    f.invincible = was;
+                    (f.invincible, f.unkillable) = (was, unkillable);
                 } else {
                     f.hp = hp as i32;
                 }
@@ -1048,10 +1051,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                     (None, _) => true,
                 };
                 if picked && !f.player && f.alive() && !f.gone {
-                    let (was, all) = (f.invincible, f.hp);
-                    f.invincible = false;
+                    // (An act of god: kills even the invincible and the
+                    // unkillable.)
+                    let (was, unkillable, all) = (f.invincible, f.unkillable, f.hp);
+                    (f.invincible, f.unkillable) = (false, false);
                     f.take_damage(all, Vec3::ZERO);
-                    f.invincible = was;
+                    (f.invincible, f.unkillable) = (was, unkillable);
                 }
             }
             nil()

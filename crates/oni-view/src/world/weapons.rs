@@ -2025,6 +2025,7 @@ impl World {
                 }
             };
             let before = self.armory.weapons[w].position;
+            self.armory.weapons[w].infinite_ammo = self.fighters[who].infinite_ammo;
             let Armory { particles, weapons, .. } = &mut self.armory;
             let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             let motion = m.w_axis.truncate() - before;

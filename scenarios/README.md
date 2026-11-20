@@ -60,6 +60,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `timer.lua` | The countdown: `timer_start` shows 0:12 → 0:11 → 0:09.3, blinking under twenty seconds; at zero its script runs and 0:00.0 blinks five seconds; `timer_stop` ends one early (no script). |
 | `script_ai.lua` | Scripts steering characters (level 2): `chr_create` makes setup 1050 at its flag, known by its script id; a cutscene makes the AIs passive and puts Konoko's gun away, its end undoes both; `ai2_takecontrol` + `ai2_movetoflag` walk her to a flag and turn her to its facing, `ai2_lookatchar` turns her toward someone; `ai2_makeblind` / `ai2_forget`. |
 | `ambush.lua` | Level 2's ambush: after the intro both partner cops fight the Strikers, the Strikers come out of their room (doors linked to pathfinding connections as the original links them) and reach Konoko in her room though no route leads there (the advance's local walk). |
+| `barabus.lua` | Level 3's opening: Barabus (unkillable, infinite ammo) fires on Konoko without his gun running down; worn down he is left on 1 and defeated, his rocket scene removes him, objective 2 follows. |
 | `auto_aim.lua` | Konoko's arm follows her gun: aiming 30° and 60° to each side, and when auto-aim turns the gun onto an enemy 4° off her aim (the gun stays in her hand). |
 | `downed.lua` | A downed Striker doesn't turn while it lies: not toward Konoko walking round it, not when ordered to face elsewhere. |
 | `hypo.lua` | Hypos: a quarter of full health given a point every 7 ticks; a hurt eats 2.5 × its damage from it; at full a whole boost to double, a point a tick, then draining back a point every 11 ticks; none, or already boosting, nothing. |
@@ -156,6 +157,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
+| `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |
 | `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |
 | `ray(x1, y1, z1, x2, y2, z2)` | The first level quad between two points (any flags): `{quad, at={x,y,z}, flags, object_tag, jello}`, or nil. |
 | `animated_textures()` / `particle_textures(class)` | The animated textures the level and its models draw, `{name, frame}` each (as of the last screenshot); the texture (file stem) each live particle of a class shows now. |
