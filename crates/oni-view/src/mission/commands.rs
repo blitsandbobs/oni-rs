@@ -787,6 +787,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 None => nil(),
             }
         }
+        // A data console's text, modal: the game stands still until it is
+        // closed (`ONiTextConsole_Display`; `hud/console.rs`).
+        "text_console" => {
+            let Some(name) = a(0).and_then(text) else { return nil() };
+            if !host.world().hud.open_text_console(&name) {
+                state.warn(format!("text_console: no console {name}"));
+            }
+            nil()
+        }
         "chr_delete" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().remove(id);

@@ -40,6 +40,7 @@ mod weapons;
 mod anim_sounds;
 mod impacts;
 mod sounds;
+mod text_consoles;
 mod turrets;
 
 use std::collections::BTreeMap;
@@ -253,6 +254,8 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut part_specs = serde_json::Map::new();
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
+    // The text console dialog's text font (level 0's), the pages' base.
+    let mut console_font = text_consoles::Font { size: 7, style: 0, shade: 0xFFFF_FFFF };
     // The animated textures (by file stem), from every file.
     let mut texture_anims: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 
@@ -373,6 +376,16 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             }
         }
         write_animation_collections(&dat, &f.root, fi, &global_named, output_dir)?;
+
+        // The text console dialog (level 0), then each level's consoles.
+        if f.level == 0 {
+            if let Some((dialog, font)) = text_consoles::dialog(&dat, &registry) {
+                text_consoles::write_dialog(&dialog, &root_to_common(&root))?;
+                console_font = font;
+            }
+        } else if let Err(e) = text_consoles::write(text_consoles::consoles(&dat, &registry, console_font), &root) {
+            stats.warnings.push(format!("text_consoles.json: {e}"));
+        }
 
         // level.json for playable levels.
         if f.level != 0 {

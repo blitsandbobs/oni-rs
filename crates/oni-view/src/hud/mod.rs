@@ -7,6 +7,7 @@
 //! triangles.
 
 pub mod cinematic;
+pub mod console;
 pub mod text;
 
 use std::collections::HashMap;
@@ -168,6 +169,14 @@ pub struct Hud {
     /// The cutscene inserts showing (`hud/cinematic.rs`), and their frame
     /// (`cinematic_border` in `part_specs.json`).
     pub cinematics: cinematic::Cinematics,
+    /// The data console showing its text (`text_console`), modal: the game
+    /// stands still while it is up.
+    pub text_console: Option<console::Open>,
+    /// The level's consoles' pages, and the dialog they show in.
+    consoles: HashMap<String, Vec<console::Page>>,
+    console_dialog: Option<console::Dialog>,
+    /// `part_specs.json`: the part specifications by name.
+    part_specs: serde_json::Value,
     border: Option<PartSpec>,
     /// The textures flagged additive (`texture_flags.json`).
     additive: std::collections::HashSet<String>,
@@ -221,6 +230,10 @@ impl Default for Hud {
             textures: PathBuf::new(),
             cinematics: Default::default(),
             border: None,
+            text_console: None,
+            consoles: HashMap::new(),
+            console_dialog: None,
+            part_specs: serde_json::Value::Null,
             additive: Default::default(),
             fonts: Fonts::default(),
             texture_sizes: HashMap::new(),
@@ -313,6 +326,9 @@ impl Hud {
         Hud {
             textures: common.join("textures"),
             border,
+            consoles: console::load(&common.join(format!("../levels/{level:02}"))),
+            console_dialog: console::load_dialog(common),
+            part_specs: specs,
             additive,
             fonts: Fonts::load(common),
             texts: table("messages"),
@@ -545,6 +561,33 @@ impl Hud {
         self.textures.join(format!("{name}.png"))
     }
 
+    /// `text_console name`: opens that console's pages, the first showing
+    /// (false: no such console).
+    pub fn open_text_console(&mut self, name: &str) -> bool {
+        let Some(pages) = self.consoles.get(&name.to_ascii_lowercase()).filter(|p| !p.is_empty()) else { return false };
+        self.text_console = Some(console::Open { name: name.to_string(), pages: pages.clone(), page: 0 });
+        true
+    }
+
+    /// Space / Next: the next page — past the last, closed.
+    pub fn text_console_next(&mut self) {
+        if let Some(c) = self.text_console.as_mut() {
+            if !c.next() {
+                self.text_console = None;
+            }
+        }
+    }
+
+    /// Esc / Close: closed.
+    pub fn text_console_close(&mut self) {
+        self.text_console = None;
+    }
+
+    /// A part specification by name (`part_specs.json`).
+    fn part(&self, name: &str) -> Option<PartSpec> {
+        PartSpec::from_json(&self.part_specs["partSpecs"][name], &self.textures)
+    }
+
     /// A texture's size (loaded once).
     fn size_of(&mut self, name: &str) -> [f32; 2] {
         if let Some(s) = self.texture_sizes.get(name) {
@@ -620,6 +663,14 @@ impl Hud {
             if let Some(b) = &self.border {
                 out.extend(b.draw([r[0] - 3.0, r[1] - 3.0], (r[2] - r[0]).round() + 6.0, (r[3] - r[1]).round() + 6.0));
             }
+        }
+        // A data console's text, over everything.
+        if let (Some(open), Some(d)) = (&self.text_console, &self.console_dialog) {
+            let size = |p: &std::path::Path| -> Option<[f32; 2]> {
+                let r = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(p).ok()?)).read_info().ok()?;
+                Some([r.info().width as f32, r.info().height as f32])
+            };
+            out.extend(console::draw(open, d, &self.fonts, &|n| self.part(n), &self.textures, &size, w, h));
         }
         out
     }
@@ -873,6 +924,11 @@ impl PartSpec {
         Some(PartSpec { texture, slices, size })
     }
 
+    /// Its top row's height.
+    pub fn top_height(&self) -> f32 {
+        (self.slices[0][0][3] - self.slices[0][0][1]).abs()
+    }
+
     /// The frame drawn `width` × `height` from `at`: the corners at their
     /// own size, the middles filling between (the corners' sizes cut down
     /// when the two don't fit, as the original reckons the middles — the
@@ -908,7 +964,7 @@ impl PartSpec {
     }
 }
 
-fn rect(texture: Option<PathBuf>, r: [f32; 4], color: [f32; 4]) -> OverlayDraw {
+pub(super) fn rect(texture: Option<PathBuf>, r: [f32; 4], color: [f32; 4]) -> OverlayDraw {
     let [l, t, rr, b] = r;
     OverlayDraw { texture, tris: vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]], color, additive: false }
 }

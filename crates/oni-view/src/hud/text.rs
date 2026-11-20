@@ -86,6 +86,13 @@ impl Fonts {
         Fonts { fonts, breaking: fam["breaking"].as_str().unwrap_or(" ").chars().collect() }
     }
 
+    /// The font for a size in a style (`TSiContext_GetBestFont`): as
+    /// [`Fonts::best`], in that style where the size has it.
+    pub fn best_styled(&self, size: u16, style: &str) -> Option<&Font> {
+        let plain = self.best(size)?;
+        self.fonts.iter().find(|f| f.size == plain.size && f.style == style).or(Some(plain))
+    }
+
     /// The font for a size (`TSiContext_GetBestFont`): that size, else the
     /// nearest smaller one, else the nearest larger; plain if the style
     /// isn't there.

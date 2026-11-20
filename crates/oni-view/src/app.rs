@@ -497,6 +497,19 @@ impl ApplicationHandler for App {
                     }
                 }
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // A data console's text up (modal: `ONiTC_HandleKeyDown`):
+                    // Space for the next page, Esc to close; nothing else.
+                    if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.text_console.is_some()) {
+                        if event.state == ElementState::Pressed && !event.repeat {
+                            match code {
+                                KeyCode::Space => pw.world.hud.text_console_next(),
+                                KeyCode::Escape => pw.world.hud.text_console_close(),
+                                _ => {}
+                            }
+                        }
+                        st.keys.clear();
+                        return;
+                    }
                     // F1 (the pause screen's key): the objective is read.
                     if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
                         if let Some(pw) = st.play.as_mut() {
@@ -704,6 +717,9 @@ impl State {
         // pitch (mouse-Y → aimingUD, clamped ±π/2).
         let dx = std::mem::take(&mut pw.mouse_dx);
         let dy = std::mem::take(&mut pw.mouse_dy);
+        // (A data console's text up: the game stands still.)
+        let frozen = pw.world.hud.text_console.is_some();
+        let (dx, dy) = if frozen { (0.0, 0.0) } else { (dx, dy) };
         // (As the game ships — its "invert mouse" option on — the mouse
         // moved down aims down.)
         let dy = if tuning.invert_y { dy } else { -dy };
@@ -723,6 +739,9 @@ impl State {
         }
 
         pw.accum += dt;
+        if frozen {
+            pw.accum = 0.0;
+        }
         while pw.accum >= TICK {
             pw.accum -= TICK;
             // The player from the controls, dummies idle (AI later); then

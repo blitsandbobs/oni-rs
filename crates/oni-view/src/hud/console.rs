@@ -1,0 +1,220 @@
+//! The data consoles' text (`docs/HUD.md`, *Text consoles*): `text_console
+//! name` opens a modal dialog (`ONrInGameUI_TextConsole_Display`,
+//! `dialog_text_console`) showing the console's pages one at a time — a
+//! page's picture across the top of the text area, then its strings, each in
+//! its own font — with Next (Space) until the last, then Close (Esc closes
+//! at any time). The game stands still while it is up.
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use super::text::{self, Align, Fonts};
+use super::{rect, PartSpec};
+use crate::render::OverlayDraw;
+
+/// One string of a page, in its font.
+#[derive(Clone, Debug)]
+pub struct Line {
+    pub text: String,
+    pub size: u16,
+    /// 0 plain, 1 bold, 2 italic.
+    pub style: u8,
+    /// ARGB.
+    pub shade: u32,
+}
+
+/// A page's picture: a texture drawn at its size, centred, or a part
+/// specification's top row across the text area.
+#[derive(Clone, Debug)]
+pub enum Picture {
+    Texture(String),
+    PartSpec(String),
+}
+
+#[derive(Clone, Debug)]
+pub struct Page {
+    pub picture: Option<Picture>,
+    pub text: Vec<Line>,
+}
+
+/// The dialog's layout (`common/text_console.json`), 640 × 480 units.
+#[derive(Clone, Debug)]
+pub struct Dialog {
+    size: [f32; 2],
+    /// x, y, width, height.
+    text: [f32; 4],
+    button: [f32; 4],
+    button_font: (u16, u8, u32),
+    next: String,
+    close: String,
+}
+
+/// An open console: its name, pages and the page showing.
+#[derive(Clone, Debug)]
+pub struct Open {
+    pub name: String,
+    pub pages: Vec<Page>,
+    pub page: usize,
+}
+
+impl Open {
+    /// Space / Next (`ONiTC_HandleCommand`): the next page; past the last,
+    /// closed (false).
+    pub fn next(&mut self) -> bool {
+        self.page += 1;
+        self.page < self.pages.len()
+    }
+
+    /// Its button: Next while pages follow, else Close (`ONiTC_SetButtons`).
+    pub fn last(&self) -> bool {
+        self.page + 1 >= self.pages.len()
+    }
+}
+
+fn shade(v: &serde_json::Value) -> u32 {
+    v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0xFFFF_FFFF)
+}
+
+fn line(v: &serde_json::Value) -> Line {
+    let f = &v["font"];
+    Line {
+        text: v["text"].as_str().unwrap_or("").to_string(),
+        size: f["size"].as_u64().unwrap_or(10) as u16,
+        style: f["style"].as_u64().unwrap_or(0) as u8,
+        shade: shade(&f["shade"]),
+    }
+}
+
+/// A level's consoles (`levels/NN/text_consoles.json`), by lowercase name.
+pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
+    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("text_consoles.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let Some(consoles) = doc["consoles"].as_object() else { return HashMap::new() };
+    consoles
+        .iter()
+        .map(|(name, c)| {
+            let pages = c["pages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| Page {
+                    picture: match (&p["picture"]["texture"], &p["picture"]["partSpec"]) {
+                        (serde_json::Value::String(t), _) => Some(Picture::Texture(t.clone())),
+                        (_, serde_json::Value::String(s)) => Some(Picture::PartSpec(s.clone())),
+                        _ => None,
+                    },
+                    text: p["text"].as_array().into_iter().flatten().map(line).collect(),
+                })
+                .collect();
+            (name.to_ascii_lowercase(), pages)
+        })
+        .collect()
+}
+
+/// The dialog's layout (`common/text_console.json`).
+pub fn load_dialog(common: &Path) -> Option<Dialog> {
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(common.join("text_console.json")).ok()?).ok()?;
+    let item = |id: i64| doc["items"].as_array().and_then(|a| a.iter().find(|i| i["id"].as_i64() == Some(id)));
+    let r = |i: &serde_json::Value| -> [f32; 4] { std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32) };
+    let (text, next) = (item(110)?, item(102)?);
+    // (The Close button: the dialog's cancel item, 2.)
+    let close = item(2);
+    let f = &next["font"];
+    Some(Dialog {
+        size: [doc["size"][0].as_f64()? as f32, doc["size"][1].as_f64()? as f32],
+        text: r(text),
+        button: r(next),
+        button_font: (f["size"].as_u64().unwrap_or(10) as u16, f["style"].as_u64().unwrap_or(0) as u8, shade(&f["shade"])),
+        next: next["title"].as_str().unwrap_or("Next").to_string(),
+        close: close.and_then(|c| c["title"].as_str()).unwrap_or("Close").to_string(),
+    })
+}
+
+/// A string's glyph cells from `x`, its line's top at `top`.
+fn glyphs(font: &text::Font, s: &str, mut x: f32, top: f32) -> Vec<[f32; 4]> {
+    let (aw, ah) = (font.atlas_size[0], font.atlas_size[1]);
+    let chh = font.cell_height() as f32;
+    let mut tris = Vec::new();
+    for ch in s.chars() {
+        let Some([gx, gy, gw, adv]) = font.glyph(ch) else { continue };
+        let cw = gw as f32;
+        let (u0, v0, u1, v1) = (gx as f32 / aw, gy as f32 / ah, (gx as f32 + cw) / aw, (gy as f32 + chh) / ah);
+        tris.extend_from_slice(&[[x, top, u0, v0], [x + cw, top, u1, v0], [x + cw, top + chh, u1, v1], [x, top, u0, v0], [x + cw, top + chh, u1, v1], [x, top + chh, u0, v1]]);
+        x += adv as f32;
+    }
+    tris
+}
+
+fn rgba(shade: u32) -> [f32; 4] {
+    [((shade >> 16) & 0xFF) as f32 / 255.0, ((shade >> 8) & 0xFF) as f32 / 255.0, (shade & 0xFF) as f32 / 255.0, 1.0]
+}
+
+/// The dialog over a `w` × `h` screen, centred (at a whole multiple of its
+/// size that fits): the in-game UI's background and outline, the page in
+/// the text area, the button.
+#[allow(clippy::too_many_arguments)]
+pub fn draw(open: &Open, d: &Dialog, fonts: &Fonts, part: &dyn Fn(&str) -> Option<PartSpec>, textures: &Path, texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>, w: f32, h: f32) -> Vec<OverlayDraw> {
+    let mut out = Vec::new();
+    let at = [((w - d.size[0]) * 0.5).floor().max(0.0), ((h - d.size[1]) * 0.5).floor().max(0.0)];
+    match part("ps_oniUI_background") {
+        Some(p) => out.extend(p.draw(at, d.size[0], d.size[1])),
+        None => out.push(rect(None, [at[0], at[1], at[0] + d.size[0], at[1] + d.size[1]], [0.0, 0.0, 0.0, 0.85])),
+    }
+    if let Some(p) = part("ps_oniUI_outline") {
+        out.extend(p.draw(at, d.size[0], d.size[1]));
+    }
+    let Some(page) = open.pages.get(open.page) else { return out };
+    // The text area: the picture, ten below it the strings.
+    let [tx, ty, tw, th] = d.text;
+    let (left, top) = (at[0] + tx, at[1] + ty);
+    let bottom = top + th;
+    let mut y = 0.0;
+    match &page.picture {
+        Some(Picture::PartSpec(name)) => {
+            if let Some(p) = part(name) {
+                let ph = p.top_height();
+                out.extend(p.draw([left, top], tw, ph));
+                y += ph + 10.0;
+            }
+        }
+        Some(Picture::Texture(name)) => {
+            let path: PathBuf = textures.join(format!("{name}.png"));
+            if let Some([pw, ph]) = texture_size(&path) {
+                let x = left + ((tw - pw) / 2.0).floor();
+                out.push(rect(Some(path), [x, top, x + pw, top + ph], [1.0; 4]));
+                y += ph + 10.0;
+            }
+        }
+        None => {}
+    }
+    for l in &page.text {
+        let style = ["plain", "bold", "italic"][usize::from(l.style.min(2))];
+        let Some(font) = fonts.best_styled(l.size, style) else { continue };
+        let line_h = font.line_height().max(1);
+        let bounds = [left as i32, (top + y) as i32, (left + tw) as i32, bottom as i32];
+        let segments = text::format(font, &fonts.breaking, &l.text, bounds, left as i32, (top + y) as i32, Align::Left, false, l.shade & 0xFF_FFFF);
+        let lines = segments.iter().map(|s| s.top).collect::<std::collections::BTreeSet<_>>().len().max(1);
+        for s in &segments {
+            // (What runs past the area's foot isn't shown.)
+            if s.top as f32 + font.cell_height() as f32 > bottom {
+                continue;
+            }
+            out.push(OverlayDraw { texture: Some(font.atlas.clone()), tris: glyphs(font, &s.text, s.x as f32, s.top as f32), color: rgba(l.shade), additive: false });
+        }
+        y += (lines as i32 * line_h) as f32;
+    }
+    // The button: Next, or Close on the last page; its title centred.
+    let [bx, by, bw, bh] = d.button;
+    let b = [at[0] + bx, at[1] + by];
+    if let Some(p) = part("ps_oniUI_button_off") {
+        out.extend(p.draw(b, bw, bh));
+    }
+    let (size, style, shade) = d.button_font;
+    let title = if open.last() { &d.close } else { &d.next };
+    if let Some(font) = fonts.best_styled(size, ["plain", "bold", "italic"][usize::from(style.min(2))]) {
+        let width: i32 = title.chars().filter_map(|c| font.glyph(c)).map(|g| g[3]).sum();
+        let x = (b[0] + (bw - width as f32) / 2.0).floor();
+        let t = (b[1] + (bh - font.cell_height() as f32) / 2.0).floor();
+        out.push(OverlayDraw { texture: Some(font.atlas.clone()), tris: glyphs(font, title, x, t), color: rgba(shade), additive: false });
+    }
+    out
+}

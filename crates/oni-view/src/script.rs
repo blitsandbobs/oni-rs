@@ -174,6 +174,10 @@ impl ScriptHost {
         for _ in 0..n {
             let controls = self.held | taps;
             taps = 0;
+            // (A data console's text up: the game stands still.)
+            if self.world.hud.text_console.is_some() {
+                continue;
+            }
             self.world.step(controls);
             if let Some(mut m) = self.mission.take() {
                 m.tick(self);
@@ -606,6 +610,36 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // text_console() → {name, page, pages, last, lines} or nil: the data
+    // console showing its text (page from 1; lines: the page's strings).
+    // text_console_key("next" | "close"): Space / Esc on it.
+    let h = host.clone();
+    g.set(
+        "text_console",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let Some(c) = host.world.hud.text_console.as_ref() else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("name", c.name.clone())?;
+            t.set("page", c.page + 1)?;
+            t.set("pages", c.pages.len())?;
+            t.set("last", c.last())?;
+            t.set("lines", c.pages.get(c.page).map(|p| p.text.iter().map(|l| l.text.clone()).collect::<Vec<_>>()).unwrap_or_default())?;
+            Ok(Some(t))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "text_console_key",
+        lua.create_function(move |_, key: String| {
+            let hud = &mut h.borrow_mut().world.hud;
+            match key.as_str() {
+                "next" => hud.text_console_next(),
+                _ => hud.text_console_close(),
+            }
+            Ok(())
+        })?,
+    )?;
     // lock_of(id) → the frames fighter `id`'s scripted animation still holds
     // it (`animationLockFrames`; 0: free).
     let h = host.clone();
