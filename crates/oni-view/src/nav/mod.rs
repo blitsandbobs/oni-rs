@@ -46,6 +46,17 @@ impl Grid {
     }
 }
 
+/// What a local probe found ([`Navigation::probe`]).
+#[derive(Clone, Copy, Debug)]
+pub struct LocalProbe {
+    /// How far it is free.
+    pub free: f32,
+    /// The square it stopped at (None: it got all the way).
+    pub stopped: Option<Square>,
+    /// The worst square it crossed (on good ground).
+    pub worst: Square,
+}
+
 /// A way out of a room into another.
 #[derive(Clone, Debug)]
 pub struct Portal {
@@ -265,9 +276,24 @@ impl Navigation {
     /// stops on entering danger or a wall. Returns as a [`Probe`]: how far it
     /// is free, and whether (and where) the stop is danger rather than a wall.
     pub fn look(&self, from: Vec3, dir: Vec2, dist: f32) -> crate::physics::Probe {
+        let l = self.probe(from, dir, dist, Square::Danger);
+        match l.stopped {
+            Some(sq) => crate::physics::Probe { free: l.free, ledge: (sq == Square::Danger).then_some(l.free) },
+            None => crate::physics::Probe { free: dist, ledge: None },
+        }
+    }
+
+    /// The local probe (`AI2rDoLocalMovement`; `docs/PATHFINDING.md`,
+    /// *Local probe*): along the floor from `from` in direction `dir` up to
+    /// `dist`, square by square across rooms, stopping at the first square
+    /// at or above `stop` once on good ground (it may leave a bad area for 3
+    /// squares at its start). How far it is free, the square it stopped at
+    /// (None: it got there), and the worst square crossed.
+    pub fn probe(&self, from: Vec3, dir: Vec2, dist: f32, stop: Square) -> LocalProbe {
         const STEP: f32 = grid::SQUARE * 0.5;
         const ESCAPE: f32 = 3.0 * grid::SQUARE;
         let mut room = self.room_at(from);
+        let mut worst = Square::Clear;
         let mut was_good = false;
         let mut last_good = 0.0;
         let mut t = 0.0;
@@ -281,20 +307,18 @@ impl Navigation {
                 room = self.room_at(p);
             }
             let sq = room.map_or(Square::Impassable, |r| self.rooms[r].square_at(p.x, p.z));
-            if sq >= Square::Danger {
+            if sq >= stop {
                 if was_good || t > ESCAPE {
-                    return crate::physics::Probe {
-                        free: last_good,
-                        ledge: (sq == Square::Danger).then_some(last_good),
-                    };
+                    return LocalProbe { free: last_good, stopped: Some(sq), worst };
                 }
             } else {
                 was_good = true;
                 last_good = t;
+                worst = worst.max(sq);
             }
             t += STEP;
         }
-        crate::physics::Probe { free: dist, ledge: None }
+        LocalProbe { free: dist, stopped: None, worst }
     }
 
     /// The room a point is in (behaviour per `docs/PATHFINDING.md`): inside

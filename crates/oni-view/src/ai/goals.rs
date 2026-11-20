@@ -382,6 +382,9 @@ pub struct Ctx<'a> {
     pub sight: &'a dyn Fn(Vec3, Vec3, u32) -> bool,
     /// The length of the way between two points (None: no way).
     pub path_length: &'a dyn Fn(Vec3, Vec3) -> Option<f32>,
+    /// The local probe ([`crate::nav::Navigation::probe`]): from, direction,
+    /// distance, stop square (None: no navigation data).
+    pub probe: &'a dyn Fn(Vec3, glam::Vec2, f32, crate::nav::Square) -> Option<crate::nav::LocalProbe>,
     pub others: &'a [Other],
     pub fights: &'a mut Fights,
     pub melee_profile: Option<Rc<Profile>>,
@@ -772,6 +775,9 @@ pub struct Combat {
     last_melee_hit: u64,
     daze: Option<u32>,
     advance_goal: Option<Vec3>,
+    /// When its advance last found no route (it walks without one for 90
+    /// ticks before asking again).
+    route_failed: Option<u64>,
     /// Shooting: its aim on the target, whether it has a line of fire, and
     /// whether this is the first sight of this enemy (startle shots).
     targeting: Option<Box<crate::ai::ranged::Targeting>>,
@@ -809,6 +815,9 @@ pub struct Agent {
     pub job_location: Option<Vec3>,
     pub mode: MoveMode,
     pub nav: Option<Navigator>,
+    /// Walking a heading with no route (the combat advance's local move,
+    /// `primary_movement_modifier_angle`): which way, and how fast.
+    steer: Option<(f32, Pace)>,
     dest: Option<Dest>,
     look: Look,
     glance: Option<(f32, u32)>,
@@ -858,6 +867,7 @@ impl Agent {
             job_location: None,
             mode: MoveMode::ByAlert,
             nav: None,
+            steer: None,
             dest: None,
             look: Look::None,
             glance: None,
@@ -1001,6 +1011,7 @@ impl Agent {
     // --- movement helpers ------------------------------------------------------
 
     fn go_to(&mut self, at: Vec3, within: f32, stop: bool, face: Option<f32>, cx: &Ctx) {
+        self.steer = None;
         self.dest = Some(Dest { at, within, stop, face });
         self.nav = Some(Navigator::new(at, within, self.pace(cx)));
         self.turning_to = None;
@@ -1025,9 +1036,68 @@ impl Agent {
         self.look = Look::At(at);
     }
 
+    /// How the combat advance moves (`AI2iManeuver_CheckAdvance`): within
+    /// 50, straight at the target if the floor allows (a clear local probe,
+    /// no square past border 2); else by a route through the rooms; failing
+    /// that — no route, as a door can make — along the first of the
+    /// directions fanned ±15°, ±30°… to ±60° round the target's that is
+    /// clear for 15 short of border 3 (`AI2rFindLocalPath`). The walk with no
+    /// route needs none: across an opening a door has shut to the room
+    /// search, the target is still reached.
+    fn advance_move(&mut self, target: Vec3, dist: f32, min: f32, cx: &Ctx) {
+        use crate::nav::Square;
+        const LOCAL_TRY: f32 = 50.0;
+        const LOCAL_DISTANCE: f32 = 15.0;
+        const FAN: f32 = 60.0 * PI / 180.0;
+        const FAN_STEPS: i32 = 4;
+        let pace = self.mode.pace(cx.alert(), true);
+        let to = (target - cx.feet).with_y_zero();
+        let heading = to.x.atan2(to.z);
+        let dir = |h: f32| glam::Vec2::new(h.sin(), h.cos());
+        let from = cx.feet + Vec3::Y * 2.0;
+        // Straight at it.
+        if dist < LOCAL_TRY {
+            if let Some(p) = (cx.probe)(from, dir(heading), dist, Square::Danger) {
+                if p.stopped.is_none() && p.worst < Square::Border3 {
+                    self.nav = None;
+                    self.dest = None;
+                    self.steer = Some((heading, pace));
+                    return;
+                }
+            }
+        }
+        // A route: kept while it holds; a fresh one when the target has
+        // moved on. One that failed is asked for again after 90 ticks.
+        const RETRY: u64 = 90;
+        if self.path_failed() || self.nav.as_ref().is_some_and(|n| n.plan_failed) {
+            self.combat().route_failed = Some(cx.now);
+            self.nav = None;
+            self.dest = None;
+        }
+        let may_route = self.combat().route_failed.is_none_or(|t| cx.now >= t + RETRY);
+        if may_route {
+            let stale = self.combat().advance_goal.is_none_or(|g| g.distance(target) > 10.0);
+            if stale || self.nav.is_none() {
+                self.combat().advance_goal = Some(target);
+                self.combat().route_failed = None;
+                self.go_to(target, min, true, None, cx);
+            }
+            return;
+        }
+        // No route: walk the clearest way toward it.
+        self.combat().advance_goal = None;
+        let step = FAN / FAN_STEPS as f32;
+        let tries = std::iter::once(0.0).chain((1..=FAN_STEPS).flat_map(|k| [k as f32 * step, -(k as f32) * step]));
+        self.steer = tries
+            .map(|off| heading + off)
+            .find(|&h| (cx.probe)(from, dir(h), LOCAL_DISTANCE, Square::Border3).is_some_and(|p| p.stopped.is_none()))
+            .map(|h| (h, pace));
+    }
+
     fn halt(&mut self) {
         self.dest = None;
         self.nav = None;
+        self.steer = None;
     }
 
     fn pace(&self, cx: &Ctx) -> Pace {
@@ -1215,9 +1285,10 @@ impl Agent {
     /// This tick's movement for a body at `feet` facing `facing`, plus
     /// buttons to press.
     pub fn orders(&mut self, feet: Vec3, facing: f32, now: u64) -> (Orders, u32) {
-        let mut o = match self.nav.as_mut() {
-            Some(n) => n.orders(feet, facing, now),
-            None => Orders::default(),
+        let mut o = match (self.nav.as_mut(), self.steer) {
+            (Some(n), _) => n.orders(feet, facing, now),
+            (None, Some((heading, pace))) => Orders { direction: Direction::Forward, pace, face: Some(heading) },
+            (None, None) => Orders::default(),
         };
         // (Turning on the spot to set off belongs to the walk.)
         let walking = self.nav.as_ref().is_some_and(|n| matches!(n.state, NavState::Following | NavState::Planning));
@@ -2041,6 +2112,7 @@ impl Agent {
             last_melee_hit: 0,
             daze: None,
             advance_goal: None,
+            route_failed: None,
             targeting: None,
             have_los: true,
             first_sight: true,
@@ -2300,12 +2372,10 @@ impl Agent {
             }
             Primary::Advance => {
                 let (min, _) = self.combat().advance;
-                let stale = self.combat().advance_goal.is_none_or(|g| g.distance(target_feet) > 10.0);
                 if dist <= min {
                     self.halt();
-                } else if stale || self.nav.is_none() || self.path_failed() {
-                    self.combat().advance_goal = Some(target_feet);
-                    self.go_to(target_feet, min, true, None, cx);
+                } else {
+                    self.advance_move(target_feet, dist, min, cx);
                 }
             }
             Primary::Retreat => {

@@ -604,6 +604,7 @@ impl World {
             Some(n) => route_length(n, a, b),
             None => Some(a.distance(b)),
         };
+        let probe_fn = |from: Vec3, dir: glam::Vec2, dist: f32, stop: crate::nav::Square| nav.as_deref().map(|n| n.probe(from, dir, dist, stop));
         let now = self.now as u64;
         let quirks = self.quirks;
         let f = &mut self.fighters[i];
@@ -630,6 +631,7 @@ impl World {
                 level: &level,
                 sight: &sight_fn,
                 path_length: &path_fn,
+                probe: &probe_fn,
                 others: &others,
                 fights: &mut self.fights,
                 melee_profile,

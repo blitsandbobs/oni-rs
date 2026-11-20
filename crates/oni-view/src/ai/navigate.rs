@@ -48,6 +48,9 @@ pub struct Navigator {
     retry_at: u64,
     /// Plan without smoothing (after an error).
     pub careful: bool,
+    /// The last plan found no route (the original's path request tells its
+    /// caller so at once; this navigator meanwhile waits to try again).
+    pub plan_failed: bool,
     stuck_from: (Vec3, u32),
 }
 
@@ -62,6 +65,7 @@ impl Navigator {
             errors: 0,
             last_error: 0,
             retry_at: 0,
+            plan_failed: false,
             careful: false,
             stuck_from: (Vec3::ZERO, 0),
         }
@@ -108,8 +112,10 @@ impl Navigator {
                 route.radii = radii;
                 self.route = (n > 0).then_some(route);
                 self.state = State::Following;
+                self.plan_failed = false;
             }
             Err(e) => {
+                self.plan_failed = true;
                 self.retry_at = now + RETRY_AFTER;
                 self.error(now, &format!("{e:?}"));
             }

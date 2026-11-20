@@ -1,9 +1,12 @@
--- Level 2's ambush (#61; docs/PATHFINDING.md, *Doors*): after the intro the
--- partner cops go for the Strikers and the Strikers come out of their room
--- to fight. A locked door links to the pathfinding connections the original
--- links it to (two slots, nearest first; a replaced one keeps its link) —
--- linking it to every opening near it walled the Strikers in and kept a cop
--- standing.
+-- Level 2's ambush (#61; docs/PATHFINDING.md, *Doors*; docs/AI.md, *Combat
+-- advance*): after the intro the partner cops go for the Strikers, the
+-- Strikers come out of their room to fight, and they go on to Konoko. A
+-- locked door links to the pathfinding connections the original links it to
+-- (two slots, nearest first; a replaced one keeps its link) — linking it to
+-- every opening near it walled the Strikers in and kept a cop standing. And
+-- the door still shuts the opening into Konoko's room to the room search, so
+-- the Strikers reach her as the original's advance does: walking straight
+-- at her, or the clearest way, when there is no route.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/02/environment.glb \
@@ -22,14 +25,15 @@ local strikers = { named("ambush_striker_1"), named("ambush_striker_2"), named("
 local start = {}
 for _, s in ipairs(strikers) do local x, _, z = pos_of(s) start[s] = { x, z } end
 
-local melee = {}
-for _ = 1, 900 do
+local melee, at_konoko = {}, false
+for _ = 1, 1500 do
   step(1)
   for _, id in ipairs(cops) do
     if goal_of(id):match("Melee") then melee[id] = true end
   end
   for _, id in ipairs(strikers) do
     if goal_of(id):match("Melee") then melee[id] = true end
+    if goal_of(id):match("Melee → 0$") then at_konoko = true end
   end
 end
 for _, id in ipairs(cops) do print("cop", id, goal_of(id), "fought:", tostring(melee[id] or false)) end
@@ -42,4 +46,6 @@ for _, s in ipairs(strikers) do
 end
 for _, id in ipairs(cops) do assert(melee[id], "both partner cops fight the Strikers") end
 assert(moved >= 2, "the Strikers come out to fight")
+print("a Striker fought Konoko:", tostring(at_konoko))
+assert(at_konoko, "the Strikers reach Konoko in her room, though no route leads there")
 print("ok")
