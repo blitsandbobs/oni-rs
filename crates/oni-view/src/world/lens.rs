@@ -82,8 +82,9 @@ impl World {
     fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[(usize, Vec<glam::Mat4>)]) -> bool {
         let v = self.camera.view;
         let to = at - v.location;
-        // (Behind the camera, or out of the view: not drawn.)
-        if to.dot(v.view) <= NEAR || to.normalize_or_zero().dot(v.view) < (self.camera.fov * 0.5 * 1.5).cos() {
+        // (Behind the camera: not drawn. Off to the side it is left to the
+        // drawing, as the original's area test, coarse, doesn't cut it.)
+        if to.dot(v.view) <= NEAR {
             return false;
         }
         let from = v.location + v.view * NEAR;
