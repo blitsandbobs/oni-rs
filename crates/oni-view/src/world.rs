@@ -1090,28 +1090,64 @@ impl World {
         self.door_sounds();
     }
 
-    /// Each door's portals: those whose midpoint it stands within half the
-    /// portal's width of (at most 2), as the original links them.
+    /// Each door's portals, linked as the original links them as it builds
+    /// the graph (`OBJrDoor_MakeConnectionLink`; `docs/PATHFINDING.md`,
+    /// *Doors*): each connection (room by room, portal by portal) takes the
+    /// first door whose base is within half the connection's width of the
+    /// connection's base midpoint (in 3D) and that will have it. A door keeps
+    /// two slots — not two connections the same way; a nearer one (by 10 %)
+    /// or a narrower one about as near replaces a slot's; the dual of the
+    /// other slot about as near and wide too. One replaced keeps its link to
+    /// the door (the original never clears it): so a door can gate more than
+    /// two connections, and some only one way.
     fn door_portals(&mut self, nav: &crate::nav::Navigation) -> &Vec<Vec<(usize, usize)>> {
         if self.door_links.len() != self.doors.len() {
-            self.door_links = self
-                .doors
-                .iter()
-                .map(|d| {
-                    let mut near: Vec<(f32, (usize, usize))> = Vec::new();
-                    for (r, room) in nav.rooms.iter().enumerate() {
-                        for (k, p) in room.portals.iter().enumerate() {
-                            let flat = Vec3::new(p.mid.x - d.position.x, 0.0, p.mid.z - d.position.z).length();
-                            if flat <= p.width * 0.5 && (p.mid.y - d.position.y).abs() < 30.0 {
-                                near.push((flat, (r, k)));
-                            }
+            type Slot = Option<((usize, usize), f32, f32)>; // (connection, dist², width)
+            let mut slots: Vec<[Slot; 2]> = vec![[None, None]; self.doors.len()];
+            let mut links: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.doors.len()];
+            let ends = |rk: (usize, usize)| (rk.0, nav.rooms[rk.0].portals[rk.1].to);
+            for (r, room) in nav.rooms.iter().enumerate() {
+                for (k, p) in room.portals.iter().enumerate() {
+                    let conn = (r, k);
+                    let (from, to) = (r, p.to);
+                    for (di, d) in self.doors.iter().enumerate() {
+                        let dist_sq = d.position.distance_squared(p.mid);
+                        if dist_sq > (p.width * 0.5).powi(2) {
+                            continue;
                         }
+                        let s = &slots[di];
+                        let same = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (from, to));
+                        let dual = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (to, from));
+                        let (ex0, ex1) = (same(&s[1]), same(&s[0]));
+                        let field = |i: usize| s[i].map_or((0.0, 0.0), |(_, ds, w)| (ds, w));
+                        let ((d0, w0), (d1, w1)) = (field(0), field(1));
+                        let index = if !ex0 && s[0].is_none() {
+                            Some(0)
+                        } else if !ex1 && s[1].is_none() {
+                            Some(1)
+                        } else if !ex0 && d0 > 1.1 * dist_sq {
+                            Some(0)
+                        } else if !ex1 && d1 > 1.1 * dist_sq {
+                            Some(1)
+                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > p.width {
+                            Some(0)
+                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > p.width {
+                            Some(1)
+                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > 0.9 * p.width && dual(&s[1]) {
+                            Some(0)
+                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > 0.9 * p.width && dual(&s[0]) {
+                            Some(1)
+                        } else {
+                            None
+                        };
+                        let Some(index) = index else { continue }; // this door won't: the next may
+                        slots[di][index] = Some((conn, dist_sq, p.width));
+                        links[di].push(conn);
+                        break; // a connection links to one door
                     }
-                    near.sort_by(|a, b| a.0.total_cmp(&b.0));
-                    // (Both sides of an opening: a portal from each room.)
-                    near.into_iter().take(4).map(|(_, rk)| rk).collect()
-                })
-                .collect();
+                }
+            }
+            self.door_links = links;
         }
         &self.door_links
     }

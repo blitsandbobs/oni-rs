@@ -58,6 +58,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `flinch.lua` | Flinches: a pistol shot plays the Striker's hit overlay over his idle; a punch from behind on the knockdown-resistant Mutant Muro only flinches him. |
 | `timer.lua` | The countdown: `timer_start` shows 0:12 → 0:11 → 0:09.3, blinking under twenty seconds; at zero its script runs and 0:00.0 blinks five seconds; `timer_stop` ends one early (no script). |
 | `script_ai.lua` | Scripts steering characters (level 2): `chr_create` makes setup 1050 at its flag, known by its script id; a cutscene makes the AIs passive and puts Konoko's gun away, its end undoes both; `ai2_takecontrol` + `ai2_movetoflag` walk her to a flag and turn her to its facing, `ai2_lookatchar` turns her toward someone; `ai2_makeblind` / `ai2_forget`. |
+| `ambush.lua` | Level 2's ambush: after the intro both partner cops fight the Strikers and the Strikers come out of their room (doors linked to pathfinding connections as the original links them). |
 | `auto_aim.lua` | Konoko's arm follows her gun: aiming 30° and 60° to each side, and when auto-aim turns the gun onto an enemy 4° off her aim (the gun stays in her hand). |
 | `downed.lua` | A downed Striker doesn't turn while it lies: not toward Konoko walking round it, not when ordered to face elsewhere. |
 | `hypo.lua` | Hypos: a quarter of full health given a point every 7 ticks; a hurt eats 2.5 × its damage from it; at full a whole boost to double, a point a tick, then draining back a point every 11 ticks; none, or already boosting, nothing. |
