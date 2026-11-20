@@ -343,6 +343,18 @@ pub fn decode(d: &[u8]) -> Option<Value> {
             app.insert(key.into(), v);
         }
     }
+    // Lens flares: how far behind something one can still be seen, and the
+    // frames it fades in and out over as it is seen or hidden.
+    let dist = value(d, 480);
+    if !dist.is_null() && dist != json!(0.0) {
+        app.insert("lensflareDist".into(), dist);
+    }
+    for (key, off) in [("lensInFrames", 508), ("lensOutFrames", 510)] {
+        let v = le_u16(d, off);
+        if v != 0 {
+            app.insert(key.into(), json!(v));
+        }
+    }
     // Decals: how many may live at once, frames to fade out, how far (in
     // degrees) one wraps round a corner.
     for (key, off) in [("maxDecals", 512), ("decalFadeFrames", 514)] {

@@ -410,6 +410,15 @@ const CLASS_FLAGS: [(&str, u32); 21] = [
     ("decalCullBackfacing", cflag::DECAL_CULL_BACKFACING),
 ];
 
+/// How a lens flare is seen (`P3tAppearance`): how far behind something
+/// its point still counts as seen, and — with lens frames — the frames it
+/// fades in and out over (else it just shows or not).
+#[derive(Clone, Debug)]
+pub struct Lens {
+    pub dist: Value,
+    pub fade: Option<(u16, u16)>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Iterator {
     None,
@@ -463,6 +472,9 @@ pub struct Class {
     pub max_decals: u16,
     pub decal_fade_frames: u16,
     pub decal_wrap: Value,
+    /// A lens flare (`P3cParticleClassFlag2_Appearance_LensFlare`): drawn
+    /// over the scene where its point is seen.
+    pub lens: Option<Lens>,
     pub attractor: Option<AttractorDef>,
     pub vars: Vec<VarDef>,
     pub actions: Vec<Action>,
@@ -748,6 +760,13 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         max_decals: c["appearance"]["maxDecals"].as_u64().unwrap_or(100) as u16,
         decal_fade_frames: c["appearance"]["decalFadeFrames"].as_u64().unwrap_or(60) as u16,
         decal_wrap: value(&c["appearance"]["decalWrap"], &vars),
+        lens: names("flags2").iter().any(|n| n == "lensFlare").then(|| Lens {
+            dist: value(&c["appearance"]["lensflareDist"], &vars),
+            fade: names("flags").iter().any(|n| n == "hasLensFrames").then(|| {
+                let f = |k: &str| c["appearance"][k].as_u64().unwrap_or(0) as u16;
+                (f("lensInFrames").max(1), f("lensOutFrames").max(1))
+            }),
+        }),
         attractor,
         vars,
         actions,

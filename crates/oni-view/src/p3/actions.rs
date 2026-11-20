@@ -612,6 +612,22 @@ impl System {
                 let flags = p.flags;
                 self.sounds.push(super::SoundEvent::Impact { impact: impact.clone(), modifier, at, velocity, orientation, hit, owner, flags });
             }
+            // A colour between two by a blend (`P3iAction_ColorInterpolate`,
+            // `IMrShade_Interpolate`): the lock lights' red and green.
+            Kind::ColorInterpolate => {
+                let v = var!(0);
+                let shade = |k: usize| match a.param(k) {
+                    Value::Shade(s) | Value::ShadeRange(s, _) | Value::ShadeBell(s, _) => Some(*s),
+                    Value::Var(i) => match vars.get(*i) {
+                        Some(Val::U(u)) => Some(*u),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let (Some(c0), Some(c1)) = (shade(0), shade(1)) else { return none };
+                let t = f!(2);
+                p.vars[v] = Val::U(crate::decal::shade_lerp(c0, c1, t));
+            }
             Kind::StopLink => p.link = None,
             Kind::BreakLink => p.flags |= pflag::BREAK_LINKS_TO_ME,
             // Sound, impact effects (decals, sparks by material), colour,

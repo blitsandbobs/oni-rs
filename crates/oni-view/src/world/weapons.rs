@@ -557,7 +557,7 @@ const LASER_WIDTH: f32 = 0.2;
 
 /// Where a ray first meets fighter `f`'s body (its parts' boxes): the
 /// fraction along it.
-fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
+pub(super) fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
     f.character
         .parts
         .iter()
@@ -1230,7 +1230,7 @@ impl World {
         };
         sys.iter()
             .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0)
-            .filter_map(|(_, p)| {
+            .filter_map(|(h, p)| {
                 let c = sys.class(p.class);
                 // (Decals are drawn as decals.)
                 if c.has(cflag::INVISIBLE) || c.has(cflag::GEOMETRY) || c.has(cflag::DECAL) || c.instance.is_empty() {
@@ -1259,7 +1259,12 @@ impl World {
                     },
                     _ => 0xFFFF_FFFF,
                 };
-                let alpha = read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0);
+                // (A lens flare: as far as it is seen; over everything.)
+                let lens = c.lens.as_ref().map(|_| self.lens_alpha(h).unwrap_or(0.0));
+                if lens == Some(0.0) {
+                    return None;
+                }
+                let alpha = read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0) * lens.unwrap_or(1.0);
                 let channel = |shift: u32| ((shade >> shift) & 0xFF) as f32 / 255.0 * alpha;
                 Some(crate::render::Sprite {
                     at: sys.world_position(p),
@@ -1269,6 +1274,7 @@ impl World {
                     color: [channel(16), channel(8), channel(0)],
                     texture: textures.join(format!("{}.png", c.instance)),
                     contrail: false,
+                    no_depth: lens.is_some(),
                 })
             })
             .chain((0..self.fighters.len()).filter_map(|who| self.gun_sight(who).map(|s| (who, s))).flat_map(|(who, s)| {
@@ -1293,6 +1299,7 @@ impl World {
                 color,
                 texture: textures.join("laser_contrail.png"),
                 contrail: true,
+                no_depth: false,
             });
         }
         let class = self.fighters[who].hand.map(|w| &self.armory.weapons[w].class);
@@ -1307,6 +1314,7 @@ impl World {
                     color: t.color,
                     texture: textures.join(format!("{}.png", t.texture)),
                     contrail: false,
+                    no_depth: false,
                 });
             }
         }
@@ -1333,6 +1341,7 @@ impl World {
                     color: sp.color,
                     texture: textures.join(format!("{}.png", sp.texture)),
                     contrail: false,
+                    no_depth: false,
                 });
             }
         }

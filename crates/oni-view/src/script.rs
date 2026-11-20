@@ -1022,6 +1022,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // Lens flares: how many there are, and how many are shown now
+    // (docs/PARTICLES.md, *Lens flares*).
+    let h = host.clone();
+    g.set(
+        "lens_flares",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let l = &host.world.lens;
+            Ok((l.len(), l.values().filter(|v| v.1 > 0.0).count()))
+        })?,
+    )?;
     // The player reads the objective (F1).
     let h = host.clone();
     g.set("read_objective", lua.create_function(move |_, ()| {

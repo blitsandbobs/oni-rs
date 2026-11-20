@@ -27,6 +27,7 @@ mod env_particles;
 pub mod camera;
 mod flow;
 mod hud;
+mod lens;
 pub use hud::hit_quadrant;
 mod objects;
 mod objects_sound;
@@ -155,6 +156,8 @@ pub struct World {
     pub victory: Option<bool>,
     pub pending_splash: Option<String>,
     pub saved: Option<crate::game::Continue>,
+    /// The lens flares' fades (`world/lens.rs`): each's state and opacity.
+    pub lens: std::collections::HashMap<crate::p3::Handle, (lens::LensState, f32)>,
     /// The quads see-through this tick (the camera's jello).
     pub jello: Vec<u32>,
     /// The level's placed objects as authored, and those scripts have made.
@@ -264,6 +267,7 @@ impl World {
             victory: None,
             pending_splash: None,
             saved: None,
+            lens: Default::default(),
             jello: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
@@ -1804,6 +1808,7 @@ impl World {
         self.audio.tick(Some(&self.quads));
         self.hud_tick();
         self.camera_tick();
+        self.lens_tick();
     }
 
     /// Fighter `who`'s clip `clip` is on `frame`: its animation sound, and

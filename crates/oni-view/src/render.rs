@@ -118,6 +118,8 @@ pub struct Sprite {
     /// A contrail (with an axis): the texture's u across it, v along it
     /// (`M3rContrail_Draw`), where a sprite has u along its axis.
     pub contrail: bool,
+    /// Drawn over everything, without the depth test (a lens flare).
+    pub no_depth: bool,
 }
 
 /// One corner of a screen-space overlay triangle (the HUD, text, the
@@ -157,6 +159,8 @@ enum Bucket {
     Opaque,
     Alpha,
     Additive,
+    /// Lens flares: added over everything, without the depth test.
+    Flare,
 }
 
 struct GpuPrim {
@@ -212,6 +216,7 @@ pub struct Renderer {
     /// rest and the see-through part.
     jello_cache: (Vec<u32>, std::collections::HashMap<usize, JelloSplit>),
     additive_pipeline: wgpu::RenderPipeline,
+    flare_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
     decal_pipeline: wgpu::RenderPipeline,
     decal_additive_pipeline: wgpu::RenderPipeline,
@@ -318,7 +323,7 @@ impl Renderer {
             ],
         };
 
-        let make_pipeline_with = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
+        let make_pipeline_full = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pipeline_layout),
@@ -346,7 +351,7 @@ impl Renderer {
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: depth_write,
-                    depth_compare: wgpu::CompareFunction::Less,
+                    depth_compare,
                     stencil: Default::default(),
                     bias: Default::default(),
                 }),
@@ -364,12 +369,14 @@ impl Renderer {
             },
             alpha: wgpu::BlendComponent::OVER,
         };
+        let make_pipeline_with = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| make_pipeline_full(label, blend, depth_write, fragment, wgpu::CompareFunction::Less);
         let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| make_pipeline_with(label, blend, depth_write, "fs_main");
         let opaque_pipeline = make_pipeline("opaque", None, true);
         // See-through walls (the camera's jello): faint, see-through.
         let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         let additive_pipeline = make_pipeline("additive", Some(additive), false);
+        let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_main", wgpu::CompareFunction::Always);
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
         // depth-tested against the scene but with no depth write.
@@ -618,6 +625,7 @@ impl Renderer {
             jello: Vec::new(),
             jello_cache: Default::default(),
             additive_pipeline,
+            flare_pipeline,
             particle_pipeline,
             decal_pipeline,
             decal_additive_pipeline,
@@ -835,6 +843,7 @@ impl Renderer {
                 (Bucket::Opaque, &self.opaque_pipeline),
                 (Bucket::Alpha, &self.blend_pipeline),
                 (Bucket::Additive, &self.additive_pipeline),
+                (Bucket::Flare, &self.flare_pipeline),
             ] {
                 pass.set_pipeline(pipeline);
                 let shown = |p: &&GpuPrim| {
@@ -1080,7 +1089,7 @@ impl Renderer {
     fn sprite_prims(&mut self, gpu: &Gpu, right: glam::Vec3, up: glam::Vec3) -> Vec<GpuPrim> {
         let forward = right.cross(up).normalize_or_zero();
         let sprites = std::mem::take(&mut self.sprites);
-        let mut by_texture: std::collections::BTreeMap<usize, (Vec<Vertex>, Vec<u32>)> = Default::default();
+        let mut by_texture: std::collections::BTreeMap<(usize, bool), (Vec<Vertex>, Vec<u32>)> = Default::default();
         for s in &sprites {
             let t = self.texture_index(gpu, &s.texture);
             let (x, y) = match (s.plane, s.axis.and_then(|a| a.try_normalize())) {
@@ -1090,7 +1099,7 @@ impl Renderer {
                 (None, None) => (right, up),
             };
             let (x, y) = (x * s.size[0], y * s.size[1]);
-            let (verts, idx) = by_texture.entry(t).or_default();
+            let (verts, idx) = by_texture.entry((t, s.no_depth)).or_default();
             let base = verts.len() as u32;
             // (The texture's top row — v 0 — on the sprite's −Y side, as the
             // original's sprite drawing has it.)
@@ -1102,7 +1111,7 @@ impl Renderer {
         }
         by_texture
             .into_iter()
-            .map(|(t, (vertices, indices))| {
+            .map(|((t, flare), (vertices, indices))| {
                 let prim = Prim {
                     vertices,
                     indices,
@@ -1118,6 +1127,9 @@ impl Renderer {
                 };
                 let mut g = upload_prim(&gpu.device, &prim);
                 g.texture = t;
+                if flare {
+                    g.bucket = Bucket::Flare;
+                }
                 g
             })
             .collect()
