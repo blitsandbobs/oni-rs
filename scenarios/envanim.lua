@@ -22,9 +22,18 @@ mission_call("t_free")
 step(1)
 
 -- The ride: from the clip's start (about x -519.5, z -712; 159 high at the
--- pelvis), down to its end, then on her own again.
+-- pelvis), down to its end, then on her own again. With "norotation" she is
+-- drawn unturned (facing 0) whatever her facing: here facing the other way.
+set_facing(0, 0)
+step(2)
+local unturned = bone(0, 0).z
+set_facing(0, 180)
 mission_call("t_ride")
 step(2)
+local riding = bone(0, 0).z
+local dot = unturned[1] * riding[1] + unturned[2] * riding[2] + unturned[3] * riding[3]
+print(string.format("riding, her pelvis's turn against facing 0: %.2f", dot))
+assert(dot > 0.9, "drawn unturned, not with her facing")
 local x, y, z = pos()
 print(string.format("riding: at (%.1f %.1f %.1f)", x, y, z))
 assert(math.abs(x + 519.5) < 1 and math.abs(z + 712.1) < 1 and y > 140 and y < 160, "on the clip's path")

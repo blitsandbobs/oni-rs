@@ -771,7 +771,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 }
             }
             match world.object_anim(&clip) {
-                Some(anim) => world.fighters[id].env_anim = Some((anim, 2)),
+                Some(anim) => {
+                    let f = &mut world.fighters[id];
+                    f.env_anim = Some((anim, 2));
+                    f.env_anim_no_rotation = a(2).and_then(text).is_some_and(|t| t == "norotation");
+                }
                 None => state.warn(format!("{name}: no animation {clip}")),
             }
             nil()

@@ -1339,8 +1339,12 @@ impl World {
         // (A film ends any environment animation.)
         f.env_anim = None;
         let mut play = crate::fighter::FilmPlay { film: film.clone(), frame: 0, interp: None };
+        // (Its facing, the facing it wants and its aim snap to the film's,
+        // `ONrFilm_Start`.)
         f.facing.facing = film.facing;
-        f.facing.desired_facing = film.facing;
+        f.facing.desired_facing = film.desired_facing;
+        f.facing.facing_modifier = 0.0;
+        (f.aiming_lr, f.aiming_ud) = film.aim;
         match mode {
             "fromhere" => {}
             "interp" => {

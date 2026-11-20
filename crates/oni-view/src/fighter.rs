@@ -185,6 +185,9 @@ pub struct Fighter {
     /// An environment animation moving it (`chr_envanim`): the clip and the
     /// frame it is at.
     pub env_anim: Option<(Rc<oni_geom::objanim::ObjectAnimation>, i32)>,
+    /// The environment animation leaves out its clip's turn (`norotation`):
+    /// the body is drawn unturned (facing 0) where the clip puts it.
+    pub env_anim_no_rotation: bool,
     /// A noise it made this tick (kind, volume), for the world to spread.
     pub noise: Option<(crate::ai::perception::Stimulus, f32)>,
     /// A footstep (or landing, or fall) this tick: its impact kind and
@@ -389,6 +392,7 @@ impl Fighter {
             avoid: Default::default(),
             no_collision: false,
             env_anim: None,
+            env_anim_no_rotation: false,
             noise: None,
             step: None,
             last_floor: None,
@@ -1278,8 +1282,29 @@ impl Fighter {
         self.hit_set.push((k, victim));
     }
 
-    /// Rebuilds the world placement from the feet + pelvis height + facing.
+    /// Rebuilds the world placement from the feet + pelvis height + facing —
+    /// or, in an environment animation, from its clip: the clip's matrix,
+    /// a quarter-turn about X (from Max's Z up: `InverseMaxMatrix`); with
+    /// `norotation` its place and scale only, unturned (`ONrCharacter_Update`
+    /// building `chrBaseMatrix`).
     fn replace(&mut self) {
+        if let Some((anim, frame)) = &self.env_anim {
+            let m = anim.matrix((*frame - 1).max(0));
+            let col = |c: usize| glam::Vec4::new(m[c * 3], m[c * 3 + 1], m[c * 3 + 2], if c == 3 { 1.0 } else { 0.0 });
+            self.placement = if self.env_anim_no_rotation {
+                let s = &anim.scale;
+                let scale = Mat4::from_cols(
+                    glam::Vec4::new(s[0], s[1], s[2], 0.0),
+                    glam::Vec4::new(s[3], s[4], s[5], 0.0),
+                    glam::Vec4::new(s[6], s[7], s[8], 0.0),
+                    glam::Vec4::W,
+                );
+                Mat4::from_translation(Vec3::new(m[9], m[10], m[11])) * scale
+            } else {
+                Mat4::from_cols(col(0), col(1), col(2), col(3)) * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+            };
+            return;
+        }
         let feet = self.physics.feet;
         let origin = Vec3::new(feet.x, feet.y + self.motion.height(), feet.z);
         self.placement =

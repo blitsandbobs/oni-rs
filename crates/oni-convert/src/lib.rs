@@ -1429,7 +1429,8 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
         let Some(d) = dat.instance_data(inst) else {
             continue;
         };
-        // ONtFilm: initialLocation@0, facings/aiming @12..28, length@28, numKeys@52, keys@56.
+        // ONtFilm: initialLocation@0, facing@12, desired facing@16, aiming
+        // LR/UD@20/24, length@28, special animations@32, numKeys@52, keys@56.
         let num_keys = le_u32(d, 52) as usize;
         if 56 + num_keys.saturating_mul(24) > d.len() {
             continue; // malformed
@@ -1447,6 +1448,7 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
             "name": inst.name,
             "initialLocation": [le_f32(d, 0), le_f32(d, 4), le_f32(d, 8)],
             "initialFacing": le_f32(d, 12),
+            "initialDesiredFacing": le_f32(d, 16),
             "aiming": [le_f32(d, 20), le_f32(d, 24)],
             "length": le_u32(d, 28),
             "keyCount": keys.len(),

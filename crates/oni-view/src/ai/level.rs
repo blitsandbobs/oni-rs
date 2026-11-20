@@ -183,6 +183,10 @@ impl Placed {
 pub struct Film {
     pub start: Vec3,
     pub facing: f32,
+    /// The facing it wants (`initialDesiredFacing`), and its aim (look-mode
+    /// turn, pitch: `initialAimingLR` / `UD`).
+    pub desired_facing: f32,
+    pub aim: (f32, f32),
     pub length: u32,
     /// Tick, buttons (the original's button bits), turn left/right.
     pub keys: Vec<(u32, u64, f32)>,
@@ -310,6 +314,8 @@ impl LevelAi {
             let film = Film {
                 start: v3(&f["initialLocation"]),
                 facing: f["initialFacing"].as_f64().unwrap_or(0.0) as f32,
+                desired_facing: f["initialDesiredFacing"].as_f64().or_else(|| f["initialFacing"].as_f64()).unwrap_or(0.0) as f32,
+                aim: (f["aiming"][0].as_f64().unwrap_or(0.0) as f32, f["aiming"][1].as_f64().unwrap_or(0.0) as f32),
                 length: f["length"].as_u64().unwrap_or(0) as u32,
                 keys,
             };
