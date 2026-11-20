@@ -346,6 +346,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "@set" => {
             let k = a(0).and_then(text).unwrap_or_default();
+            // (The camera's tunables are engine variables.)
+            if let Some(v) = float(a(1)) {
+                let cam = &mut host.world().camera;
+                match k.as_str() {
+                    "cm_distance" => cam.distance = v,
+                    "cm_height" => cam.height = v,
+                    "cm_canter_weapon" => cam.canter_weapon = v,
+                    "cm_canter_unarmed" => cam.canter_unarmed = v,
+                    _ => {}
+                }
+            }
             state.vars.insert(k, a(1).cloned().unwrap_or(Value::Nil));
             nil()
         }
@@ -418,6 +429,68 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "begin_cutscene" | "end_cutscene" => {
             host.world().in_cutscene = name == "begin_cutscene";
+            nil()
+        }
+        // --- the camera (`docs/CAMERA.md`, *Scripts*) ---------------------------
+        // A `_block` form waits while the camera is busy (easing or riding a
+        // clip), then does as the plain one.
+        "cm_interpolate" | "cm_interpolate_block" | "cm_anim" | "cm_anim_block" | "cm_orbit" | "cm_orbit_block"
+            if name.ends_with("_block") && host.world().camera.busy =>
+        {
+            Ok((Value::Nil, Value::Boolean(true), None, None))
+        }
+        "cm_interpolate" | "cm_interpolate_block" => {
+            let Some(clip) = a(0).and_then(text) else { return nil() };
+            if !host.world().camera_interpolate_to(&clip, int(a(1)).unwrap_or(1)) {
+                state.warn(format!("{name}: no camera clip {clip}"));
+            }
+            nil()
+        }
+        "cm_anim" | "cm_anim_block" => {
+            // (The first word — move, look, both — changes nothing.)
+            let Some(clip) = a(1).and_then(text) else { return nil() };
+            if !host.world().camera_animate(&clip) {
+                state.warn(format!("{name}: no camera clip {clip}"));
+            }
+            nil()
+        }
+        "cm_orbit" | "cm_orbit_block" => {
+            let speed = float(a(0)).unwrap_or(0.0);
+            host.world().camera_orbit(speed, float(a(1)));
+            nil()
+        }
+        "cm_wait" if host.world().camera.busy => Ok((Value::Nil, Value::Boolean(true), None, None)),
+        "cm_wait" => nil(),
+        "cm_reset" => {
+            host.world().camera_follow();
+            nil()
+        }
+        "cm_detach" => {
+            host.world().camera_detach();
+            nil()
+        }
+        "cm_jello" => {
+            host.world().camera.jello = int(a(0)).is_some_and(|i| i > 0);
+            nil()
+        }
+        "cm_barabus" => {
+            let (Some(who), Some(away), Some(up), Some(ticks)) = (fighter(host, a(0)), float(a(1)), float(a(2)), int(a(3))) else {
+                state.warn("cm_barabus: expected <id> <away> <up> <time>".into());
+                return nil();
+            };
+            host.world().camera_barabus(who, away, up, ticks);
+            nil()
+        }
+        "gs_fov_set" => {
+            if let Some(deg) = float(a(0)) {
+                host.world().camera.fov = deg.to_radians();
+            }
+            nil()
+        }
+        "gs_farclipplane_set" => {
+            if let Some(far) = float(a(0)) {
+                host.world().camera.far = far;
+            }
             nil()
         }
         "letterbox" => {

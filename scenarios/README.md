@@ -49,6 +49,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
+| `camera.lua` | The game camera: 33 back and 23 up behind Konoko, sinking as she looks up and rising as she looks down, easing round a turn; look mode swings the view and drifts back; the corridor wall behind her goes see-through; `cm_detach`, `cm_reset` and `cm_interpolate` (busy, then free). |
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
@@ -125,13 +126,15 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `probe(id, deg, dist)` → `free, ledge` | Look along the floor from a fighter: distance before a wall, distance to a drop (or nil). |
 | `difficulty(level)` → `notice, dodge, block` | Set the AI's difficulty ("easy" / "normal" / "hard"); returns its multipliers. |
 | `go_to(id, x, y, z [, pace])` / `nav_state(id)` / `nav_path(id)` | Walk a fighter to a point through the level (planned path); its state ("following", "arrived", "failed: …"); its waypoints `{x, z, radius, next}`. |
-| `mission_begin()` / `mission_info()` / `mission_call(name [, arg])` / `named(name)` / `teleport(id, x, y, z)` | The level's scripts: begin the level (player placed, characters present from the start spawned, `main` run); what they're doing (`tasks`, `errors`, `messages`, `objective`, `outcome`, `spawned`, `stubbed` commands); start a script function; a character's id by name; move a fighter. |
+| `mission_begin()` / `mission_info()` / `mission_call(name [, arg])` / `named(name)` / `teleport(id, x, y, z)` | The level's scripts: begin the level (player placed, characters present from the start spawned, `main` run; `mission_begin(false)`: the scripts loaded only); what they're doing (`tasks`, `errors`, `messages`, `objective`, `outcome`, `spawned`, `stubbed` commands); start a script function; a character's id by name; move a fighter. |
 | `alarm(id [, console])` / `console_state(id)` / `console_reset(id)` | Send an AI to raise the alarm (a console id, or the nearest alarm console); a console's state (`inactive` / `active` / `triggered`); reset one. |
 | `play_film(id, name [, mode])` | Plays one of the level's films on a fighter (`""` from its start, `"fromhere"`, `"interp"`); its length. |
 | `present(id)` | Whether a fighter is still in the level (not deleted). |
 | `damage(id, n)` | Deals `n` damage to a fighter (it dies at 0 health). |
 | `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing (nil: unarmed). |
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
+| `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
+| `look_mode(on)` / `aim_lr([v])` | Hold the look-mode key; read (or set) the player's look-mode turn (radians). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
 | `powerup(id, kind [, amount])` | Give a powerup the game's way (`ammo`, `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took. |

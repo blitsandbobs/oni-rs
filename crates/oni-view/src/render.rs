@@ -169,6 +169,15 @@ pub struct CharDraw<'a> {
 pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
+    jello_pipeline: wgpu::RenderPipeline,
+    /// The level's prims' triangles by quad (`attach_quads`), for drawing
+    /// some quads see-through.
+    tri_quads: Vec<Option<TriQuads>>,
+    /// The quads drawn see-through this frame (the camera's jello).
+    pub jello: Vec<u32>,
+    /// Index buffers for the jello last built: for it, per prim, the solid
+    /// rest and the see-through part.
+    jello_cache: (Vec<u32>, std::collections::HashMap<usize, JelloSplit>),
     additive_pipeline: wgpu::RenderPipeline,
     particle_pipeline: wgpu::RenderPipeline,
     decal_pipeline: wgpu::RenderPipeline,
@@ -276,7 +285,7 @@ impl Renderer {
             ],
         };
 
-        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| {
+        let make_pipeline_with = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pipeline_layout),
@@ -288,7 +297,7 @@ impl Renderer {
                 },
                 fragment: Some(wgpu::FragmentState {
                     module: &shader,
-                    entry_point: Some("fs_main"),
+                    entry_point: Some(fragment),
                     targets: &[Some(wgpu::ColorTargetState {
                         format,
                         blend,
@@ -322,7 +331,10 @@ impl Renderer {
             },
             alpha: wgpu::BlendComponent::OVER,
         };
+        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| make_pipeline_with(label, blend, depth_write, "fs_main");
         let opaque_pipeline = make_pipeline("opaque", None, true);
+        // See-through walls (the camera's jello): faint, see-through.
+        let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         let additive_pipeline = make_pipeline("additive", Some(additive), false);
 
@@ -514,6 +526,10 @@ impl Renderer {
         Renderer {
             opaque_pipeline,
             blend_pipeline,
+            jello_pipeline,
+            tri_quads: Vec::new(),
+            jello: Vec::new(),
+            jello_cache: Default::default(),
             additive_pipeline,
             particle_pipeline,
             decal_pipeline,
@@ -668,6 +684,7 @@ impl Renderer {
         let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
         let sprites = self.sprite_prims(gpu, cam_right, cam_up);
         let decals = self.decal_batches(gpu);
+        self.jello_buffers(gpu);
         gpu.queue.write_buffer(
             &self.uniform_buf,
             0,
@@ -737,9 +754,35 @@ impl Renderer {
                     p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
-                for p in self.prims.iter().filter(|p| p.bucket == bucket).filter(shown) {
+                for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p)) {
                     let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
-                    draw_prim(&mut pass, p, model);
+                    match self.jello_cache.1.get(&k) {
+                        // (Partly see-through: the solid rest only, here.)
+                        Some((solid, n, _, _)) => {
+                            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&model.to_cols_array()));
+                            pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
+                            pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                            pass.set_index_buffer(solid.slice(..), wgpu::IndexFormat::Uint32);
+                            pass.draw_indexed(0..*n, 0, 0..1);
+                        }
+                        None => draw_prim(&mut pass, p, model),
+                    }
+                }
+                // The see-through walls, with what is seen through.
+                if bucket == Bucket::Alpha && !self.jello_cache.1.is_empty() {
+                    pass.set_pipeline(&self.jello_pipeline);
+                    for (&k, (_, _, seen, n)) in &self.jello_cache.1 {
+                        let p = &self.prims[k];
+                        if *n == 0 || !shown(&p) {
+                            continue;
+                        }
+                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()));
+                        pass.set_bind_group(1, self.tex_bgs.get(p.texture).unwrap_or(&self.default_tex), &[]);
+                        pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                        pass.set_index_buffer(seen.slice(..), wgpu::IndexFormat::Uint32);
+                        pass.draw_indexed(0..*n, 0, 0..1);
+                    }
+                    pass.set_pipeline(pipeline);
                 }
                 if let Some(b) = beams.as_ref().filter(|b| b.bucket == bucket) {
                     draw_prim(&mut pass, b, Mat4::IDENTITY);
@@ -798,10 +841,81 @@ impl Renderer {
     }
 }
 
+/// A prim split for the jello: its solid rest and its see-through part
+/// (index buffers and counts).
+type JelloSplit = (wgpu::Buffer, u32, wgpu::Buffer, u32);
+
+/// A level prim's triangles (its index list) and the quad each came from.
+struct TriQuads {
+    indices: Vec<u32>,
+    quads: Vec<u32>,
+}
+
 /// How wide a drawn laser beam is.
 const BEAM_WIDTH: f32 = 0.25;
 
 impl Renderer {
+    /// Learns which level quad each of the scene's level triangles came
+    /// from (matching their corners exactly: the converter copies them),
+    /// so quads can be drawn see-through.
+    pub fn attach_quads(&mut self, scene: &Scene, quads: &crate::quads::Quads) {
+        let key = |a: [f32; 3], b: [f32; 3], c: [f32; 3]| -> [u32; 9] {
+            std::array::from_fn(|i| [a, b, c][i / 3][i % 3].to_bits())
+        };
+        let mut by_tri = std::collections::HashMap::new();
+        for (qi, q) in quads.quads.iter().enumerate() {
+            let p = |k: usize| quads.corner(q, k).to_array();
+            by_tri.insert(key(p(0), p(1), p(2)), qi as u32);
+            if q.corners() == 4 {
+                by_tri.insert(key(p(0), p(2), p(3)), qi as u32);
+            }
+        }
+        self.tri_quads = scene
+            .prims
+            .iter()
+            .filter(|p| p.visible)
+            .map(|p| {
+                if p.door.is_some() {
+                    return None;
+                }
+                let at = |i: u32| p.vertices[i as usize].pos;
+                let tris: Vec<u32> = p.indices.chunks_exact(3).map(|t| by_tri.get(&key(at(t[0]), at(t[1]), at(t[2]))).copied().unwrap_or(u32::MAX)).collect();
+                tris.iter().any(|&q| q != u32::MAX).then(|| TriQuads { indices: p.indices.clone(), quads: tris })
+            })
+            .collect();
+    }
+
+    /// Rebuilds the see-through split of the prims the jello touches, when
+    /// it changed.
+    fn jello_buffers(&mut self, gpu: &Gpu) {
+        let mut want = self.jello.clone();
+        want.sort_unstable();
+        if want == self.jello_cache.0 {
+            return;
+        }
+        let set: std::collections::HashSet<u32> = want.iter().copied().collect();
+        let mut split = std::collections::HashMap::new();
+        for (k, tq) in self.tri_quads.iter().enumerate() {
+            let Some(tq) = tq else { continue };
+            if !tq.quads.iter().any(|q| set.contains(q)) {
+                continue;
+            }
+            let (mut solid, mut seen) = (Vec::new(), Vec::new());
+            for (t, q) in tq.indices.chunks_exact(3).zip(&tq.quads) {
+                if set.contains(q) { &mut seen } else { &mut solid }.extend_from_slice(t);
+            }
+            let buf = |v: &[u32]| {
+                gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("jello ibuf"),
+                    contents: bytemuck::cast_slice(if v.is_empty() { &[0u32, 0, 0][..] } else { v }),
+                    usage: wgpu::BufferUsages::INDEX,
+                })
+            };
+            split.insert(k, (buf(&solid), solid.len() as u32, buf(&seen), seen.len() as u32));
+        }
+        self.jello_cache = (want, split);
+    }
+
     /// A texture from a PNG file, loaded once.
     fn texture_index(&mut self, gpu: &Gpu, path: &std::path::Path) -> usize {
         if let Some(&i) = self.textures_by_path.get(path) {
@@ -1134,12 +1248,24 @@ fn vs_main(
     return out;
 }
 
-@fragment
-fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+fn lit(in: VSOut) -> vec4<f32> {
     let texel = textureSample(tex, samp, in.uv);
     // Baked vertex lighting modulates the texture; small ambient floor.
     let shade = max(in.color, vec3<f32>(0.12));
     return vec4<f32>(texel.rgb * shade * 1.25, texel.a);
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    return lit(in);
+}
+
+// A see-through wall: its opacity cut to the camera's jello amount
+// (`CAgJelloAmt`, 20 of 255).
+@fragment
+fn fs_jello(in: VSOut) -> @location(0) vec4<f32> {
+    let c = lit(in);
+    return vec4<f32>(c.rgb, c.a * (20.0 / 255.0));
 }
 "#;
 

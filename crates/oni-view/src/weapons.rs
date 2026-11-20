@@ -34,8 +34,14 @@ pub mod flag {
     /// Hints to the AI: the gun stuns / knocks down.
     pub const AI_STUN: u32 = 1 << 15;
     pub const AI_KNOCKDOWN: u32 = 1 << 16;
+    /// How its reticle is sized: a fixed share of the distance, or by a
+    /// power of it (else a fixed size).
+    pub const NO_SCALE: u32 = 1 << 17;
+    pub const HALF_SCALE: u32 = 1 << 18;
+    /// Its reticle drawn over walls.
+    pub const DONT_CLIP_SIGHT: u32 = 1 << 19;
 }
-const FLAG_NAMES: [(&str, u32); 17] = [
+const FLAG_NAMES: [(&str, u32); 20] = [
     ("big", flag::BIG),
     ("unstorable", flag::UNSTORABLE),
     ("energy", flag::ENERGY),
@@ -53,6 +59,9 @@ const FLAG_NAMES: [(&str, u32); 17] = [
     ("aiSingleShot", flag::AI_SINGLE_SHOT),
     ("aiStun", flag::AI_STUN),
     ("aiKnockdown", flag::AI_KNOCKDOWN),
+    ("noScale", flag::NO_SCALE),
+    ("halfScale", flag::HALF_SCALE),
+    ("dontClipSight", flag::DONT_CLIP_SIGHT),
 ];
 
 /// A dropped gun lies this long before fading (ticks), and fades this long.
@@ -131,6 +140,25 @@ pub struct WeaponClass {
     pub max_sight_distance: f32,
     pub laser_color: [f32; 3],
     pub tunnel: Option<Tunnel>,
+    /// Its reticle at the sight's end, and the one on a character
+    /// (`cursor`, `cursor_targeted`).
+    pub cursor: Option<SpriteDef>,
+    pub cursor_targeted: Option<SpriteDef>,
+    /// Its HUD textures: the icon, the empty and the full in-gun ammo ring
+    /// (`icon`, `hud_empty`, `hud_fill`).
+    pub icon: Option<String>,
+    pub hud_empty: Option<String>,
+    pub hud_fill: Option<String>,
+    /// Its instance name (`w1_tap`): the key of its new-weapon message.
+    pub instance: String,
+}
+
+/// A sprite a gun draws (`WPtSprite`): its texture, shade and scale.
+#[derive(Clone, Debug)]
+pub struct SpriteDef {
+    pub texture: String,
+    pub color: [f32; 3],
+    pub scale: f32,
 }
 
 /// Sprites spaced along a gun's sight (`WPtSprite` + count and spacing).
@@ -221,7 +249,15 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         count: c["tunnel"]["count"].as_u64().unwrap_or(0) as u32,
         spacing: f(&c["tunnel"]["spacing"]),
     });
+    let sprite = |j: &Json| j["texture"].as_str().map(|t| SpriteDef { texture: t.to_string(), color: rgb(&j["shade"]), scale: f(&j["scale"]) });
+    let text = |j: &Json| j.as_str().map(str::to_string);
     WeaponClass {
+        cursor: sprite(&c["cursor"]),
+        cursor_targeted: sprite(&c["cursorTargeted"]),
+        icon: text(&c["icon"]),
+        hud_empty: text(&c["hudEmpty"]),
+        hud_fill: text(&c["hudFill"]),
+        instance: text(&c["instance"]).unwrap_or_else(|| name.to_string()),
         sight: (v3(&c["sight"]["position"]), v3(&c["sight"]["vector"])),
         sphere_radius: f(&c["sphereRadius"]).max(0.1),
         max_sight_distance: f(&c["maxSightDistance"]),

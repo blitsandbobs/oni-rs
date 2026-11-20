@@ -218,6 +218,10 @@ pub struct Fighter {
     pub inventory: Inventory,
     /// Aim pitch (radians, up positive) and the recoil kick on top of it.
     pub aiming_ud: f32,
+    /// The look-mode turn (radians, left positive) of the aim off its
+    /// facing (`aimingLR`): the mouse turns it instead of the body while
+    /// the look key is held; it drifts back when released.
+    pub aiming_lr: f32,
     pub recoil: f32,
     pub recoil_speed: f32,
     /// The last particle that damaged it (a shot hits once).
@@ -391,6 +395,7 @@ impl Fighter {
             magic: None,
             inventory: Inventory::default(),
             aiming_ud: 0.0,
+            aiming_lr: 0.0,
             recoil: 0.0,
             recoil_speed: 0.0,
             last_particle: None,
@@ -1327,7 +1332,7 @@ impl Fighter {
         }
         let s = self.screen(dont_aim)?;
         let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-        let yaw = wrap(self.facing.aim() - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let yaw = wrap(self.facing.aim() + self.aiming_lr - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         let pitch = (self.aiming_ud + self.recoil).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         if yaw == 0.0 && pitch == 0.0 {
             return None;
@@ -1358,6 +1363,35 @@ impl Fighter {
     /// Reloading (a reload clip in the inventory overlay).
     pub fn reloading(&self) -> bool {
         self.overlays[INVENTORY].is_some_and(|o| (164..=171).contains(&self.motion.clip_of(o.clip).anim_type))
+    }
+
+    /// Standing or crouching still (`ONrCharacter_IsStill`): a stand or
+    /// crouch clip that ends standing, crouching or lying.
+    pub fn still(&self) -> bool {
+        use crate::anim::types::{st, ty};
+        (self.motion.kind == ty::STAND || self.motion.kind == ty::CROUCH)
+            && matches!(self.motion.current().to_state, st::STANDING | st::CROUCH | st::LIE_BACK | st::FALLEN_BACK | st::FALLEN_FRONT)
+    }
+
+    /// One tick of the player's look (`ONrCharacter_UpdateCharacter`'s
+    /// player aiming): out of look mode the look-mode turn drifts back,
+    /// and in a fight, moving, unarmed, the pitch springs back toward
+    /// level (to within a fifth of a right angle) — 0.03 a tick each.
+    pub fn look_tick(&mut self, look: bool) {
+        const STEP: f32 = 0.03;
+        let toward_zero = |x: f32| if x > STEP { x - STEP } else if x < -STEP { x + STEP } else { 0.0 };
+        let fight = f32::from(self.motion.fight_frames) / f32::from(self.motion.tuning.fight_mode_duration.max(1));
+        if 0.5 >= 1.0 - fight && !self.still() && self.hand.is_none() && !look {
+            let back = std::f32::consts::FRAC_PI_2 * 0.2;
+            if self.aiming_ud > back {
+                self.aiming_ud = (self.aiming_ud - STEP).max(back);
+            } else if self.aiming_ud < -back {
+                self.aiming_ud = (self.aiming_ud + STEP).min(-back);
+            }
+        }
+        if !look {
+            self.aiming_lr = toward_zero(self.aiming_lr);
+        }
     }
 
     pub fn alive(&self) -> bool {

@@ -24,6 +24,7 @@ use crate::skel::Character;
 const HEAD_BONE: usize = 10;
 
 mod env_particles;
+pub mod camera;
 mod objects;
 mod objects_sound;
 mod particle_sounds;
@@ -142,6 +143,10 @@ pub struct World {
     door_links: Vec<Vec<(usize, usize)>>,
     /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
+    /// The game camera (`world/camera.rs`).
+    pub camera: camera::GameCamera,
+    /// The quads see-through this tick (the camera's jello).
+    pub jello: Vec<u32>,
     /// The level's placed objects as authored, and those scripts have made.
     pub object_setups: Vec<objects::Setup>,
     pub objects: Vec<objects::Object>,
@@ -244,6 +249,8 @@ impl World {
             door_leaf_boxes: Vec::new(),
             door_links: Vec::new(),
             env_hidden: Default::default(),
+            camera: Default::default(),
+            jello: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
             objects: Vec::new(),
@@ -1510,6 +1517,9 @@ impl World {
         let action = controls & crate::anim::input::key::ACTION != 0 && self.last_controls & crate::anim::input::key::ACTION == 0;
         self.last_controls = controls;
         let mut controls = controls;
+        if let Some(p) = self.fighters.first_mut() {
+            p.look_tick(controls & crate::anim::input::key::LOOK != 0);
+        }
         if action && self.fighters.first().is_some_and(|p| p.console.is_none() && p.alive()) {
             if let Some(c) = self.console_in_reach(0, false) {
                 self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
@@ -1754,6 +1764,7 @@ impl World {
         self.voices_tick();
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
+        self.camera_tick();
     }
 
     /// Fighter `who`'s clip `clip` is on `frame`: its animation sound, and

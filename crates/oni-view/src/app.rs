@@ -27,8 +27,6 @@ struct PlayWorld {
     /// Mouse delta accumulated since the last tick (applied once per frame).
     mouse_dx: f32,
     mouse_dy: f32,
-    /// Player capsule height (for the follow camera framing).
-    player_height: f32,
     accum: f32,
     /// The level's own scripts (`--mission`), and the classes they spawn
     /// from.
@@ -224,8 +222,6 @@ impl ApplicationHandler for App {
             match (charview.take(), kinds) {
                 (Some(cv), Some((Ok(kind), Ok(opponent_kind)))) => {
                     let spawn_pos = cv.placement.transform_point3(Vec3::ZERO);
-                    let (mn, mx) = cv.aabb(0.0);
-                    let player_height = (mx.y - mn.y).max(2.0);
                     let mut world = crate::world::World::new();
                     if self.faithful {
                         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
@@ -239,6 +235,7 @@ impl ApplicationHandler for App {
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
+                    renderer.attach_quads(&scene, &world.quads);
                     world.attach_doors(crate::door_meshes(&scene));
                     world.attach_glass(crate::glass_parts(&scene));
                     world.attach_weapons(&self.cast.level_dir.join("../../common"));
@@ -285,7 +282,6 @@ impl ApplicationHandler for App {
                             world,
                             mouse_dx: 0.0,
                             mouse_dy: 0.0,
-                            player_height,
                             accum: 0.0,
                             mission,
                             _audio: audio,
@@ -519,6 +515,7 @@ impl State {
             (Action::Swap, key::SWAP),
             (Action::Reload, key::RELOAD),
             (Action::Drop, key::DROP),
+            (Action::LookMode, key::LOOK),
         ] {
             if held(action) {
                 controls |= bit;
@@ -536,13 +533,20 @@ impl State {
         // pitch (mouse-Y → aimingUD, clamped ±π/2).
         let dx = std::mem::take(&mut pw.mouse_dx);
         let dy = std::mem::take(&mut pw.mouse_dy);
-        let dy = if tuning.invert_y { -dy } else { dy };
+        // (As the game ships — its "invert mouse" option on — the mouse
+        // moved down aims down.)
+        let dy = if tuning.invert_y { dy } else { -dy };
         // (With a gun the mouse moves at the gun's aiming speed × ½.)
         let sens = sens * pw.world.aiming_speed(0).map_or(1.0, |s| s * 0.5);
+        let look = controls & crate::anim::input::key::LOOK != 0;
         if let Some(player) = pw.world.fighters.first_mut() {
-            player
-                .facing
-                .adjust_desired((-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI));
+            let turn = (-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI);
+            if look {
+                // Look mode: the mouse turns the aim off the facing.
+                player.aiming_lr = (player.aiming_lr + turn).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+            } else {
+                player.facing.adjust_desired(turn);
+            }
             player.aiming_ud = (player.aiming_ud + dy * sens)
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
@@ -564,18 +568,8 @@ impl State {
             }
         }
 
-        // Third-person follow camera (behind + above the player, at the torso).
-        if let Some(player) = pw.world.player() {
-            let feet = player.feet();
-            // Follow the aim, not the body: a diagonal run leans the body
-            // 45° but the view stays put.
-            let yaw = player.facing.aim();
-            let height = pw.player_height;
-            let center = feet + Vec3::new(0.0, height * 0.55, 0.0);
-            let fwd = Vec3::new(yaw.sin(), 0.0, yaw.cos());
-            let eye = center - fwd * (height * 2.2) + Vec3::new(0.0, height * 0.4, 0.0);
-            self.cam.look_at(eye, center);
-        }
+        // The game camera (`world/camera.rs`).
+        self.cam = pw.world.camera.render_camera(self.config.width as f32 / self.config.height as f32);
     }
 
     fn render(&mut self) {
@@ -598,6 +592,7 @@ impl State {
             self.renderer.decals = pw.world.decal_draws();
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
+            self.renderer.jello = pw.world.jello.clone();
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

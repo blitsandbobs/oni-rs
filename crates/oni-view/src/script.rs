@@ -62,7 +62,6 @@ use mlua::Lua;
 use crate::anim::input::key;
 use crate::classes::Classes;
 use crate::quirks::Quirks;
-use crate::camera::Camera;
 use crate::render::{CharDraw, Gpu, Renderer};
 use crate::world::{CharKind, World};
 use crate::CharView;
@@ -131,6 +130,7 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
+        renderer.attach_quads(&scene, &world.quads);
         world.attach_doors(crate::door_meshes(&scene));
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
@@ -191,14 +191,8 @@ impl ScriptHost {
 
     fn screenshot(&mut self, path: &Path, w: u32, h: u32) {
         let aspect = w as f32 / h as f32;
-        let mut cam = Camera::new(aspect);
-        match self.world.player() {
-            Some(p) => {
-                let c = p.feet() + Vec3::new(0.0, 6.0, 0.0);
-                cam.look_at(c + Vec3::new(14.0, 8.0, -22.0), c);
-            }
-            None => cam = crate::default_camera(&self.scene, aspect),
-        }
+        // (What the player sees: the game camera — once it is placed.)
+        let mut cam = if self.world.camera.placed { self.world.camera.render_camera(aspect) } else { crate::default_camera(&self.scene, aspect) };
         match (self.eye, self.target) {
             (Some(e), Some(tg)) => cam.look_at(e, tg),
             (Some(e), None) => cam.look_at(e, self.scene.center()),
@@ -210,6 +204,7 @@ impl ScriptHost {
         self.renderer.decals = if self.show_decals { self.world.decal_draws() } else { Vec::new() };
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
+        self.renderer.jello = self.world.jello.clone();
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let mut guns: Vec<(usize, Vec<Mat4>)> = self
             .world
@@ -795,10 +790,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "mission_begin",
-        lua.create_function(move |_, ()| {
+        lua.create_function(move |_, run: Option<bool>| {
             let mut host = h.borrow_mut();
             let mut m = crate::mission::Mission::load(&host.world.level_dir).map_err(mlua::Error::runtime)?;
-            m.begin(&mut *host);
+            // (`mission_begin(false)`: the scripts loaded, the level's own
+            // start not run.)
+            if run != Some(false) {
+                m.begin(&mut *host);
+            }
             host.mission = Some(m);
             Ok(())
         })?,
@@ -969,6 +968,42 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 f.aiming_ud = pitch;
             }
             Ok(())
+        })?,
+    )?;
+    // The game camera: where it is, which way it looks, whether a script
+    // waits on it, and how many walls it makes see-through.
+    let h = host.clone();
+    g.set(
+        "camera",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let c = &host.world.camera;
+            let (p, v) = (c.view.location, c.view.view);
+            Ok((p.x, p.y, p.z, v.x, v.y, v.z, c.busy))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set("jello", lua.create_function(move |_, ()| Ok(h.borrow().world.jello.len()))?)?;
+    // Holds (or lets go of) the look-mode key.
+    let h = host.clone();
+    g.set(
+        "look_mode",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().hold(key::LOOK, on);
+            Ok(())
+        })?,
+    )?;
+    // The player's look-mode turn (radians).
+    let h = host.clone();
+    g.set(
+        "aim_lr",
+        lua.create_function(move |_, v: Option<f32>| {
+            let mut host = h.borrow_mut();
+            let Some(p) = host.world.fighters.first_mut() else { return Ok(0.0) };
+            if let Some(v) = v {
+                p.aiming_lr = v;
+            }
+            Ok(p.aiming_lr)
         })?,
     )?;
     let h = host.clone();

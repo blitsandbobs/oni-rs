@@ -26,6 +26,9 @@ pub mod key {
     pub const SWAP: u32 = 1 << 15;
     pub const RELOAD: u32 = 1 << 16;
     pub const DROP: u32 = 1 << 17;
+    /// Look mode (V): the mouse turns the aim off the facing instead of
+    /// the body.
+    pub const LOOK: u32 = 1 << 18;
 }
 
 /// The original's button bits (`LIc_Bit_*`, as films record them) as ours.

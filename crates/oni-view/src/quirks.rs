@@ -39,6 +39,13 @@ impl Quirks {
         self.faithful
     }
 
+    /// Whether the camera's see-through test reads the feet's side of a
+    /// wall twice where it meant the head's: a wall between the camera and
+    /// the player's head, but not their feet, stays solid (Q16).
+    pub fn jello_plane_test_feet_twice(self) -> bool {
+        self.faithful
+    }
+
     /// Whether a melee technique ignores danger. The shipped game tests its
     /// "fearless" flag against the wrong set of bits — the ones holding the
     /// technique's start state — so it really depends on that state (Q5).

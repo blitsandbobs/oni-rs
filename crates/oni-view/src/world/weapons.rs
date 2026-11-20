@@ -1310,6 +1310,32 @@ impl World {
                 });
             }
         }
+        // The player's reticle (`ONrGameState_DisplayAiming`, `WPrDrawSprite`):
+        // at the sight's end — the targeted one on a character — sized by
+        // the class: a fixed 5, 0.7 × distance^0.3 (half scale), or 0.03 ×
+        // distance (no scale), times its own scale.
+        if let Some(c) = class.filter(|_| who == 0) {
+            let sprite = if s.target == SightTarget::Character { c.cursor_targeted.as_ref() } else { c.cursor.as_ref() };
+            if let Some(sp) = sprite {
+                let d = self.camera.view.location.distance(s.to);
+                let size = if c.has(crate::weapons::flag::NO_SCALE) {
+                    0.03 * d
+                } else if c.has(crate::weapons::flag::HALF_SCALE) {
+                    0.7 * d.powf(0.3)
+                } else {
+                    5.0
+                } * sp.scale;
+                out.push(crate::render::Sprite {
+                    at: s.to,
+                    size: [size * 0.5, size * 0.5],
+                    axis: None,
+                    plane: None,
+                    color: sp.color,
+                    texture: textures.join(format!("{}.png", sp.texture)),
+                    contrail: false,
+                });
+            }
+        }
         out
     }
 
@@ -1829,7 +1855,7 @@ impl World {
         // left, +Z up).
         let s = shooter.matrix.y_axis.truncate().normalize_or(Vec3::X);
         let (off_yaw, off_pitch) = (s.y.atan2(s.x), s.z.clamp(-1.0, 1.0).asin());
-        let (aim_yaw, aim_pitch) = (f.facing.aim(), f.aiming_ud);
+        let (aim_yaw, aim_pitch) = (f.facing.aim() + f.aiming_lr, f.aiming_ud);
         let me = f.team();
         let pelvis = f.feet() + Vec3::Y * f.motion.height();
         let wrap = |a: f32| (a + PI).rem_euclid(2.0 * PI) - PI;
@@ -1884,7 +1910,7 @@ impl World {
             // the screen's reach; else it rides the hand.
             let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
-                Some((f.facing.aim() + lr, f.aiming_ud + f.recoil + ud))
+                Some((f.facing.aim() + f.aiming_lr + lr, f.aiming_ud + f.recoil + ud))
             } else {
                 f.ai_aim.map(|(y, p)| (y, p + f.recoil))
             };
