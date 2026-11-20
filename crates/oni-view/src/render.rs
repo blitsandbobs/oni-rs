@@ -874,11 +874,15 @@ impl Renderer {
                     p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
-                let mut current: Option<bool> = None;
+                // (Each bucket starts on its pipeline: what follows the level's
+                // prims — beams, sprites, characters, objects — draws with it,
+                // unculled.)
+                pass.set_pipeline(pipeline);
+                let mut culling = false;
                 for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p)) {
-                    if current != Some(p.cull) {
+                    if culling != p.cull {
                         pass.set_pipeline(if p.cull { cull_pipeline } else { pipeline });
-                        current = Some(p.cull);
+                        culling = p.cull;
                     }
                     let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
                     match self.jello_cache.1.get(&k) {
@@ -892,6 +896,9 @@ impl Renderer {
                         }
                         None => draw_prim(&mut pass, p, model),
                     }
+                }
+                if culling {
+                    pass.set_pipeline(pipeline);
                 }
                 // The see-through walls, with what is seen through.
                 if bucket == Bucket::Alpha && !self.jello_cache.1.is_empty() {
