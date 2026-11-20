@@ -2399,15 +2399,15 @@ impl Agent {
             // In combat it knows where its target is.
             let contact = self.combat().contact;
             cx.perception.set_location(contact, target_feet);
-            if let Some(t) = self.combat().lost_contact {
-                // The original pursues at once (its delay is skipped).
-                let pursue = cx.quirks.pursue_lost_target_at_once() || t <= 1;
-                if pursue {
-                    self.exit(cx);
-                    self.enter_pursuit(contact, cx);
-                    return;
-                }
-                self.combat().lost_contact = Some(t - 1);
+            // SHIPPED BALANCE (Q11, kept in both modes): losing sight of its
+            // target arms the class's lost-contact delay, but a debug `if (1)`
+            // in `AI2iCombat_CheckTarget` pursues on the very next tick
+            // anyway. The game's fights — and the level 1 training's combat
+            // demo, which stalls without it (#62) — rely on that.
+            if self.combat().lost_contact.is_some() {
+                self.exit(cx);
+                self.enter_pursuit(contact, cx);
+                return;
             }
         }
 

@@ -105,12 +105,6 @@ impl Quirks {
         }
     }
 
-    /// Q11: losing sight of its target, combat pursues at once instead of
-    /// after the class's lost-contact delay.
-    pub fn pursue_lost_target_at_once(self) -> bool {
-        self.faithful
-    }
-
     /// Q12: a combat target's death never hands over to another enemy.
     pub fn no_new_target(self) -> bool {
         self.faithful
@@ -131,7 +125,6 @@ mod tests {
         assert_eq!((fixed.run_in_radius_times(), faithful.run_in_radius_times()), (1.0, 2.0));
         assert!(!fixed.contact_head_twice() && faithful.contact_head_twice());
         assert_eq!((fixed.investigate_check_every(), faithful.investigate_check_every()), (15, 0));
-        assert!(!fixed.pursue_lost_target_at_once() && faithful.pursue_lost_target_at_once());
         assert!(!fixed.no_new_target() && faithful.no_new_target());
     }
 }
