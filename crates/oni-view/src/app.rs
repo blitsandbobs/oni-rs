@@ -853,7 +853,7 @@ impl State {
             self.renderer.door_motion = pw.world.door_motions();
             self.renderer.beams = pw.world.beams.clone();
             self.renderer.sprites = pw.world.sprites();
-            self.renderer.decals = pw.world.decal_draws();
+            self.renderer.decals = pw.world.decal_draws(self.cam.eye);
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
             self.renderer.jello = pw.world.jello.clone();

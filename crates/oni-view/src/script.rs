@@ -202,7 +202,7 @@ impl ScriptHost {
         self.renderer.door_motion = self.world.door_motions();
         self.renderer.beams = self.world.beams.clone();
         self.renderer.sprites = self.world.sprites();
-        self.renderer.decals = if self.show_decals { self.world.decal_draws() } else { Vec::new() };
+        self.renderer.decals = if self.show_decals { self.world.decal_draws(cam.eye) } else { Vec::new() };
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
@@ -1431,6 +1431,40 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // screenshot drew.
     let h = host.clone();
     g.set("jello_drawn", lua.create_function(move |_, ()| Ok(h.borrow().renderer.jello_triangles()))?)?;
+    // decals_drawn(x, y, z) → {{quad, alpha}, …}: the decals drawn from
+    // that eye this frame (alpha 0..1, as drawn).
+    let h = host.clone();
+    g.set(
+        "decals_drawn",
+        lua.create_function(move |lua, (x, y, z): (f32, f32, f32)| {
+            let host = h.borrow();
+            let out = lua.create_table()?;
+            for (k, d) in host.world.decal_draws(Vec3::new(x, y, z)).iter().enumerate() {
+                let t = lua.create_table()?;
+                t.set("quad", d.positions.quad)?;
+                t.set("alpha", d.alpha)?;
+                out.set(k + 1, t)?;
+            }
+            Ok(out)
+        })?,
+    )?;
+    // set_jello(quad, on): marks a level quad see-through or not, as the
+    // camera does (until the camera's next update clears its own).
+    let h = host.clone();
+    g.set(
+        "set_jello",
+        lua.create_function(move |_, (q, on): (u32, bool)| {
+            let mut host = h.borrow_mut();
+            if let Some(quad) = host.world.quads.quads.get_mut(q as usize) {
+                if on {
+                    quad.flags |= crate::quads::flag::JELLO;
+                } else {
+                    quad.flags &= !crate::quads::flag::JELLO;
+                }
+            }
+            Ok(())
+        })?,
+    )?;
     // ray(x1, y1, z1, x2, y2, z2) → the first level quad between two points
     // (any flags): {quad, at={x,y,z}, flags, object_tag, jello} — jello: it is
     // see-through for the camera now; nil if nothing is in the way.

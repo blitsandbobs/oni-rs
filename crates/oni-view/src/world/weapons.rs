@@ -1186,27 +1186,46 @@ impl World {
     /// scale — facing the camera, or stretched along its flight for the
     /// directional sprite kinds. (Models, contrails' trails, tint and fading
     /// aren't drawn yet.)
-    /// The decals to draw (`docs/PARTICLES.md`, *Decals*): the level's,
-    /// then the rest, oldest first. Drawn opacity: twice the decal's, at most
-    /// full (the original's draw doubles it).
-    pub fn decal_draws(&self) -> Vec<crate::render::DecalDraw> {
+    /// The decals to draw from `eye` (`docs/PARTICLES.md`, *Decals*): the
+    /// level's, then the rest, oldest first — each only while the quad it
+    /// was laid on is drawn (not one-sided and seen from behind), at the
+    /// quad's see-through opacity while it is see-through, full otherwise
+    /// (`P3iDisplayDecals`). Drawn opacity: the decal's times that, doubled,
+    /// at most full (the original's draw doubles it).
+    pub fn decal_draws(&self, eye: Vec3) -> Vec<crate::render::DecalDraw> {
+        use crate::quads::flag;
         let textures = self.level_dir.join("../../common/textures");
-        let draw = |mesh: Rc<crate::decal::Mesh>, alpha: u16, texture: &str| crate::render::DecalDraw {
-            positions: mesh,
-            alpha: ((u32::from(alpha) * 255 * 2) >> 8).min(255) as f32 / 255.0,
-            texture: textures.join(format!("{texture}.png")),
-            additive: self.additive_textures.contains(texture),
+        let quads = &self.quads;
+        // The quad's opacity this frame; none while it isn't drawn.
+        let quad_alpha = |quad: Option<u32>| -> Option<u32> {
+            let Some(q) = quad.and_then(|q| quads.quads.get(q as usize)) else { return Some(255) };
+            if q.flags & flag::AK_2SIDED == 0 {
+                let (n, _) = quads.plane(q.plane);
+                if (eye - quads.corner(q, 0)).dot(n) < 0.0 {
+                    return None;
+                }
+            }
+            Some(if q.flags & flag::JELLO != 0 { super::camera::JELLO_AMT } else { 255 })
+        };
+        let draw = |mesh: Rc<crate::decal::Mesh>, alpha: u16, texture: &str| {
+            let shown = quad_alpha(mesh.quad)?;
+            Some(crate::render::DecalDraw {
+                positions: mesh,
+                alpha: ((u32::from(alpha) * shown * 2) >> 8).min(255) as f32 / 255.0,
+                texture: textures.join(format!("{texture}.png")),
+                additive: self.additive_textures.contains(texture),
+            })
         };
         let decals = &self.armory.particles.decals;
         // The level's, then the characters' shadows (laid again each frame,
         // so after them), then the rest.
-        let mut out: Vec<_> = decals.fixed.iter().map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)).collect();
+        let mut out: Vec<_> = decals.fixed.iter().filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)).collect();
         for k in 0..self.fighters.len() {
             if let Some((mesh, alpha, texture)) = self.shadow(k) {
-                out.push(draw(Rc::new(mesh), alpha, &texture));
+                out.extend(draw(Rc::new(mesh), alpha, &texture));
             }
         }
-        out.extend(decals.dynamic.iter().map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)));
+        out.extend(decals.dynamic.iter().filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)));
         out
     }
 

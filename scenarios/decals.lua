@@ -75,4 +75,28 @@ local along = a * spark[4] + b * spark[5] + c * spark[6]
 print("spark off the wall:", dist, "facing out:", along)
 assert(math.abs(dist - 0.4) < 0.02, "the spark sits 0.4 off the wall")
 assert(along > 0.99, "the spark points out of the wall")
+
+-- Drawn only while its wall is: from in front at the hole's doubled
+-- opacity, from behind the (one-sided) wall not at all; on the wall made
+-- see-through, at the wall's 20/255 (P3iDisplayDecals).
+local cx, cy, cz = 0, 0, 0
+for _, p in ipairs(h.positions) do cx, cy, cz = cx + p[1], cy + p[2], cz + p[3] end
+cx, cy, cz = cx / #h.positions, cy / #h.positions, cz / #h.positions
+-- (The hole is the last decal on its quad: the level's own come first.)
+local function hole_drawn(sign)
+    local alpha
+    for _, d in ipairs(decals_drawn(cx + a * 20 * sign, cy + b * 20 * sign, cz + c * 20 * sign)) do
+        if d.quad == h.quad then alpha = d.alpha end
+    end
+    return alpha
+end
+local front, behind = hole_drawn(1), hole_drawn(-1)
+set_jello(h.quad, true)
+local seen_through = hole_drawn(1)
+set_jello(h.quad, false)
+print("hole drawn: in front", front, "behind", behind, "see-through", seen_through)
+local function as_drawn(times) return math.min(255, math.floor(h.alpha * times * 2 / 256)) / 255 end
+assert(front and math.abs(front - as_drawn(255)) < 1e-6, "in front: drawn, at its doubled opacity")
+assert(behind == nil, "from behind its wall: not drawn")
+assert(seen_through and math.abs(seen_through - as_drawn(20)) < 1e-6, "on a see-through wall: faded to 20/255")
 print("decals ok")

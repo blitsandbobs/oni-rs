@@ -68,7 +68,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
-| `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
+| `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out; it is drawn only from in front of its one-sided wall, and fades to 20/255 when the wall goes see-through. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
 | `shadows.lua` | Character shadows: standing, flat on the floor under her pelvis 0.05 up, at the class's opacity and size; a jump fades it; `chr_shadow` takes it away and gives it back. |
 | `effects.lua` | An effect rides what it struck: a phase-rifle bolt's glow stays on the dummy's struck part as the dummy moves. |
 | `reach.lua` | How high a jump reaches (the original's collision): on level 1's training a running jump gets from a small crate onto the tall one; the ledge after the laser room is out of reach of a jump but not of a flip. |
@@ -153,6 +153,9 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
+| `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |
+| `ray(x1, y1, z1, x2, y2, z2)` | The first level quad between two points (any flags): `{quad, at={x,y,z}, flags, object_tag, jello}`, or nil. |
+| `decals_drawn(x, y, z)` | The decals drawn from that eye now: `{quad, alpha}` each (alpha 0–1, as drawn), in drawing order. |
 | `look_mode(on)` / `aim_lr([v])` | Hold the look-mode key; read (or set) the player's look-mode turn (radians). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |

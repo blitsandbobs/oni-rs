@@ -27,6 +27,9 @@ pub const CANTER_UNARMED: f32 = 8.0;
 /// `CAgJello_Radius`: the sphere swept toward the player for see-through
 /// walls.
 pub const JELLO_RADIUS: f32 = 12.0;
+/// A see-through quad's opacity, of 255 (`CAgJelloAmt`; the renderer's
+/// `fs_jello` draws at it, and decals on the quad fade to it).
+pub const JELLO_AMT: u32 = 20;
 /// `ONcCharacterHeight`.
 const CHARACTER_HEIGHT: f32 = 15.0;
 
