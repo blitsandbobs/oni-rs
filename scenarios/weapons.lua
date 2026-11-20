@@ -66,9 +66,22 @@ assert(left == 10, "reloaded: " .. left)
 print("weapons ok")
 
 -- Holster (the swap key with nothing in reach): the holster clip plays and
--- the gun goes at its action frame; swap again draws it.
+-- the gun goes at its action frame; swap again draws it. Her right hand puts
+-- it away at her right hip: it never crosses to her left or goes behind her
+-- (as it did with the overlay's rotations in the wrong convention, #47).
 swap()
-step(40)
+local f = math.rad(facing_deg())
+local worst_x, worst_z = -99, 99
+for _ = 1, 40 do
+  step(1)
+  local p, h = bone(0, 0).at, bone(0, 18).at
+  local dx, dz = h[1] - p[1], h[3] - p[3]
+  -- In her own frame: +z ahead, +x to her left.
+  local lx, lz = dx * math.cos(f) - dz * math.sin(f), dx * math.sin(f) + dz * math.cos(f)
+  worst_x, worst_z = math.max(worst_x, lx), math.min(worst_z, lz)
+end
+print(string.format("holstering: right hand at most %.1f to her left, %.1f behind", worst_x, -worst_z))
+assert(worst_x < 1 and worst_z > -2, "the right hand holsters at her right hip")
 assert(weapon(0) == nil and holster_of(0) == "w1_tap", "holstered")
 swap()
 step(40)

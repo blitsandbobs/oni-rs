@@ -892,6 +892,14 @@ pub fn apply_pose(body: &mut Body, quats: &[[f32; 4]], zero_root: bool) {
     }
 }
 
+/// One keyframe's rotation, in the standard convention (glTF / glam).
+///
+/// Oni's own quaternions turn the other way: its `MUrQuatToMatrix` is the
+/// transpose of the usual matrix, so its `q` is our `conjugate(q)`. The Euler
+/// packing (`MUrXYZrEulerToQuat`) comes out conjugated by the standard
+/// product below on its own; the stored ones (8, 16) are conjugated here — so
+/// every clip shares one convention, and composing them reverses the
+/// original's order (`docs/WEAPONS.md`, *Overlays*).
 fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
     let u16le = |o: usize| -> Option<u16> { Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
     let i16le = |o: usize| -> Option<i16> { Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
@@ -912,12 +920,12 @@ fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
                 i16le(0)? as f32 * s,
                 i16le(2)? as f32 * s,
                 i16le(4)? as f32 * s,
-                i16le(6)? as f32 * s,
+                -(i16le(6)? as f32 * s),
             ])
         }
         16 => {
             let f = |o: usize| read_f32(b, o);
-            normalize([f(0)?, f(4)?, f(8)?, f(12)?])
+            normalize([f(0)?, f(4)?, f(8)?, -f(12)?])
         }
         // 3/4-byte packings are rare for bipeds; fall back to identity.
         _ => [0.0, 0.0, 0.0, 1.0],

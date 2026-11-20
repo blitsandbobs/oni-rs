@@ -100,8 +100,10 @@ fn step(d: f32, deltas: [f32; 2], frames: [u16; 2]) -> (i32, f32) {
 /// (radians; up positive): the four frames around it blended, each part's
 /// rotation a turn to put on top of the body's.
 pub fn layer(ch: &Character, s: &Screen, yaw: f32, pitch: f32) -> Layer {
-    let (yi, yf) = step(yaw, s.yaw.0, s.yaw.1);
-    let (pi, pf) = step(pitch, s.pitch.0, s.pitch.1);
+    // (The grid runs the other way from the aim — `TRrAimingScreen_Prepare`
+    // negates both.)
+    let (yi, yf) = step(-yaw, s.yaw.0, s.yaw.1);
+    let (pi, pf) = step(-pitch, s.pitch.0, s.pitch.1);
     let width = i32::from(s.yaw.1[0] + s.yaw.1[1]) + 1;
     let height = i32::from(s.pitch.1[0] + s.pitch.1[1]) + 1;
     let frame = |y: i32, p: i32| -> Vec<Quat> {

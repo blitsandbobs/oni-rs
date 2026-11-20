@@ -228,6 +228,10 @@ pub struct Fighter {
     /// facing (`aimingLR`): the mouse turns it instead of the body while
     /// the look key is held; it drifts back when released.
     pub aiming_lr: f32,
+    /// The auto-aim's turn of the aim this tick (yaw, pitch;
+    /// `autoAimAdjustmentLR` / `UD`): the gun and the arm's aim pose both
+    /// take it.
+    pub auto_aim: (f32, f32),
     /// The hit ring's quarters (`hits[4]`): lit (255) by a blow from that
     /// way, fading 3 a tick (the player's, on the HUD).
     pub hits: [u8; 4],
@@ -411,6 +415,7 @@ impl Fighter {
             inventory: Inventory::default(),
             aiming_ud: 0.0,
             aiming_lr: 0.0,
+            auto_aim: (0.0, 0.0),
             hits: [0; 4],
             recoil: 0.0,
             recoil_speed: 0.0,
@@ -1390,8 +1395,10 @@ impl Fighter {
         }
         let s = self.screen(dont_aim)?;
         let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-        let yaw = wrap(self.facing.aim() + self.aiming_lr - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-        let pitch = (self.aiming_ud + self.recoil).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        // (With the auto-aim's turn, as the gun has it: the original's aiming
+        // screen adds `autoAimAdjustmentLR` / `UD` too.)
+        let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let pitch = (self.aiming_ud + self.recoil + self.auto_aim.1).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         if yaw == 0.0 && pitch == 0.0 {
             return None;
         }

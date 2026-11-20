@@ -50,6 +50,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
+| `auto_aim.lua` | Konoko's arm follows her gun: aiming 30° and 60° to each side, and when auto-aim turns the gun onto an enemy 4° off her aim (the gun stays in her hand). |
 | `downed.lua` | A downed Striker doesn't turn while it lies: not toward Konoko walking round it, not when ordered to face elsewhere. |
 | `hypo.lua` | Hypos: a quarter of full health given a point every 7 ticks; a hurt eats 2.5 × its damage from it; at full a whole boost to double, a point a tick, then draining back a point every 11 ticks; none, or already boosting, nothing. |
 | `lens.lua` | Lens flares: none in sight at the start; the lock light beside a warehouse door, seen from the side, shows (red: locked) and goes again out of sight. |

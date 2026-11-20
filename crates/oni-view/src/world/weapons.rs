@@ -1926,6 +1926,8 @@ impl World {
             // the screen's reach; else it rides the hand.
             let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
+                self.fighters[who].auto_aim = (lr, ud);
+                let f = &self.fighters[who];
                 Some((f.facing.aim() + f.aiming_lr + lr, f.aiming_ud + f.recoil + ud))
             } else {
                 f.ai_aim.map(|(y, p)| (y, p + f.recoil))

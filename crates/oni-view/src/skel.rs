@@ -321,7 +321,7 @@ impl Character {
                 if l.replace & bit != 0 {
                     rot = nlerp(rot, q, l.weight);
                 } else if l.used & bit != 0 {
-                    rot = nlerp(Quat::IDENTITY, q, l.weight) * rot;
+                    rot *= nlerp(Quat::IDENTITY, q, l.weight);
                 }
             }
             let local = Mat4::from_rotation_translation(rot, b.translation);
