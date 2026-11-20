@@ -523,6 +523,25 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
+        // --- cutscene inserts (`hud/cinematic.rs`) ---------------------------
+        "cinematic_start" => {
+            // (name, width, height, start, end, speed, mirror)
+            let Some(name) = a(0).and_then(text) else { return nil() };
+            let n = |k: usize| int(a(k)).unwrap_or(0) as i32;
+            let (speed, mirror) = (float(a(5)).unwrap_or(0.0), truthy(a(6)));
+            let hud = &mut host.world().hud;
+            let texture = hud.cinematic_texture(&name);
+            if texture.is_none() {
+                state.warn(format!("cinematic_start: no texture {name}"));
+            }
+            hud.cinematics.start(&name, texture, n(1), n(2), n(3), n(4), speed, mirror);
+            nil()
+        }
+        "cinematic_stop" => {
+            let Some(name) = a(0).and_then(text) else { return nil() };
+            host.world().hud.cinematics.stop(&name, int(a(1)).unwrap_or(0) as i32, float(a(2)).unwrap_or(0.0));
+            nil()
+        }
         "end_cutscene" => {
             // `ONrGameState_EndCutscene`: input and jello back, every AI out
             // of passivity (those a script made passive too), the letterbox
@@ -533,6 +552,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             world.letterbox = false;
             world.input_enabled = true;
             world.camera.jello = true;
+            world.hud.cinematics.clear();
             world.all_passive = false;
             for id in 1..world.fighters.len() {
                 world.set_passive(id, false);

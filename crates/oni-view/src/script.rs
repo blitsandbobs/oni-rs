@@ -1659,6 +1659,26 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // cinematics() → the cutscene inserts showing: a list of {name, x, y,
+    // w, h} (top left and size on the 1024 × 768 virtual screen).
+    let h = host.clone();
+    g.set(
+        "cinematics",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let t = lua.create_table()?;
+            for c in &host.world.hud.cinematics.list {
+                let e = lua.create_table()?;
+                e.set("name", c.name.clone())?;
+                e.set("x", c.at[0])?;
+                e.set("y", c.at[1])?;
+                e.set("w", c.size[0])?;
+                e.set("h", c.size[1])?;
+                t.push(e)?;
+            }
+            Ok(t)
+        })?,
+    )?;
     // overlays_of(id) → the partial-body clips playing on fighter id: a list
     // of {slot = "recoil" | "inventory" | "hit", clip, type, frame}.
     let h = host.clone();

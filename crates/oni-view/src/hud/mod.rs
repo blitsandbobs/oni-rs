@@ -6,6 +6,7 @@
 //! play change it each tick); [`Hud::draw`] lays a frame out as overlay
 //! triangles.
 
+pub mod cinematic;
 pub mod text;
 
 use std::collections::HashMap;
@@ -164,6 +165,10 @@ pub struct Gun {
 #[derive(Clone, Debug)]
 pub struct Hud {
     textures: PathBuf,
+    /// The cutscene inserts showing (`hud/cinematic.rs`), and their frame
+    /// (`cinematic_border` in `part_specs.json`).
+    pub cinematics: cinematic::Cinematics,
+    border: Option<PartSpec>,
     /// The textures flagged additive (`texture_flags.json`).
     additive: std::collections::HashSet<String>,
     fonts: Fonts,
@@ -214,6 +219,8 @@ impl Default for Hud {
     fn default() -> Self {
         Hud {
             textures: PathBuf::new(),
+            cinematics: Default::default(),
+            border: None,
             additive: Default::default(),
             fonts: Fonts::default(),
             texture_sizes: HashMap::new(),
@@ -268,8 +275,11 @@ impl Hud {
             .collect();
         let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         let additive = flags["additive"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(str::to_string)).collect();
+        let specs: serde_json::Value = std::fs::read_to_string(common.join("part_specs.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let border = PartSpec::from_json(&specs["partSpecs"]["cinematic_border"], &common.join("textures"));
         Hud {
             textures: common.join("textures"),
+            border,
             additive,
             fonts: Fonts::load(common),
             texts: table("messages"),
@@ -574,7 +584,37 @@ impl Hud {
         let fonts = self.fonts.clone();
         let laid = self.console.layout(&fonts, bounds, h);
         out.extend(text_draws(&fonts, &laid));
+        // The cutscene inserts, over everything (`OCrCinematic_Draw`): each
+        // picture, then its frame 3 pixels out all round.
+        for (c, r) in self.cinematics.rects(w, h) {
+            let mut d = rect(Some(c.texture.clone()), r, [1.0, 1.0, 1.0, 1.0]);
+            if c.mirror {
+                for v in &mut d.tris {
+                    v[2] = 1.0 - v[2];
+                }
+            }
+            out.push(d);
+            if let Some(b) = &self.border {
+                out.extend(b.draw([r[0] - 3.0, r[1] - 3.0], (r[2] - r[0]).round() + 6.0, (r[3] - r[1]).round() + 6.0));
+            }
+        }
         out
+    }
+
+    /// The texture named `name` for a cutscene insert, and its size (None:
+    /// no such texture — the original then shows nothing).
+    pub fn cinematic_texture(&mut self, name: &str) -> Option<(PathBuf, [f32; 2])> {
+        let path = self.texture(name);
+        let path = if path.exists() {
+            path
+        } else {
+            // (Names are looked up regardless of case.)
+            let want = format!("{}.png", name.to_ascii_lowercase());
+            std::fs::read_dir(&self.textures).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase() == want))?
+        };
+        let stem = path.file_stem()?.to_str()?.to_string();
+        let size = self.size_of(&stem);
+        Some((path, size))
     }
 
     /// The two rings (`ONrInGameUI_Display`).
@@ -782,6 +822,69 @@ impl Hud {
 }
 
 /// A screen rectangle (left, top, right, bottom) of a texture's whole.
+/// A part specification (`PSpc`, `PSrPartSpec_Draw`): a frame cut from a
+/// texture into nine — corners kept their size, edges and middle stretched.
+#[derive(Clone, Debug)]
+pub struct PartSpec {
+    texture: PathBuf,
+    /// Each slice's texel corners, `[column][row]`: left, top, right, bottom.
+    slices: [[[f32; 4]; 3]; 3],
+    size: [f32; 2],
+}
+
+impl PartSpec {
+    fn from_json(v: &serde_json::Value, textures: &std::path::Path) -> Option<PartSpec> {
+        let name = v["texture"].as_str()?;
+        let texture = textures.join(format!("{name}.png"));
+        let f = std::fs::File::open(&texture).ok()?;
+        let r = png::Decoder::new(std::io::BufReader::new(f)).read_info().ok()?;
+        let size = [r.info().width as f32, r.info().height as f32];
+        let p = |k: &str, i: usize| -> [f32; 2] { [v[k][i][0].as_f64().unwrap_or(0.0) as f32, v[k][i][1].as_f64().unwrap_or(0.0) as f32] };
+        let mut slices = [[[0.0; 4]; 3]; 3];
+        for (c, column) in slices.iter_mut().enumerate() {
+            for (r, s) in column.iter_mut().enumerate() {
+                let (tl, br) = (p("tl", c * 3 + r), p("br", c * 3 + r));
+                *s = [tl[0], tl[1], br[0], br[1]];
+            }
+        }
+        Some(PartSpec { texture, slices, size })
+    }
+
+    /// The frame drawn `width` × `height` from `at`: the corners at their
+    /// own size, the middles filling between (the corners' sizes cut down
+    /// when the two don't fit, as the original reckons the middles — the
+    /// corners themselves still drawn whole).
+    pub fn draw(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
+        let s = &self.slices;
+        let (lw, rw) = ((s[0][0][2] - s[0][0][0]).abs(), (s[2][0][2] - s[2][0][0]).abs());
+        let (th, bh) = ((s[0][0][3] - s[0][0][1]).abs(), (s[0][2][3] - s[0][2][1]).abs());
+        let fit = |a: f32, b: f32, total: f32| if a + b > total { ((a * a / total).trunc(), (b * b / total).trunc()) } else { (a, b) };
+        let (l2, r2) = fit(lw, rw, width);
+        let (t2, b2) = fit(th, bh, height);
+        let (mw, mh) = ((width - (l2 + r2)).max(0.0), (height - (t2 + b2)).max(0.0));
+        let xs = [(at[0], lw), (at[0] + lw, mw), (at[0] + lw + mw, rw)];
+        let ys = [(at[1], th), (at[1] + th, mh), (at[1] + th + mh, bh)];
+        let mut out = Vec::new();
+        for (c, &(x, w)) in xs.iter().enumerate() {
+            for (r, &(y, h)) in ys.iter().enumerate() {
+                if w <= 0.0 || h <= 0.0 {
+                    continue;
+                }
+                let [u0, v0, u1, v1] = s[c][r];
+                let (u0, v0, u1, v1) = (u0 / self.size[0], v0 / self.size[1], u1 / self.size[0], v1 / self.size[1]);
+                let (l, t, rr, b) = (x, y, x + w, y + h);
+                out.push(OverlayDraw {
+                    texture: Some(self.texture.clone()),
+                    tris: vec![[l, t, u0, v0], [rr, t, u1, v0], [rr, b, u1, v1], [l, t, u0, v0], [rr, b, u1, v1], [l, b, u0, v1]],
+                    color: [1.0, 1.0, 1.0, 1.0],
+                    additive: false,
+                });
+            }
+        }
+        out
+    }
+}
+
 fn rect(texture: Option<PathBuf>, r: [f32; 4], color: [f32; 4]) -> OverlayDraw {
     let [l, t, rr, b] = r;
     OverlayDraw { texture, tris: vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]], color, additive: false }

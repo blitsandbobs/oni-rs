@@ -250,6 +250,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
     let mut game_settings: Option<serde_json::Value> = None;
+    let mut part_specs = serde_json::Map::new();
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
 
@@ -357,6 +358,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = fonts::convert(&dat, &root)?;
         collect_character_classes(&dat, &f.root, fi, &global_named, &registry, &mut character_classes);
+        for (k, v) in collect_part_specs(&dat, &registry) {
+            part_specs.entry(k).or_insert(v);
+        }
         if game_settings.is_none() {
             game_settings = collect_game_settings(&dat, &registry);
         }
@@ -411,6 +415,11 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         )?;
     }
 
+    if !part_specs.is_empty() {
+        let dir = output_dir.join("common");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(dir.join("part_specs.json"), serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?)?;
+    }
     if let Some(gs) = game_settings {
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
@@ -441,6 +450,30 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
 /// The game settings (`ONGS`) the engine uses: per-difficulty multipliers
 /// (easy, normal, hard) on the AI's attack notice, block and dodge chances
 /// and its aim inaccuracy.
+/// The part specifications (`PSpc`, `WM_PartSpecification.h`): nine-slice
+/// frames on a texture — by name, the texture, and each slice's texel
+/// corners (`tl` / `br`, nine `[x, y]` each, column by column: left column
+/// top, middle, bottom, then the middle column, then the right).
+fn collect_part_specs(dat: &Dat<'_>, registry: &oni_template::Registry) -> serde_json::Map<String, serde_json::Value> {
+    const TAG_PSPC: FourCc = FourCc(0x5053_7063);
+    let mut out = serde_json::Map::new();
+    let Some(layout) = registry.get(TAG_PSPC) else { return out };
+    for inst in dat.instances.iter().filter(|i| i.tag == TAG_PSPC) {
+        let (Some(name), Some(data)) = (inst.name.as_deref(), dat.instance_data(inst)) else { continue };
+        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else { continue };
+        let fields = level_json::record_to_json(&rec, dat);
+        let points = |k: &str| -> Vec<[i64; 2]> {
+            fields[k].as_array().into_iter().flatten().map(|p| [p["x"].as_i64().unwrap_or(0), p["y"].as_i64().unwrap_or(0)]).collect()
+        };
+        let Some(texture) = fields["texture"]["$ref"].as_str() else { continue };
+        out.insert(
+            name.to_string(),
+            serde_json::json!({ "texture": sanitize(texture), "tl": points("part_matrix_tl"), "br": points("part_matrix_br") }),
+        );
+    }
+    out
+}
+
 fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<serde_json::Value> {
     const TAG_ONGS: FourCc = FourCc(0x4F4E_4753);
     let inst = dat.instances.iter().find(|i| i.tag == TAG_ONGS)?;

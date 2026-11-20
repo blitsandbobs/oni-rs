@@ -79,6 +79,7 @@ impl World {
         if let Some(sound) = self.hud.tick(&player, letterbox, cutscene) {
             self.event_sound(sound, None);
         }
+        self.hud.cinematics.tick();
         if self.hud.autoprompt_due() {
             let events = self.autoprompt_events();
             self.hud.autoprompt(&events);
