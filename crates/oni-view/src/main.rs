@@ -131,6 +131,7 @@ fn main() {
     let mut spar = false;
     let mut mission = false;
     let mut subtitles = false;
+    let mut save_point = 0i64;
     let mut sound_law = audio::mixer::Law::Pc;
     let mut script_path: Option<PathBuf> = None;
     while let Some(flag) = args.next() {
@@ -143,6 +144,7 @@ fn main() {
             "--spar" => spar = true,
             "--mission" => mission = true,
             "--subtitles" => subtitles = true,
+            "--save-point" => save_point = args.next().and_then(|s| s.parse().ok()).unwrap_or(0),
             "--sound-law" => {
                 sound_law = match args.next().as_deref() {
                     Some("mac") => audio::mixer::Law::Mac,
@@ -286,6 +288,7 @@ fn main() {
                 spar,
                 mission,
                 subtitles,
+                save_point,
                 sound_law,
             },
         ),

@@ -794,9 +794,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "mission_begin",
-        lua.create_function(move |_, run: Option<bool>| {
+        lua.create_function(move |_, (run, save_point): (Option<bool>, Option<i64>)| {
             let mut host = h.borrow_mut();
             let mut m = crate::mission::Mission::load(&host.world.level_dir).map_err(mlua::Error::runtime)?;
+            // (`mission_begin(true, n)`: from the level's save point n.)
+            if let Some(n) = save_point {
+                m.state.vars.insert("save_point".into(), mlua::Value::Integer(n));
+            }
             // (`mission_begin(false)`: the scripts loaded, the level's own
             // start not run.)
             if run != Some(false) {

@@ -102,6 +102,7 @@ pub struct App {
     spar: bool,
     mission: bool,
     subtitles: bool,
+    save_point: i64,
     sound_law: crate::audio::mixer::Law,
     state: Option<State>,
 }
@@ -125,6 +126,9 @@ pub struct PlaySetup {
     pub mission: bool,
     /// Show dialogue subtitles (the game's option).
     pub subtitles: bool,
+    /// Where the level's scripts start it (`save_point`: 0 its start; on
+    /// level 1, 1 the warehouse after the training).
+    pub save_point: i64,
     /// How volumes become loudness: the PC build's (default) or the Mac's.
     pub sound_law: crate::audio::mixer::Law,
 }
@@ -146,6 +150,7 @@ pub fn run(
         spar,
         mission,
         subtitles,
+        save_point,
         sound_law,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
@@ -163,6 +168,7 @@ pub fn run(
         spar,
         mission,
         subtitles,
+        save_point,
         sound_law,
         state: None,
     };
@@ -249,6 +255,7 @@ impl ApplicationHandler for App {
                         // The level's own scripts populate it.
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
                             (Ok(mut m), Some(mut classes)) => {
+                                m.state.vars.insert("save_point".into(), mlua::Value::Integer(self.save_point));
                                 let mut host = PlayHost {
                                     world: &mut world,
                                     classes: &mut classes,
