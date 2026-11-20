@@ -136,7 +136,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `damage(id, n [, dx, dz])` | Deals `n` damage to a fighter (it dies at 0 health), with a small shove along (dx, dz) if given (the blow's way: it lights the hit ring). |
 | `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing (nil: unarmed). |
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
-| `lens_flares()` | How many lens flares there are, and how many are shown now. |
+| `lens_flares()` / `lens_flare_near(x, y, z)` | How many lens flares there are, and how many are shown now; the opacity share of the flare nearest a point. |
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |

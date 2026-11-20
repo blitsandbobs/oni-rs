@@ -1033,6 +1033,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((l.len(), l.values().filter(|v| v.1 > 0.0).count()))
         })?,
     )?;
+    // lens_flare_near(x, y, z) → the opacity share now of the lens flare
+    // nearest that point (0 hidden, 1 fully seen).
+    let h = host.clone();
+    g.set(
+        "lens_flare_near",
+        lua.create_function(move |_, (x, y, z): (f32, f32, f32)| {
+            let host = h.borrow();
+            let w = &host.world;
+            let sys = &w.armory.particles;
+            let at = Vec3::new(x, y, z);
+            Ok(w.lens.iter().filter_map(|(h, v)| sys.get(*h).map(|p| (sys.world_position(p).distance(at), v.1))).min_by(|a, b| a.0.total_cmp(&b.0)).map(|v| v.1))
+        })?,
+    )?;
     // The player reads the objective (F1).
     let h = host.clone();
     g.set("read_objective", lua.create_function(move |_, ()| {

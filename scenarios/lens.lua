@@ -27,6 +27,13 @@ local light = particles_of("locklight")[1]
 print(string.format("its colour: %08x", light[7]))
 assert(light[7] == 0xffff0000, "red: locked")
 
+-- Standing between the camera and the light, Konoko hides it.
+teleport(0, -201, 2, -652)
+set_facing(0, 180)
+step(90)
+print(string.format("behind her: %.2f", lens_flare_near(-201, 13, -672)))
+assert(lens_flare_near(-201, 13, -672) == 0, "her body hides it")
+
 -- Back at the start, facing as there: out of sight, it fades out.
 teleport(0, 200, 8, 300)
 set_facing(0, 0)
