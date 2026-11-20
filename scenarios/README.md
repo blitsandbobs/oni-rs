@@ -50,6 +50,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
+| `hypo.lua` | Hypos: a quarter of full health given a point every 7 ticks; a hurt eats 2.5 × its damage from it; at full a whole boost to double, a point a tick, then draining back a point every 11 ticks; none, or already boosting, nothing. |
 | `lens.lua` | Lens flares: none in sight at the start; the lock light beside a warehouse door, seen from the side, shows (red: locked) and goes again out of sight. |
 | `hud.lua` | The HUD: messages print, time out and fade; a new objective is prompted until read; the compass takes and drops a target; a blow lights the hit ring on its side and fades; a new kind of gun is announced once; standing by a gun prompts to pick it up; a cutscene letterboxes and hides the rings; fades out and in; a dialogue subtitle stays while the line plays; scripts fill and hide its parts. |
 | `camera.lua` | The game camera: 33 back and 23 up behind Konoko, sinking as she looks up and rising as she looks down, easing round a turn; look mode swings the view and drifts back; the corridor wall behind her goes see-through; `cm_detach`, `cm_reset` and `cm_interpolate` (busy, then free). |
@@ -136,6 +137,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `damage(id, n [, dx, dz])` | Deals `n` damage to a fighter (it dies at 0 health), with a small shove along (dx, dz) if given (the blow's way: it lights the hit ring). |
 | `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing (nil: unarmed). |
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
+| `use_hypo(id)` / `hypo_left(id)` | Use a hypo as Tab does (whether it was used); the health it still has to give. |
 | `lens_flares()` / `lens_flare_near(x, y, z)` | How many lens flares there are, and how many are shown now; the opacity share of the flare nearest a point. |
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
 | `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |

@@ -673,6 +673,7 @@ impl State {
             (Action::Reload, key::RELOAD),
             (Action::Drop, key::DROP),
             (Action::LookMode, key::LOOK),
+            (Action::Hypo, key::HYPO),
         ] {
             if held(action) {
                 controls |= bit;

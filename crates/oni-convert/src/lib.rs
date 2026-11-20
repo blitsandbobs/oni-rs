@@ -470,6 +470,10 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
     let (events, conditions) = if d.len() >= 2576 + 5 * 32 { (names(2000, &EVENTS), names(2576, &CONDITIONS)) } else { Default::default() };
     // The colour ramp of a character's health (melee flashes, the HUD):
     // health fractions and their colours (ARGB hex).
+    let fl = |name: &str| match rec.get(name).map(|e| &e.value) {
+        Some(oni_template::Value::Float(f)) => *f,
+        _ => 0.0,
+    };
     let points = rec.int("healthcolor_numpoints").unwrap_or(0).clamp(0, 16) as usize;
     let colors: Vec<String> = match rec.get("healthcolor_colors").map(|e| &e.value) {
         Some(oni_template::Value::Array(items)) => {
@@ -535,6 +539,15 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
         "healthColor": health_color,
         "eventSounds": events,
         "conditionSounds": conditions,
+        // A hypo heals this share of full health (`hypo_amount`), past full
+        // this share (`hypo_boost_amount`); above full, a super-hypo class
+        // hits harder, from the base to the most at double health.
+        "hypo": {
+            "amount": fl("hypo_amount"),
+            "boostAmount": fl("hypo_boost_amount"),
+            "overhypoBaseDamage": fl("overhypo_base_damage"),
+            "overhypoMaxDamage": fl("overhypo_max_damage"),
+        },
         "boostedHealth": match rec.get("boosted_health").map(|e| &e.value) {
             Some(oni_template::Value::Float(f)) => *f,
             _ => 1.5,
@@ -770,6 +783,8 @@ fn collect_character_classes(
                 entry["dazed"] = serde_json::json!({ "min": min, "max": max });
             }
             entry["perception"] = perception_json(&rec);
+            // A hypo heals a point every this many ticks (`inventoryConstants`).
+            entry["hypoTime"] = serde_json::json!(rec.int("inventoryConstants.hypoTime").unwrap_or(0));
             // Its shadow (`ONtShadowConstants`): texture, heights (fade
             // begins, none above), sizes (half-widths: on the ground, at the
             // fade, at the top), opacities (0–255: on the ground, at the

@@ -26,6 +26,7 @@ const HEAD_BONE: usize = 10;
 mod env_particles;
 pub mod camera;
 mod flow;
+mod hypo;
 mod hud;
 mod lens;
 pub use hud::hit_quadrant;
@@ -156,6 +157,10 @@ pub struct World {
     pub victory: Option<bool>,
     pub pending_splash: Option<String>,
     pub saved: Option<crate::game::Continue>,
+    /// The game settings' hypo values (`world/hypo.rs`), and the hypo key
+    /// last tick (it acts as pressed).
+    pub hypo: hypo::HypoSettings,
+    last_hypo_key: u32,
     /// The lens flares' fades (`world/lens.rs`): each's state and opacity.
     pub lens: std::collections::HashMap<crate::p3::Handle, (lens::LensState, f32)>,
     /// The quads see-through this tick (the camera's jello).
@@ -267,6 +272,8 @@ impl World {
             victory: None,
             pending_splash: None,
             saved: None,
+            hypo: Default::default(),
+            last_hypo_key: 0,
             lens: Default::default(),
             jello: Vec::new(),
             object_anims: Default::default(),
@@ -1556,6 +1563,11 @@ impl World {
         if let Some(p) = self.fighters.first_mut() {
             p.look_tick(controls & crate::anim::input::key::LOOK != 0);
         }
+        // Tab pressed: a hypo (`LIc_BitMask_Hypo`).
+        if controls & crate::anim::input::key::HYPO != 0 && self.last_hypo_key == 0 && self.fighters.first().is_some_and(|p| p.alive()) {
+            self.use_hypo(0);
+        }
+        self.last_hypo_key = controls & crate::anim::input::key::HYPO;
         if action && self.fighters.first().is_some_and(|p| p.console.is_none() && p.alive()) {
             if let Some(c) = self.console_in_reach(0, false) {
                 self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
@@ -1806,6 +1818,9 @@ impl World {
         self.voices_tick();
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
+        for i in 0..self.fighters.len() {
+            self.inventory_tick(i);
+        }
         self.hud_tick();
         self.camera_tick();
         self.lens_tick();
@@ -2026,6 +2041,8 @@ impl World {
             let victim = &mut self.fighters[t.target];
             if victim.alive() && !victim.motion.dying {
                 victim.be_thrown(a, coll, t.target_clip, fight, dest, facing, &env);
+                let potency = self.potency(a);
+                self.fighters[t.target].thrown_potency = potency;
                 eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
                 let at = self.fighters[a].feet();
                 self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0, Some(a), Some(t.target));
@@ -2174,13 +2191,15 @@ impl World {
         let wrap = |x: f32| (x + PI).rem_euclid(TAU) - PI;
         let (attacker_feet, attack_dir) = (self.fighters[a].feet(), self.attack_vector(a));
         let quirks = self.quirks;
+        // (Above full health a super-hypo class hits harder.)
+        let potency = self.potency(a);
         let fb = &mut self.fighters[b];
         let to_attacker = {
             let d = attacker_feet - fb.feet();
             d.x.atan2(d.z)
         };
-        let mut damage = attack.damage as i32;
-        let mut shove = attack.knockback * KNOCKBACK_SCALE;
+        let mut damage = (attack.damage as f32 * potency).round() as i32;
+        let mut shove = attack.knockback * KNOCKBACK_SCALE * potency;
 
         // Hit while lying dazed: the AI gets up at once.
         if let Some(m) = fb.brain.as_mut().and_then(|b| b.melee_mut()) {

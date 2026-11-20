@@ -41,6 +41,7 @@ impl World {
         let i = &p.inventory;
         Some(Player {
             hp: p.hp,
+            hypo_remaining: p.inventory.hypo_remaining,
             max_hp: p.max_hp,
             boosted: self.game_sounds.boosted_health,
             health_shade: self.health_shade(p.hp, p.max_hp),

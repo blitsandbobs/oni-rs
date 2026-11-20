@@ -72,6 +72,10 @@ pub struct ClassTuning {
     pub num_jump_accel_frames: u16,
     pub damage_start: f32,
     pub damage_end: f32,
+    /// A hypo heals a point every this many ticks (`hypoTime`).
+    pub hypo_time: u16,
+    /// Above full health it hits harder (`superHypo`).
+    pub super_hypo: bool,
 }
 
 impl Default for ClassTuning {
@@ -92,6 +96,8 @@ impl Default for ClassTuning {
             num_jump_accel_frames: 20,
             damage_start: 45.0,
             damage_end: 135.0,
+            hypo_time: 6,
+            super_hypo: false,
         }
     }
 }

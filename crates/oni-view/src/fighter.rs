@@ -160,6 +160,9 @@ pub struct Fighter {
     pub throwing: Option<usize>,
     /// Who last threw this fighter.
     pub thrown_by: Option<usize>,
+    /// How hard its thrower hits (`ONiCharacter_GetAttackPotency`): the
+    /// throw's own wound is scaled by it.
+    pub thrown_potency: f32,
     /// Its class's melee AI profile and daze range (ticks).
     pub melee_profile: Option<Rc<crate::ai::melee::profile::Profile>>,
     pub daze: (u32, u32),
@@ -286,6 +289,10 @@ pub struct Inventory {
     pub ammo: u16,
     pub cells: u16,
     pub hypos: u16,
+    /// Health a hypo taken still has to give (`hypoRemaining`), and the
+    /// ticks to the next point given or (above full) taken back.
+    pub hypo_remaining: u16,
+    pub hypo_timer: u16,
     pub shield: u16,
     pub invisibility: u16,
     pub lsi: bool,
@@ -372,6 +379,7 @@ impl Fighter {
             brain: None,
             throwing: None,
             thrown_by: None,
+            thrown_potency: 1.0,
             melee_profile: None,
             daze: (60, 100),
             class_combat: Default::default(),
@@ -559,6 +567,7 @@ impl Fighter {
         // A clip can hurt whoever plays it at set frames (a throw's victim
         // hitting the floor).
         let wound = self.motion.self_damage();
+        let wound = if wound > 0 && self.thrown_by.is_some() { (wound as f32 * self.thrown_potency).round() as i32 } else { wound };
         if wound > 0 {
             self.take_damage(wound, Vec3::ZERO);
             eprintln!("thrown: {wound} damage (hp {})", self.hp);
@@ -967,6 +976,10 @@ impl Fighter {
             return;
         }
         self.hp = (self.hp - damage).max(0);
+        // A hurt eats into the hypo still to come, two and a half times over
+        // (`ONcDamage_HurtHypoScale`); dead, it is gone.
+        let inv = &mut self.inventory;
+        inv.hypo_remaining = if self.hp == 0 { 0 } else { inv.hypo_remaining.saturating_sub((2.5 * damage.max(0) as f32).round() as u16) };
             eprintln!("fall: {fall:.1} units, {damage} damage (hp {})", self.hp);
         }
         let air = &mut self.motion.air;
@@ -1047,6 +1060,10 @@ impl Fighter {
             self.hurts.push((damage as u32, least, self.hp <= damage));
         }
         self.hp = (self.hp - damage).max(0);
+        // A hurt eats into the hypo still to come, two and a half times over
+        // (`ONcDamage_HurtHypoScale`); dead, it is gone.
+        let inv = &mut self.inventory;
+        inv.hypo_remaining = if self.hp == 0 { 0 } else { inv.hypo_remaining.saturating_sub((2.5 * damage.max(0) as f32).round() as u16) };
         if !self.unstoppable {
             self.knockback += knockback;
         }

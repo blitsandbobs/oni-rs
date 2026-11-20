@@ -695,6 +695,8 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
+        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        self.hypo = super::hypo::HypoSettings::load(&gs);
         let settings: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         self.armory.powerup_looks = POWERUP_DATA
             .iter()

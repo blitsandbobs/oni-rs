@@ -193,6 +193,12 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     if let Some(v) = stats["leftHanded"].as_bool() {
         t.left_handed = v;
     }
+    if let Some(v) = stats["superHypo"].as_bool() {
+        t.super_hypo = v;
+    }
+    if let Some(v) = u(&c["hypoTime"]) {
+        t.hypo_time = v as u16;
+    }
     if let Some(v) = f(&air["jumpGravity"]) {
         t.jump_gravity = v;
     }

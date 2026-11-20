@@ -124,6 +124,8 @@ pub struct Fade {
 #[derive(Clone, Debug, Default)]
 pub struct Player {
     pub hp: i32,
+    /// Health a hypo still has to give (the meter's fore-shadow).
+    pub hypo_remaining: u16,
     pub max_hp: i32,
     pub boosted: f32,
     pub health_shade: u32,
@@ -448,7 +450,8 @@ impl Hud {
     pub fn tick(&mut self, p: &Player, letterbox: bool, in_cutscene: bool) -> Option<&'static str> {
         self.now += 1;
         if p.max_hp > 0 {
-            self.health.update(p.hp.max(0) as u32, p.hp.max(0) as u32, p.max_hp as f32 / 180.0);
+            let hp = p.hp.max(0) as u32;
+            self.health.update(hp, hp + u32::from(p.hypo_remaining), p.max_hp as f32 / 180.0);
         }
         self.shield.update(u32::from(p.shield), u32::from(p.shield), f32::from(MAX_SHIELD) / 180.0);
         let mut sound = None;

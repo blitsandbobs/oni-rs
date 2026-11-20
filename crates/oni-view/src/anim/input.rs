@@ -29,6 +29,8 @@ pub mod key {
     /// Look mode (V): the mouse turns the aim off the facing instead of
     /// the body.
     pub const LOOK: u32 = 1 << 18;
+    /// Use a hypo (Tab).
+    pub const HYPO: u32 = 1 << 19;
 }
 
 /// The original's button bits (`LIc_Bit_*`, as films record them) as ours.

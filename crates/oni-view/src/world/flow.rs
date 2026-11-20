@@ -24,7 +24,7 @@ impl World {
         let i = &p.inventory;
         self.saved = Some(Continue {
             save_point: n,
-            hp: p.hp,
+            hp: p.hp + i32::from(p.inventory.hypo_remaining),
             max_hp: p.max_hp,
             position: p.feet(),
             facing: p.facing.facing,

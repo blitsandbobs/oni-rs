@@ -1046,6 +1046,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(w.lens.iter().filter_map(|(h, v)| sys.get(*h).map(|p| (sys.world_position(p).distance(at), v.1))).min_by(|a, b| a.0.total_cmp(&b.0)).map(|v| v.1))
         })?,
     )?;
+    // use_hypo(id) → whether fighter `id` used a hypo (as Tab does);
+    // hypo_left(id) → the health its hypo still has to give.
+    let h = host.clone();
+    g.set("use_hypo", lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.use_hypo(id)))?)?;
+    let h = host.clone();
+    g.set("hypo_left", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0, |f| f.inventory.hypo_remaining)))?)?;
     // The player reads the objective (F1).
     let h = host.clone();
     g.set("read_objective", lua.create_function(move |_, ()| {
