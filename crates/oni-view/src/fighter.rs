@@ -222,6 +222,9 @@ pub struct Fighter {
     /// facing (`aimingLR`): the mouse turns it instead of the body while
     /// the look key is held; it drifts back when released.
     pub aiming_lr: f32,
+    /// The hit ring's quarters (`hits[4]`): lit (255) by a blow from that
+    /// way, fading 3 a tick (the player's, on the HUD).
+    pub hits: [u8; 4],
     pub recoil: f32,
     pub recoil_speed: f32,
     /// The last particle that damaged it (a shot hits once).
@@ -396,6 +399,7 @@ impl Fighter {
             inventory: Inventory::default(),
             aiming_ud: 0.0,
             aiming_lr: 0.0,
+            hits: [0; 4],
             recoil: 0.0,
             recoil_speed: 0.0,
             last_particle: None,
@@ -1045,6 +1049,10 @@ impl Fighter {
         self.hp = (self.hp - damage).max(0);
         if !self.unstoppable {
             self.knockback += knockback;
+        }
+        // Where it came from, on the hit ring (`ONrCharacter_DamageCompass`).
+        if let Some(dir) = knockback.try_normalize() {
+            self.hits[crate::world::hit_quadrant(self.facing.aim(), dir)] = 255;
         }
         if self.hp == 0 {
             self.motion.dying = true;

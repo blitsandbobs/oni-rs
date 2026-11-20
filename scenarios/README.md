@@ -49,6 +49,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
+| `hud.lua` | The HUD: messages print, time out and fade; a new objective is prompted until read; the compass takes and drops a target; a blow lights the hit ring on its side and fades; a new kind of gun is announced once; standing by a gun prompts to pick it up; a cutscene letterboxes and hides the rings; fades out and in; a dialogue subtitle stays while the line plays; scripts fill and hide its parts. |
 | `camera.lua` | The game camera: 33 back and 23 up behind Konoko, sinking as she looks up and rising as she looks down, easing round a turn; look mode swings the view and drifts back; the corridor wall behind her goes see-through; `cm_detach`, `cm_reset` and `cm_interpolate` (busy, then free). |
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
@@ -130,9 +131,10 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `alarm(id [, console])` / `console_state(id)` / `console_reset(id)` | Send an AI to raise the alarm (a console id, or the nearest alarm console); a console's state (`inactive` / `active` / `triggered`); reset one. |
 | `play_film(id, name [, mode])` | Plays one of the level's films on a fighter (`""` from its start, `"fromhere"`, `"interp"`); its length. |
 | `present(id)` | Whether a fighter is still in the level (not deleted). |
-| `damage(id, n)` | Deals `n` damage to a fighter (it dies at 0 health). |
+| `damage(id, n [, dx, dz])` | Deals `n` damage to a fighter (it dies at 0 health), with a small shove along (dx, dz) if given (the blow's way: it lights the hit ring). |
 | `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing (nil: unarmed). |
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
+| `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
 | `look_mode(on)` / `aim_lr([v])` | Hold the look-mode key; read (or set) the player's look-mode turn (radians). |
 | `reload(id)` / `drop_weapon(id [, knock])` / `give_ammo(id, clips [, cells])` | Reload, let go of the gun, add spare clips / cells. |

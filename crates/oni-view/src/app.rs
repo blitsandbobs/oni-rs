@@ -101,6 +101,7 @@ pub struct App {
     faithful: bool,
     spar: bool,
     mission: bool,
+    subtitles: bool,
     sound_law: crate::audio::mixer::Law,
     state: Option<State>,
 }
@@ -122,6 +123,8 @@ pub struct PlaySetup {
     /// Run the level's own scripts (the player at its placement, the
     /// level's characters as its scripts spawn them) instead of a dummy.
     pub mission: bool,
+    /// Show dialogue subtitles (the game's option).
+    pub subtitles: bool,
     /// How volumes become loudness: the PC build's (default) or the Mac's.
     pub sound_law: crate::audio::mixer::Law,
 }
@@ -142,6 +145,7 @@ pub fn run(
         faithful,
         spar,
         mission,
+        subtitles,
         sound_law,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
@@ -158,6 +162,7 @@ pub fn run(
         faithful,
         spar,
         mission,
+        subtitles,
         sound_law,
         state: None,
     };
@@ -235,6 +240,7 @@ impl ApplicationHandler for App {
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
+                    world.hud.subtitles_on = self.subtitles;
                     renderer.attach_quads(&scene, &world.quads);
                     world.attach_doors(crate::door_meshes(&scene));
                     world.attach_glass(crate::glass_parts(&scene));
@@ -351,6 +357,12 @@ impl ApplicationHandler for App {
             }
             WindowEvent::KeyboardInput { event, .. } => {
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // F1 (the pause screen's key): the objective is read.
+                    if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
+                        if let Some(pw) = st.play.as_mut() {
+                            pw.world.hud.read_objective();
+                        }
+                    }
                     if code == KeyCode::Escape && event.state == ElementState::Pressed {
                         if st.play.is_some() {
                             // Play mode: Esc releases/recaptures the mouse (close
@@ -585,7 +597,13 @@ impl State {
             .create_view(&wgpu::TextureViewDescriptor::default());
         // Pose the characters. In play mode: every fighter in the world. In the
         // static viewer: the single character, looping over elapsed time.
-        if let Some(pw) = &self.play {
+        if let Some(pw) = &mut self.play {
+            // The HUD, in the window's logical pixels (its size on a 640 × 480
+            // screen of the time on a high-density display).
+            let scale = self.window.scale_factor() as f32;
+            let (w, h) = (self.config.width as f32 / scale, self.config.height as f32 / scale);
+            self.renderer.overlay = pw.world.hud_draw(w, h);
+            self.renderer.overlay_size = [w, h];
             self.renderer.door_motion = pw.world.door_motions();
             self.renderer.beams = pw.world.beams.clone();
             self.renderer.sprites = pw.world.sprites();

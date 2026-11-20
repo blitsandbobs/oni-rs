@@ -512,8 +512,26 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
             (name.to_string(), v)
         })
         .collect();
+    // The autoprompts (`num_autoprompts` @2808, `ONtAutoPrompt[16]` @2812:
+    // event name[32], first and last level, message name[32]).
+    let autoprompts: Vec<serde_json::Value> = dat
+        .instance_data(inst)
+        .map(|d| {
+            (0..(le_u32(d, 2808) as usize).min(16))
+                .map(|k| {
+                    let o = 2812 + k * 68;
+                    serde_json::json!({
+                        "event": cstr(d, o, 32),
+                        "levels": [le_u16(d, o + 32), le_u16(d, o + 34)],
+                        "message": cstr(d, o + 36, 32),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     Some(serde_json::json!({
         "powerups": powerups,
+        "autoprompts": autoprompts,
         "healthColor": health_color,
         "eventSounds": events,
         "conditionSounds": conditions,

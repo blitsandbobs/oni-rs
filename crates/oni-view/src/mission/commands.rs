@@ -366,6 +366,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "dprint" | "dmsg" => {
             let words: Vec<String> = args.iter().filter_map(text).collect();
             eprintln!("script: {}", words.join(" "));
+            // (`dmsg` shows in the message area for 10 s; `dprint` goes to
+            // the developer console, not shown in the shipped game.)
+            if name == "dmsg" {
+                host.world().hud.messages.print(&words.join(" "), None, 600);
+            }
             nil()
         }
         "message" => {
@@ -380,12 +385,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 } else {
                     state.message_until.remove(&m);
                 }
+                if !host.world().hud.message(&m, int(a(1)).unwrap_or(0).max(0) as u32) {
+                    state.warn(format!("message: no message {m}"));
+                }
                 state.messages.push(m);
             }
             nil()
         }
         "message_remove" => {
-            match a(0).and_then(text) {
+            let m = a(0).and_then(text);
+            host.world().hud.message_remove(m.as_deref());
+            match m {
                 Some(m) => state.messages.retain(|x| *x != m),
                 None => state.messages.clear(),
             }
@@ -400,19 +410,26 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             })) else {
                 return nil();
             };
-            if d.is_some_and(|d| d == 0.0) {
-                eprintln!("TARGET off");
-            } else if let Some(f) = host.world().level_ai.flags.get(&(flag as i16)) {
-                eprintln!("TARGET flag {flag} at ({:.0}, {:.0}, {:.0})", f.at.x, f.at.y, f.at.z);
+            let world = host.world();
+            let d = d.unwrap_or(0.0) as f32;
+            let at = world.level_ai.flags.get(&(flag as i16)).map(|f| f.at);
+            if d != 0.0 && at.is_none() {
+                state.warn(format!("target_set: no flag {flag}"));
             }
-            host.world().event_sound_ui("compass");
+            let from = world.player().map_or(Vec3::ZERO, |p| p.feet());
+            if d != 0.0 && world.hud.target_set(at, d, from) {
+                world.event_sound_ui("compass");
+            } else if d == 0.0 {
+                world.hud.target_set(None, 0.0, from);
+            }
             nil()
         }
         "objective_set" => {
             state.objective = int(a(0));
             eprintln!("script: objective {:?}", state.objective);
-            // (The HUD's new-objective prompt and its sound.)
-            host.world().event_sound_ui("objectiveNew");
+            // (The HUD prompts a new one, with its sound, unless `silent`.)
+            let silent = a(1).and_then(text).is_some_and(|t| t.eq_ignore_ascii_case("silent"));
+            host.world().hud.objective_set(int(a(0)).unwrap_or(0), silent);
             nil()
         }
         "objective_complete" => {
@@ -428,7 +445,46 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "begin_cutscene" | "end_cutscene" => {
-            host.world().in_cutscene = name == "begin_cutscene";
+            // (A cutscene letterboxes the screen, `ONrGameState_BeginCutscene`.)
+            let world = host.world();
+            world.in_cutscene = name == "begin_cutscene";
+            world.letterbox = world.in_cutscene;
+            nil()
+        }
+        // --- the HUD (`docs/HUD.md`, *Scripts*) ------------------------------------
+        "ui_show_element" => {
+            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else { return nil() };
+            match which.as_str() {
+                "left" => host.world().hud.show[0] = on,
+                "right" => host.world().hud.show[1] = on,
+                _ => state.warn(format!("ui_show_element: no element {which}")),
+            }
+            nil()
+        }
+        "ui_fill_element" | "ui_flash_element" => {
+            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else { return nil() };
+            let mask = crate::hud::Hud::element_mask(&which);
+            if mask == 0 {
+                state.warn(format!("{name}: no element {which}"));
+            }
+            let hud = &mut host.world().hud;
+            let bits = if name == "ui_fill_element" { &mut hud.filled } else { &mut hud.flashing };
+            if on {
+                *bits |= mask;
+            } else {
+                *bits &= !mask;
+            }
+            nil()
+        }
+        "fade_out" => {
+            let c = |k: usize| float(a(k)).unwrap_or(0.0).clamp(0.0, 1.0);
+            let ticks = int(a(3)).unwrap_or(0).max(0) as u32;
+            host.world().hud.fade_out([c(0), c(1), c(2)], ticks);
+            nil()
+        }
+        "fade_in" => {
+            let ticks = int(a(0)).unwrap_or(0).max(0) as u32;
+            host.world().hud.fade_in(ticks);
             nil()
         }
         // --- the camera (`docs/CAMERA.md`, *Scripts*) ---------------------------
@@ -526,6 +582,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                     if let Some(t) = state.message_text(&line) {
                         eprintln!("SAY ({line}): {t}");
                     }
+                    // Its subtitle, with the option on, while it plays.
+                    let world = host.world();
+                    let letterboxed = world.letterbox;
+                    world.hud.subtitle(&line, 0, letterboxed);
                     nil()
                 }
             }

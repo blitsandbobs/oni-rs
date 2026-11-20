@@ -120,6 +120,29 @@ pub struct Sprite {
     pub contrail: bool,
 }
 
+/// One corner of a screen-space overlay triangle (the HUD, text, the
+/// letterbox): already in clip space, its texture coordinate, its colour.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+struct OverlayVertex {
+    pos: [f32; 2],
+    uv: [f32; 2],
+    color: [f32; 4],
+}
+
+/// Something drawn over the frame (the HUD): triangles in screen pixels
+/// (x, y, u, v per corner, three a triangle, y down) of a texture (none:
+/// plain), tinted by `color` (RGBA, 0–1).
+#[derive(Clone, Debug)]
+pub struct OverlayDraw {
+    pub texture: Option<std::path::PathBuf>,
+    pub tris: Vec<[f32; 4]>,
+    pub color: [f32; 4],
+    /// Added to what is behind (a texture flagged additive) rather than
+    /// laid over it.
+    pub additive: bool,
+}
+
 /// A batch of billboards sharing one texture.
 struct ParticleGroup {
     vbuf: wgpu::Buffer,
@@ -170,6 +193,16 @@ pub struct Renderer {
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     jello_pipeline: wgpu::RenderPipeline,
+    overlay_pipeline: wgpu::RenderPipeline,
+    overlay_additive_pipeline: wgpu::RenderPipeline,
+    /// The HUD's textures (unfiltered, as the original draws it), by file.
+    overlay_textures: std::collections::HashMap<std::path::PathBuf, usize>,
+    overlay_white: wgpu::BindGroup,
+    nearest: wgpu::Sampler,
+    /// This frame's overlay, in screen pixels of a screen `overlay_size`
+    /// big (scaled to the target).
+    pub overlay: Vec<OverlayDraw>,
+    pub overlay_size: [f32; 2],
     /// The level's prims' triangles by quad (`attach_quads`), for drawing
     /// some quads see-through.
     tri_quads: Vec<Option<TriQuads>>,
@@ -430,6 +463,44 @@ impl Renderer {
                 cache: None,
             })
         };
+        // The overlay: screen-space, see-through, no depth.
+        let overlay_shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("overlay"),
+            source: wgpu::ShaderSource::Wgsl(OVERLAY_SHADER.into()),
+        });
+        let overlay_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("overlay"),
+            bind_group_layouts: &[&tex_bgl],
+            push_constant_ranges: &[],
+        });
+        let overlay_vbl = wgpu::VertexBufferLayout {
+            array_stride: std::mem::size_of::<OverlayVertex>() as u64,
+            step_mode: wgpu::VertexStepMode::Vertex,
+            attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
+        };
+        let make_overlay = |blend: wgpu::BlendState| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("overlay"),
+            layout: Some(&overlay_layout),
+            vertex: wgpu::VertexState {
+                module: &overlay_shader,
+                entry_point: Some("vs_main"),
+                buffers: std::slice::from_ref(&overlay_vbl),
+                compilation_options: Default::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &overlay_shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
+                compilation_options: Default::default(),
+            }),
+            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+            depth_stencil: None,
+            multisample: Default::default(),
+            multiview: None,
+            cache: None,
+        });
+        let overlay_pipeline = make_overlay(wgpu::BlendState::ALPHA_BLENDING);
+        let overlay_additive_pipeline = make_overlay(additive);
         let decal_pipeline = make_decal_pipeline("decal", wgpu::BlendState::ALPHA_BLENDING);
         let decal_additive_pipeline = make_decal_pipeline("decal additive", additive);
 
@@ -465,6 +536,15 @@ impl Renderer {
             tex_bgs.push(make_texture_bg(gpu, &tex_bgl, &sampler, w, h, &rgba));
         }
         let default_tex = make_texture_bg(gpu, &tex_bgl, &sampler, 1, 1, &[200, 200, 200, 255]);
+        let nearest = device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            mipmap_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let overlay_white = make_texture_bg(gpu, &tex_bgl, &nearest, 1, 1, &[255, 255, 255, 255]);
 
         let prims: Vec<GpuPrim> = scene.prims.iter().filter(|p| p.visible).map(|p| upload_prim(device, p)).collect();
 
@@ -527,6 +607,13 @@ impl Renderer {
             opaque_pipeline,
             blend_pipeline,
             jello_pipeline,
+            overlay_pipeline,
+            overlay_additive_pipeline,
+            overlay_textures: Default::default(),
+            overlay_white,
+            nearest,
+            overlay: Vec::new(),
+            overlay_size: [640.0, 480.0],
             tri_quads: Vec::new(),
             jello: Vec::new(),
             jello_cache: Default::default(),
@@ -837,6 +924,7 @@ impl Renderer {
                 }
             }
         }
+        self.overlay_pass(gpu, &mut encoder, target);
         gpu.queue.submit([encoder.finish()]);
     }
 }
@@ -914,6 +1002,65 @@ impl Renderer {
             split.insert(k, (buf(&solid), solid.len() as u32, buf(&seen), seen.len() as u32));
         }
         self.jello_cache = (want, split);
+    }
+
+    /// Draws this frame's overlay over the target, in order.
+    fn overlay_pass(&mut self, gpu: &Gpu, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        let draws = std::mem::take(&mut self.overlay);
+        if draws.is_empty() {
+            return;
+        }
+        let [w, h] = self.overlay_size;
+        let mut verts: Vec<OverlayVertex> = Vec::new();
+        let mut batches: Vec<(Option<usize>, bool, std::ops::Range<u32>)> = Vec::new();
+        for d in &draws {
+            let tex = d.texture.as_ref().map(|p| {
+                if let Some(&i) = self.overlay_textures.get(p) {
+                    return i;
+                }
+                let (tw, th, rgba) = load_png(p).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
+                self.tex_bgs.push(make_texture_bg(gpu, &self.tex_bgl, &self.nearest, tw, th, &rgba));
+                let i = self.tex_bgs.len() - 1;
+                self.overlay_textures.insert(p.clone(), i);
+                i
+            });
+            let start = verts.len() as u32;
+            for v in &d.tris {
+                verts.push(OverlayVertex { pos: [v[0] / w * 2.0 - 1.0, 1.0 - v[1] / h * 2.0], uv: [v[2], v[3]], color: d.color });
+            }
+            let end = verts.len() as u32;
+            match batches.last_mut() {
+                Some((t, a, r)) if *t == tex && *a == d.additive && r.end == start => r.end = end,
+                _ => batches.push((tex, d.additive, start..end)),
+            }
+        }
+        if verts.is_empty() {
+            return;
+        }
+        let vbuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+            label: Some("overlay vbuf"),
+            contents: bytemuck::cast_slice(&verts),
+            usage: wgpu::BufferUsages::VERTEX,
+        });
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("overlay"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_vertex_buffer(0, vbuf.slice(..));
+        for (tex, additive, range) in batches {
+            pass.set_pipeline(if additive { &self.overlay_additive_pipeline } else { &self.overlay_pipeline });
+            let bg = tex.and_then(|t| self.tex_bgs.get(t)).unwrap_or(&self.overlay_white);
+            pass.set_bind_group(0, bg, &[]);
+            pass.draw(range, 0..1);
+        }
     }
 
     /// A texture from a PNG file, loaded once.
@@ -1266,6 +1413,32 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 fn fs_jello(in: VSOut) -> @location(0) vec4<f32> {
     let c = lit(in);
     return vec4<f32>(c.rgb, c.a * (20.0 / 255.0));
+}
+"#;
+
+/// The overlay: the texture times the colour.
+const OVERLAY_SHADER: &str = r#"
+@group(0) @binding(0) var tex: texture_2d<f32>;
+@group(0) @binding(1) var samp: sampler;
+
+struct VSOut {
+    @builtin(position) pos: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) color: vec4<f32>,
+};
+
+@vertex
+fn vs_main(@location(0) pos: vec2<f32>, @location(1) uv: vec2<f32>, @location(2) color: vec4<f32>) -> VSOut {
+    var out: VSOut;
+    out.pos = vec4<f32>(pos, 0.0, 1.0);
+    out.uv = uv;
+    out.color = color;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
+    return textureSample(tex, samp, in.uv) * in.color;
 }
 "#;
 

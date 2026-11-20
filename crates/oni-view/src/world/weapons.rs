@@ -917,7 +917,7 @@ impl World {
     }
 
     /// The nearest powerup fighter `who` could take, within reach.
-    fn powerup_in_reach(&self, who: usize) -> Option<usize> {
+    pub(super) fn powerup_in_reach(&self, who: usize) -> Option<usize> {
         let feet = self.fighters.get(who)?.feet();
         self.armory
             .powerups
@@ -1369,6 +1369,11 @@ impl World {
 
     /// Fighter `who` takes gun `w` into its hand, dropping what it held.
     pub fn take_weapon(&mut self, who: usize, w: usize) {
+        // (The player's first of a class: its message, `ONrInGameUI_NewWeapon`.)
+        if who == 0 && self.fighters[who].player {
+            let instance = self.armory.weapons[w].class.instance.clone();
+            self.hud.new_weapon(&instance);
+        }
         if let Some(old) = self.fighters[who].hand.take() {
             self.drop_weapon_index(old, None);
         }

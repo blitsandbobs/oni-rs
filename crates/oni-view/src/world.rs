@@ -25,6 +25,8 @@ const HEAD_BONE: usize = 10;
 
 mod env_particles;
 pub mod camera;
+mod hud;
+pub use hud::hit_quadrant;
 mod objects;
 mod objects_sound;
 mod particle_sounds;
@@ -145,6 +147,8 @@ pub struct World {
     pub env_hidden: std::collections::HashSet<u32>,
     /// The game camera (`world/camera.rs`).
     pub camera: camera::GameCamera,
+    /// The HUD (`hud/`, `world/hud.rs`).
+    pub hud: crate::hud::Hud,
     /// The quads see-through this tick (the camera's jello).
     pub jello: Vec<u32>,
     /// The level's placed objects as authored, and those scripts have made.
@@ -250,6 +254,7 @@ impl World {
             door_links: Vec::new(),
             env_hidden: Default::default(),
             camera: Default::default(),
+            hud: Default::default(),
             jello: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),
@@ -745,6 +750,8 @@ impl World {
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);
         self.objects.clear();
+        let level = level_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(0);
+        self.hud = crate::hud::Hud::load(&level_dir.join("../../common"), level);
     }
 
     /// One tick of every laser trigger (behaviour per `docs/LASERS.md`): its
@@ -1076,6 +1083,22 @@ impl World {
                 .collect();
         }
         &self.door_links
+    }
+
+    /// Whether fighter `i` could open a manual door with Action now (the
+    /// autoprompt's `OBJrDoor_TryDoorAction`): a closed one in reach it
+    /// faces, that it may open.
+    fn door_prompt(&self, i: usize) -> bool {
+        let Some(f) = self.fighters.get(i) else { return false };
+        let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
+        self.doors.iter().any(|d| {
+            let to = d.position - pelvis;
+            d.manual
+                && d.state == crate::doors::State::Closed
+                && feet.distance(d.position) < d.radius
+                && crate::ai::relative(to.x.atan2(to.z) - facing).abs() <= crate::doors::MANUAL_FACING
+                && d.may_open(feet, false)
+        })
     }
 
     /// The player's Action at a manual door: the closed one in reach it
@@ -1764,6 +1787,7 @@ impl World {
         self.voices_tick();
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
+        self.hud_tick();
         self.camera_tick();
     }
 

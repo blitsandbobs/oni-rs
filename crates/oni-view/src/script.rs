@@ -205,6 +205,8 @@ impl ScriptHost {
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
+        self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
+        self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let mut guns: Vec<(usize, Vec<Mat4>)> = self
             .world
@@ -436,13 +438,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).is_some_and(|f| !f.gone)))?,
     )?;
 
-    // Deals damage to fighter `id` (no reaction unless it dies).
+    // Deals damage to fighter `id` (no reaction unless it dies), with a
+    // small shove along (dx, dz) if given — the blow's way, attacker to it.
     let h = host.clone();
     g.set(
         "damage",
-        lua.create_function(move |_, (id, n): (usize, i32)| {
+        lua.create_function(move |_, (id, n, dx, dz): (usize, i32, Option<f32>, Option<f32>)| {
             if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
-                f.take_damage(n, Vec3::ZERO);
+                let shove = Vec3::new(dx.unwrap_or(0.0), 0.0, dz.unwrap_or(0.0)).normalize_or_zero() * 0.01;
+                f.take_damage(n, shove);
             }
             Ok(())
         })?,
@@ -970,6 +974,53 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // The HUD (docs/HUD.md): the lines in its message area, subtitles and
+    // console strip; the objective (and whether it is unread); the compass
+    // target; the letterbox's depth; the fade's opacity; the elements filled
+    // and flashing; the rings shown; the player's hit ring.
+    let h = host.clone();
+    g.set(
+        "hud",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let hud = &host.world.hud;
+            let t = lua.create_table()?;
+            let lines = |a: &crate::hud::text::TextArea| a.entries.iter().map(|e| e.text.clone()).collect::<Vec<_>>();
+            t.set("messages", lines(&hud.messages))?;
+            t.set("subtitles", lines(&hud.subtitles))?;
+            t.set("console", lines(&hud.console))?;
+            t.set("objective", hud.objective)?;
+            t.set("new_objective", hud.new_objective)?;
+            if let Some(tg) = hud.target {
+                t.set("target", vec![tg.at.x, tg.at.y, tg.at.z])?;
+            }
+            t.set("letterbox", hud.letterbox)?;
+            t.set("fade", hud.fade_alpha())?;
+            t.set("filled", hud.filled)?;
+            t.set("flashing", hud.flashing)?;
+            t.set("show", vec![hud.show[0], hud.show[1]])?;
+            t.set("hits", host.world.fighters.first().map(|p| p.hits.to_vec()).unwrap_or_default())?;
+            Ok(t)
+        })?,
+    )?;
+    // The player reads the objective (F1).
+    let h = host.clone();
+    g.set("read_objective", lua.create_function(move |_, ()| {
+        h.borrow_mut().world.hud.read_objective();
+        Ok(())
+    })?)?;
+    // Dialogue subtitles on or off (the game's option).
+    let h = host.clone();
+    g.set("subtitles", lua.create_function(move |_, on: bool| {
+        h.borrow_mut().world.hud.subtitles_on = on;
+        Ok(())
+    })?)?;
+    // How many overlay triangles the HUD draws now (on a 640 × 480 screen).
+    let h = host.clone();
+    g.set("hud_triangles", lua.create_function(move |_, ()| {
+        let draws = h.borrow_mut().world.hud_draw(640.0, 480.0);
+        Ok(draws.iter().map(|d| d.tris.len() / 3).sum::<usize>())
+    })?)?;
     // The game camera: where it is, which way it looks, whether a script
     // waits on it, and how many walls it makes see-through.
     let h = host.clone();

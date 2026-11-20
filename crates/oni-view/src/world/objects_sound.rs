@@ -25,7 +25,7 @@ type DoorSounds = (String, String, Option<(crate::ai::perception::Stimulus, f32)
 pub(crate) struct GameSounds {
     events: HashMap<String, String>,
     conditions: HashMap<String, String>,
-    boosted_health: f32,
+    pub(super) boosted_health: f32,
     /// Door class → (open, close, AI noise).
     doors: HashMap<String, DoorSounds>,
     /// Laser class → (active ambient, trip impulse).
