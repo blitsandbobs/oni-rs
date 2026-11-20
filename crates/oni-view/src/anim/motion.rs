@@ -845,6 +845,12 @@ impl Motion {
         true
     }
 
+    /// Leaves the fight stance at once (`ONrCharacter_ExitFightMode`).
+    pub fn exit_fight_mode(&mut self) {
+        self.fight_frames = 0;
+        self.varient &= !var::FIGHT;
+    }
+
     /// Enters (or refreshes) the fight stance (not while panicking).
     pub fn fight_mode(&mut self) {
         if self.varient & var::PANIC != 0 {

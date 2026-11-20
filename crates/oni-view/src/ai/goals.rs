@@ -156,8 +156,9 @@ impl ClassCombat {
 // --- pace -----------------------------------------------------------------------
 
 /// A movement mode (a patrol's pace).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum MoveMode {
+    #[default]
     ByAlert,
     Creep,
     WalkNoAim,
@@ -192,7 +193,7 @@ impl MoveMode {
 
     /// The pace at `alert`, hurrying or not (by alert: walk until medium
     /// when hurrying, else always walk).
-    fn pace(self, alert: Alert, hurry: bool) -> Pace {
+    pub fn pace(self, alert: Alert, hurry: bool) -> Pace {
         use MoveMode::*;
         let m = match self {
             ByAlert if hurry => [WalkNoAim, WalkNoAim, RunNoAim, Run, Run][alert as usize],
@@ -1003,6 +1004,25 @@ impl Agent {
         self.dest = Some(Dest { at, within, stop, face });
         self.nav = Some(Navigator::new(at, within, self.pace(cx)));
         self.turning_to = None;
+    }
+
+    /// A script's movement order (`AI2rPath_GoToPoint` from `ai2_lookatchar`
+    /// and the like): go to `at` (within `within`), then face `face`; it
+    /// looks at `look` meanwhile. Carried out even while passive (the goals
+    /// don't run; the movement does).
+    pub fn script_move(&mut self, at: Vec3, within: f32, face: Option<f32>, look: Option<Vec3>, alert: Alert) {
+        self.dest = Some(Dest { at, within, stop: true, face });
+        self.nav = Some(Navigator::new(at, within, self.mode.pace(alert, false)));
+        self.turning_to = None;
+        if let Some(p) = look {
+            self.look = Look::At(p);
+        }
+    }
+
+    /// Looks at `at` (`AI2rMovement_LookAtCharacter`, as `ai2_lookatme` has
+    /// it): its eyes, and its body when they can't turn that far.
+    pub fn look_at(&mut self, at: Vec3) {
+        self.look = Look::At(at);
     }
 
     fn halt(&mut self) {

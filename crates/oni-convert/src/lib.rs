@@ -373,6 +373,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 Ok(n) => stats.objects = n,
                 Err(e) => stats.warnings.push(format!("level.json: {e}")),
             }
+            if let Err(e) = characters::write_setups(&dat, &registry, &root) {
+                stats.warnings.push(format!("setups.json: {e}"));
+            }
         }
 
         report.levels.insert(f.root.clone(), stats);

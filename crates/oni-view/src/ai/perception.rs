@@ -350,6 +350,9 @@ pub struct Perception {
     pub non_combatant: bool,
     /// Knows everything it has ever perceived forever.
     pub omniscient: bool,
+    /// Sees nothing (`ai2_makeblind`) / hears nothing (`ai2_makedeaf`).
+    pub blind: bool,
+    pub deaf: bool,
     /// What behaviour should act on, since last asked.
     pub notices: Vec<Notice>,
     /// Pays the player no attention (`ai2_makeignoreplayer`).
@@ -397,6 +400,8 @@ impl Perception {
             glance_until: 0,
             non_combatant: false,
             omniscient: false,
+            blind: false,
+            deaf: false,
             notices: Vec::new(),
             vocals: Vec::new(),
             said_alert: false,
@@ -625,6 +630,19 @@ impl Perception {
         if let Some(c) = self.contacts.iter_mut().find(|c| c.who == Some(who)) {
             c.priority = Priority::ForceTarget;
         }
+        self.rank();
+    }
+
+    /// Forgets what it knew (`AI2rKnowledgeState_Forget`, `ai2_forget`): of
+    /// `who`, or of everyone — each contact degraded to forgotten (goals
+    /// tracking it hear so), then dropped.
+    pub fn forget(&mut self, who: Option<usize>) {
+        let matches = |c: &Contact| who.is_none() || c.who == who;
+        for c in self.contacts.iter_mut().filter(|c| matches(c)) {
+            c.strength = Strength::Forgotten;
+            self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
+        }
+        self.contacts.retain(|c| !matches(c));
         self.rank();
     }
 

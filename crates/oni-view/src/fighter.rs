@@ -232,6 +232,10 @@ pub struct Fighter {
     /// `autoAimAdjustmentLR` / `UD`): the gun and the arm's aim pose both
     /// take it.
     pub auto_aim: (f32, f32),
+    /// The id the scripts know it by (`scriptID`): the player 0, a character
+    /// `chr_create` made its setup's; placed characters have none (they go
+    /// by name).
+    pub script_id: Option<u16>,
     /// The hit ring's quarters (`hits[4]`): lit (255) by a blow from that
     /// way, fading 3 a tick (the player's, on the HUD).
     pub hits: [u8; 4],
@@ -416,6 +420,7 @@ impl Fighter {
             aiming_ud: 0.0,
             aiming_lr: 0.0,
             auto_aim: (0.0, 0.0),
+            script_id: None,
             hits: [0; 4],
             recoil: 0.0,
             recoil_speed: 0.0,

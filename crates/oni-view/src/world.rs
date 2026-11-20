@@ -180,6 +180,9 @@ pub struct World {
     pub key_mask: u32,
     /// Whether the player's input works at all (`input`).
     pub input_enabled: bool,
+    /// The AI movement system drives the player (`ai2_takecontrol`): her
+    /// keys come from her [`crate::ai::Brain::Steer`], not the input.
+    pub ai_control: bool,
     last_controls: u32,
     /// The player's name (its level placement's).
     pub player_name: String,
@@ -283,6 +286,7 @@ impl World {
             script_events: Vec::new(),
             key_mask: u32::MAX,
             input_enabled: true,
+            ai_control: false,
             last_controls: 0,
             now: 0,
             rng: 0x9E37_79B9,
@@ -418,7 +422,7 @@ impl World {
         let sounds = std::mem::take(&mut self.sounds);
         for s in &sounds {
             for i in 0..n {
-                if !alive[i] || self.fighters[i].passive {
+                if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.as_ref().is_some_and(|p| p.deaf) {
                     continue;
                 }
                 let Some(p) = self.fighters[i].perception.as_ref() else { continue };
@@ -463,7 +467,7 @@ impl World {
 
         // Sight.
         for i in 0..n {
-            if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.is_none() {
+            if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.as_ref().is_none_or(|p| p.blind) {
                 continue;
             }
             let every = self.fighters[i].perception.as_ref().map_or(59, |p| p.look_every(now));
@@ -1634,6 +1638,7 @@ impl World {
         let armed = self.armed(0);
         let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| self.armory.weapons[w].class.has(crate::weapons::flag::HAS_ALTERNATE));
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
+        let ai_control = self.ai_control;
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
             // Who its attacks may turn toward: the living who aren't
@@ -1675,7 +1680,9 @@ impl World {
                     None => f.film = None,
                 }
             }
-            let (held, pressed) = if i == 0 {
+            let (held, pressed) = if i == 0 && ai_control {
+                (f.npc_controls(target), 0)
+            } else if i == 0 {
                 (crate::anim::input::fire_as_melee(controls, armed, alternate), 0)
             } else if let Some(d) = decisions[i] {
                 f.follow(&d);

@@ -171,6 +171,24 @@ pub struct Placed {
     pub drops: [u16; 5],
 }
 
+/// A character setup (`AItCharacterSetup`, `setups.json`): what
+/// `chr_create` makes — for the cutscenes — at its flag, known to the scripts
+/// by its script id.
+#[derive(Clone, Debug)]
+pub struct Setup {
+    pub script_id: u16,
+    /// Its name (none: `ai_<n>`, as the original names it).
+    pub name: Option<String>,
+    pub flag: i16,
+    /// Its class (none: the first class, as in the original — no shipped
+    /// setup lacks one).
+    pub class: Option<String>,
+    pub team: Team,
+    pub weapon: Option<String>,
+    pub ammo: u16,
+    pub scripts: HashMap<String, String>,
+}
+
 impl Placed {
     pub fn has(&self, flag: &str) -> bool {
         self.flags.iter().any(|f| f == flag)
@@ -196,6 +214,8 @@ pub struct Film {
 #[derive(Clone, Debug, Default)]
 pub struct LevelAi {
     pub characters: Vec<Placed>,
+    /// The character setups `chr_create` makes, by script id (`setups.json`).
+    pub setups: HashMap<u16, Setup>,
     pub patrols: HashMap<u16, Rc<PatrolPath>>,
     pub flags: HashMap<i16, Flag>,
     pub combat: HashMap<u16, Rc<CombatProfile>>,
@@ -288,6 +308,20 @@ impl LevelAi {
                 f["id"].as_i64().unwrap_or(0) as i16,
                 Flag { at: v3(&f["position"]), facing: f["facing"].as_f64().unwrap_or(0.0) as f32 },
             );
+        }
+        for c in read(&level_dir.join("setups.json"))["setups"].as_array().into_iter().flatten() {
+            let text = |v: &Value| v.as_str().map(str::to_string);
+            let setup = Setup {
+                script_id: c["scriptId"].as_u64().unwrap_or(0) as u16,
+                name: text(&c["name"]),
+                flag: c["flag"].as_i64().unwrap_or(0) as i16,
+                class: text(&c["class"]),
+                team: Team::from_name(c["team"].as_str().unwrap_or("neutral")),
+                weapon: text(&c["weapon"]),
+                ammo: c["ammo"].as_u64().unwrap_or(0) as u16,
+                scripts: c["scripts"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect(),
+            };
+            out.setups.insert(setup.script_id, setup);
         }
         for p in read(&level_dir.join("patrols.json"))["patrols"].as_array().into_iter().flatten() {
             let path = PatrolPath {

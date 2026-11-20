@@ -1659,6 +1659,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // passive_of(id) → whether fighter id's AI is passive (`ai2_passive`, a
+    // cutscene); script_id_of(id) → the id the scripts know it by (the
+    // player 0, a `chr_create`d character its setup's; nil for the rest).
+    let h = host.clone();
+    g.set("passive_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map(|f| f.passive)))?)?;
+    let h = host.clone();
+    g.set("script_id_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).and_then(|f| if id == 0 { Some(0) } else { f.script_id })))?)?;
     let h = host.clone();
     g.set(
         "goal_of",

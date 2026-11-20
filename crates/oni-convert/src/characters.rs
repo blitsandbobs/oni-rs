@@ -142,3 +142,76 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
     std::fs::write(root.join("characters.json"), serde_json::to_string_pretty(&doc)?)?;
     Ok(n)
 }
+
+/// A level's character setups (`AISA`, `AItCharacterSetup`) as JSON: the
+/// characters `chr_create` makes by script id — for the cutscenes — at their
+/// default flag (`docs/ASSET_FORMAT.md`, *Character setups*).
+pub fn setups(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
+    let tag = oni_dat::FourCc::from_bytes(*b"AISA");
+    let Some(layout) = registry.get(tag) else { return Vec::new() };
+    let text = |v: &Value| -> String {
+        let bytes: Vec<u8> = v.as_array().into_iter().flatten().map(|b| b.as_i64().unwrap_or(0) as u8).take_while(|&b| b != 0).collect();
+        String::from_utf8_lossy(&bytes).into_owned()
+    };
+    let link = |v: &Value| v["$ref"].as_str().map(str::to_string);
+    let mut out = Vec::new();
+    for inst in dat.instances.iter().filter(|i| i.tag == tag) {
+        let Some(data) = dat.instance_data(inst) else { continue };
+        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else { continue };
+        let fields = crate::level_json::record_to_json(&rec, dat);
+        for s in fields["characterSetups"].as_array().into_iter().flatten() {
+            let mut scripts = serde_json::Map::new();
+            for (key, field) in [
+                ("spawn", "spawn_name"),
+                ("die", "die_name"),
+                ("combat", "combat_name"),
+                ("alarm", "alarm_name"),
+                ("hurt", "hurt_name"),
+                ("defeated", "defeated_name"),
+                ("outOfAmmo", "outofammo_name"),
+                ("noPath", "nopath_name"),
+            ] {
+                let name = text(&s[field]);
+                if !name.is_empty() {
+                    scripts.insert(key.into(), json!(name));
+                }
+            }
+            let mut c = json!({
+                "scriptId": s["defaultScriptID"],
+                "flag": s["defaultFlagID"],
+                "team": sc::name(&sc::TEAMS, s["teamNumber"].as_u64().unwrap_or(0) as u16).unwrap_or("neutral"),
+            });
+            let name = text(&s["playerName"]);
+            if !name.is_empty() {
+                c["name"] = json!(name);
+            }
+            if let Some(class) = link(&s["characterClass"]) {
+                c["class"] = json!(class);
+            }
+            if let Some(weapon) = link(&s["weapon"]) {
+                c["weapon"] = json!(weapon);
+                c["ammo"] = s["ammo"].clone();
+            }
+            if !scripts.is_empty() {
+                c["scripts"] = Value::Object(scripts);
+            }
+            let variable = text(&s["variable"]);
+            if !variable.is_empty() {
+                c["variable"] = json!(variable);
+            }
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// Writes `setups.json` into a level folder (nothing when it has none).
+pub fn write_setups(dat: &Dat<'_>, registry: &oni_template::Registry, root: &Path) -> std::io::Result<usize> {
+    let list = setups(dat, registry);
+    if list.is_empty() {
+        return Ok(0);
+    }
+    std::fs::create_dir_all(root)?;
+    std::fs::write(root.join("setups.json"), serde_json::to_string_pretty(&json!({ "setups": list }))?)?;
+    Ok(list.len())
+}

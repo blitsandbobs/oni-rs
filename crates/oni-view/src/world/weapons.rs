@@ -972,6 +972,16 @@ impl World {
         }
     }
 
+    /// A cutscene putting the gun in hand away (`ONrCharacter_CinematicHolster`:
+    /// a forced holster, into the hidden slot — but never an unstorable gun,
+    /// which `ONrCharacter_Holster` refuses even forced).
+    pub fn cinematic_holster(&mut self, who: usize) {
+        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else { return };
+        if !self.armory.weapons[w].class.has(flag::UNSTORABLE) {
+            self.holster(who, true);
+        }
+    }
+
     /// Holds a gun that is empty, with nothing to reload it and no reload
     /// under way (`chr_has_empty_weapon`).
     pub fn has_empty_weapon(&self, who: usize) -> bool {

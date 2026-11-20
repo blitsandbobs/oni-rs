@@ -127,6 +127,46 @@ impl World {
         }
     }
 
+    /// A cutscene clearing the dangerous projectiles
+    /// (`P3iRemoveDangerousProjectiles`, `p3_removedangerous`): every
+    /// particle of a class marked to die on a cutscene is killed, of one
+    /// marked to expire on a cutscene expires next tick — each marked as
+    /// cut by the cutscene (its effects then behave accordingly); one
+    /// already fading or chopped is left be.
+    pub fn remove_dangerous_projectiles(&mut self) {
+        use p3::class::cflag;
+        use p3::pflag;
+        let now = self.now as u64;
+        let super::weapons::Armory { particles, .. } = &mut self.armory;
+        let mut die = Vec::new();
+        let mut expire = Vec::new();
+        for (h, p) in particles.iter() {
+            let c = particles.class(p.class);
+            if p.flags & (pflag::FADE_OUT | pflag::CHOP) != 0 {
+                continue;
+            }
+            if c.has(cflag::DIE_ON_CUTSCENE) {
+                die.push(h);
+            } else if c.has(cflag::EXPIRE_ON_CUTSCENE) {
+                expire.push(h);
+            }
+        }
+        for &h in die.iter().chain(&expire) {
+            if let Some(p) = particles.get_mut(h) {
+                p.flags |= pflag::CUTSCENE_KILLED;
+            }
+        }
+        for h in expire {
+            if let Some(p) = particles.get_mut(h) {
+                p.lifetime = 0.01;
+            }
+        }
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        for h in die {
+            particles.kill(h, &mut host);
+        }
+    }
+
     /// The level's start: every environmental particle not held back is
     /// created.
     pub(super) fn env_particles_start(&mut self) {

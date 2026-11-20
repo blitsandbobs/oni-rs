@@ -52,7 +52,12 @@ fn truthy(v: Option<&Value>) -> bool {
 fn fighter(host: &mut dyn Host, v: Option<&Value>) -> Option<usize> {
     let v = v?;
     if let Some(i) = int(Some(v)) {
-        return (i == 0 && !host.world().fighters.is_empty()).then_some(0);
+        // (By script id: the player 0, a `chr_create`d character its setup's.)
+        let world = host.world();
+        if i == 0 {
+            return (!world.fighters.is_empty()).then_some(0);
+        }
+        return world.fighters.iter().position(|f| !f.gone && f.script_id.is_some_and(|s| i64::from(s) == i));
     }
     // (By name: every living character, the player by its placement's name.)
     let name = text(v)?;
@@ -464,11 +469,76 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             nil()
         }
-        "begin_cutscene" | "end_cutscene" => {
-            // (A cutscene letterboxes the screen, `ONrGameState_BeginCutscene`.)
+        "begin_cutscene" => {
+            // `ONrGameState_BeginCutscene`: letterboxed, input off; the player
+            // out of fight mode, standing, the gun put away, visible; every
+            // AI passive; no jello; the dangerous projectiles cleared — each
+            // but the first two unless a flag keeps it (`weapon`, `jello`,
+            // `ai`, `invis`, `keepparticles`, `animation`; `nosync` and
+            // `nojump` no shipped script uses).
+            let keep: Vec<String> = args.iter().filter_map(text).map(|s| s.to_ascii_lowercase()).collect();
+            let keeps = |f: &str| keep.iter().any(|k| k == f);
+            for k in &keep {
+                if !["weapon", "jello", "ai", "invis", "nosync", "keepparticles", "animation", "nojump"].contains(&k.as_str()) {
+                    state.warn(format!("begin_cutscene: unknown flag {k}"));
+                }
+            }
+            if !keeps("ai") {
+                state.all_passive = true;
+            }
             let world = host.world();
-            world.in_cutscene = name == "begin_cutscene";
-            world.letterbox = world.in_cutscene;
+            world.in_cutscene = true;
+            world.letterbox = true;
+            world.input_enabled = false;
+            if !world.fighters.is_empty() {
+                let f = &mut world.fighters[0];
+                f.motion.exit_fight_mode();
+                if !keeps("animation") {
+                    let ch = f.character.clone();
+                    f.motion.force_stand(&ch);
+                }
+                if !keeps("invis") {
+                    f.inventory.invisibility = 0;
+                }
+                if !keeps("weapon") {
+                    world.cinematic_holster(0);
+                }
+            }
+            if !keeps("ai") {
+                world.all_passive = true;
+                for id in 1..world.fighters.len() {
+                    world.set_passive(id, true);
+                }
+            }
+            if !keeps("jello") {
+                world.camera.jello = false;
+            }
+            if !keeps("keepparticles") {
+                world.remove_dangerous_projectiles();
+            }
+            nil()
+        }
+        "end_cutscene" => {
+            // `ONrGameState_EndCutscene`: input and jello back, every AI out
+            // of passivity (those a script made passive too), the letterbox
+            // gone, the gun put away for it drawn again.
+            state.all_passive = false;
+            let world = host.world();
+            world.in_cutscene = false;
+            world.letterbox = false;
+            world.input_enabled = true;
+            world.camera.jello = true;
+            world.all_passive = false;
+            for id in 1..world.fighters.len() {
+                world.set_passive(id, false);
+            }
+            if world.fighters.first().is_some_and(|f| f.hand.is_none()) {
+                world.force_holster(0, false);
+            }
+            nil()
+        }
+        "p3_removedangerous" => {
+            host.world().remove_dangerous_projectiles();
             nil()
         }
         // --- the HUD (`docs/HUD.md`, *Scripts*) ------------------------------------
@@ -676,6 +746,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let Some(who) = a(0).and_then(text) else { return nil() };
             let force = a(1).and_then(text).is_some_and(|f| f == "force");
             match spawn(state, host, &who, force) {
+                Some((script, arg)) => Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg))),
+                None => nil(),
+            }
+        }
+        "chr_create" => {
+            // (The second argument, start / create, the original ignores.)
+            let Some(sid) = int(a(0)) else { return nil() };
+            match create(state, host, sid) {
                 Some((script, arg)) => Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg))),
                 None => nil(),
             }
@@ -1161,10 +1239,102 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "ai2_setmovementmode" => {
-            if let (Some(id), Some(mode)) = (ai(host, a(0)), a(1).and_then(text)) {
-                if let Some(crate::ai::Brain::Agent(ag)) = host.world().fighters[id].brain.as_mut() {
-                    ag.mode = crate::ai::goals::MoveMode::from_script(&mode);
+            // (The player too, while the AI moves her: `ai2_takecontrol`.)
+            if let (Some(id), Some(mode)) = (fighter(host, a(0)), a(1).and_then(text)) {
+                let mode = crate::ai::goals::MoveMode::from_script(&mode);
+                match host.world().fighters[id].brain.as_mut() {
+                    Some(crate::ai::Brain::Agent(ag)) => ag.mode = mode,
+                    Some(crate::ai::Brain::Steer(s)) => s.mode = mode,
+                    _ if id == 0 => state.warn("ai2_setmovementmode: cannot move the player without ai2_takecontrol 1".into()),
+                    _ => {}
                 }
+            }
+            nil()
+        }
+        // --- scripted movement (`docs/AI.md`, *Scripted movement*) -----------
+        "ai2_takecontrol" => {
+            // (`AI2iScript_TakeControl`: the AI movement system takes the
+            // player — no sprint, no look offset — or lets go.)
+            let on = truthy(a(0));
+            let world = host.world();
+            world.ai_control = on;
+            if let Some(p) = world.fighters.first_mut() {
+                if on {
+                    p.facing.facing_modifier = 0.0;
+                    p.brain = Some(crate::ai::Brain::Steer(Box::default()));
+                } else if matches!(p.brain, Some(crate::ai::Brain::Steer(_))) {
+                    p.brain = None;
+                }
+            }
+            nil()
+        }
+        "ai2_movetoflag" => {
+            // (`AI2rPath_GoToPoint` within 3 — `AI2cMoveToPoint_DefaultDistance`
+            // — then the flag's facing with "setfacing".)
+            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let set_facing = a(2).and_then(text).is_some_and(|s| s == "setfacing");
+            let world = host.world();
+            let Some(f) = world.level_ai.flags.get(&(flag as i16)).copied() else {
+                state.warn(format!("ai2_movetoflag: no flag {flag}"));
+                return nil();
+            };
+            let face = set_facing.then_some(f.facing);
+            script_move(state, host, id, f.at, face, None, "ai2_movetoflag");
+            nil()
+        }
+        "ai2_lookatchar" => {
+            // (Stays where it is, turned toward the character, looking at it.)
+            let (Some(id), Some(target)) = (fighter(host, a(0)), fighter(host, a(1))) else { return nil() };
+            let world = host.world();
+            let (from, to) = (world.fighters[id].feet(), world.fighters[target].feet());
+            let face = (to.x - from.x).atan2(to.z - from.z).rem_euclid(std::f32::consts::TAU);
+            script_move(state, host, id, from, Some(face), Some(to), "ai2_lookatchar");
+            nil()
+        }
+        "ai2_lookatme" => {
+            // (`AI2rDebug_LookHere`: one AI, or every AI, looks at the
+            // player — where she stands now.)
+            let world = host.world();
+            let Some(player) = world.fighters.first().map(|p| p.feet() + Vec3::Y * p.motion.height()) else { return nil() };
+            let who: Vec<usize> = match a(0) {
+                Some(v) => ai(host, Some(v)).into_iter().collect(),
+                None => (1..host.world().fighters.len()).collect(),
+            };
+            for id in who {
+                if let Some(crate::ai::Brain::Agent(ag)) = host.world().fighters[id].brain.as_mut() {
+                    ag.look_at(player);
+                }
+            }
+            nil()
+        }
+        "ai2_forget" => {
+            // (`AI2rForget`: one AI, or every AI, forgets one character, or
+            // everyone.)
+            let who: Vec<usize> = match a(0) {
+                Some(v) => ai(host, Some(v)).into_iter().collect(),
+                None => (1..host.world().fighters.len()).collect(),
+            };
+            let forget = a(1).and_then(|v| fighter(host, Some(v)));
+            for id in who {
+                if let Some(p) = host.world().fighters[id].perception.as_mut() {
+                    p.forget(forget);
+                }
+            }
+            nil()
+        }
+        "ai2_makeblind" | "ai2_makedeaf" => {
+            if let Some(p) = ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut()) {
+                if name == "ai2_makeblind" {
+                    p.blind = truthy(a(1));
+                } else {
+                    p.deaf = truthy(a(1));
+                }
+            }
+            nil()
+        }
+        "chr_peace" => {
+            if let Some(id) = fighter(host, a(0)) {
+                host.world().fighters[id].motion.exit_fight_mode();
             }
             nil()
         }
@@ -1303,6 +1473,75 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 /// Spawns the level's character `name` (the first placement of that name
 /// not already spawned, unless `force` or it may spawn many times) with its
 /// goals. Returns its spawn script (to run at once) with its name.
+/// A movement order for fighter `id` (`AI2rPath_GoToPoint`): go to `at`,
+/// then face `face`, looking at `look`. The player only while the AI holds
+/// her (`ai2_takecontrol 1`), as in the original.
+fn script_move(state: &mut State, host: &mut dyn Host, id: usize, at: Vec3, face: Option<f32>, look: Option<Vec3>, what: &str) {
+    const WITHIN: f32 = 0.75 * 4.0; // AI2cMoveToPoint_DefaultDistance
+    let world = host.world();
+    let alert = world.fighters[id].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+    let here = (at - world.fighters[id].feet()).with_y(0.0).length() <= WITHIN;
+    match world.fighters[id].brain.as_mut() {
+        Some(crate::ai::Brain::Steer(s)) => {
+            s.nav = (!here).then(|| crate::ai::navigate::Navigator::new(at, WITHIN, s.mode.pace(alert, false)));
+            s.face = face;
+        }
+        Some(crate::ai::Brain::Agent(ag)) => ag.script_move(at, WITHIN, face, look, alert),
+        _ if id == 0 => state.warn(format!("{what}: cannot move the player without ai2_takecontrol 1")),
+        _ => {}
+    }
+}
+
+/// `chr_create` (`AI2iScript_ChrCreate`, `ONrGameState_NewCharacter` from a
+/// setup): the level's character setup with script id `sid`, at its default
+/// flag — its class, team, gun and ammo, an AI going about no job — named by
+/// the setup or `ai_<n>`; its spawn script runs. Only the cutscenes use it.
+pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(String, String)> {
+    let world = host.world();
+    let Some(setup) = u16::try_from(sid).ok().and_then(|s| world.level_ai.setups.get(&s)).cloned() else {
+        state.warn(format!("chr_create: no character setup {sid}"));
+        return None;
+    };
+    let Some(flag) = world.level_ai.flags.get(&setup.flag).copied() else {
+        state.warn(format!("chr_create {sid}: no flag {}", setup.flag));
+        return None;
+    };
+    let class = setup.class.clone().unwrap_or_else(|| "konoko_generic".into());
+    let kind = match host.kind(&class) {
+        Ok(k) => k,
+        Err(e) => {
+            state.warn(format!("chr_create {sid}: {e}"));
+            return None;
+        }
+    };
+    let world = host.world();
+    let id = world.spawn(&kind, flag.at + Vec3::Y * 10.0, flag.facing, false);
+    world.give_goals(id, None, None);
+    let f = &mut world.fighters[id];
+    f.script_id = Some(setup.script_id);
+    let name = setup.name.clone().unwrap_or_else(|| format!("ai_{id}"));
+    if let Some(crate::ai::Brain::Agent(a)) = f.brain.as_mut() {
+        a.name = name.clone();
+    }
+    if let Some(p) = f.perception.as_mut() {
+        p.team = setup.team;
+    }
+    if let Some(w) = setup.weapon.as_deref() {
+        if world.give_weapon(id, w) {
+            if let Some(g) = world.fighters[id].hand {
+                world.armory.weapons[g].ammo = setup.ammo;
+            }
+        }
+    }
+    if state.all_passive {
+        world.set_passive(id, true);
+    }
+    state.scripts.insert(id, setup.scripts.clone());
+    state.fired.remove(&id);
+    eprintln!("script: created {name} (setup {sid}, fighter {id})");
+    setup.scripts.get("spawn").map(|s| (s.clone(), name))
+}
+
 pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) -> Option<(String, String)> {
     let world = host.world();
     let index = world.level_ai.characters.iter().enumerate().position(|(i, c)| {

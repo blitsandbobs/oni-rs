@@ -58,6 +58,18 @@ pub struct Orders {
     pub face: Option<f32>,
 }
 
+/// What the AI movement system has the player do while a script holds her
+/// (`ai2_takecontrol`, `docs/AI.md`, *Scripted movement*): walk to a point
+/// (`ai2_movetoflag`), then turn to a facing; or turn toward a point
+/// (`ai2_lookatchar`).
+#[derive(Clone, Debug, Default)]
+pub struct Steer {
+    pub nav: Option<navigate::Navigator>,
+    /// The way to face once there (or now, with nowhere to go).
+    pub face: Option<f32>,
+    pub mode: goals::MoveMode,
+}
+
 /// Turns orders into control bits and turns the body. Returns the bits.
 pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
     let mut keys = match orders.direction {
@@ -226,6 +238,9 @@ pub enum Brain {
     /// Fight an opponent hand to hand with the class's melee AI (driven by
     /// the world, which gives it a view of both fighters).
     Melee(Box<melee::brain::Melee>),
+    /// The AI movement system driving the player for a script
+    /// (`ai2_takecontrol`): no goals, only where to go and which way to face.
+    Steer(Box<Steer>),
     /// Goals and a job (`docs/GOALS.md`; updated by the world).
     Agent(Box<goals::Agent>),
 }
@@ -279,6 +294,23 @@ impl Brain {
                 }
                 execute(orders, facing) | press
             }
+            Brain::Steer(s) => {
+                let now = senses.now;
+                let mut o = match s.nav.as_mut() {
+                    Some(n) => steer(n.orders(senses.feet, facing.facing, now), avoid, facing),
+                    None => Orders::default(),
+                };
+                if std::mem::take(&mut avoid.stuck) {
+                    if let Some(n) = s.nav.as_mut() {
+                        n.collision_stuck(now);
+                    }
+                }
+                let walking = s.nav.as_ref().is_some_and(|n| matches!(n.state, navigate::State::Following | navigate::State::Planning));
+                if o.direction == Direction::Stopped && !walking {
+                    o.face = s.face;
+                }
+                execute(o, facing)
+            }
             Brain::GoTo(n) => {
                 let now = senses.now;
                 let orders = steer(n.orders(senses.feet, facing.facing, now), avoid, facing);
@@ -322,6 +354,7 @@ impl Brain {
     pub fn navigator_mut(&mut self) -> Option<&mut navigate::Navigator> {
         match self {
             Brain::GoTo(n) => Some(n),
+            Brain::Steer(s) => s.nav.as_mut(),
             Brain::Agent(a) => a.nav.as_mut(),
             _ => None,
         }
