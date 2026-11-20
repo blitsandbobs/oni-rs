@@ -50,6 +50,7 @@ pub struct Prim {
 }
 
 /// A loaded scene: primitives + the set of textures they reference.
+#[derive(Clone)]
 pub struct Scene {
     pub prims: Vec<Prim>,
     pub textures: Vec<PathBuf>,

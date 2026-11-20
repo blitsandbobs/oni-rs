@@ -901,7 +901,54 @@ fn convert_textures(
                 .push(format!("decode TXMP {}: {e}", inst.index)),
         }
     }
+    // Big textures (`TXMB`: the splash screens), assembled from their tiles.
+    for inst in dat.instances.iter().filter(|i| i.tag == TAG_TXMB) {
+        let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else { continue };
+        let Some(d) = dat.instance_data(inst) else { continue };
+        if let Some((w, h, rgba)) = big_texture(dat, raw, sep, d) {
+            // (Each level has its own: `win_splash_screen` differs by level.)
+            let dir = root.join("textures");
+            std::fs::create_dir_all(&dir)?;
+            if write_png(&dir.join(format!("{}.png", sanitize(name))), w, h, &rgba).is_ok() {
+                stats.textures += 1;
+            }
+        }
+    }
     Ok(())
+}
+
+const TAG_TXMB: FourCc = FourCc(0x5458_4D42);
+
+/// A big texture's whole image (`M3tTextureMap_Big`: pad[8], width@8,
+/// height@10, texel type@12, tiles across@16 and down@18 — zero as stored,
+/// worked out at load as the 256-pixel tiles the size needs — tile
+/// count@20, tiles@24), its tiles laid row by row 256 apart, each's
+/// top-left part (`M3rDraw_BigBitmap`).
+fn big_texture(dat: &Dat<'_>, raw: &[u8], sep: Option<&[u8]>, d: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+    const TILE: usize = 256;
+    let (w, h) = (le_u16(d, 8) as usize, le_u16(d, 10) as usize);
+    let (nx, ny) = (w.div_ceil(TILE), h.div_ceil(TILE));
+    if w == 0 || h == 0 || nx * ny > le_u32(d, 20) as usize {
+        return None;
+    }
+    let mut out = vec![0u8; w * h * 4];
+    for y in 0..ny {
+        for x in 0..nx {
+            let r = le_u32(d, 24 + (x + y * nx) * 4);
+            let Some(t) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() else { continue };
+            let Ok(tex) = oni_texture::TextureMap::from_instance(dat, t) else { continue };
+            let Ok(rgba) = tex.decode_top_level_with(raw, sep) else { continue };
+            let (tw, th) = (tex.width as usize, tex.height as usize);
+            let (ox, oy) = (x * TILE, y * TILE);
+            for row in 0..th.min(h.saturating_sub(oy)) {
+                let n = tw.min(w.saturating_sub(ox));
+                let src = row * tw * 4;
+                let dst = ((oy + row) * w + ox) * 4;
+                out[dst..dst + n * 4].copy_from_slice(&rgba[src..src + n * 4]);
+            }
+        }
+    }
+    Some((w as u32, h as u32, out))
 }
 
 fn convert_sounds(

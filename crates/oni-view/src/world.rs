@@ -25,6 +25,7 @@ const HEAD_BONE: usize = 10;
 
 mod env_particles;
 pub mod camera;
+mod flow;
 mod hud;
 pub use hud::hit_quadrant;
 mod objects;
@@ -149,6 +150,11 @@ pub struct World {
     pub camera: camera::GameCamera,
     /// The HUD (`hud/`, `world/hud.rs`).
     pub hud: crate::hud::Hud,
+    /// The level's outcome (`win`: true, `lose`: false), a splash screen a
+    /// script asked for, and the save point kept (`world/flow.rs`).
+    pub victory: Option<bool>,
+    pub pending_splash: Option<String>,
+    pub saved: Option<crate::game::Continue>,
     /// The quads see-through this tick (the camera's jello).
     pub jello: Vec<u32>,
     /// The level's placed objects as authored, and those scripts have made.
@@ -255,6 +261,9 @@ impl World {
             env_hidden: Default::default(),
             camera: Default::default(),
             hud: Default::default(),
+            victory: None,
+            pending_splash: None,
+            saved: None,
             jello: Vec::new(),
             object_anims: Default::default(),
             object_setups: Vec::new(),

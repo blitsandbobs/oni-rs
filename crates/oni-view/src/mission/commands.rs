@@ -226,11 +226,15 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
     for id in 0..n {
         let world = host.world();
         let f = &world.fighters[id];
-        let Some(crate::ai::Brain::Agent(a)) = &f.brain else { continue };
+        // (An AI's, by its name; the player's — its die script loses the
+        // level — by its placement's.)
+        let (combat, name) = match &f.brain {
+            Some(crate::ai::Brain::Agent(a)) => (matches!(a.goal, crate::ai::goals::Goal::Combat(_)), a.name.clone()),
+            _ if id == 0 && f.player => (false, world.player_name.clone()),
+            _ => continue,
+        };
         let Some(scripts) = state.scripts.get(&id) else { continue };
         let (dying, hurt) = (f.motion.dying || f.hp <= 0, f.hp < f.max_hp && !f.invincible);
-        let combat = matches!(a.goal, crate::ai::goals::Goal::Combat(_));
-        let name = a.name.clone();
         let alarmed = std::mem::take(&mut host.world().fighters[id].alarmed);
         // (Its gun empty with nothing to reload it.)
         let dry = host.world().has_empty_weapon(id);
@@ -437,10 +441,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "save_game" => {
-            // (Saving isn't modelled; an autosave's sound and message are.)
-            if a(1).and_then(text).is_some_and(|t| t == "autosave") {
-                host.world().event_sound("autosave", None);
-                eprintln!("script: autosave");
+            let autosave = a(1).and_then(text).is_some_and(|t| t == "autosave");
+            host.world().save_continue(int(a(0)).unwrap_or(0), autosave);
+            nil()
+        }
+        "restore_game" => {
+            host.world().restore_continue();
+            nil()
+        }
+        "splash_screen" => {
+            if let Some(name) = a(0).and_then(text) {
+                host.world().pending_splash = Some(name);
             }
             nil()
         }
@@ -555,6 +566,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "win" | "lose" => {
             state.outcome = Some(name == "win");
+            host.world().victory = Some(name == "win");
             eprintln!("script: {name}");
             nil()
         }

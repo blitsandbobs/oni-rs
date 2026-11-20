@@ -188,6 +188,8 @@ impl Mission {
                 f.hp = f.max_hp;
             }
             world.arm(0, p);
+            // (Its event scripts: the player's die script loses the level.)
+            self.state.scripts.insert(0, p.scripts.clone());
         }
         for c in placed.iter().filter(|c| !c.has("player") && !c.has("notInitiallyPresent")) {
             if let Some((script, arg)) = commands::spawn(&mut self.state, host, &c.name, false) {

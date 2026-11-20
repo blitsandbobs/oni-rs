@@ -31,6 +31,7 @@ mod lasers;
 mod p3;
 mod weapons;
 mod fighter;
+mod game;
 mod gltf;
 mod hud;
 mod mission;

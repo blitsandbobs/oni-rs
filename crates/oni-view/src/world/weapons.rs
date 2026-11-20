@@ -1406,7 +1406,7 @@ impl World {
     }
 
     /// The pistol / rifle animation variant for what fighter `who` holds.
-    fn set_weapon_varient(&mut self, who: usize) {
+    pub(super) fn set_weapon_varient(&mut self, who: usize) {
         use crate::anim::types::var;
         let rifle = self.fighters[who].hand.map(|w| self.armory.weapons[w].class.has(flag::TWO_HANDED));
         let f = &mut self.fighters[who];
@@ -1519,7 +1519,7 @@ impl World {
 
     /// The gun in hand into the holster — swapping with what was there —
     /// or (`magic`) into the hidden slot, or onto the floor if that is taken.
-    fn put_away(&mut self, who: usize, magic: bool) {
+    pub(super) fn put_away(&mut self, who: usize, magic: bool) {
         let Some(w) = self.fighters[who].hand else { return };
         if magic && self.fighters[who].magic.is_some() {
             self.drop_weapon(who, false);

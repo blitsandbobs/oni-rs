@@ -200,6 +200,8 @@ pub struct Hud {
     pub weapons_seen: Vec<String>,
     /// The tick (for flashing, prompts and fades).
     pub now: u64,
+    /// When a save was last restored.
+    restored_at: Option<u64>,
 }
 
 impl Default for Hud {
@@ -235,6 +237,7 @@ impl Default for Hud {
             autoprompts: Vec::new(),
             weapons_seen: Vec::new(),
             now: 0,
+            restored_at: None,
         }
     }
 }
@@ -342,11 +345,22 @@ impl Hud {
             return false;
         }
         self.objective = n;
+        // (Just after a restore: silently.)
+        let silent = silent || self.restored_at.is_some_and(|t| self.now < t + 300);
         if !silent {
             self.new_objective = true;
             self.immediate_prompt = true;
         }
         true
+    }
+
+    /// A save was restored (`ONrInGameUI_NotifyRestoreGame`): no prompting
+    /// for the objective it had, and objectives set in the next 5 s are set
+    /// silently.
+    pub fn restored(&mut self) {
+        self.new_objective = false;
+        self.messages.fade(Some("new_objective"));
+        self.restored_at = Some(self.now);
     }
 
     /// The player read the objective (the pause screen's objective page —

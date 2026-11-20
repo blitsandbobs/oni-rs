@@ -33,6 +33,93 @@ struct PlayWorld {
     mission: Option<(crate::mission::Mission, crate::classes::Classes)>,
     /// The sound output (none without a device).
     _audio: Option<crate::audio::output::Output>,
+    /// Mission play's flow (`docs/GAME_FLOW.md`): which level, a splash up,
+    /// a key pressed since the last frame.
+    flow: Option<Flow>,
+}
+
+/// Where mission play is, and what it goes on to.
+struct Flow {
+    oni_root: std::path::PathBuf,
+    level: u16,
+    splash: Option<crate::game::Splash>,
+    key: bool,
+}
+
+/// What a level is played with (the command line's choices).
+#[derive(Clone)]
+struct Settings {
+    player: String,
+    difficulty: String,
+    faithful: bool,
+    subtitles: bool,
+    sound_law: crate::audio::mixer::Law,
+}
+
+/// Builds level `level` for mission play (`ONrLevel_Load`): its scene
+/// drawn, its world set up, its scripts begun from `save_point` with the
+/// save kept (`saved`) for them to restore. The scene can be given when it
+/// is already loaded.
+#[allow(clippy::too_many_arguments)]
+fn mission_level(
+    gpu: &Gpu,
+    format: wgpu::TextureFormat,
+    oni_root: &std::path::Path,
+    level: u16,
+    scene: Option<Scene>,
+    set: &Settings,
+    save_point: i64,
+    saved: Option<crate::game::Continue>,
+) -> Result<(Renderer, PlayWorld), String> {
+    let level_dir = oni_root.join(format!("levels/{level:02}"));
+    let scene = match scene {
+        Some(s) => s,
+        None => {
+            let path = level_dir.join("environment.glb");
+            eprintln!("loading {}...", path.display());
+            let mut s = crate::gltf::load(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+            crate::doors::split_leaves(&mut s, &crate::doors::load(&level_dir));
+            s
+        }
+    };
+    let mut renderer = Renderer::new(gpu, &scene, &[], format);
+    let mut classes = crate::classes::Classes::open(oni_root, level).map_err(|e| format!("classes: {e}"))?;
+    let kind = classes.kind(&set.player, |ch| renderer.add_character(gpu, ch))?;
+    let mut world = crate::world::World::new();
+    if set.faithful {
+        world.set_quirks(crate::quirks::Quirks::FAITHFUL);
+    }
+    world.difficulty = classes.difficulty(&set.difficulty);
+    world.nav = crate::nav::Navigation::load(&level_dir).ok().map(std::rc::Rc::new);
+    world.spawn(&kind, Vec3::ZERO, 0.0, false);
+    world.load_level(&level_dir);
+    world.hud.subtitles_on = set.subtitles;
+    world.saved = saved;
+    renderer.attach_quads(&scene, &world.quads);
+    world.attach_doors(crate::door_meshes(&scene));
+    world.attach_glass(crate::glass_parts(&scene));
+    world.attach_weapons(&oni_root.join("common"));
+    let mut m = crate::mission::Mission::load(&level_dir)?;
+    m.state.vars.insert("save_point".into(), mlua::Value::Integer(save_point));
+    {
+        let mut host = PlayHost { world: &mut world, classes: &mut classes, renderer: &mut renderer, gpu };
+        m.begin(&mut host);
+    }
+    world.audio.mixer.lock().unwrap().law = set.sound_law;
+    let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
+    world.audio.realtime = audio.is_some();
+    Ok((
+        renderer,
+        PlayWorld {
+            world,
+            mouse_dx: 0.0,
+            mouse_dy: 0.0,
+            accum: 0.0,
+            mission: Some((m, classes)),
+            _audio: audio,
+            flow: Some(Flow { oni_root: oni_root.to_path_buf(), level, splash: None, key: false }),
+        },
+    ))
 }
 
 /// What the level's scripts reach in play mode.
@@ -87,6 +174,10 @@ struct State {
     /// Uploaded render model index for `charview` (non-play static viewer).
     char_model: Option<usize>,
     play: Option<PlayWorld>,
+    /// What mission play's levels are built with.
+    settings: Settings,
+    /// The game is over: close.
+    quit: bool,
 }
 
 pub struct App {
@@ -220,7 +311,37 @@ impl ApplicationHandler for App {
         // Play mode consumes the character into a `World` of fighters (player =
         // fighter 0, plus a training dummy in front); the static viewer keeps the
         // single `CharView` for direct posing.
-        let (char_model, play) = if self.play {
+        let settings = Settings {
+            player: self.cast.player.clone(),
+            difficulty: self.cast.difficulty.clone(),
+            faithful: self.faithful,
+            subtitles: self.subtitles,
+            sound_law: self.sound_law,
+        };
+        // Mission play: the level as the game plays it (its scripts, its
+        // flow from level to level).
+        let mission_play = if self.play && self.mission {
+            let level_dir = self.cast.level_dir.clone();
+            let level = level_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
+            let oni_root = level_dir.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_default();
+            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, None) {
+                Ok((r, pw)) => {
+                    renderer = r;
+                    charview = None;
+                    apply_capture(&window, true);
+                    Some(pw)
+                }
+                Err(e) => {
+                    eprintln!("mission: {e}");
+                    None
+                }
+            }
+        } else {
+            None
+        };
+        let (char_model, play) = if let Some(pw) = mission_play {
+            (None, Some(pw))
+        } else if self.play {
             let kinds = self.classes.as_mut().map(|classes| {
                 let mut kind = |name: &str| classes.kind(name, |ch| renderer.add_character(&gpu, ch));
                 let player = kind(&self.cast.player);
@@ -298,6 +419,7 @@ impl ApplicationHandler for App {
                             accum: 0.0,
                             mission,
                             _audio: audio,
+                            flow: None,
                         }),
                     )
                 }
@@ -347,6 +469,8 @@ impl ApplicationHandler for App {
             charview,
             char_model,
             play,
+            settings,
+            quit: false,
         });
     }
 
@@ -363,6 +487,11 @@ impl ApplicationHandler for App {
                 st.cam.aspect = st.config.width as f32 / st.config.height as f32;
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                if event.state == ElementState::Pressed && !event.repeat {
+                    if let Some(f) = st.play.as_mut().and_then(|p| p.flow.as_mut()) {
+                        f.key = true;
+                    }
+                }
                 if let PhysicalKey::Code(code) = event.physical_key {
                     // F1 (the pause screen's key): the objective is read.
                     if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
@@ -407,6 +536,11 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = state == ElementState::Pressed;
+                if pressed {
+                    if let Some(f) = st.play.as_mut().and_then(|p| p.flow.as_mut()) {
+                        f.key = true;
+                    }
+                }
                 if button == MouseButton::Left {
                     st.looking = pressed;
                 }
@@ -453,7 +587,11 @@ impl ApplicationHandler for App {
         }
     }
 
-    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+    fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.as_ref().is_some_and(|st| st.quit) {
+            event_loop.exit();
+            return;
+        }
         if let Some(st) = self.state.as_ref() {
             st.window.request_redraw();
         }
@@ -543,6 +681,15 @@ impl State {
         let tuning = self.tuning;
         let sens = MOUSE_SENS * tuning.mouse_sensitivity;
 
+        // A splash screen up: the game stands still until it is over, then
+        // goes on as the splash says.
+        if let Some(after) = self.splash_tick(dt) {
+            self.after_splash(after);
+            return;
+        }
+        if self.play.as_ref().and_then(|p| p.flow.as_ref()).is_some_and(|f| f.splash.is_some()) {
+            return;
+        }
         let Some(pw) = self.play.as_mut() else {
             return;
         };
@@ -589,6 +736,84 @@ impl State {
 
         // The game camera (`world/camera.rs`).
         self.cam = pw.world.camera.render_camera(self.config.width as f32 / self.config.height as f32);
+        self.flow_check();
+    }
+
+    /// After the level's ticks (`Oni.c`'s loop): a splash a script asked
+    /// for; the level won (the win splash, then the next level — or the
+    /// end) or lost (the fail splash, then the level again from its save
+    /// point).
+    fn flow_check(&mut self) {
+        use crate::game::{next_level, splash_texture, After, Splash};
+        let Some(pw) = self.play.as_mut() else { return };
+        let Some(flow) = pw.flow.as_mut() else { return };
+        if let Some(name) = pw.world.pending_splash.take() {
+            if let Some(t) = splash_texture(&flow.oni_root, flow.level, &name) {
+                flow.splash = Some(Splash::new(t, After::Resume));
+            }
+        }
+        match pw.world.victory.take() {
+            Some(true) => {
+                eprintln!("game: level {} won", flow.level);
+                pw.world.saved = None;
+                let after = match next_level(&flow.oni_root, flow.level) {
+                    Some(n) if flow.level != 19 => After::Next(n),
+                    _ => After::End,
+                };
+                flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "win_splash_screen").unwrap_or_default(), after));
+            }
+            Some(false) => {
+                eprintln!("game: level {} lost", flow.level);
+                flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "fail_splash_screen").unwrap_or_default(), After::Restart));
+            }
+            None => {}
+        }
+        flow.key = false;
+    }
+
+    /// Moves the splash on by real time; what follows once it is over.
+    fn splash_tick(&mut self, dt: f32) -> Option<crate::game::After> {
+        let flow = self.play.as_mut()?.flow.as_mut()?;
+        let key = std::mem::take(&mut flow.key);
+        let after = flow.splash.as_mut()?.tick(dt * 60.0, key)?;
+        flow.splash = None;
+        Some(after)
+    }
+
+    /// The level again from its save point, or the next level from its
+    /// start, or the end.
+    fn after_splash(&mut self, after: crate::game::After) {
+        use crate::game::After;
+        let Some(pw) = self.play.as_mut() else { return };
+        let Some(flow) = pw.flow.as_ref() else { return };
+        let (oni_root, level) = (flow.oni_root.clone(), flow.level);
+        let (target, save_point, saved) = match after {
+            After::Resume => return,
+            After::End => {
+                eprintln!("game: the end");
+                self.quit = true;
+                return;
+            }
+            After::Restart => {
+                let saved = pw.world.saved.take();
+                (level, saved.as_ref().map_or(0, |c| c.save_point), saved)
+            }
+            After::Next(n) => (n, 0, None),
+        };
+        // (The old level's sound stops with its world.)
+        self.play = None;
+        let format = self.config.format;
+        match mission_level(&self.gpu, format, &oni_root, target, None, &self.settings, save_point, saved) {
+            Ok((r, pw)) => {
+                self.renderer = r;
+                self.play = Some(pw);
+                eprintln!("game: level {target}, save point {save_point}");
+            }
+            Err(e) => {
+                eprintln!("game: can't load level {target}: {e}");
+                self.quit = true;
+            }
+        }
     }
 
     fn render(&mut self) {
@@ -611,6 +836,15 @@ impl State {
             let (w, h) = (self.config.width as f32 / scale, self.config.height as f32 / scale);
             self.renderer.overlay = pw.world.hud_draw(w, h);
             self.renderer.overlay_size = [w, h];
+            // A splash screen over everything: black, its picture in the
+            // middle (640 × 480), the fade's black over it.
+            if let Some(sp) = pw.flow.as_ref().and_then(|f| f.splash.as_ref()) {
+                let black = |a: f32| crate::render::OverlayDraw { texture: None, tris: quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, a], additive: false };
+                self.renderer.overlay.push(black(1.0));
+                let (x, y) = ((w - 640.0) * 0.5, (h - 480.0) * 0.5);
+                self.renderer.overlay.push(crate::render::OverlayDraw { texture: Some(sp.texture.clone()), tris: quad([x, y, x + 640.0, y + 480.0]), color: [1.0; 4], additive: false });
+                self.renderer.overlay.push(black(sp.blanket()));
+            }
             self.renderer.door_motion = pw.world.door_motions();
             self.renderer.beams = pw.world.beams.clone();
             self.renderer.sprites = pw.world.sprites();
@@ -676,6 +910,12 @@ impl State {
         );
         frame.present();
     }
+}
+
+/// A screen rectangle's two triangles (x, y, u, v).
+fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
+    let [l, t, rr, b] = r;
+    vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]]
 }
 
 /// Grabs or releases the mouse cursor for play mode. Tries OS cursor-lock

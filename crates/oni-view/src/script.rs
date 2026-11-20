@@ -1007,6 +1007,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // The game flow (docs/GAME_FLOW.md): the level's outcome (true won,
+    // false lost), a splash screen asked for, the save point kept.
+    let h = host.clone();
+    g.set(
+        "game",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            let t = lua.create_table()?;
+            t.set("victory", w.victory)?;
+            t.set("splash", w.pending_splash.clone())?;
+            t.set("save_point", w.saved.as_ref().map(|c| c.save_point))?;
+            Ok(t)
+        })?,
+    )?;
     // The player reads the objective (F1).
     let h = host.clone();
     g.set("read_objective", lua.create_function(move |_, ()| {
