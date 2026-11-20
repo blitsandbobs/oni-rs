@@ -218,6 +218,8 @@ pub struct World {
     health_color: Vec<(f32, u32)>,
     /// The textures drawn glowing (`texture_flags.json`).
     additive_textures: std::collections::HashSet<String>,
+    /// The animated textures, by file stem (`texanim`).
+    texture_anims: std::collections::HashMap<String, crate::texanim::TexAnim>,
     /// Particles' ambient sounds (their audio handles), and projectiles
     /// followed for flybys (where each was last).
     particle_ambients: std::collections::HashMap<crate::p3::Handle, usize>,
@@ -308,6 +310,7 @@ impl World {
             quads: Default::default(),
             health_color: Vec::new(),
             additive_textures: Default::default(),
+            texture_anims: Default::default(),
             particle_ambients: Default::default(),
             flybys: Vec::new(),
             game_sounds: Default::default(),

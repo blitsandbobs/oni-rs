@@ -1347,6 +1347,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
+    // particle_textures(class) → {file stem, …}: the texture each live
+    // particle of a class shows now (an animated one's current frame).
+    let h = host.clone();
+    g.set(
+        "particle_textures",
+        lua.create_function(move |_, class: String| {
+            let host = h.borrow();
+            let sys = &host.world.armory.particles;
+            Ok(sys
+                .iter()
+                .filter(|(_, p)| sys.classes.list[p.class].name == class)
+                .map(|(_, p)| host.world.particle_texture(p).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+                .collect::<Vec<String>>())
+        })?,
+    )?;
     // shadow(id) → {alpha, quad, vertices, positions} or nil: fighter
     // `id`'s shadow this frame (and the quad it was placed by).
     let h = host.clone();

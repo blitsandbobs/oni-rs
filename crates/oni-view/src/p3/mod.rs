@@ -133,6 +133,11 @@ pub struct Particle {
     pub vars: Vec<Val>,
     /// When it was made, among all particles.
     pub serial: u64,
+    /// Its texture animation's random start (16 bits; with a texture index)
+    /// and the tick its animation's time runs from (with a texture time:
+    /// its birth, unless an action moves it).
+    pub texture_index: u32,
+    pub texture_time: u32,
 }
 
 /// What a particle collided with in this step.
@@ -224,6 +229,11 @@ pub trait Host {
     }
     /// Breaks the glass within `radius` of a blast.
     fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32) {}
+    /// Character `who`'s super amount (`ONtCharacter.super_amount`; not
+    /// tracked yet: none).
+    fn super_amount(&self, _who: usize) -> f32 {
+        0.0
+    }
     /// The living characters (attractor candidates).
     fn targets(&self) -> Vec<Target>;
     /// Whether `other` is hostile to character `me`.
@@ -442,6 +452,8 @@ impl System {
             }
         }
         self.serial += 1;
+        // (A random start for its texture, as the original rolls one.)
+        let texture_index = if c.has(cflag::TEXTURE_INDEX) { u32::from(self.rand16()) } else { 0 };
         Particle {
             class,
             flags,
@@ -462,6 +474,8 @@ impl System {
             attractor_check: 0,
             vars,
             serial: self.serial,
+            texture_index,
+            texture_time: tick,
         }
     }
 
@@ -757,9 +771,13 @@ impl System {
         let soon = cur + 0.01 / HZ;
         let (rate, vals) = &def.rate;
         let mut last = st.last_time;
+        // Not fired yet: at once — but a random or attractor emitter counts
+        // from time 0 instead (`P3iCheckEmitter`), so its first is already
+        // due. (Counting from now, a random interval longer than a tick
+        // never came round: the steam and coolant of level 2's brain.)
         if last >= NEVER {
             match rate {
-                Rate::Random | Rate::Attractor => last = cur,
+                Rate::Random | Rate::Attractor => last = 0.0,
                 _ => return Some(soon),
             }
         }

@@ -253,6 +253,8 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut part_specs = serde_json::Map::new();
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
+    // The animated textures (by file stem), from every file.
+    let mut texture_anims: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -279,6 +281,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             &global_named,
             &mut stats,
         )?;
+        texture_animations(&dat, &f.root, fi, &global_named, &mut texture_anims);
         convert_sounds(
             &dat,
             raw.as_deref(),
@@ -438,6 +441,12 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             serde_json::to_string_pretty(&serde_json::json!({ "additive": pick(0), "selfIlluminated": pick(1) }))?,
         )?;
     }
+
+    // The animated textures: their frames and how they run.
+    std::fs::write(
+        output_dir.join("common/texture_animations.json"),
+        serde_json::to_string_pretty(&texture_anims)?,
+    )?;
 
     // Every particle class, decoded in full (`particle_defs`).
     let defs: BTreeMap<String, &[u8]> = particle_classes.iter().map(|(n, c)| (n.clone(), c.def.as_slice())).collect();
@@ -969,6 +978,54 @@ fn convert_textures(
 }
 
 const TAG_TXMB: FourCc = FourCc(0x5458_4D42);
+
+/// The named textures exported from this file that animate: each by its
+/// file stem, with its frames (output-relative paths, itself first), its
+/// time per frame (ticks) and its animation flags. A texture's `animation`
+/// (@140) links a `TXAN` (`M3tTextureMapAnimation`: timePerFrame u16 @12,
+/// numFrames u32 @20, the frames' links @24 — the first empty, standing for
+/// the texture itself).
+fn texture_animations(
+    dat: &Dat<'_>,
+    this_root: &str,
+    fi: usize,
+    global_named: &BTreeMap<(FourCc, String), usize>,
+    out: &mut BTreeMap<String, serde_json::Value>,
+) {
+    const FLAGS: [(u32, &str); 4] = [(1 << 6, "pingPong"), (1 << 7, "randomFrame"), (1 << 8, "randomStart"), (1 << 14, "dontAnimate")];
+    let frame_path = |inst: &Instance| match &inst.name {
+        Some(n) if !n.is_empty() => format!("common/textures/{}.png", asset_name(dat, inst)),
+        _ => format!("{this_root}/textures/{}.png", asset_name(dat, inst)),
+    };
+    for inst in dat.instances.iter().filter(|i| i.tag == TAG_TXMP) {
+        if export_root(inst, dat, this_root, fi, global_named) != Some("common") {
+            continue;
+        }
+        let Some(d) = dat.instance_data(inst).filter(|d| d.len() >= 144) else { continue };
+        let link = le_u32(d, 140);
+        let Some(anim) = (link & 1 != 0).then(|| dat.instances.get((link >> 8) as usize)).flatten() else { continue };
+        let Some(a) = dat.instance_data(anim).filter(|a| a.len() >= 24) else { continue };
+        let count = le_u32(a, 20) as usize;
+        if count == 0 || a.len() < 24 + count * 4 {
+            continue;
+        }
+        let mut frames = vec![frame_path(inst)];
+        for k in 1..count {
+            let r = le_u32(a, 24 + k * 4);
+            match (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() {
+                Some(t) => frames.push(frame_path(t)),
+                None => frames.push(frame_path(inst)),
+            }
+        }
+        let flags = le_u32(d, 128);
+        let names: Vec<&str> = FLAGS.iter().filter(|(b, _)| flags & b != 0).map(|(_, n)| *n).collect();
+        let mut entry = serde_json::json!({ "timePerFrame": le_u16(a, 12), "frames": frames });
+        if !names.is_empty() {
+            entry["flags"] = serde_json::json!(names);
+        }
+        out.insert(asset_name(dat, inst), entry);
+    }
+}
 
 /// A big texture's whole image (`M3tTextureMap_Big`: pad[8], width@8,
 /// height@10, texel type@12, tiles across@16 and down@18 — zero as stored,

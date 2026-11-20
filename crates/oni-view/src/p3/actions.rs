@@ -406,6 +406,105 @@ impl System {
                 };
                 p.offset = radius * (cos * across - sin * up);
             }
+            // Accelerating along a direction, up to a top speed, the motion
+            // across it dying away (`P3iAction_MoveDrift`): without a top
+            // speed, steadily; with one, exponentially towards it (the exact
+            // solution, so it never overshoots). The direction is the
+            // particle's own (turned by its orientation) or the world's.
+            Kind::MoveDrift => {
+                if !has_v {
+                    return none;
+                }
+                let (accel, max_speed, sideways) = (f!(0), f!(1), f!(2));
+                let mut dir = Vec3::new(f!(3), f!(4), f!(5));
+                let Some(space) = raw_enum(a.param(6)) else { return none };
+                if space == 0 && has_o {
+                    dir = p.orientation * dir;
+                }
+                if dir == Vec3::ZERO {
+                    return none;
+                }
+                let dir = dir.normalize();
+                let mut axial = dir.dot(p.velocity);
+                let mut across = p.velocity - dir * axial;
+                if max_speed == 0.0 {
+                    axial += accel * dt;
+                } else {
+                    axial = (axial - max_speed) * (-accel * dt).exp() + max_speed;
+                }
+                if sideways != 0.0 {
+                    across *= (-sideways * dt).exp();
+                }
+                p.velocity = dir * axial + across;
+                p.flags |= pflag::VELOCITY_CHANGED;
+            }
+            // A spiralling particle sent off along its spiral's tangent
+            // (`P3iAction_SpiralTangent`; once): its velocity gains the
+            // spiral's speed (rate × radius) across the angle.
+            Kind::SpiralTangent => {
+                if !has_v {
+                    return none;
+                }
+                let (theta, radius, rate) = (f!(0).to_radians(), f!(1), f!(2));
+                let speed = rate.to_radians() * radius;
+                let (across, up) = if has_o {
+                    (p.orientation.x_axis, p.orientation.z_axis)
+                } else {
+                    let across = Vec3::new(-p.velocity.z, 0.0, p.velocity.x).normalize_or_zero();
+                    (across, across.cross(p.velocity).normalize_or_zero())
+                };
+                p.velocity -= speed * (theta.sin() * across + theta.cos() * up);
+                p.flags |= pflag::VELOCITY_CHANGED;
+            }
+            // Dies past a plane along an axis (`P3iAction_KillBeyondPoint`):
+            // ±X, ±Y, ±Z (0–5), going beyond the value.
+            Kind::KillBeyondPoint => {
+                let Some(axis) = raw_enum(a.param(0)) else { return none };
+                let threshold = f!(1);
+                let at = self.world_position(p);
+                let beyond = match axis {
+                    0 => threshold - at.x,
+                    1 => at.x - threshold,
+                    2 => threshold - at.y,
+                    3 => at.y - threshold,
+                    4 => threshold - at.z,
+                    5 => at.z - threshold,
+                    _ => return none,
+                };
+                if beyond < 0.0 {
+                    return dead;
+                }
+            }
+            // Bursts like a glass charge (`P3iAction_GlassCharge`): every
+            // breakable pane within the radius shatters.
+            Kind::GlassCharge => {
+                let radius = f!(1);
+                host.damage_surfaces_near(self.world_position(p), radius);
+            }
+            // Its texture animation set to show a tick now
+            // (`P3iAction_SetTextureTick`), or a random time
+            // (`P3iAction_RandomTextureFrame`).
+            Kind::SetTextureTick => {
+                if c.has(cflag::TEXTURE_TIME) {
+                    let tick = f!(0).max(0.0).round() as u32;
+                    let now = (t * HZ).max(0.0).round() as u32;
+                    p.texture_time = now.wrapping_sub(tick);
+                }
+            }
+            Kind::RandomTextureFrame => {
+                if c.has(cflag::TEXTURE_TIME) {
+                    p.texture_time = u32::from(self.rand16()) | (u32::from(self.rand16()) << 16);
+                }
+            }
+            // A variable from its owner's super amount
+            // (`P3iAction_SuperParticle`): base + delta × super, held to
+            // [min, max].
+            Kind::SuperParticle => {
+                let v = var!(0);
+                let (base, delta, lo, hi) = (f!(0), f!(1), f!(2), f!(3));
+                let amount = super::owner::character(p.owner).map_or(0.0, |who| host.super_amount(who));
+                p.vars[v] = Val::F((base + delta * amount).clamp(lo.min(hi), hi.max(lo)));
+            }
             Kind::MoveGravity => {
                 if has_v {
                     let g = f!(0);
@@ -667,9 +766,8 @@ impl System {
             }
             Kind::StopLink => p.link = None,
             Kind::BreakLink => p.flags |= pflag::BREAK_LINKS_TO_ME,
-            // Sound, impact effects (decals, sparks by material), colour,
-            // drift, the spiral tangent and the rest are not modelled yet
-            // (#23, #24).
+            // Changing class (no shipped class uses it) and the actions with
+            // no procedure in the original.
             _ => {}
         }
         none

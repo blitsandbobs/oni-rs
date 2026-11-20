@@ -738,6 +738,7 @@ impl World {
         let flags: serde_json::Value =
             std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         self.additive_textures = flags["additive"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+        self.texture_anims = crate::texanim::load(&common.join(".."));
         // The health colour ramp.
         let gs: serde_json::Value =
             std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
@@ -1248,6 +1249,24 @@ impl World {
         Some((mesh, alpha, s.texture.clone()))
     }
 
+    /// The texture particle `p` shows now: its class's, or — animated — the
+    /// frame showing, its time from the particle's birth (with a texture
+    /// time) or the game's, started at its random index (with a texture
+    /// index; `M3iResolveTexture`).
+    pub fn particle_texture(&self, p: &p3::Particle) -> std::path::PathBuf {
+        use p3::class::cflag;
+        let sys = &self.armory.particles;
+        let c = sys.class(p.class);
+        match self.texture_anims.get(&c.instance) {
+            Some(a) => {
+                let time = if c.has(cflag::TEXTURE_TIME) { sys.tick.wrapping_sub(p.texture_time) } else { sys.tick };
+                let instance = if c.has(cflag::TEXTURE_INDEX) { p.texture_index } else { 0 };
+                a.file(time, instance).to_path_buf()
+            }
+            None => self.level_dir.join("../../common/textures").join(format!("{}.png", c.instance)),
+        }
+    }
+
     pub fn sprites(&self) -> Vec<crate::render::Sprite> {
         use p3::class::{cflag, Value};
         let sys = &self.armory.particles;
@@ -1305,7 +1324,7 @@ impl World {
                     axis: if plane.is_some() { None } else { axis },
                     plane,
                     color: [channel(16), channel(8), channel(0)],
-                    texture: textures.join(format!("{}.png", c.instance)),
+                    texture: self.particle_texture(p),
                     contrail: false,
                     no_depth: lens.is_some(),
                 })

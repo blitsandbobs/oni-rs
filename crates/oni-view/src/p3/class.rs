@@ -110,6 +110,9 @@ pub enum Kind {
     StopIfSlow,
     StopLink,
     BreakLink,
+    SetTextureTick,
+    RandomTextureFrame,
+    SuperParticle,
     /// Known to the data but without an effect here (render-only, or no
     /// procedure in the original).
     Other,
@@ -181,6 +184,9 @@ impl Kind {
             "stopIfSlow" => StopIfSlow,
             "stopLink" => StopLink,
             "breakLink" => BreakLink,
+            "setTextureTick" => SetTextureTick,
+            "randomTextureFrame" => RandomTextureFrame,
+            "superParticle" => SuperParticle,
             _ => Other,
         }
     }
@@ -371,6 +377,10 @@ pub mod cflag {
     pub const PREV_POSITION: u32 = 1 << 8;
     pub const OWNER: u32 = 1 << 9;
     pub const ATTRACTOR: u32 = 1 << 10;
+    /// Its texture's animation starts at a random point / runs from its
+    /// birth (`docs/PARTICLES.md`, *Animated textures*).
+    pub const TEXTURE_INDEX: u32 = 1 << 11;
+    pub const TEXTURE_TIME: u32 = 1 << 12;
     // flags2
     pub const ATTRACTOR_CHECK_ENV: u32 = 1 << 16;
     pub const EXPIRE_ON_CUTSCENE: u32 = 1 << 17;
@@ -386,7 +396,7 @@ pub mod cflag {
     pub const DECAL_FULL_BRIGHT: u32 = 1 << 25;
     pub const DECAL_CULL_BACKFACING: u32 = 1 << 26;
 }
-const CLASS_FLAGS: [(&str, u32); 21] = [
+const CLASS_FLAGS: [(&str, u32); 23] = [
     ("decorative", cflag::DECORATIVE),
     ("geometry", cflag::GEOMETRY),
     ("collideEnv", cflag::COLLIDE_ENV),
@@ -398,6 +408,8 @@ const CLASS_FLAGS: [(&str, u32); 21] = [
     ("hasPrevPosition", cflag::PREV_POSITION),
     ("hasOwner", cflag::OWNER),
     ("hasAttractor", cflag::ATTRACTOR),
+    ("hasTextureIndex", cflag::TEXTURE_INDEX),
+    ("hasTextureTime", cflag::TEXTURE_TIME),
     ("attractorCheckEnvironment", cflag::ATTRACTOR_CHECK_ENV),
     ("expireOnCutscene", cflag::EXPIRE_ON_CUTSCENE),
     ("dieOnCutscene", cflag::DIE_ON_CUTSCENE),

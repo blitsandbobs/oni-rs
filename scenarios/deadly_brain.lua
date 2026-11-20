@@ -2,6 +2,8 @@
 -- particles throw holographic readouts that stand around the brain, each
 -- spiralled out to its own angle and radius (30–90) from the emitter —
 -- `moveSpiral` sets their offset position. Unported, they stayed inside it.
+-- Each shows its own frame of the animated readout texture. Its steam and
+-- coolant run too.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/02/environment.glb \
@@ -27,4 +29,20 @@ end
 print(string.format("%d readouts, %d out at their radius, the farthest %.1f", #readouts, placed, far))
 assert(#readouts > 30, "a cloud of readouts")
 assert(placed >= #readouts - 1 and far < 91, "each at its radius, 30–90, around the brain")
+
+-- Each shows one of the readout texture's 5 frames, at random for good
+-- (random start, held still): together, a jumble of displays.
+local shown = {}
+for _, t in ipairs(particle_textures("env_squid_p01")) do shown[t] = (shown[t] or 0) + 1 end
+local kinds = 0
+for t, n in pairs(shown) do kinds = kinds + 1 print("  frame", t, n) end
+print("frames shown:", kinds)
+assert(kinds >= 4, "the readouts show the texture's different frames")
+
+-- Its steam and coolant (random-rate emitters: the first emission is due at
+-- once, counted from time 0 — from now, they never came round), the steam
+-- drifting up (`moveDrift`).
+local steam, coolant = particles_of("env_steam3_p01"), particles_of("env_coolant_p01a")
+print("steam", #steam, "coolant", #coolant)
+assert(#steam > 0 and #coolant > 0, "the brain steams and drips")
 print("ok")

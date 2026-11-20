@@ -43,6 +43,7 @@ mod quirks;
 mod render;
 mod script;
 mod skel;
+mod texanim;
 mod world;
 
 use std::path::PathBuf;

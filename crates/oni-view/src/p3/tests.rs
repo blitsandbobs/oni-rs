@@ -15,6 +15,8 @@ struct Fake {
     target: Vec3,
     hits: Vec<(usize, f32, u32, Option<u64>)>,
     blasts: Vec<(Vec3, f32, f32)>,
+    /// Glass broken near: centre, radius.
+    glass: Vec<(Vec3, f32)>,
 }
 
 impl Host for Fake {
@@ -48,6 +50,16 @@ impl Host for Fake {
     }
     fn targets(&self) -> Vec<Target> {
         vec![Target { who: 7, position: self.target, velocity: Vec3::ZERO }]
+    }
+    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32) {
+        self.glass.push((centre, radius));
+    }
+    fn super_amount(&self, who: usize) -> f32 {
+        if who == 3 {
+            0.5
+        } else {
+            0.0
+        }
     }
     fn hostile(&self, _me: usize, _other: usize) -> bool {
         true
@@ -327,4 +339,101 @@ fn the_dynamic_decals_memory_throws_out_the_oldest() {
         }
     }
     assert_eq!(first, Some((785, vec![0])), "the 786th takes the first's record");
+}
+
+/// Classes for the motion and texture actions.
+fn motion_classes() -> Rc<Classes> {
+    let doc = json!({ "classes": {
+        // Up (world Y) to a top speed of 10, the sideways motion dying away.
+        "drift": {
+            "flags": ["hasVelocity"],
+            "actions": [
+                { "type": "moveDrift", "params": [2.0, 10.0, 1.0, 0.0, 1.0, 0.0, {"enum": 1}] },
+                { "type": "moveLine" }
+            ],
+            "events": { "update": [0, 2] }
+        },
+        "spiral": {
+            "flags": ["hasOrientation", "hasOffsetPos"],
+            "variables": [ { "name": "theta", "type": "float", "init": 90.0 } ],
+            "actions": [ { "type": "moveSpiral", "vars": ["theta"], "params": [10.0, 0.0] } ],
+            "events": { "update": [0, 1] }
+        },
+        "tangent": {
+            "flags": ["hasVelocity", "hasOrientation"],
+            "actions": [ { "type": "spiralTangent", "params": [90.0, 10.0, 180.0] } ],
+            "events": { "create": [0, 1] }
+        },
+        // Up at 20; dies past y = 8.
+        "riser": {
+            "flags": ["hasVelocity"],
+            "actions": [ { "type": "moveLine" }, { "type": "killBeyondPoint", "params": [{"enum": 2}, 8.0] } ],
+            "events": { "update": [0, 2] }
+        },
+        "charge": {
+            "flags": [],
+            "actions": [ { "type": "glassCharge", "params": [0.0, 15.0] } ],
+            "events": { "create": [0, 1] }
+        },
+        "flash": {
+            "flags": ["hasTextureTime"],
+            "actions": [ { "type": "setTextureTick", "params": [5.0] } ],
+            "events": { "update": [0, 1] }
+        },
+        "super": {
+            "flags": ["hasOwner"],
+            "variables": [ { "name": "size", "type": "float", "init": 0.0 } ],
+            "actions": [ { "type": "superParticle", "vars": ["size"], "params": [1.0, 2.0, 0.0, 10.0] } ],
+            "events": { "create": [0, 1] }
+        }
+    } });
+    Rc::new(Classes::from_json(&doc))
+}
+
+#[test]
+fn motion_and_texture_actions_follow_the_original() {
+    let mut sys = System::new(motion_classes());
+    let mut host = Fake::default();
+    let drift = spawn(&mut sys, "drift", Vec3::new(0.0, 50.0, 0.0), Vec3::new(5.0, 0.0, 0.0), &mut host);
+    let spiral = spawn(&mut sys, "spiral", Vec3::ZERO, Vec3::ZERO, &mut host);
+    let tangent = spawn(&mut sys, "tangent", Vec3::ZERO, Vec3::ZERO, &mut host);
+    let riser = spawn(&mut sys, "riser", Vec3::ZERO, Vec3::new(0.0, 20.0, 0.0), &mut host);
+    spawn(&mut sys, "charge", Vec3::new(1.0, 2.0, 3.0), Vec3::ZERO, &mut host);
+    let flash = spawn(&mut sys, "flash", Vec3::ZERO, Vec3::ZERO, &mut host);
+    let sup = spawn(&mut sys, "super", Vec3::ZERO, Vec3::ZERO, &mut host);
+
+    // Sent along the spiral's tangent once: rate × radius = π × 10, across
+    // the angle (90°: along −X).
+    let v = sys.get(tangent).unwrap().velocity;
+    assert!((v.x + std::f32::consts::PI * 10.0).abs() < 1e-3 && v.z.abs() < 1e-3, "{v}");
+    // The glass charge bursts where it is, at its radius.
+    assert_eq!(host.glass, [(Vec3::new(1.0, 2.0, 3.0), 15.0)]);
+    // Super: base + delta × the owner's super amount (0.5).
+    assert_eq!(sys.get(sup).unwrap().vars[0].f(), Some(2.0));
+
+    for tick in 1..=20 {
+        sys.update(tick, &mut host);
+    }
+    assert!(sys.alive(riser), "short of its point (y {})", sys.get(riser).map_or(0.0, |p| p.position.y));
+    for tick in 21..=30 {
+        sys.update(tick, &mut host);
+    }
+    // Past y = 8 (at 20 a second: 0.4 s), gone.
+    assert!(!sys.alive(riser), "died beyond its point");
+    // The spiral's offset: radius 10 at 90° — on +Z, as shipped.
+    let o = sys.get(spiral).unwrap().offset;
+    assert!((o - Vec3::new(0.0, 0.0, 10.0)).length() < 1e-4, "{o}");
+    // The texture tick: its animation at tick 5 when the step began (the
+    // update's time, as in the original), one tick on as drawn.
+    let f = sys.get(flash).unwrap();
+    assert_eq!(sys.tick.wrapping_sub(f.texture_time), 6);
+
+    for tick in 31..=180 {
+        sys.update(tick, &mut host);
+    }
+    // Three seconds of drift: up towards 10 (10 × (1 − e⁻⁶)), the sideways
+    // 5 dying to 5 e⁻³.
+    let v = sys.get(drift).unwrap().velocity;
+    assert!((v.y - 10.0 * (1.0 - (-6.0f32).exp())).abs() < 0.01, "{v}");
+    assert!((v.x - 5.0 * (-3.0f32).exp()).abs() < 0.01, "{v}");
 }
