@@ -213,6 +213,17 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
                 v["spacing"] = json!(crate::le_f32(d, 72));
                 c["tunnel"] = v;
             }
+            // Its HUD textures: the icon, the empty and the full ammo ring.
+            for (key, at) in [("icon", 76), ("hudEmpty", 80), ("hudFill", 84)] {
+                let r = le_u32(d, at);
+                if let Some(t) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() {
+                    c[key] = json!(crate::asset_name(dat, t));
+                }
+            }
+            // (Its instance name: the key of its new-weapon message.)
+            if let Some(n) = &inst.name {
+                c["instance"] = json!(n);
+            }
             let name = c["name"].as_str().unwrap_or_default().to_string();
             out.insert(name, c);
         }

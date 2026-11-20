@@ -354,7 +354,7 @@ pub fn decode(d: &[u8]) -> Option<Value> {
     }
     let inst = cstr(d, 280, 32);
     if !inst.is_empty() {
-        app.insert("instance".into(), json!(inst));
+        app.insert("instance".into(), json!(crate::sanitize(&inst)));
     }
     c.insert("appearance".into(), Value::Object(app));
     let iterator = le_u32(d, 544);

@@ -24,6 +24,7 @@
 
 mod level_json;
 mod characters;
+mod fonts;
 mod melee;
 mod bsl;
 mod consoles;
@@ -236,6 +237,8 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         }
     }
 
+    set_case_shadowed(global_named.keys().map(|(_, n)| n.as_str()));
+
     let mut report = Report {
         levels: BTreeMap::new(),
         refs_resolved: 0,
@@ -352,7 +355,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             particles::convert_particles(&dat, &f.root, &root, &particle_classes, &texture_flags)?;
         stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
         stats.films = convert_films(&dat, &root)?;
-        stats.fonts = convert_fonts(&dat, &root)?;
+        stats.fonts = fonts::convert(&dat, &root)?;
         collect_character_classes(&dat, &f.root, fi, &global_named, &registry, &mut character_classes);
         if game_settings.is_none() {
             game_settings = collect_game_settings(&dat, &registry);
@@ -504,7 +507,7 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
             }
             let glow = cstr(d, 1048 + k * 128, 128);
             if !glow.is_empty() {
-                v["glow"] = serde_json::json!(glow);
+                v["glow"] = serde_json::json!(sanitize(&glow));
             }
             (name.to_string(), v)
         })
@@ -1236,13 +1239,12 @@ fn surface_suffix(g: &oni_geom::level::TextureGroup) -> &'static str {
 const TAG_IGST: FourCc = FourCc(0x4947_5374); // 'I','G','S','t'
 const TAG_TSTR: FourCc = FourCc(0x5453_7472); // 'T','S','t','r'
 const TAG_FILM: FourCc = FourCc(0x4649_4C4D);
-const TAG_TSFT: FourCc = FourCc(0x5453_4654);
 
 pub(crate) fn le_u16(d: &[u8], o: usize) -> u16 {
     d.get(o..o + 2)
         .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
 }
-fn le_i16(d: &[u8], o: usize) -> i16 {
+pub(crate) fn le_i16(d: &[u8], o: usize) -> i16 {
     le_u16(d, o) as i16
 }
 pub(crate) fn le_u32(d: &[u8], o: usize) -> u32 {
@@ -1384,35 +1386,6 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
     Ok(films.len())
 }
 
-/// Writes `<root>/fonts.json` — `TSFT` font metrics (size + heights). The glyph
-/// bitmaps are not atlased (a modern engine supplies its own font rendering).
-fn convert_fonts(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
-    let mut fonts = Vec::new();
-    for inst in dat.instances.iter().filter(|i| i.tag == TAG_TSFT) {
-        let Some(d) = dat.instance_data(inst) else {
-            continue;
-        };
-        // TStFont: pad[6], font_size@6, font_style@8, ascending@10, descending@12,
-        // leading_height@14, leading_width@16.
-        fonts.push(serde_json::json!({
-            "name": inst.name,
-            "fontSize": le_u16(d, 6),
-            "ascendingHeight": le_i16(d, 10),
-            "descendingHeight": le_i16(d, 12),
-            "leadingHeight": le_i16(d, 14),
-            "leadingWidth": le_i16(d, 16),
-        }));
-    }
-    if fonts.is_empty() {
-        return Ok(0);
-    }
-    std::fs::create_dir_all(root)?;
-    std::fs::write(
-        root.join("fonts.json"),
-        serde_json::to_string_pretty(&serde_json::json!({"count": fonts.len(), "fonts": fonts}))?,
-    )?;
-    Ok(fonts.len())
-}
 
 /// Emits `<root>/object_animations.json` — every `OBAN` scripted object
 /// animation (sliding doors, lifts, driving vehicles) as keyframed transforms.
@@ -2004,7 +1977,44 @@ pub(crate) fn rel_path(from_dir: &str, to_path: &str) -> String {
     parts.join("/")
 }
 
+/// Names whose file names would collide, ignoring case, with another asset
+/// name's (`left` and `Left` are different textures, but one file on a
+/// case-insensitive disk), with the suffix each takes (`~1`, `~2`, …; the
+/// one written in lowercase, else the first, keeps its plain name).
+static CASE_SHADOWED: std::sync::RwLock<BTreeMap<String, usize>> = std::sync::RwLock::new(BTreeMap::new());
+
+/// Works out [`CASE_SHADOWED`] from every asset name in the game.
+fn set_case_shadowed<'a>(names: impl Iterator<Item = &'a str>) {
+    let mut groups: BTreeMap<String, std::collections::BTreeSet<&str>> = BTreeMap::new();
+    for n in names {
+        groups.entry(sanitize_plain(n).to_ascii_lowercase()).or_default().insert(n);
+    }
+    let mut shadowed = BTreeMap::new();
+    for (folded, group) in groups.into_iter().filter(|(_, g)| g.len() > 1) {
+        let plain = group.iter().copied().find(|n| sanitize_plain(n) == folded).or_else(|| group.iter().copied().next());
+        let mut k = 0;
+        for n in group {
+            if Some(n) != plain {
+                k += 1;
+                shadowed.insert(n.to_string(), k);
+            }
+        }
+    }
+    *CASE_SHADOWED.write().unwrap() = shadowed;
+}
+
+/// An asset name as a file name: what a file system takes (other
+/// characters as `_`), and a `~N` suffix when it would collide with
+/// another name, ignoring case.
 pub(crate) fn sanitize(name: &str) -> String {
+    let s = sanitize_plain(name);
+    match CASE_SHADOWED.read().unwrap().get(name) {
+        Some(k) => format!("{s}~{k}"),
+        None => s,
+    }
+}
+
+fn sanitize_plain(name: &str) -> String {
     let s: String = name
         .chars()
         .map(|c| {
@@ -2088,7 +2098,7 @@ fn write_manifest(
     Ok(())
 }
 
-fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> std::io::Result<()> {
+pub(crate) fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> std::io::Result<()> {
     let file = std::fs::File::create(path)?;
     let mut enc = png::Encoder::new(std::io::BufWriter::new(file), w, h);
     enc.set_color(png::ColorType::Rgba);

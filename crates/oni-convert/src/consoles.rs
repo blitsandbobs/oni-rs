@@ -98,7 +98,10 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
             let class_name = cstr(d, 0, NAME);
             let id = le_u16(d, NAME);
             let flags = (le_u16(d, NAME + 2) & 0x68) as u32;
-            let screen = |k: usize| cstr(d, NAME + 4 + k * NAME, NAME);
+            let screen = |k: usize| {
+                let s = cstr(d, NAME + 4 + k * NAME, NAME);
+                if s.is_empty() { s } else { crate::sanitize(&s) }
+            };
             let (events, _) = events(d, NAME + 4 + 3 * NAME);
             let axes = crate::patrols::euler_axes(o.rotation);
             let class = classes.get(&class_name).cloned().unwrap_or_default();
