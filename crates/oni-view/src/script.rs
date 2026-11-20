@@ -130,10 +130,11 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
-        renderer.attach_quads(&scene, &world.quads);
         world.attach_doors(crate::door_meshes(&scene));
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
+        // (After the weapons: that is where the level quads load.)
+        renderer.attach_quads(&scene, &world.quads);
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }
@@ -1426,6 +1427,31 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         Ok(())
     })?)?;
     // quad_plane(q) → a, b, c, d: a level quad's plane.
+    // jello_drawn() → how many see-through (jello) triangles the last
+    // screenshot drew.
+    let h = host.clone();
+    g.set("jello_drawn", lua.create_function(move |_, ()| Ok(h.borrow().renderer.jello_triangles()))?)?;
+    // ray(x1, y1, z1, x2, y2, z2) → the first level quad between two points
+    // (any flags): {quad, at={x,y,z}, flags, object_tag, jello} — jello: it is
+    // see-through for the camera now; nil if nothing is in the way.
+    let h = host.clone();
+    g.set(
+        "ray",
+        lua.create_function(move |lua, (x1, y1, z1, x2, y2, z2): (f32, f32, f32, f32, f32, f32)| {
+            let host = h.borrow();
+            let w = &host.world;
+            let (a, b) = (Vec3::new(x1, y1, z1), Vec3::new(x2, y2, z2));
+            let Some(hit) = w.quads.ray(a, b - a, 0) else { return Ok(None) };
+            let q = &w.quads.quads[hit.quad as usize];
+            let t = lua.create_table()?;
+            t.set("quad", hit.quad)?;
+            t.set("at", vec![hit.point.x, hit.point.y, hit.point.z])?;
+            t.set("flags", q.flags)?;
+            t.set("object_tag", q.object_tag)?;
+            t.set("jello", w.jello.contains(&hit.quad))?;
+            Ok(Some(t))
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "quad_plane",

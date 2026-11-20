@@ -67,6 +67,12 @@ set_facing(0, 0)
 step(150)
 print("see-through quads in the corridor:", jello())
 assert(jello() > 0, "the wall behind her is see-through")
+-- ... and is drawn so: a frame's see-through triangles (the renderer finds
+-- the jello's quads among its triangles — it once built that map before the
+-- quads loaded, and drew every wall solid).
+screenshot("/tmp/oni_camera_jello.png", 160, 120)
+print("see-through triangles drawn:", jello_drawn())
+assert(jello_drawn() > 0, "the see-through wall is drawn see-through")
 
 -- A script camera: cm_detach holds it still; cm_reset follows again;
 -- cm_interpolate eases to a camera clip's first frame, busy (cm_wait waits)

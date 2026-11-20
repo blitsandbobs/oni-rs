@@ -95,10 +95,11 @@ fn mission_level(
     world.load_level(&level_dir);
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
-    renderer.attach_quads(&scene, &world.quads);
     world.attach_doors(crate::door_meshes(&scene));
     world.attach_glass(crate::glass_parts(&scene));
     world.attach_weapons(&oni_root.join("common"));
+    // (After the weapons: that is where the level quads load.)
+    renderer.attach_quads(&scene, &world.quads);
     let mut m = crate::mission::Mission::load(&level_dir)?;
     m.state.vars.insert("save_point".into(), mlua::Value::Integer(save_point));
     {
@@ -368,10 +369,11 @@ impl ApplicationHandler for App {
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
                     world.hud.subtitles_on = self.subtitles;
-                    renderer.attach_quads(&scene, &world.quads);
                     world.attach_doors(crate::door_meshes(&scene));
                     world.attach_glass(crate::glass_parts(&scene));
                     world.attach_weapons(&self.cast.level_dir.join("../../common"));
+                    // (After the weapons: that is where the level quads load.)
+                    renderer.attach_quads(&scene, &world.quads);
                     if self.mission {
                         // The level's own scripts populate it.
                         match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {

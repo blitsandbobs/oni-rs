@@ -985,8 +985,12 @@ impl Renderer {
     /// from (matching their corners exactly: the converter copies them),
     /// so quads can be drawn see-through.
     pub fn attach_quads(&mut self, scene: &Scene, quads: &crate::quads::Quads) {
+        // (A triangle by its corners in any order: a quad may be wound
+        // either way round to face along its plane.)
         let key = |a: [f32; 3], b: [f32; 3], c: [f32; 3]| -> [u32; 9] {
-            std::array::from_fn(|i| [a, b, c][i / 3][i % 3].to_bits())
+            let mut t = [a, b, c].map(|v| v.map(f32::to_bits));
+            t.sort_unstable();
+            std::array::from_fn(|i| t[i / 3][i % 3])
         };
         let mut by_tri = std::collections::HashMap::new();
         for (qi, q) in quads.quads.iter().enumerate() {
@@ -1009,6 +1013,11 @@ impl Renderer {
                 tris.iter().any(|&q| q != u32::MAX).then(|| TriQuads { indices: p.indices.clone(), quads: tris })
             })
             .collect();
+    }
+
+    /// How many see-through (jello) triangles the last frame drew.
+    pub fn jello_triangles(&self) -> u32 {
+        self.jello_cache.1.values().map(|(_, _, _, n)| n / 3).sum()
     }
 
     /// Rebuilds the see-through split of the prims the jello touches, when
