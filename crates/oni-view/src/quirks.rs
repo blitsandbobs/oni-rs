@@ -124,6 +124,11 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q21: the corpse array holds 20 bodies, the level's own among them.
+    pub fn corpse_limit_20(self) -> bool {
+        self.faithful
+    }
+
     /// Q20: a teleport's fade back in (its teleport-out clip) never runs —
     /// the character pops back into view.
     pub fn teleport_pops_in(self) -> bool {

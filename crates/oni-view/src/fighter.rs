@@ -32,7 +32,7 @@ use crate::skel::Character;
 /// Vertical speed a character walks off a ledge with.
 const LEDGE_DROP_SPEED: f32 = 0.5;
 /// Ticks airborne after which the fall is fatal.
-const MAX_AIR_FRAMES: u16 = 300;
+pub const MAX_AIR_FRAMES: u16 = 300;
 /// Share of the pending knockback applied each tick, and what remains.
 const KNOCKBACK_PER_TICK: f32 = 0.07;
 const KNOCKBACK_KEEP: f32 = 1.0 - KNOCKBACK_PER_TICK;
@@ -165,6 +165,9 @@ pub struct Fighter {
     pub settled: bool,
     pub death_still: u32,
     pub death_moving: u32,
+    /// Its body makes no corpse (`ONcCharacterFlag_NoCorpse`): it fell or
+    /// died too long.
+    pub no_corpse: bool,
     /// Poison (a script calling `chr_poison` each tick): when it was last
     /// poisoned and its count toward the next dose.
     poison_last: u64,
@@ -443,6 +446,7 @@ impl Fighter {
             settled: false,
             death_still: 0,
             death_moving: 0,
+            no_corpse: false,
             poison_last: 0,
             poison_count: 0,
             passive,

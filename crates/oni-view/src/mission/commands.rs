@@ -1687,6 +1687,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             for j in doomed {
                 world.remove(j);
             }
+            // (And the corpses of the dead of play there:
+            // `ONrGameState_KillCorpsesInsideTrigger`.)
+            if name == "trigvolume_corpse" {
+                world.corpses.clear_where(|lo, hi| found.iter().any(|&i| state.triggers.volumes[i].crossed(lo, hi)));
+            }
+            nil()
+        }
+        "corpse_reset" => {
+            host.world().corpses.reset();
             nil()
         }
 

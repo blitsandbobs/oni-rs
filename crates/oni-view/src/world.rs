@@ -152,7 +152,7 @@ pub struct World {
     /// way, by character (`world/neutral.rs`).
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
     /// The level's pre-placed corpses.
-    pub corpses: Vec<corpses::Corpse>,
+    pub corpses: corpses::Corpses,
     /// Level parts shaded flat by script reference (`env_shade`).
     pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
     /// The frame clock (`docs/GAME_FLOW.md`, *Frames*): a cutscene keeps
@@ -324,7 +324,7 @@ impl World {
             level_dir: Default::default(),
             consoles: Vec::new(),
             neutrals: Default::default(),
-            corpses: Vec::new(),
+            corpses: Default::default(),
             magic_textures: Default::default(),
             cheats: Default::default(),
             boss_battle: false,
@@ -736,6 +736,7 @@ impl World {
                 fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
                 invisible: f.inventory.invisibility > 0,
                 facing: f.facing.facing,
+                gone: f.gone,
             })
             .collect();
         let gun = self.gun_view(i);
@@ -1013,6 +1014,10 @@ impl World {
         self.cheats.allowed = crate::game::won_game() || std::env::var_os("ONI_CHEATS").is_some();
         self.neutrals = crate::neutrals::load(level_dir);
         self.corpses = corpses::load(level_dir);
+        // (Q21: the shipped array holds 20 bodies in all.)
+        if !self.quirks.corpse_limit_20() {
+            self.corpses.max = self.corpses.max.max(corpses::FIXED_MAX);
+        }
         self.doors = crate::doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);
@@ -2088,8 +2093,14 @@ impl World {
         self.weapons_tick(&gun_controls);
         // The dead settle (`Die_3_Cosmetic`): on the ground for over 120
         // ticks running, or dying for 15 s.
+        // (Falling too long, or dying for 15 s, it makes no corpse.)
         for f in &mut self.fighters {
             if f.motion.corpse && !f.settled {
+                if f.motion.air.frames >= crate::fighter::MAX_AIR_FRAMES + 30 {
+                    f.no_corpse = true;
+                    f.settled = true;
+                    continue;
+                }
                 if !f.airborne() && f.motion.air.off_ground == 0 {
                     f.death_still += 1;
                 } else {
@@ -2097,6 +2108,7 @@ impl World {
                 }
                 f.death_moving += 1;
                 f.settled = f.death_still > 120 || f.death_moving > 60 * 15;
+                f.no_corpse = f.death_moving > 60 * 15;
             }
         }
         // Bodies of classes that delete their dead go after the delay.
@@ -2112,6 +2124,7 @@ impl World {
                 Some(t) => f.death_timer = Some(t - 1),
             }
         }
+        self.corpses_tick();
         // The sounds of the moves played this tick.
         for i in 0..self.fighters.len() {
             if let Some((clip, frame)) = self.fighters[i].played.take() {

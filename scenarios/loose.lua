@@ -34,6 +34,7 @@ assert(landed and landed < 20 and not g.moving and hit, "falls fast, lands with 
 local t = place("Bay2_Thug_1")
 step(5)
 local before = #powerups()
+local _, ty = pos_of(t)
 set_hp(t, 0)
 damage(t, 1)
 local dropped
@@ -48,7 +49,6 @@ print(string.format("a %s at (%.1f %.1f %.1f), falling %s", p.kind, p.at[1], p.a
 assert(p.kind == "hypo" and p.falling, "a hypo, falling")
 step(200)
 p = powerups()[#powerups()]
-local _, ty = pos_of(t)
 print(string.format("after: at y %.1f, falling %s", p.at[2], tostring(p.falling)))
 assert(not p.falling and p.at[2] < ty + 4, "come to rest on the floor")
 

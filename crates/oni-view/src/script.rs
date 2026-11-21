@@ -1468,15 +1468,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // corpses() → {{class, x, y, z, drawn}, …}: the level's pre-placed
-    // corpses, where each one's pelvis is, and whether it has a model.
+    // corpses() → {{class, x, y, z, drawn, dynamic}, …}: the level's
+    // corpses (its own, then the dead of play), where each one's pelvis is,
+    // and whether it is drawn (has a model, not cleared).
     let h = host.clone();
     g.set(
         "corpses",
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
             let out = lua.create_table()?;
-            for c in &host.world.corpses {
+            let fixed = host.world.corpses.fixed;
+            for (k, c) in host.world.corpses.list.iter().enumerate() {
                 let at = c.bones.first().map_or(Vec3::ZERO, |m| m.w_axis.truncate());
                 let t = lua.create_table()?;
                 t.set("class", c.class.clone())?;
@@ -1484,6 +1486,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 t.set("y", at.y)?;
                 t.set("z", at.z)?;
                 t.set("drawn", c.model.is_some())?;
+                t.set("dynamic", k >= fixed)?;
                 out.set(out.raw_len() + 1, t)?;
             }
             Ok(out)

@@ -346,6 +346,8 @@ pub struct Other {
     pub invisible: bool,
     /// Which way it faces (its cosmetic facing).
     pub facing: f32,
+    /// No longer in the level (deleted, or handed over as a corpse).
+    pub gone: bool,
 }
 
 /// An AI's own body, as its goals see it.
@@ -2558,6 +2560,11 @@ impl Agent {
             }
         }
         let target = self.combat().target;
+        // (Its body gone — deleted, or a corpse now: nothing to look at.)
+        if self.combat().target_dead && cx.others.get(target).is_none_or(|o| o.gone) {
+            self.return_to_job(true, true, cx);
+            return;
+        }
         let target_feet = cx.others.get(target).map_or(cx.feet, |o| o.feet);
         // A super ninja: his clips' news; a fall takes his update over.
         if self.ninja_mode().is_some() {

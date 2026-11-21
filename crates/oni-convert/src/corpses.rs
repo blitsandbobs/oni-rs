@@ -13,6 +13,7 @@ use crate::{cstr, le_f32, le_u32};
 const TAG_CRSA: FourCc = FourCc(u32::from_be_bytes(*b"CRSA"));
 /// `pad0[12]`, `static_corpses`, `next`, `max_corpses`, then the corpses.
 const STATIC_COUNT: usize = 12;
+const MAX_CORPSES: usize = 20;
 const CORPSES: usize = 24;
 /// `corpse_name[32]`, `node_list[32]`, then `ONtCorpse_Data`: the class
 /// (an instance reference), `matricies[19]` (4 × 3 floats each: the X, Y
@@ -47,11 +48,17 @@ pub fn corpses(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
         .collect()
 }
 
+/// The array's size (`max_corpses`): its static corpses and the room after
+/// them for the dead of play. None without an array.
+pub fn max_corpses(dat: &Dat<'_>) -> Option<u32> {
+    let inst = dat.instances.iter().find(|i| i.tag == TAG_CRSA)?;
+    let d = dat.instance_data(inst)?;
+    (d.len() >= CORPSES).then(|| le_u32(d, MAX_CORPSES))
+}
+
 pub fn write(dat: &Dat<'_>, registry: &oni_template::Registry, root: &Path) -> std::io::Result<()> {
+    let Some(max) = max_corpses(dat) else { return Ok(()) };
     let c = corpses(dat, registry);
-    if c.is_empty() {
-        return Ok(());
-    }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("corpses.json"), serde_json::to_string_pretty(&json!({ "corpses": c }))?)
+    std::fs::write(root.join("corpses.json"), serde_json::to_string_pretty(&json!({ "max": max, "corpses": c }))?)
 }
