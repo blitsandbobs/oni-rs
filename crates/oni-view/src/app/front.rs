@@ -174,6 +174,7 @@ impl State {
                 self.settings.difficulty = s.difficulty.clone();
                 self.settings.volume = s.overall_volume;
                 self.gamma = s.gamma;
+                self.renderer.flares_behind_characters = s.flares_behind_characters;
                 if let Some(pw) = self.play.as_mut() {
                     pw.world.hud.subtitles_on = s.subtitles;
                 }

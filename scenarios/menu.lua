@@ -56,6 +56,11 @@ assert(m.dialog == "options")
 assert(m.sliders[102] == 100 and m.sliders[110] == 50 and m.sliders[100] == 2, "volume 100, gamma 50, quality 2")
 assert(m.checks[107] == false and m.checks[109] == true, "subtitles off, invert mouse on")
 assert(m.popups[108] == 1, "difficulty normal")
+-- The port's own row on the Graphics panel (#58): characters hide the lens
+-- flares behind them, on by default; a click turns it off, another on.
+assert(m.checks[112] == true, "lens flares hidden behind characters")
+assert(menu_click(112) == "options" and menu_state().checks[112] == false, "unticked")
+assert(menu_click(112) == "options" and menu_state().checks[112] == true, "ticked again")
 -- (Q19: shipped, the Invert Mouse box, ticked for inverted, reads "Off".)
 assert(m.visible[109] == (faithful() and "Off" or "On"), "the invert box's title: " .. tostring(m.visible[109]))
 shot("options")

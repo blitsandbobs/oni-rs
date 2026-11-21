@@ -25,8 +25,8 @@ pub struct Settings {
     /// is sized freely).
     pub resolution: (u32, u32),
     /// Not the original's (#58, `docs/PARTICLES.md`, *Lens flares*):
-    /// characters hide the lens flares behind them (default off, as
-    /// shipped). Only in the file (`"flaresBehindCharacters": true`).
+    /// characters hide the lens flares behind them (default on; off draws
+    /// them as shipped). The options' "Hide Lens Flares" box.
     pub flares_behind_characters: bool,
 }
 
@@ -40,7 +40,7 @@ impl Default for Settings {
             gamma: 0.5,
             quality: 2,
             resolution: (640, 480),
-            flares_behind_characters: false,
+            flares_behind_characters: true,
         }
     }
 }

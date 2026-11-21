@@ -369,11 +369,46 @@ pub struct Window {
     timer: Instant,
 }
 
+/// The options dialog with the port's "Hide Lens Flares" row (#58): the
+/// Graphics panel a row taller, all below it 25 lower (the Close button
+/// ends at 470 of 480), and in the new row a label like Gamma's and a box
+/// like Subtitles'.
+fn add_hide_flares(def: &mut DialogDef) {
+    const ROW: f32 = 25.0;
+    let label = def
+        .items
+        .iter()
+        .find(|i| i.id == 0 && i.title == "Gamma:")
+        .cloned();
+    let check = def.items.iter().find(|i| i.id == SUBTITLES).cloned();
+    let (Some(mut label), Some(mut check)) = (label, check) else {
+        return;
+    };
+    for i in &mut def.items {
+        let [_, y, _, h] = i.rect;
+        if i.title == "Graphics" && h > 50.0 {
+            i.rect[3] += ROW;
+        } else if y > 150.0 && h < 400.0 {
+            i.rect[1] += ROW;
+        }
+    }
+    label.title = "Hide Lens Flares:".into();
+    label.rect = [30.0, 140.0, 130.0, 20.0];
+    check.id = HIDE_FLARES;
+    check.title = "On".into();
+    check.rect = [165.0, 140.0, 50.0, 20.0];
+    def.items.insert(0, check);
+    def.items.insert(0, label);
+}
+
 impl Window {
     /// The dialog `name` made up (`WMrDialog_Create`): each item a control,
     /// visible as its flags say.
     pub fn new(data: &Data, name: &str) -> Window {
-        let def = data.dialogs.get(name).cloned().unwrap_or_default();
+        let mut def = data.dialogs.get(name).cloned().unwrap_or_default();
+        if name == "options" {
+            add_hide_flares(&mut def);
+        }
         let mut line = HashMap::new();
         let controls = def
             .items
@@ -1414,6 +1449,9 @@ const SUBTITLES: i64 = 107;
 const DIFFICULTY: i64 = 108;
 const INVERT_MOUSE: i64 = 109;
 const GAMMA: i64 = 110;
+/// The port's own box on the options' Graphics panel (#58): characters
+/// hide the lens flares behind them.
+const HIDE_FLARES: i64 = 112;
 /// The new game prompt's faithful checkbox (the port's own; not in the
 /// data).
 pub const FAITHFUL: i64 = 3;
@@ -1518,6 +1556,7 @@ impl MainMenu {
         w.set_slider(GAMMA, 0, 100, (s.gamma * 100.0).round() as i32);
         w.set_slider(VOLUME, 0, 100, (s.overall_volume * 100.0).round() as i32);
         w.set_check(SUBTITLES, s.subtitles);
+        w.set_check(HIDE_FLARES, s.flares_behind_characters);
         w.set_check(INVERT_MOUSE, s.invert_mouse);
         // (Q19: shipped, the box ticked for inverted is titled "Off".)
         if !self.quirks.invert_mouse_titled_off() {
@@ -1623,6 +1662,7 @@ impl MainMenu {
             (GAMMA, Notify::NewPosition) => s.gamma = w.slider(GAMMA)? as f32 / 100.0,
             (VOLUME, Notify::NewPosition) => s.overall_volume = w.slider(VOLUME)? as f32 / 100.0,
             (SUBTITLES, Notify::Click) => s.subtitles = w.check(SUBTITLES),
+            (HIDE_FLARES, Notify::Click) => s.flares_behind_characters = w.check(HIDE_FLARES),
             (INVERT_MOUSE, Notify::Click) => s.invert_mouse = w.check(INVERT_MOUSE),
             (DIFFICULTY, Notify::Menu(k)) => {
                 s.difficulty = DIFFICULTIES.get(k as usize)?.to_string()
