@@ -2,7 +2,8 @@
 # Runs every level's own scripts headless, from its start and from save points
 # 1–4, with the player idle, 8 at a time; prints one line per run — script
 # errors, crashes, where the player ended — and the commands skipped. Run from
-# oni-rs after `cargo build --release -p oni-view`.
+# oni-rs; it builds the `checked` profile first (release speed, overflow
+# checks and debug assertions on).
 #
 #   scripting/shakedown.sh [ticks]      (default 3600: a minute each)
 #   scripting/shakedown.sh --tour       (from each level's start, the player
@@ -17,13 +18,14 @@ if [ "$1" = "--one" ]; then
   tour=; if [ "$5" = tour ]; then
     tour=$3/tour_$l.lua; uv run -q python -I scripting/tour_stops.py $G/levels/$l $tour
   fi
-  SHAKE_TOUR=$tour SHAKE_TICKS=$4 SHAKE_SAVE=${s:#0} ./target/release/oni-view $G/levels/$l/environment.glb \
+  SHAKE_TOUR=$tour SHAKE_TICKS=$4 SHAKE_SAVE=${s:#0} ./target/checked/oni-view $G/levels/$l/environment.glb \
     --character $G/common/characters/konoko_body_high/model.glb \
     --anim $G/common/animations/KONOKOrun_lt.glb --char-pos 0,0,0 ${=6} \
     --script scripting/shakedown.lua > $out 2>&1
   echo "exit $?" >> $out
   exit 0
 fi
+cargo build -q --profile checked -p oni-view || exit 1
 mode=idle; saves="0 1 2 3 4"; extra=
 while [ $# -gt 0 ]; do
   case $1 in

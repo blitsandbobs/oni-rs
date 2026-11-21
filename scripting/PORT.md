@@ -106,7 +106,8 @@ subsystem is wired. It is not loaded by the engine yet.
   It also reports a stop that took 3 s or more, with what the world holds,
   and what each script task still alive waits on. The player losing is
   expected: the tour walks into kill volumes. About 1.5 minutes for all
-  levels. `--saves` tours from save points 1–4 as well (about 4 minutes);
+  levels. Runs use the `checked` profile (release speed, overflow checks and
+  debug assertions on). `--saves` tours from save points 1–4 as well (about 4 minutes);
   `--faithful` runs either kind with the shipped bugs.
 - `python3 scripting/script_commands.py` lists every engine command the
   translated scripts use that has no handler, by levels and calls — also those

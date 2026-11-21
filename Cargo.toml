@@ -21,6 +21,13 @@ members = [
 [profile.test]
 opt-level = 2
 
+# Release speed with the checks a debug build makes: integer overflow and
+# debug assertions panic (scripting/shakedown.sh runs on it).
+[profile.checked]
+inherits = "release"
+overflow-checks = true
+debug-assertions = true
+
 [workspace.package]
 version = "0.0.1"
 edition = "2021"
