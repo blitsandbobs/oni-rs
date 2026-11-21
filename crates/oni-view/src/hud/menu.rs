@@ -484,6 +484,13 @@ impl Window {
         }
     }
 
+    /// Control `id` takes input, or not (greyed).
+    pub fn set_enabled(&mut self, id: i64, on: bool) {
+        if let Some(c) = self.control_mut(id) {
+            c.enabled = on;
+        }
+    }
+
     pub fn slider(&self, id: i64) -> Option<i32> {
         match self.control(id)?.ctl {
             Ctl::Slider { value, .. } => Some(value),
@@ -1504,7 +1511,10 @@ impl MainMenu {
     fn open_options(&mut self, data: &Data) {
         let s = &self.settings;
         let mut w = Window::new(data, "options");
-        w.set_slider(QUALITY, 0, 2, i32::from(s.quality));
+        // (Frozen at high: the port always draws every effect; the
+        // original's lower settings only dropped effects for speed.)
+        w.set_slider(QUALITY, 0, 2, 2);
+        w.set_enabled(QUALITY, false);
         w.set_slider(GAMMA, 0, 100, (s.gamma * 100.0).round() as i32);
         w.set_slider(VOLUME, 0, 100, (s.overall_volume * 100.0).round() as i32);
         w.set_check(SUBTITLES, s.subtitles);
@@ -1609,7 +1619,7 @@ impl MainMenu {
         let w = self.stack.last()?;
         let s = &mut self.settings;
         match (id, n) {
-            (QUALITY, Notify::NewPosition) => s.quality = w.slider(QUALITY)?.clamp(0, 2) as u8,
+            (QUALITY, Notify::NewPosition) => s.quality = 2,
             (GAMMA, Notify::NewPosition) => s.gamma = w.slider(GAMMA)? as f32 / 100.0,
             (VOLUME, Notify::NewPosition) => s.overall_volume = w.slider(VOLUME)? as f32 / 100.0,
             (SUBTITLES, Notify::Click) => s.subtitles = w.check(SUBTITLES),

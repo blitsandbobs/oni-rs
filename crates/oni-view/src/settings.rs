@@ -18,7 +18,8 @@ pub struct Settings {
     pub difficulty: String,
     /// The gamma slider, 0–1 (default 0.5: unchanged).
     pub gamma: f32,
-    /// Graphics quality 0–2 (default 2; shown, not yet used: #37).
+    /// Graphics quality 0–2: kept for the settings file, but always high —
+    /// the options' slider is frozen there (`docs/MENU.md`).
     pub quality: u8,
     /// The resolution chosen (default 640 × 480; shown, not used: the window
     /// is sized freely).
