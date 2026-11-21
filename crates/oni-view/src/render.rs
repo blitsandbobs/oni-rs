@@ -231,11 +231,31 @@ pub struct CharDraw<'a> {
     /// How visible (1: as usual; below, blended at that alpha without
     /// writing depth — an invisible body fading; 0: not drawn).
     pub alpha: f32,
+    /// Lit flat in this colour (`OBcFlags_FlatLighting`: `obj_shade`).
+    pub shade: Option<[f32; 3]>,
 }
 
-/// The push constants: a model matrix, and for the faded and magic draws a
-/// vec4 (alpha, time, kind).
+/// A one-model draw the app lists before the frame: model, bones, drawn
+/// see-through, alpha, flat shade.
+pub type ModelDraw = (usize, Vec<Mat4>, bool, f32, Option<[f32; 3]>);
+
+/// The push constants: a model matrix and a vec4 — for most draws an
+/// override shade (r, g, b, on: flat lighting, `env_shade`), for the faded
+/// and magic draws (alpha, time, kind).
 const PUSH_SIZE: u32 = 80;
+
+/// A draw's push constants: its model matrix, and the vec4.
+fn push_block(model: Mat4, extra: [f32; 4]) -> [f32; 20] {
+    let mut b = [0.0f32; 20];
+    b[..16].copy_from_slice(&model.to_cols_array());
+    b[16..].copy_from_slice(&extra);
+    b
+}
+
+/// An override shade as the push constants' vec4 (none: off).
+fn shade_extra(shade: Option<[f32; 3]>) -> [f32; 4] {
+    shade.map_or([0.0; 4], |[r, g, b]| [r, g, b, 1.0])
+}
 
 /// Which magic effect (`M3cTextureFlags_MagicShield_*`): its colours.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -327,6 +347,8 @@ pub struct Renderer {
     pub sprites: Vec<Sprite>,
     /// This frame's magic effects (shields, invisibility).
     pub magic: Vec<MagicDraw>,
+    /// Level parts shaded flat by script reference (`env_shade`).
+    pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
     textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
     /// The scene's and models' textures by index, their files (to find the
     /// animated ones).
@@ -799,6 +821,7 @@ impl Renderer {
             models_by_path: Default::default(),
             sprites: Vec::new(),
             magic: Vec::new(),
+            env_shades: Default::default(),
             textures_by_path: Default::default(),
             tex_paths,
             tex_anims: Default::default(),
@@ -1011,12 +1034,18 @@ impl Renderer {
             // Opaque (depth write), then alpha, then additive glow on top. Within
             // each bucket: the baked world-space scene prims, then every character
             // instance's parts posed by that instance's bones.
+            // (A level part shaded by its script reference.)
+            let env_shade = |p: &GpuPrim| shade_extra(p.env_ref.and_then(|r| self.env_shades.get(&r)).copied());
+            let draw_shaded = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4]| {
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, extra)));
+                let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);
+                pass.set_bind_group(1, bg, &[]);
+                pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..p.count, 0, 0..1);
+            };
             let draw_prim = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4| {
-                pass.set_push_constants(
-                    wgpu::ShaderStages::VERTEX,
-                    0,
-                    bytemuck::cast_slice(&model.to_cols_array()),
-                );
+                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
                 let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);
                 pass.set_bind_group(1, bg, &[]);
                 pass.set_vertex_buffer(0, p.vbuf.slice(..));
@@ -1049,7 +1078,7 @@ impl Renderer {
                     match self.jello_cache.1.get(&k) {
                         // (Partly see-through: the solid rest only, here.)
                         Some((solid, n, _, _)) => {
-                            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&model.to_cols_array()));
+                            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
                             pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
                             pass.set_vertex_buffer(0, p.vbuf.slice(..));
                             pass.set_index_buffer(solid.slice(..), wgpu::IndexFormat::Uint32);
@@ -1075,7 +1104,7 @@ impl Renderer {
                         // (A door's leaf where it stands: a closed door's
                         // quads go see-through as any wall's.)
                         let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
-                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&model.to_cols_array()));
+                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
                         pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
                         pass.set_index_buffer(seen.slice(..), wgpu::IndexFormat::Uint32);
@@ -1100,7 +1129,7 @@ impl Renderer {
                         let Some(cm) = self.char_models.get(d.model) else { continue };
                         for p in &cm.prims {
                             let model = p.bone.and_then(|i| d.bones.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-                            draw_prim(&mut pass, p, model);
+                            draw_shaded(&mut pass, p, model, shade_extra(d.shade));
                         }
                     }
                     pass.set_pipeline(pipeline);
@@ -1120,15 +1149,12 @@ impl Renderer {
                             Some(i) => d.bones.get(i).copied().unwrap_or(Mat4::IDENTITY),
                             None => Mat4::IDENTITY,
                         };
-                        draw_prim(&mut pass, p, model);
+                        draw_shaded(&mut pass, p, model, shade_extra(d.shade));
                     }
                 }
                 // (A part drawn with the push constants' extra vec4.)
                 let draw_with = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4], texture: usize| {
-                    let mut push = [0.0f32; 20];
-                    push[..16].copy_from_slice(&model.to_cols_array());
-                    push[16..].copy_from_slice(&extra);
-                    pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push));
+                    pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, extra)));
                     pass.set_bind_group(1, self.tex_bgs.get(texture).unwrap_or(&self.default_tex), &[]);
                     pass.set_vertex_buffer(0, p.vbuf.slice(..));
                     pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
@@ -1777,6 +1803,10 @@ fn vs_main(
     @location(2) uv: vec2<f32>,
     @location(3) color: vec3<f32>,
 ) -> VSOut {
+    // (Shaded flat: the draw's colour instead of its own.)
+    if (pc.extra.w > 0.5) {
+        return placed(pos, uv, pc.extra.rgb);
+    }
     return placed(pos, uv, color);
 }
 

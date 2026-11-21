@@ -466,3 +466,19 @@ fn broken_glass_bursts_into_shards_over_the_pane_blown_away_from_a_blast() {
     let front = shards(Some(Blast { centre: Vec3::new(20.0, 30.0, 10.0), dir: None, radius: 20.0 }));
     assert!(mean_z(&front) < -20.0, "{}", mean_z(&front));
 }
+
+#[test]
+fn temporary_particles_go_together() {
+    use super::effect::{Data, Location, Orientation, Spec};
+    let mut sys = System::new(classes());
+    let mut host = Fake::default();
+    let class = sys.classes.get("shard").unwrap();
+    let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Default };
+    sys.temporary = true;
+    sys.create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host).unwrap();
+    sys.temporary = false;
+    let kept = sys.create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host).unwrap();
+    sys.kill_temporary(&mut host);
+    assert_eq!(sys.iter().count(), 1);
+    assert!(sys.alive(kept), "made outside the mode, it stays");
+}

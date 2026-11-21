@@ -20,6 +20,16 @@ fn text(v: &Value) -> Option<String> {
     }
 }
 
+/// How near an AI following the player stops (`AI2cFollowCharacter_DestinationDist`).
+const FOLLOW_DISTANCE: f32 = 12.0;
+
+/// Whether the player killed Griffin: as a script said this session, else
+/// as kept with the saved game (in play).
+fn did_kill_griffin(host: &mut dyn Host) -> bool {
+    let world = host.world();
+    world.killed_griffin.unwrap_or_else(|| world.persist_continues && crate::game::killed_griffin())
+}
+
 fn int(v: Option<&Value>) -> Option<i64> {
     match v? {
         Value::Integer(i) => Some(*i),
@@ -337,7 +347,8 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             match w.as_str() {
                 "difficulty" => done(Value::Integer(host.world().difficulty.level)),
-                "did_kill_griffen" | "chr_has_lsi" | "chr_has_empty_weapon" => done(Value::Integer(0)),
+                "did_kill_griffen" => done(Value::Integer(did_kill_griffin(host) as i64)),
+                "chr_has_lsi" | "chr_has_empty_weapon" => done(Value::Integer(0)),
                 _ => nil(),
             }
         }
@@ -505,8 +516,8 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // out of fight mode, standing, the gun put away, visible; every
             // AI passive; no jello; the dangerous projectiles cleared — each
             // but the first two unless a flag keeps it (`weapon`, `jello`,
-            // `ai`, `invis`, `keepparticles`, `animation`; `nosync` and
-            // `nojump` no shipped script uses).
+            // `ai`, `invis`, `keepparticles`, `animation`; `nosync` — the
+            // clock not kept up with — and `nojump` no shipped script uses).
             let keep: Vec<String> = args.iter().filter_map(text).map(|s| s.to_ascii_lowercase()).collect();
             let keeps = |f: &str| keep.iter().any(|k| k == f);
             for k in &keep {
@@ -520,6 +531,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let world = host.world();
             world.in_cutscene = true;
             world.cutscene_ticks = 0;
+            // (It keeps up with the clock, unless told not to.)
+            world.sync_enabled = !keeps("nosync");
+            world.sync_behind = 0;
             world.skip = crate::world::skip::Skip::Idle;
             world.sound_enabled(true);
             world.letterbox = true;
@@ -578,6 +592,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             state.all_passive = false;
             let world = host.world();
             world.in_cutscene = false;
+            world.sync_enabled = false;
             world.cancel_skipping();
             world.sound_enabled(true);
             world.letterbox = false;
@@ -1116,6 +1131,92 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // (Every character here is always active.)
         "chr_lock_active" | "chr_unlock_active" => nil(),
 
+        "env_shade" => {
+            // (`env_shade ref ref r g b`: those level parts lit flat.)
+            if let (Some(lo), Some(hi)) = (int(a(0)), int(a(1))) {
+                let c = |k: usize| float(a(k)).unwrap_or(1.0);
+                host.world().env_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
+            }
+            nil()
+        }
+        "obj_shade" => {
+            if let (Some(lo), Some(hi)) = (int(a(0)), int(a(1))) {
+                let c = |k: usize| float(a(k)).unwrap_or(1.0);
+                host.world().obj_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
+            }
+            nil()
+        }
+        "obj_force_draw" => {
+            if let Some(lo) = int(a(0)) {
+                let hi = int(a(1)).unwrap_or(lo);
+                host.world().obj_force_draw(lo as u32, hi as u32);
+            }
+            nil()
+        }
+        // The frame clock (`iComputeDeltaTicks`): a mark in a cutscene clears
+        // the ticks owed; "on" / "off" whether it keeps up at all.
+        "cutscene_sync" => {
+            let world = host.world();
+            match a(0).and_then(text).map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+                None | Some("mark") => {}
+                Some("on") => world.sync_enabled = true,
+                Some("off") => world.sync_enabled = false,
+                Some(other) => state.warn(format!("cutscene_sync: invalid parameter {other}")),
+            }
+            world.sync_behind = 0;
+            nil()
+        }
+        // Slow motion for this many ticks (0: off at once; else at least).
+        "slowmo" => {
+            let n = int(a(0)).unwrap_or(0).max(0) as u32;
+            let world = host.world();
+            world.slowmo_timer = if n == 0 { 0 } else { world.slowmo_timer.max(n) };
+            nil()
+        }
+        "particle_temp_start" | "particle_temp_stop" => {
+            host.world().armory.particles.temporary = name == "particle_temp_start";
+            nil()
+        }
+        "particle_temp_kill" => {
+            host.world().kill_temporary_particles();
+            nil()
+        }
+        "chr_boss_shield" => {
+            if let Some(id) = fighter(host, a(0)) {
+                host.world().fighters[id].boss_shield = true;
+            }
+            nil()
+        }
+        "chr_super" => {
+            if let Some(id) = fighter(host, a(0)) {
+                host.world().fighters[id].external_super = float(a(1)).unwrap_or(0.0);
+            }
+            nil()
+        }
+        "ai2_barabbas_retrievegun" => {
+            if let Some(id) = ai(host, a(0)) {
+                host.world().barabbas_retrieve_gun(id);
+            }
+            nil()
+        }
+        "ai2_followme" => {
+            // (`AI2rPath_FollowCharacter`: one AI, or every AI, walks to where
+            // the player is — stopping within 12 of her.)
+            let world = host.world();
+            let Some(player) = world.fighters.first().map(|p| p.feet()) else { return nil() };
+            let who: Vec<usize> = match a(0) {
+                Some(v) => ai(host, Some(v)).into_iter().collect(),
+                None => (1..host.world().fighters.len()).collect(),
+            };
+            for id in who {
+                let world = host.world();
+                let alert = world.fighters[id].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+                if let Some(crate::ai::Brain::Agent(ag)) = world.fighters[id].brain.as_mut() {
+                    ag.script_move(player, FOLLOW_DISTANCE, None, None, alert);
+                }
+            }
+            nil()
+        }
         "env_show" => {
             if let Some(r) = int(a(0)) {
                 host.world().env_show(r as u32, truthy(a(1)));
@@ -1276,7 +1377,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let lsi = fighter(host, a(0)).and_then(|id| host.world().fighters.get(id)).is_some_and(|f| f.inventory.lsi);
             done(Value::Integer(lsi as i64))
         }
-        "did_kill_griffen" => done(Value::Integer(0)),
+        "did_kill_griffen" => done(Value::Integer(did_kill_griffin(host) as i64)),
+        "killed_griffen" => {
+            // (`ONrWeKilledGriffen`: kept with the saved game.)
+            let murder = truthy(a(0));
+            let world = host.world();
+            world.killed_griffin = Some(murder);
+            if world.persist_continues {
+                crate::game::set_killed_griffin(murder);
+            }
+            nil()
+        }
         "difficulty" => done(Value::Integer(host.world().difficulty.level)),
 
         // --- AI orders -------------------------------------------------------

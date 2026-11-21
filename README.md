@@ -122,6 +122,8 @@ ONI_CHEATS=1 cargo run --release -p oni-view
 | `superammo` | Your guns never run dry (toggle) |
 | `elderrune` | Health slowly comes back (toggle) |
 | `moonshadow` | The phase cloak: invisibility that never runs out (toggle) |
+| `chenille` | Daodan power: you glow, with a boss shield (toggle) |
+| `carousel` | Slow motion (toggle) |
 | `forcefield` | A full shield belt *(the port's own, not the original's)* |
 
 Toggles switch off when a new level begins. The rest of the original's codes

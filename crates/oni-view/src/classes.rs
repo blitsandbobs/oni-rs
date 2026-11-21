@@ -133,6 +133,16 @@ impl Classes {
             targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
             sounds: Rc::new(crate::impacts::ClassSounds::from_json(&c)),
             shadow: crate::decal::Shadow::from_json(&c["shadow"]).map(Rc::new),
+            // (Its super particles: those named `super…`, on a body part.)
+            super_particles: Rc::new(
+                c["particles"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter(|p| p["name"].as_str().is_some_and(|n| n.len() >= 5 && n[..5].eq_ignore_ascii_case("super")))
+                    .filter_map(|p| Some((p["class"].as_str()?.to_string(), p["part"].as_u64().filter(|&k| k < 19)? as usize)))
+                    .collect(),
+            ),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)
@@ -230,6 +240,12 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     }
     if let Some(v) = stats["superHypo"].as_bool() {
         t.super_hypo = v;
+    }
+    if let Some(v) = stats["superShield"].as_bool() {
+        t.super_shield = v;
+    }
+    if let Some(v) = f(&stats["bossShield"]) {
+        t.boss_shield = v;
     }
     if let Some(v) = u(&c["hypoTime"]) {
         t.hypo_time = v as u16;

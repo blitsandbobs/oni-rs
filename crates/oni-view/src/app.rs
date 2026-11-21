@@ -906,7 +906,8 @@ impl State {
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
 
-        pw.accum += dt;
+        // (Slow motion: the game's clock runs at half the real one.)
+        pw.accum += dt / pw.world.time_scale();
         // A cutscene being skipped: 32 ticks this frame, whatever the clock.
         let mut fast = if frozen { None } else { pw.world.skip_frame() };
         if frozen {
@@ -917,11 +918,19 @@ impl State {
         if fast.is_some() {
             pw.accum = 0.0;
         }
+        // Else the ticks passed on the clock — at most 6 a frame
+        // (`iComputeDeltaTicks`; a cutscene owes the rest to the next).
+        let mut ticks = 0;
+        if fast.is_none() && !frozen {
+            let available = (pw.accum / TICK) as u32;
+            pw.accum -= available as f32 * TICK;
+            ticks = pw.world.frame_ticks(available);
+        }
         loop {
             match fast.as_mut() {
                 Some(0) => break,
                 Some(n) => *n -= 1,
-                None if pw.accum >= TICK => pw.accum -= TICK,
+                None if ticks > 0 => ticks -= 1,
                 None => break,
             }
             // The player from the controls, dummies idle (AI later); then
@@ -1081,6 +1090,7 @@ impl State {
             self.renderer.sprites = pw.world.sprites();
             self.renderer.decals = pw.world.decal_draws(self.cam.eye);
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
+            self.renderer.env_shades = pw.world.env_shades.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
             self.renderer.jello = pw.world.jello.clone();
             self.renderer.jello_doors = pw.world.jello_doors.iter().copied().collect();
@@ -1110,25 +1120,31 @@ impl State {
         // The magic effects over the bodies (shields, invisibility).
         self.renderer.magic = self.play.as_ref().map(|pw| pw.world.magic_draws(&bones)).unwrap_or_default();
         // Guns: one-bone models placed by their matrices.
-        let guns: Vec<(usize, Vec<Mat4>, bool, f32)> = match &self.play {
+        let guns: Vec<crate::render::ModelDraw> = match &self.play {
             Some(pw) => {
-                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.object_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0))).collect();
+                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0, None))).collect();
+                // (Placed objects, some lit flat.)
+                for (path, m, shade) in pw.world.object_draws() {
+                    if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
+                        v.push((k, vec![m], false, 1.0, shade));
+                    }
+                }
                 // (Objects in the camera's way, see-through.)
                 for (path, m) in pw.world.object_jello_draws() {
                     if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], true, 1.0));
+                        v.push((k, vec![m], true, 1.0, None));
                     }
                 }
                 // (Guns held by bodies fading out.)
                 for (path, m, a) in pw.world.faded_gun_draws() {
                     if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], false, a));
+                        v.push((k, vec![m], false, a, None));
                     }
                 }
                 // (Consoles' screens, textured by their state.)
                 for (path, tex, m) in pw.world.console_draws() {
                     if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                        v.push((k, vec![m], false, 1.0));
+                        v.push((k, vec![m], false, 1.0, None));
                     }
                 }
                 v
@@ -1143,7 +1159,7 @@ impl State {
                 .zip(&bones)
                 .map(|(f, b)| f.draw(b))
                 .chain(pw.world.corpse_draws())
-                .chain(guns.iter().map(|(m, b, see_through, alpha)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha }))
+                .chain(guns.iter().map(|(m, b, see_through, alpha, shade)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha, shade: *shade }))
                 .collect(),
             (None, Some(m)) => bones
                 .first()
@@ -1154,6 +1170,7 @@ impl State {
                         bones: b,
                         see_through: false,
                         alpha: 1.0,
+                        shade: None,
                     }]
                 })
                 .unwrap_or_default(),

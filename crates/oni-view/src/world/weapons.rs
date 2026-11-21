@@ -167,6 +167,8 @@ pub struct ShotHost<'a> {
     turret_spread: f32,
     /// The level's quads (for decals).
     pub quads: Option<&'a crate::quads::Quads>,
+    /// Rolls for a boss shield's fractions (seeded by the tick).
+    rng: u32,
 }
 
 impl<'a> ShotHost<'a> {
@@ -179,7 +181,7 @@ impl<'a> ShotHost<'a> {
     pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::quads::Quads>, now: u64) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), pane_quads: Vec::new(), panes: Vec::new(), doors: &[], broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None }
+        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), pane_quads: Vec::new(), panes: Vec::new(), doors: &[], broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None, rng: (now as u32).wrapping_mul(0x9E37_79B9) | 1 }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -199,7 +201,7 @@ impl<'a> ShotHost<'a> {
         // A shield lights up where it is struck (`ONrCharacter_FindParts`:
         // the parts whose bounds come within reach).
         let shield_mask = match self.fighters.get(who) {
-            Some(f) if f.alive() && f.inventory.shield > 0 => {
+            Some(f) if f.alive() && (f.inventory.shield > 0 || f.boss_shield || f.has_super_shield()) => {
                 let mut spheres = [None; crate::world::magic::PARTS];
                 for p in &f.character.parts {
                     if let (Some(s), Some(slot)) = (p.bound_sphere, spheres.get_mut(p.bone)) {
@@ -221,11 +223,33 @@ impl<'a> ShotHost<'a> {
             }
             f.last_particle = Some(s);
         }
-        if f.weapon_immune {
+        // Any shield — a belt's, a boss's, a super shield — flares where
+        // struck.
+        let super_shield = f.has_super_shield();
+        if f.inventory.shield > 0 || f.boss_shield || super_shield {
+            f.effects.shield_hit(shield_mask, f.boss_shield);
+        }
+        // A super shield (or a script's immunity) takes no harm at all.
+        if super_shield || f.weapon_immune {
             return false;
         }
+        // A boss shield takes its class's share off the hit, its knockback
+        // and its stun (a fraction left over counting by chance).
+        let (damage, stun, knockback) = if f.boss_shield && f.inventory.shield == 0 {
+            let keep = 1.0 - f.motion.tuning.boss_shield;
+            let mut chance = |x: f32| {
+                self.rng ^= self.rng << 13;
+                self.rng ^= self.rng >> 17;
+                self.rng ^= self.rng << 5;
+                let whole = x.max(0.0).floor();
+                whole as i32 + i32::from((self.rng & 0xFFFF) as f32 / 65536.0 < x - whole)
+            };
+            (chance(damage as f32 * keep), chance(stun as f32 * keep), knockback * keep)
+        } else {
+            (damage, stun, knockback)
+        };
+        let Some(f) = self.fighters.get_mut(who) else { return false };
         if f.inventory.shield > 0 {
-            f.effects.shield_hit(shield_mask, false);
             // A shield belt soaks it all (the excess is lost): no hurt, no
             // reaction — only where it came from, on the hit ring.
             f.inventory.shield = f.inventory.shield.saturating_sub(damage.max(0) as u16);
@@ -362,6 +386,10 @@ impl ShotHost<'_> {
 }
 
 impl Host for ShotHost<'_> {
+    fn super_amount(&self, who: usize) -> f32 {
+        self.fighters.get(who).map_or(0.0, |f| f.super_amount)
+    }
+
     fn part_matrix(&mut self, who: usize, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
         self.fighters.get_mut(who)?.part_matrix(part)
     }
@@ -1856,6 +1884,26 @@ impl World {
                 }
             }
         }
+    }
+
+    /// `ai2_barabbas_retrievegun`: Barabbas's gun (`WPrFindBarabbasWeapon`:
+    /// the first gun of an unreloadable class) back in his hand at once —
+    /// unless he holds a gun, someone else holds it, or it is up on the
+    /// building's top floor (above 700).
+    pub fn barabbas_retrieve_gun(&mut self, who: usize) -> bool {
+        if self.fighters.get(who).is_none_or(|f| f.hand.is_some()) {
+            return false;
+        }
+        let Some(w) = self.armory.weapons.iter().position(|g| !g.gone && g.class.flags & flag::UNRELOADABLE != 0) else {
+            eprintln!("### ai2_barabbas_retrievegun: can't find barabbas's weapon");
+            return false;
+        };
+        let g = &self.armory.weapons[w];
+        if g.owner.is_some() || g.pickup_position().y > 700.0 {
+            return false;
+        }
+        self.take(who, Item::Weapon(w));
+        true
     }
 
     /// The gun fighter `who` could reach for: the nearest free one within

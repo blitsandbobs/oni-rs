@@ -126,6 +126,10 @@ impl World {
     fn struck_material(&self, who: usize, point: Vec3) -> Option<u16> {
         let impacts = self.impacts.as_ref()?;
         let f = self.fighters.get(who)?;
+        // (A boss's or a super shield: "Super_Shield".)
+        if f.boss_shield || f.has_super_shield() {
+            return impacts.material("Super_Shield");
+        }
         if f.inventory.shield > 0 {
             return impacts.material("Shield");
         }

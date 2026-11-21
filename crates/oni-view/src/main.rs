@@ -475,6 +475,7 @@ fn run_screenshot(
             bones: &bones,
             see_through: false,
             alpha: 1.0,
+            shade: None,
         }],
         None => Vec::new(),
     };

@@ -74,8 +74,14 @@ pub struct ClassTuning {
     pub damage_end: f32,
     /// A hypo heals a point every this many ticks (`hypoTime`).
     pub hypo_time: u16,
-    /// Above full health it hits harder (`superHypo`).
+    /// Above full health it hits harder (`superHypo`); its super amount
+    /// rises with the health over full too.
     pub super_hypo: bool,
+    /// Past half its super amount, it is shielded (`superShield`: Mutant
+    /// Muro): weapons don't hurt it, blows don't move it.
+    pub super_shield: bool,
+    /// What a boss shield takes off a hit (`bossShieldProtectAmount`).
+    pub boss_shield: f32,
 }
 
 impl Default for ClassTuning {
@@ -98,6 +104,8 @@ impl Default for ClassTuning {
             damage_end: 135.0,
             hypo_time: 6,
             super_hypo: false,
+            super_shield: false,
+            boss_shield: 0.0,
         }
     }
 }

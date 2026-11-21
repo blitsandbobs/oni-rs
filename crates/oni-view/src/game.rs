@@ -322,6 +322,20 @@ pub fn mark_won_game() {
     write_continues(&path, &doc);
 }
 
+/// Whether the player killed Griffin (`ONrDidWeKillGriffen`; level 18
+/// decides, kept with the saved game).
+pub fn killed_griffin() -> bool {
+    continues_file().is_some_and(|p| read_continues(&p)["killedGriffin"].as_bool() == Some(true))
+}
+
+/// `killed_griffen` (`ONrWeKilledGriffen`): kept.
+pub fn set_killed_griffin(murder: bool) {
+    let Some(path) = continues_file() else { return };
+    let mut doc = read_continues(&path);
+    doc["killedGriffin"] = serde_json::json!(murder);
+    write_continues(&path, &doc);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

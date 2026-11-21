@@ -99,6 +99,8 @@ fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f3
 #[derive(Clone)]
 pub struct CharKind {
     pub model: usize,
+    /// Its super particles: class and body part (`ONtCharacterParticle`).
+    pub super_particles: Rc<Vec<(String, usize)>>,
     /// Its low body's model, for the magic effects (if converted).
     pub magic_model: Option<usize>,
     pub character: Rc<Character>,
@@ -148,6 +150,17 @@ pub struct World {
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
     /// The level's pre-placed corpses.
     pub corpses: Vec<corpses::Corpse>,
+    /// Level parts shaded flat by script reference (`env_shade`).
+    pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
+    /// The frame clock (`docs/GAME_FLOW.md`, *Frames*): a cutscene keeps
+    /// up with the clock (`sync_enabled`, ticks owed); slow motion's ticks
+    /// left (`slowmo`).
+    pub sync_enabled: bool,
+    pub sync_behind: u32,
+    pub slowmo_timer: u32,
+    /// Whether the player killed Griffin, once a script has said
+    /// (`killed_griffen`).
+    pub killed_griffin: Option<bool>,
     /// A boss battle on (`ai2_boss_battle`): bosses go after bosses.
     pub boss_battle: bool,
     /// The cheat codes typed and their toggles.
@@ -312,6 +325,11 @@ impl World {
             magic_textures: Default::default(),
             cheats: Default::default(),
             boss_battle: false,
+            env_shades: Default::default(),
+            sync_enabled: false,
+            sync_behind: 0,
+            slowmo_timer: 0,
+            killed_griffin: None,
             neutral_runs: Default::default(),
             doors: Vec::new(),
             lasers: Vec::new(),
@@ -394,6 +412,7 @@ impl World {
             f.snap_to_floor(&self.quads);
         }
         f.magic_model = kind.magic_model;
+        f.super_particles = kind.super_particles.clone();
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
@@ -427,6 +446,58 @@ impl World {
             p.force_target(target, team, feet, now);
         }
         true
+    }
+
+    /// How many ticks to run this frame (`iComputeDeltaTicks`), with
+    /// `available` passed on the clock: at most 6 — the rest dropped (the
+    /// game slows) unless a cutscene keeps up with the clock, owing them to
+    /// the next frame (more than 5 s owed is given up). A `cutscene_sync`
+    /// mark clears what is owed.
+    pub fn frame_ticks(&mut self, available: u32) -> u32 {
+        const MAX_TICKS_PER_FRAME: u32 = 6;
+        let mut timing = available;
+        if self.sync_enabled && self.sync_behind > 0 {
+            if self.sync_behind > 60 * 5 {
+                eprintln!("frames: {} ticks behind, out of sync", self.sync_behind);
+            } else {
+                timing += self.sync_behind;
+            }
+            self.sync_behind = 0;
+        }
+        let engine = timing.min(MAX_TICKS_PER_FRAME);
+        if self.sync_enabled {
+            self.sync_behind = timing - engine;
+        }
+        engine
+    }
+
+    /// How much slower than the clock the game runs: 2 in slow motion
+    /// (`slowmo`, the `carousel` cheat), else 1.
+    pub fn time_scale(&self) -> f32 {
+        if self.slowmo_timer > 0 || self.cheats.slow_motion {
+            2.0
+        } else {
+            1.0
+        }
+    }
+
+    /// `env_shade a b r g b`: the level parts with script references `a`–`b`
+    /// shaded flat in this colour (each 0–1, kept to 8 bits).
+    pub fn env_shade(&mut self, a: u32, b: u32, rgb: [f32; 3]) {
+        let (lo, hi) = (a.min(b), a.max(b));
+        let shade = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0);
+        let refs: std::collections::BTreeSet<u32> = self.quads.quads.iter().filter_map(|q| q.env_ref).filter(|r| (lo..=hi).contains(r)).collect();
+        for r in refs {
+            self.env_shades.insert(r, shade);
+        }
+    }
+
+    /// `particle_temp_kill`: the temporary particles go.
+    pub fn kill_temporary_particles(&mut self) {
+        let now = self.now as u64;
+        let weapons::Armory { particles, .. } = &mut self.armory;
+        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        particles.kill_temporary(&mut host);
     }
 
     /// A roll in `[0, 1)` for others (`UUrLocalRandom`'s uses).
@@ -2006,8 +2077,10 @@ impl World {
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
         self.cheats_tick();
+        self.slowmo_timer = self.slowmo_timer.saturating_sub(1);
         for i in 0..self.fighters.len() {
             self.inventory_tick(i);
+            self.super_tick(i);
             self.magic_tick(i);
         }
         self.hud_tick();
@@ -2410,8 +2483,10 @@ impl World {
         if omnipotent {
             damage = damage.max(fb.hp);
         }
-        if fb.motion.invulnerable() && !omnipotent {
-            fb.take_damage(0, attack_dir);
+        // A super shield up (Mutant Muro's): invulnerable and unstoppable.
+        let super_shield = fb.has_super_shield();
+        if (fb.motion.invulnerable() || super_shield) && !omnipotent {
+            fb.take_damage(0, if super_shield { Vec3::ZERO } else { attack_dir });
             eprintln!("hit: fighter {a} → {b}: invulnerable");
             return;
         }

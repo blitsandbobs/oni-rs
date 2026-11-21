@@ -30,6 +30,9 @@ const INVIS_COMING_BACK: u16 = 120;
 /// How visible a hit or a throw leaves an invisible character for a
 /// moment (`ONiCharacter_BecomeTemporarilyVisible`).
 const REVEALED: f32 = 0.6;
+/// How fast the super amount rises and falls (`ONcSuperAmount_*PerFrame`).
+const SUPER_UP: f32 = 0.03;
+const SUPER_DOWN: f32 = 0.06;
 /// How long a character must have been invisible before the AI can't see
 /// it (`AI2cKnowledge_InvisibleFrames`).
 pub const UNSEEN_AFTER: u32 = 90;
@@ -175,14 +178,78 @@ impl World {
         if dead && !f.effects.shield_active && !f.effects.invis_active {
             return;
         }
-        // (A super shield — a class's, while its Daodan power lasts — waits
-        // on the super amount, which isn't tracked yet: #31.)
-        f.effects.shield_update(f.inventory.shield_display, None, dead, now);
+        // A super-shield class's glow follows its super amount instead.
+        let super_shield = (f.motion.tuning.super_shield && f.super_amount > 0.0).then_some(f.super_amount);
+        f.effects.shield_update(f.inventory.shield_display, super_shield, dead, now);
         let remaining = f.inventory.invisibility;
         f.effects.invis_update(remaining);
         if remaining > 0 && remaining != ENDLESS {
             f.inventory.invisibility = remaining - 1;
         }
+    }
+
+    /// One tick of fighter `who`'s Daodan power (`ONrCharacter_Update`):
+    /// its super amount eases toward what a script set — or, for a
+    /// super-hypo class, its health over full, as a share of full — up 0.03
+    /// a tick, down 0.06; while it has any, its super particles (the class's
+    /// `super…` ones, each on its body part) run. Dead, they go.
+    pub(super) fn super_tick(&mut self, who: usize) {
+        use crate::p3::{event, owner};
+        let Some(f) = self.fighters.get_mut(who) else { return };
+        if !f.alive() || f.motion.dying {
+            if let Some(hs) = f.super_handles.take() {
+                let now = self.now as u64;
+                let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
+                let mut host = crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+                for h in hs {
+                    particles.kill(h, &mut host);
+                }
+            }
+            return;
+        }
+        let mut desired = f.external_super;
+        if f.motion.tuning.super_hypo && f.hp > f.max_hp {
+            desired = desired.max((f.hp - f.max_hp) as f32 / f.max_hp.max(1) as f32);
+        }
+        let desired = desired.max(0.0);
+        f.super_amount = if f.super_amount < desired { (f.super_amount + SUPER_UP).min(desired) } else { (f.super_amount - SUPER_DOWN).max(desired) };
+        let on = f.super_amount > 0.0;
+        if on == f.super_running && (!on || f.super_handles.is_some()) {
+            return;
+        }
+        // (Made the first time it has any.)
+        if on && f.super_handles.is_none() {
+            let wanted: Vec<(String, usize)> = f.super_particles.iter().cloned().collect();
+            let centres: Vec<Option<Vec3>> = wanted
+                .iter()
+                .map(|(_, part)| f.character.parts.iter().find(|p| p.bone == *part).map(|p| (p.bound_box.0 + p.bound_box.1) / 2.0))
+                .collect();
+            let mut handles = Vec::new();
+            for ((class, part), centre) in wanted.iter().zip(centres) {
+                let Some(id) = self.armory.particles.classes.get(class) else { continue };
+                let Some(attach) = self.fighters[who].part_matrix(*part) else { continue };
+                let spec = crate::p3::effect::Spec { class: id, orientation: crate::p3::effect::Orientation::Unchanged, location: crate::p3::effect::Location::Default };
+                let mut data = crate::p3::effect::Data::new(self.armory.particles.tick, centre.unwrap_or(Vec3::ZERO));
+                data.owner = owner::CHARACTER_MELEE | who as u32;
+                data.parent_orientation = Some(glam::Mat3::IDENTITY);
+                data.attach = Some(attach);
+                if let Some(h) = self.create_effect(&spec, &data) {
+                    handles.push(h);
+                }
+            }
+            self.fighters[who].super_handles = Some(handles);
+        }
+        // Started or stopped with it.
+        let ev = if on { event::START } else { event::STOP };
+        let handles = self.fighters[who].super_handles.clone().unwrap_or_default();
+        let t = f64::from(self.armory.particles.tick) / 60.0;
+        let now = self.now as u64;
+        let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
+        let mut host = crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        for h in handles {
+            particles.send(h, ev, t, &mut host);
+        }
+        self.fighters[who].super_running = on;
     }
 
     /// Whether the AI can see fighter `who` at all
@@ -227,7 +294,8 @@ impl World {
             }
             let scaled: Vec<glam::Mat4> = b.iter().map(|m| *m * glam::Mat4::from_scale(Vec3::splat(SHELL_SCALE))).collect();
             if f.effects.shield_active {
-                let (kind, tex) = if f.effects.daodan { (MagicKind::Daodan, 1) } else { (MagicKind::Shield, 0) };
+                // (A super shield's and a boss's red.)
+                let (kind, tex) = if f.effects.daodan || f.boss_shield { (MagicKind::Daodan, 1) } else { (MagicKind::Shield, 0) };
                 if let Some(texture) = self.magic_textures[tex].clone() {
                     let mut alpha = [0.0; PARTS];
                     for (a, p) in alpha.iter_mut().zip(f.effects.shield_parts) {

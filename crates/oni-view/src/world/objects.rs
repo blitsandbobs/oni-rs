@@ -15,6 +15,7 @@ use super::World;
 
 /// `OBcFlags_*` the engine reads.
 mod oflag {
+    pub const FORCE_DRAW: u32 = 0x0008;
     pub const INVISIBLE: u32 = 0x0100;
     pub const IN_USE: u32 = 0x0200;
     pub const NO_COLLISION: u32 = 0x0400;
@@ -57,6 +58,8 @@ pub struct Object {
     pub stop: i32,
     pub animating: bool,
     pub flags: u32,
+    /// Lit flat in this colour (`obj_shade`).
+    pub shade: Option<[f32; 3]>,
 }
 
 /// Loads a level's object setups (`objects.json`).
@@ -187,7 +190,7 @@ impl World {
                 continue;
             }
             let anim = s.animation.as_deref().and_then(|n| self.object_anim(n));
-            self.objects.push(Object { setup: i, anim, frame: 0, step: 1, stop: 0, animating: false, flags: s.flags });
+            self.objects.push(Object { setup: i, anim, frame: 0, step: 1, stop: 0, animating: false, flags: s.flags, shade: None });
         }
     }
 
@@ -267,8 +270,35 @@ impl World {
 
     /// What to draw for the objects: each shown one's models and matrix —
     /// all but those see-through this frame ([`World::object_jello_draws`]).
-    pub fn object_draws(&self) -> Vec<(PathBuf, Mat4)> {
-        self.object_models(false)
+    /// The objects to draw: each model, its matrix, and the flat shade
+    /// it is lit by, if any (`obj_shade`, `OBcFlags_FlatLighting`).
+    pub fn object_draws(&self) -> Vec<(PathBuf, Mat4, Option<[f32; 3]>)> {
+        (0..self.objects.len())
+            .filter(|&k| self.objects[k].flags & oflag::INVISIBLE == 0 && !self.jello_objects.contains(&k))
+            .flat_map(|k| {
+                let m = self.object_matrix(k);
+                let shade = self.objects[k].shade;
+                self.object_setups[self.objects[k].setup].models.iter().map(move |p| (p.clone(), m, shade))
+            })
+            .collect()
+    }
+
+    /// `obj_shade a b r g b`: objects `a`–`b` lit flat in this colour (each
+    /// 0–1, kept to 8 bits as the original keeps it).
+    pub fn obj_shade(&mut self, a: u32, b: u32, rgb: [f32; 3]) {
+        let shade = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0);
+        for k in self.objects_by_id(a, b) {
+            self.objects[k].shade = Some(shade);
+        }
+    }
+
+    /// `obj_force_draw a [b]`: drawn even out of view (`OBcFlags_ForceDraw`)
+    /// — every object is already (the port doesn't cull them), so it is
+    /// only kept.
+    pub fn obj_force_draw(&mut self, a: u32, b: u32) {
+        for k in self.objects_by_id(a, b) {
+            self.objects[k].flags |= oflag::FORCE_DRAW;
+        }
     }
 
     /// The objects see-through this frame (the camera's jello: drawn at

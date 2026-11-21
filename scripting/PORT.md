@@ -6,8 +6,9 @@ levels, no untranslated lines); the engine runs them (`crates/oni-view/src/missi
 the level start, `main`, `sleep` / `fork`, character and trigger-volume events,
 patrol scripts, and the gameplay commands (spawning, paths, passivity, attack orders,
 health, trigger volumes, objectives / messages, character waits, consoles and alarms,
-doors, films). Dialogue prints its subtitle (no audio yet). Camera, sound, particles,
-cutscenes, turrets and the like are logged no-ops so far (laser triggers are real). This
+doors, films, and since #54 every other engine command the levels call — the
+only ones skipped are the scripts' own typos, which the original skips too
+(`scripting/script_commands.py`). This
 document originally laid out *what to build*
 for the gameplay scripting layer (E4+), derived from [`BSL.md`](BSL.md). The dev/test
 Lua driver that exists today (`crates/oni-view/src/script.rs`,

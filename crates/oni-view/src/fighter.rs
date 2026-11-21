@@ -96,6 +96,18 @@ pub struct Fighter {
     pub cheat_invincible: bool,
     /// A boss (its placement's flag; `ONcCharacterFlag_Boss`).
     pub boss: bool,
+    /// A boss shield on (`chr_boss_shield`; `ONcCharacterFlag_BossShield`):
+    /// shots flare it and lose the class's share; drawn red.
+    pub boss_shield: bool,
+    /// Its Daodan power: what a script (or the cheat) sets
+    /// (`external_super_amount`), and what it is now, easing toward that
+    /// (`super_amount`).
+    pub external_super: f32,
+    pub super_amount: f32,
+    /// Its super particles (class, body part) and those made, running.
+    pub super_particles: std::rc::Rc<Vec<(String, usize)>>,
+    pub super_handles: Option<Vec<crate::p3::Handle>>,
+    pub super_running: bool,
     /// Can't be killed but by an act of god (placed `unkillable`): a blow
     /// that would leaves it on 1 and defeats it (`ONrCharacter_TakeDamage`).
     pub unkillable: bool,
@@ -393,6 +405,12 @@ impl Fighter {
             invincible: false,
             cheat_invincible: false,
             boss: false,
+            boss_shield: false,
+            external_super: 0.0,
+            super_amount: 0.0,
+            super_particles: Default::default(),
+            super_handles: None,
+            super_running: false,
             cheat_unstoppable: false,
             gone: false,
             film: None,
@@ -1498,6 +1516,12 @@ impl Fighter {
     }
 
     /// A render draw referencing `bones` (kept alive by the caller).
+    /// Its super shield is up (`ONrCharacter_HasSuperShield`: a super-shield
+    /// class past half its super amount).
+    pub fn has_super_shield(&self) -> bool {
+        self.motion.tuning.super_shield && self.super_amount > 0.5
+    }
+
     /// Takes no damage (`ONrCharacter_IsInvincible`).
     pub fn is_invincible(&self) -> bool {
         self.invincible || self.cheat_invincible
@@ -1514,6 +1538,7 @@ impl Fighter {
             bones,
             see_through: false,
             alpha: self.effects.body_alpha(),
+            shade: None,
         }
     }
 

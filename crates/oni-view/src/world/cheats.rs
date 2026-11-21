@@ -10,7 +10,7 @@ const BUFFER: usize = 20;
 
 /// The codes the port carries out: the word, its message on (or given)
 /// and off. The original's others aren't here yet (#60's docs list them).
-const CODES: [(&str, &str, Option<&str>, Cheat); 10] = [
+const CODES: [(&str, &str, Option<&str>, Cheat); 12] = [
     ("liveforever", "Invincibility Enabled", Some("Invincibility Disabled"), Cheat::Invincible),
     ("touchofdeath", "Omnipotence Enabled", Some("Omnipotence Disabled"), Cheat::Omnipotent),
     ("canttouchthis", "Unstoppable Enabled", Some("Unstoppable Disabled"), Cheat::Unstoppable),
@@ -20,6 +20,8 @@ const CODES: [(&str, &str, Option<&str>, Cheat); 10] = [
     ("superammo", "Super Ammo Mode Enabled", Some("Super Ammo Mode Disabled"), Cheat::SuperAmmo),
     ("elderrune", "Regeneration Enabled", Some("Regeneration Disabled"), Cheat::Regeneration),
     ("moonshadow", "Phase Cloak Enabled", Some("Phase Cloak Disabled"), Cheat::Invisibility),
+    ("chenille", "Daodan Power Enabled", Some("Daodan Power Disabled"), Cheat::DaodanPower),
+    ("carousel", "Slow Motion Enabled", Some("Slow Motion Disabled"), Cheat::SlowMotion),
     // (Not the original's: a full shield belt, for trying shields out.)
     ("forcefield", "Force Field Received", None, Cheat::ForceField),
 ];
@@ -35,6 +37,8 @@ enum Cheat {
     SuperAmmo,
     Regeneration,
     Invisibility,
+    DaodanPower,
+    SlowMotion,
     ForceField,
 }
 
@@ -48,6 +52,7 @@ pub struct Cheats {
     pub omnipotent: bool,
     pub unstoppable: bool,
     pub regeneration: bool,
+    pub slow_motion: bool,
 }
 
 impl World {
@@ -110,6 +115,19 @@ impl World {
                     true
                 }
             }
+            // Its super amount at 10 and a boss shield; off, neither.
+            Cheat::DaodanPower => {
+                if p.external_super > 1.0 {
+                    p.external_super = 0.0;
+                    p.boss_shield = false;
+                    false
+                } else {
+                    p.external_super = 10.0;
+                    p.boss_shield = true;
+                    true
+                }
+            }
+            Cheat::SlowMotion => toggle(&mut c.slow_motion),
             Cheat::ForceField => {
                 p.inventory.shield = super::magic::MAX_SHIELD;
                 true

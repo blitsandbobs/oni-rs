@@ -232,8 +232,7 @@ pub trait Host {
     /// Breaks the glass within `radius` of `centre`, `damage` hard, blown
     /// out by `blast` (none: shattered as by a shot).
     fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32, _damage: f32, _blast: Option<glass::Blast>) {}
-    /// Character `who`'s super amount (`ONtCharacter.super_amount`; not
-    /// tracked yet: none).
+    /// Character `who`'s super amount (`ONtCharacter.super_amount`).
     fn super_amount(&self, _who: usize) -> f32 {
         0.0
     }
@@ -284,6 +283,9 @@ pub struct System {
     pub decals: effect::Decals,
     /// Particles made so far (each one's creation order).
     serial: u64,
+    /// New particles are temporary (`particle_temp_start`): they, and what
+    /// they emit, go at `particle_temp_kill`.
+    pub temporary: bool,
 }
 
 /// The outcome of running an action list.
@@ -308,6 +310,7 @@ impl System {
             global_tint: None,
             decals: effect::Decals::default(),
             serial: 0,
+            temporary: false,
         }
     }
 
@@ -428,6 +431,9 @@ impl System {
         let mut flags = 0;
         if c.has(cflag::INITIALLY_HIDDEN) {
             flags |= pflag::HIDDEN;
+        }
+        if self.temporary {
+            flags |= pflag::TEMPORARY;
         }
         let emitters = c
             .emitters
@@ -553,6 +559,14 @@ impl System {
     }
 
     /// Kills a particle from outside (a weapon dropped, a level ending).
+    /// `P3rKillTemporaryParticles`: every temporary particle dies.
+    pub fn kill_temporary(&mut self, host: &mut dyn Host) {
+        let doomed: Vec<Handle> = self.iter().filter(|(_, p)| p.flags & pflag::TEMPORARY != 0).map(|(h, _)| h).collect();
+        for h in doomed {
+            self.kill(h, host);
+        }
+    }
+
     pub fn kill(&mut self, h: Handle, host: &mut dyn Host) {
         if let Some(p) = self.take(h) {
             let t = p.time;

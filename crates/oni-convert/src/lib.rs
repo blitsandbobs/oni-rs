@@ -869,9 +869,41 @@ fn collect_character_classes(
             let d = dat.instance_data(i)?;
             Some((cstr(d, 4, 32), cstr(d, 36, 32)))
         });
+        // Its particles (`ONtCharacterParticleArray`, `ONCP`: `numParticles`
+        // @20, then 88 bytes each — `name[16]`, `particle_classname[64]`,
+        // `override_partindex` u16): what its animations and powers attach
+        // (the super particles: those named `super…`).
+        let class_particles: Vec<serde_json::Value> = dat
+            .instance_data(inst)
+            .and_then(|d| {
+                let refs = (0..d.len() / 4).filter_map(|k| {
+                    let r = le_u32(d, k * 4);
+                    (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten()
+                });
+                let mut refs = refs.filter(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONCP")));
+                let oncp = refs.next_back()?;
+                let p = dat.instance_data(oncp)?;
+                let n = (le_u32(p, 20) as usize).min(64);
+                Some(
+                    (0..n)
+                        .filter_map(|k| {
+                            let at = 24 + k * 88;
+                            p.get(at..at + 88)?;
+                            let part = le_u16(p, at + 80);
+                            Some(serde_json::json!({
+                                "name": cstr(p, at, 16),
+                                "class": cstr(p, at + 16, 64),
+                                "part": if part == 0xFFFF { serde_json::json!("animation") } else if part == 0x8000 { serde_json::json!("hitFlash") } else { serde_json::json!(part) },
+                            }))
+                        })
+                        .collect(),
+                )
+            })
+            .unwrap_or_default();
         out.push(serde_json::json!({
             "name": cc.name,
             "variant": cc.variant,
+            "particles": class_particles,
             "variantName": variant_data.as_ref().map(|v| v.0.clone()),
             "variantUpgrade": variant_data.as_ref().map(|v| v.1.clone()).filter(|u| !u.is_empty()),
             "body": cc.body,
