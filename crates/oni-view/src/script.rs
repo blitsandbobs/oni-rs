@@ -234,6 +234,13 @@ impl ScriptHost {
     }
 
     fn screenshot(&mut self, path: &Path, w: u32, h: u32) {
+        let rgba = self.frame_rgba(w, h);
+        crate::write_png(path, w, h, &rgba);
+        eprintln!("wrote {} ({w}x{h})", path.display());
+    }
+
+    /// A frame as the player would see it, drawn offscreen and read back.
+    fn frame_rgba(&mut self, w: u32, h: u32) -> Vec<u8> {
         let aspect = w as f32 / h as f32;
         // (What the player sees: the game camera — once it is placed.)
         let mut cam = if self.world.camera.placed {
@@ -350,7 +357,7 @@ impl ScriptHost {
             )
             .collect();
         let basis = cam.billboard_basis();
-        let rgba = crate::render_to_rgba(
+        crate::render_to_rgba(
             &self.gpu,
             &mut self.renderer,
             self.format,
@@ -358,9 +365,7 @@ impl ScriptHost {
             cam.view_proj(),
             &draws,
             basis,
-        );
-        crate::write_png(path, w, h, &rgba);
-        eprintln!("wrote {} ({w}x{h})", path.display());
+        )
     }
 }
 
@@ -3468,6 +3473,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 Ok(())
             },
         )?,
+    )?;
+
+    // render_frames(n, w, h[, step]) → the mean wall time of a frame in ms,
+    // drawn offscreen and read back n times (a game tick between frames if
+    // `step`): for profiling the renderer.
+    let h = host.clone();
+    g.set(
+        "render_frames",
+        lua.create_function(move |_, (n, w, h2, step): (u32, u32, u32, Option<bool>)| {
+            let mut host = h.borrow_mut();
+            let start = std::time::Instant::now();
+            for _ in 0..n {
+                if step == Some(true) {
+                    host.step(1);
+                }
+                let _ = host.frame_rgba(w, h2);
+            }
+            Ok(start.elapsed().as_secs_f64() * 1000.0 / f64::from(n.max(1)))
+        })?,
     )?;
 
     Ok(())
