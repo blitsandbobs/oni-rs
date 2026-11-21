@@ -154,6 +154,12 @@ impl Audio {
         self.desired = v.clamp(0.0, 1.0);
     }
 
+    /// Every channel playing paused (`SSrPlayingChannels_Pause`: the main
+    /// menu over a game), or every paused one going on again.
+    pub fn pause_channels(&mut self, on: bool) {
+        self.mixer.lock().unwrap().pause_all(on);
+    }
+
     /// The overall volume now (`SS2rVolume_Get`).
     pub fn volume(&self) -> f32 {
         self.overall

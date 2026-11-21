@@ -3,7 +3,8 @@
 //! change-restart prompts, the level-load progress — every item with its
 //! window type, style bits, place and font; and the level descriptors
 //! (`ONLD`: number, next, display name) the load-game list names levels by;
-//! and the out-of-game skin (`psui_oniUI`: the part spec of each part).
+//! the out-of-game skin (`psui_oniUI`: the part spec of each part); and the
+//! popup menus' items (`pm_difficulty`).
 //! Written to `common/menus.json`.
 
 use std::path::Path;
@@ -79,7 +80,16 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<Value>
             .collect();
         Value::Object(m)
     });
-    Some(json!({ "dialogs": dialogs, "levels": levels, "skin": skin.unwrap_or(Value::Null) }))
+    // The popup menus' items (`WMtMenuData`; the options' difficulty).
+    let popups: serde_json::Map<String, Value> = ["pm_difficulty"]
+        .iter()
+        .filter_map(|&n| {
+            let (_, m) = r.get(&json!({ "$ref": n }))?;
+            let items: Vec<Value> = m["items"].as_array()?.iter().map(|i| json!({ "id": i["id"], "flags": i["flags"], "title": text(&i["title"]) })).collect();
+            Some((n.to_string(), json!(items)))
+        })
+        .collect();
+    Some(json!({ "dialogs": dialogs, "levels": levels, "skin": skin.unwrap_or(Value::Null), "popups": popups }))
 }
 
 pub fn write(doc: &Value, path: &Path) -> std::io::Result<()> {

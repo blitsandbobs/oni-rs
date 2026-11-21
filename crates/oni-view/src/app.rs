@@ -16,6 +16,8 @@ use winit::window::{Window, WindowId};
 
 use crate::camera::Camera;
 use crate::gltf::Scene;
+
+mod front;
 use crate::render::{Gpu, Renderer};
 
 /// Play-mode controller: the [`World`](crate::world::World) (player = fighter 0,
@@ -56,6 +58,8 @@ struct Settings {
     faithful: bool,
     subtitles: bool,
     sound_law: crate::audio::mixer::Law,
+    /// The overall volume (the options').
+    volume: f32,
 }
 
 /// Builds level `level` for mission play (`ONrLevel_Load`): its scene
@@ -87,6 +91,8 @@ fn mission_level(
     let mut renderer = Renderer::new(gpu, &scene, &[], format);
     let mut classes = crate::classes::Classes::open(oni_root, level).map_err(|e| format!("classes: {e}"))?;
     let kind = classes.kind(&set.player, |ch| renderer.add_character(gpu, ch))?;
+    // (A level begun: the place last played, the level unlocked.)
+    crate::game::level_begun(level);
     let mut world = crate::world::World::new();
     if set.faithful {
         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
@@ -120,6 +126,7 @@ fn mission_level(
         m.begin(&mut host);
     }
     world.audio.mixer.lock().unwrap().law = set.sound_law;
+    world.audio.set_volume(set.volume);
     let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
     world.audio.realtime = audio.is_some();
     Ok((
@@ -193,6 +200,9 @@ struct State {
     play: Option<PlayWorld>,
     /// What mission play's levels are built with.
     settings: Settings,
+    /// The out-of-game menus (`app/front.rs`): at start-up with no level
+    /// given, and over mission play (Esc).
+    front: Option<front::Front>,
     /// The game is over: close.
     quit: bool,
 }
@@ -212,6 +222,8 @@ pub struct App {
     subtitles: bool,
     save_point: i64,
     sound_law: crate::audio::mixer::Law,
+    /// Start at the main menu, the assets here (no level given).
+    front_end: Option<std::path::PathBuf>,
     state: Option<State>,
 }
 
@@ -239,6 +251,9 @@ pub struct PlaySetup {
     pub save_point: i64,
     /// How volumes become loudness: the PC build's (default) or the Mac's.
     pub sound_law: crate::audio::mixer::Law,
+    /// Start at the main menu (the converted assets' root): the player's
+    /// default, `oni-view` with no arguments.
+    pub front_end: Option<std::path::PathBuf>,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -260,6 +275,7 @@ pub fn run(
         subtitles,
         save_point,
         sound_law,
+        front_end,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -278,6 +294,7 @@ pub fn run(
         subtitles,
         save_point,
         sound_law,
+        front_end,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -328,13 +345,18 @@ impl ApplicationHandler for App {
         // Play mode consumes the character into a `World` of fighters (player =
         // fighter 0, plus a training dummy in front); the static viewer keeps the
         // single `CharView` for direct posing.
+        // The player's options: at the menu they set the game up; given on
+        // the command line, the line's choices win.
+        let user = crate::settings::Settings::load();
         let settings = Settings {
             player: self.cast.player.clone(),
-            difficulty: self.cast.difficulty.clone(),
+            difficulty: if self.front_end.is_some() { user.difficulty.clone() } else { self.cast.difficulty.clone() },
             faithful: self.faithful,
-            subtitles: self.subtitles,
+            subtitles: self.subtitles || (self.front_end.is_some() && user.subtitles),
             sound_law: self.sound_law,
+            volume: user.overall_volume,
         };
+        let mut front = self.front_end.clone().map(|root| front::Front::new(root, user.clone(), true));
         // Mission play: the level as the game plays it (its scripts, its
         // flow from level to level).
         let mission_play = if self.play && self.mission {
@@ -351,6 +373,8 @@ impl ApplicationHandler for App {
                     renderer = r;
                     charview = None;
                     apply_capture(&window, true);
+                    // (Esc brings up the main menu over it.)
+                    front = Some(front::Front::new(oni_root.clone(), user.clone(), false));
                     Some(pw)
                 }
                 Err(e) => {
@@ -488,7 +512,7 @@ impl ApplicationHandler for App {
             cursor: [0.0, 0.0],
             captured: self.play,
             bindings: oni_config::Bindings::oni_defaults(),
-            tuning: oni_config::InputTuning::default(),
+            tuning: oni_config::InputTuning { invert_y: user.invert_mouse, ..oni_config::InputTuning::default() },
             move_speed,
             last: now,
             start: now,
@@ -496,8 +520,13 @@ impl ApplicationHandler for App {
             char_model,
             play,
             settings,
+            front,
             quit: false,
         });
+        // No level given: the main menu.
+        if let Some(st) = self.state.as_mut().filter(|_| self.front_end.is_some()) {
+            st.open_menu();
+        }
     }
 
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
@@ -519,6 +548,19 @@ impl ApplicationHandler for App {
                     }
                 }
                 if let PhysicalKey::Code(code) = event.physical_key {
+                    // The main menu up: its dialogs take the keys.
+                    if !event.repeat && st.menu_key(code, event.state == ElementState::Pressed) {
+                        return;
+                    }
+                    // Esc over mission play: the main menu (not in a
+                    // cutscene, nor over a splash: `ONiGameState_ProcessMiscActions`).
+                    if code == KeyCode::Escape && event.state == ElementState::Pressed && !event.repeat && st.front.is_some() {
+                        let free = st.play.as_ref().is_some_and(|p| !p.world.in_cutscene && !p.world.hud.modal() && p.flow.as_ref().is_some_and(|f| f.splash.is_none()));
+                        if free {
+                            st.open_menu();
+                        }
+                        return;
+                    }
                     // A data console's text up (modal: `ONiTC_HandleKeyDown`):
                     // Space for the next page, Esc to close; nothing else.
                     if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.text_console.is_some()) {
@@ -605,9 +647,26 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = st.window.scale_factor() as f32;
                 st.cursor = [position.x as f32 / scale, position.y as f32 / scale];
+                st.menu_cursor();
+            }
+            WindowEvent::MouseWheel { delta, .. } => {
+                if st.menu_open() {
+                    let lines = match delta {
+                        winit::event::MouseScrollDelta::LineDelta(_, y) => y.round() as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 16.0).round() as i32,
+                    };
+                    st.menu_wheel(lines);
+                }
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = state == ElementState::Pressed;
+                // The main menu up: the left button is on its dialogs.
+                if st.menu_open() {
+                    if button == MouseButton::Left {
+                        st.menu_mouse(pressed);
+                    }
+                    return;
+                }
                 // The pause screen up: a click is on its buttons.
                 if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
                     if pressed && button == MouseButton::Left {
@@ -689,6 +748,11 @@ impl State {
         let now = Instant::now();
         let dt = (now - self.last).as_secs_f32().min(0.1);
         self.last = now;
+        // The menus: their sound, and what they started.
+        self.front_tick(dt);
+        if self.play.is_none() && self.front.is_some() {
+            return;
+        }
 
         // Play mode: drive the character at a fixed 60 Hz.
         if self.play.is_some() {
@@ -789,8 +853,9 @@ impl State {
         // pitch (mouse-Y → aimingUD, clamped ±π/2).
         let dx = std::mem::take(&mut pw.mouse_dx);
         let dy = std::mem::take(&mut pw.mouse_dy);
-        // (A data console's text up: the game stands still.)
-        let frozen = pw.world.hud.modal();
+        // (A data console's text up, or the main menu: the game stands
+        // still.)
+        let frozen = pw.world.hud.modal() || self.front.as_ref().is_some_and(|f| f.menu.is_some());
         let (dx, dy) = if frozen { (0.0, 0.0) } else { (dx, dy) };
         // (As the game ships — its "invert mouse" option on — the mouse
         // moved down aims down.)
@@ -918,7 +983,13 @@ impl State {
             After::Resume => return,
             After::End => {
                 eprintln!("game: the end");
-                self.quit = true;
+                // (Begun at the menu: back to it.)
+                if self.front.as_ref().is_some_and(|f| f.started_here) {
+                    self.play = None;
+                    self.open_menu();
+                } else {
+                    self.quit = true;
+                }
                 return;
             }
             After::Restart => {
@@ -987,6 +1058,12 @@ impl State {
             self.renderer.anim_time = pw.world.game_tick();
             self.renderer.eye = self.cam.eye;
             self.renderer.fog = pw.world.fog.fog;
+        }
+        // The main menu over everything (black behind it).
+        if let Some(o) = self.menu_overlay() {
+            let scale = self.window.scale_factor() as f32;
+            self.renderer.overlay = o;
+            self.renderer.overlay_size = [self.config.width as f32 / scale, self.config.height as f32 / scale];
         }
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),

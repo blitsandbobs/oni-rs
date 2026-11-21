@@ -22,6 +22,8 @@ fi
 jobs=8
 if [ "$1" = "-j" ]; then jobs=$2; shift 2; fi
 dir=$(mktemp -d)
+# (The player's saved game and options left alone: an empty save folder.)
+export ONI_SAVE_DIR=$dir/save
 for f in scenarios/*.lua; do echo $f; done |
   xargs -P $jobs -I{} "$0" --one {} "$dir" "$@"
 fail=0

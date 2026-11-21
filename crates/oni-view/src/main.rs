@@ -42,6 +42,7 @@ mod quads;
 mod quirks;
 mod render;
 mod script;
+mod settings;
 mod skel;
 mod texanim;
 mod world;
@@ -115,8 +116,16 @@ impl CharView {
 fn main() {
     let mut args = std::env::args().skip(1);
     let Some(scene_path) = args.next().map(PathBuf::from) else {
-        eprintln!("usage: oni-view <scene.glb> [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]");
-        std::process::exit(2);
+        // No arguments: the game, from its main menu.
+        match find_assets() {
+            Some(root) => run_game(root),
+            None => {
+                eprintln!("oni-view: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
+                eprintln!("usage: oni-view [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
+                std::process::exit(2);
+            }
+        }
+        return;
     };
 
     let mut screenshot = None;
@@ -292,6 +301,7 @@ fn main() {
                 subtitles,
                 save_point,
                 sound_law,
+                front_end: None,
             },
         ),
     }
@@ -332,6 +342,50 @@ fn glass_parts(scene: &gltf::Scene) -> Vec<(u32, Option<u32>, Mesh)> {
         indices.extend(p.indices.iter().map(|i| base + i));
     }
     out
+}
+
+/// The converted assets (`…/oni`, holding `common/menus.json`): `$ONI_ROOT`,
+/// else `generated/oni` here or above, by the working directory or the
+/// program.
+fn find_assets() -> Option<PathBuf> {
+    let ok = |p: &std::path::Path| p.join("common/menus.json").is_file();
+    if let Some(r) = std::env::var_os("ONI_ROOT").map(PathBuf::from) {
+        return ok(&r).then_some(r);
+    }
+    let mut starts = vec![std::env::current_dir().ok()?];
+    if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+        starts.push(exe);
+    }
+    starts.iter().flat_map(|s| s.ancestors().map(|a| a.join("generated/oni")).collect::<Vec<_>>()).find(|p| ok(p))
+}
+
+/// The game as the player has it: the main menu, then the levels it
+/// starts (`app::run` with no level, the menus' assets at `root`).
+fn run_game(root: PathBuf) {
+    eprintln!("oni-view: assets at {}", root.display());
+    let scene = gltf::Scene { prims: Vec::new(), textures: Vec::new(), min: Vec3::ZERO, max: Vec3::ZERO };
+    let classes = None;
+    let cast = Cast { player: "konoko_generic".into(), opponent: None, difficulty: "normal".into(), level_dir: root.join("levels/01") };
+    app::run(
+        scene,
+        None,
+        Vec::new(),
+        None,
+        None,
+        app::PlaySetup {
+            // (No level yet: the menu starts them.)
+            play: false,
+            classes,
+            cast,
+            faithful: false,
+            spar: false,
+            mission: false,
+            subtitles: false,
+            save_point: 0,
+            sound_law: audio::mixer::Law::Pc,
+            front_end: Some(root),
+        },
+    );
 }
 
 /// The converted-asset root (`…/oni`) for a scene at `…/oni/levels/NN/x.glb`.

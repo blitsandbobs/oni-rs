@@ -90,6 +90,10 @@ struct ScriptHost {
     target: Option<Vec3>,
     /// The level's own scripts, once begun (`mission_begin`).
     mission: Option<crate::mission::Mission>,
+    /// The converted assets' root (`…/oni`).
+    oni_root: std::path::PathBuf,
+    /// The main menu up (`menu_open`), and its data.
+    menu: Option<(crate::hud::menu::Data, crate::hud::menu::MainMenu)>,
 }
 
 impl crate::mission::Host for ScriptHost {
@@ -141,6 +145,7 @@ impl ScriptHost {
         }
         // Player = fighter 0, facing +Z.
         world.spawn(&kind, spawn_pos, 0.0, false);
+        let oni_root = cast.level_dir.join("../..");
 
         Ok(ScriptHost {
             gpu,
@@ -157,6 +162,8 @@ impl ScriptHost {
             eye: None,
             target: None,
             mission: None,
+            oni_root,
+            menu: None,
         })
     }
 
@@ -221,7 +228,10 @@ impl ScriptHost {
         self.renderer.anim_time = self.world.game_tick();
         self.renderer.eye = cam.eye;
         self.renderer.fog = self.world.fog.fog;
-        self.renderer.overlay = self.world.hud_draw(w as f32, h as f32);
+        self.renderer.overlay = match &self.menu {
+            Some((data, m)) => m.draw(data, w as f32, h as f32),
+            None => self.world.hud_draw(w as f32, h as f32),
+        };
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
         let mut guns: Vec<(usize, Vec<Mat4>, bool)> = self
@@ -1916,6 +1926,116 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Skip::FadingIn(_) => "fading in",
         };
         Ok((mode, w.skip_blanket()))
+    })?)?;
+    // The main menu (docs/MENU.md): menu_open([in_game]) brings it up;
+    // menu_state() → {dialog, depth, rows, selected, checks = {id = on},
+    // sliders = {id = value}, popups = {id = item}} of the dialog on top (nil:
+    // none up); menu_click(id) clicks a control (its middle) and
+    // menu_key(name) presses a key ("enter", "escape", "up", "down", …), each
+    // returning what the menu asks for ("new_game", "new_game faithful",
+    // "load L S", "resume", "quit", "options"; nil: nothing); menu_close().
+    let h = host.clone();
+    g.set("menu_open", lua.create_function(move |_, in_game: Option<bool>| {
+        let mut host = h.borrow_mut();
+        let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
+        if !data.has("mainmenu") {
+            return Err(mlua::Error::external("no menus (common/menus.json)"));
+        }
+        let m = crate::hud::menu::MainMenu::open(&data, in_game.unwrap_or(false), crate::settings::Settings::default());
+        host.menu = Some((data, m));
+        Ok(())
+    })?)?;
+    let h = host.clone();
+    g.set("menu_close", lua.create_function(move |_, ()| {
+        h.borrow_mut().menu = None;
+        Ok(())
+    })?)?;
+    let h = host.clone();
+    g.set("menu_state", lua.create_function(move |lua, ()| {
+        let host = h.borrow();
+        let Some((_, m)) = &host.menu else { return Ok(None) };
+        let Some(w) = m.top() else { return Ok(None) };
+        let t = lua.create_table()?;
+        t.set("dialog", w.name.clone())?;
+        t.set("depth", m.stack.len())?;
+        let (checks, sliders, popups, visible) = (lua.create_table()?, lua.create_table()?, lua.create_table()?, lua.create_table()?);
+        for c in &w.controls {
+            if c.visible {
+                visible.set(c.def.id, c.def.title.clone())?;
+            }
+            match &c.ctl {
+                crate::hud::menu::Ctl::Check(on) => checks.set(c.def.id, *on)?,
+                crate::hud::menu::Ctl::Slider { value, .. } => sliders.set(c.def.id, *value)?,
+                crate::hud::menu::Ctl::Popup { .. } => popups.set(c.def.id, w.popup(c.def.id))?,
+                crate::hud::menu::Ctl::List { .. } => {
+                    t.set("rows", w.rows(c.def.id))?;
+                    t.set("selected", w.selected_data(c.def.id).map(|d| (d & 0xFF, d >> 8)).map(|(l, s)| format!("{l} {s}")))?;
+                }
+                _ => {}
+            }
+        }
+        t.set("visible", visible)?;
+        t.set("checks", checks)?;
+        t.set("sliders", sliders)?;
+        t.set("popups", popups)?;
+        Ok(Some(t))
+    })?)?;
+    fn act(a: Option<crate::hud::menu::Action>) -> Option<String> {
+        use crate::hud::menu::Action;
+        a.map(|a| match a {
+            Action::NewGame { faithful } => if faithful { "new_game faithful".into() } else { "new_game".into() },
+            Action::Load { level, save_point } => format!("load {level} {save_point}"),
+            Action::Resume => "resume".into(),
+            Action::Quit => "quit".into(),
+            Action::Options(_) => "options".into(),
+        })
+    }
+    fn run(host: &mut ScriptHost, cmds: Vec<crate::hud::menu::Command>) -> Option<String> {
+        let root = host.oni_root.clone();
+        let (data, m) = host.menu.as_mut()?;
+        let rows = || crate::game::load_rows(&data.levels, &root);
+        let mut out = None;
+        for c in cmds {
+            out = act(m.command(data, c, &rows)).or(out);
+        }
+        out
+    }
+    let h = host.clone();
+    g.set("menu_click", lua.create_function(move |_, id: i64| {
+        let mut host = h.borrow_mut();
+        let (w, hh) = (640.0, 480.0);
+        let cmds = {
+            let Some((data, m)) = host.menu.as_mut() else { return Ok(None) };
+            let Some(win) = m.top_mut() else { return Ok(None) };
+            let Some(c) = win.control(id).filter(|c| c.visible) else { return Err(mlua::Error::external(format!("no control {id} showing"))) };
+            let at = win.at(w, hh);
+            let [x, y, cw, ch] = c.def.rect;
+            let (px, py) = (at[0] + x + (cw * 0.5).min(20.0), at[1] + y + ch * 0.5);
+            let mut cmds = win.mouse_down(&data.look, w, hh, px, py);
+            cmds.extend(win.mouse_up(&data.look, w, hh, px, py));
+            cmds
+        };
+        Ok(run(&mut host, cmds))
+    })?)?;
+    let h = host.clone();
+    g.set("menu_key", lua.create_function(move |_, name: String| {
+        use crate::hud::menu::Key;
+        let key = match name.as_str() {
+            "enter" => Key::Enter,
+            "escape" => Key::Escape,
+            "up" => Key::Up,
+            "down" => Key::Down,
+            "left" => Key::Left,
+            "right" => Key::Right,
+            "home" => Key::Home,
+            "end" => Key::End,
+            "pageup" => Key::PageUp,
+            "pagedown" => Key::PageDown,
+            _ => return Err(mlua::Error::external(format!("no key {name}"))),
+        };
+        let mut host = h.borrow_mut();
+        let cmds = host.menu.as_mut().and_then(|(_, m)| m.top_mut()).map(|w| w.key(key)).unwrap_or_default();
+        Ok(run(&mut host, cmds))
     })?)?;
     // look_at(id, x, y, z): an agent looks at a point (as `ai2_lookatme`);
     // look_at(id): it stops looking.

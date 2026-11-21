@@ -157,12 +157,116 @@ impl Continue {
     }
 }
 
-/// Where continues are kept between runs (`ONrPersist_SetContinue`'s
-/// persistent file): `$ONI_SAVE_DIR/continues.json`, else
-/// `~/.oni-rs/continues.json`.
+/// Where the saved game is kept between runs (`ONrPersist`'s persistent
+/// file, less the options — `settings.rs`): `$ONI_SAVE_DIR/continues.json`,
+/// else `~/.oni-rs/continues.json`. Its continues by level and save point,
+/// what the player has met and the levels unlocked (`unlocked`), the place
+/// last played (`place`) and the game's mode (`faithful`).
 fn continues_file() -> Option<PathBuf> {
-    let dir = std::env::var_os("ONI_SAVE_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".oni-rs")))?;
-    Some(dir.join("continues.json"))
+    Some(crate::settings::save_dir()?.join("continues.json"))
+}
+
+fn write_continues(path: &std::path::Path, doc: &serde_json::Value) {
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    if let Err(e) = std::fs::write(path, serde_json::to_string_pretty(doc).unwrap_or_default()) {
+        eprintln!("game: can't keep the saved game ({e})");
+    }
+}
+
+/// A continue's name in the load-game list (`ONrGameState_SaveContinue`):
+/// level 1's first is the warehouse, its others count from the training's
+/// end; elsewhere "Save Point N" — each indented under its level (four
+/// spaces on level 1, five elsewhere, as shipped).
+pub fn continue_name(level: u16, save_point: i64) -> String {
+    match (level, save_point) {
+        (1, 1) => "Syndicate Warehouse".into(),
+        (1, n) => format!("    Save Point {}", n - 1),
+        (_, n) => format!("     Save Point {n}"),
+    }
+}
+
+/// `level`'s continues to offer, by save point, with their names: those
+/// kept, and level 1's warehouse always (`ONrPersistance_Initialize` makes
+/// it, flagged to start there without restoring anything).
+pub fn continues_of(level: u16) -> Vec<(i64, String)> {
+    let doc = continues_file().map(|p| read_continues(&p)).unwrap_or_else(|| serde_json::json!({}));
+    let mut out: Vec<(i64, String)> = doc[format!("{level:02}")]
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter_map(|(k, v)| {
+            let n: i64 = k.parse().ok()?;
+            Some((n, v["name"].as_str().map_or_else(|| continue_name(level, n), str::to_string)))
+        })
+        .filter(|(n, _)| (1..10).contains(n))
+        .collect();
+    if level == 1 && !out.iter().any(|(n, _)| *n == 1) {
+        out.push((1, continue_name(1, 1)));
+    }
+    out.sort_by_key(|(n, _)| *n);
+    out
+}
+
+/// A level begun (`ONrGameState_LevelBegin`): the place last played set to
+/// its start, and the level unlocked (`ONrUnlockLevel`; level 1 always is).
+pub fn level_begun(level: u16) {
+    let Some(path) = continues_file() else { return };
+    let mut doc = read_continues(&path);
+    doc["place"] = serde_json::json!({ "level": level, "savePoint": 0 });
+    let mut levels: Vec<u64> = doc["unlocked"]["levels"].as_array().into_iter().flatten().filter_map(|l| l.as_u64()).collect();
+    if level > 1 && !levels.contains(&u64::from(level)) {
+        levels.push(u64::from(level));
+        levels.sort_unstable();
+    }
+    doc["unlocked"]["levels"] = serde_json::json!(levels);
+    write_continues(&path, &doc);
+}
+
+/// Whether `level` is unlocked (`ONrLevelIsUnlocked`): level 1 always.
+pub fn level_unlocked(level: u16) -> bool {
+    level == 1
+        || continues_file()
+            .map(|p| read_continues(&p))
+            .is_some_and(|d| d["unlocked"]["levels"].as_array().is_some_and(|ls| ls.iter().any(|l| l.as_u64() == Some(u64::from(level)))))
+}
+
+/// The load game list (`OWrLevelList_Initialize`): each level (of the
+/// descriptors `levels`, in their order) shipped and reached, then its
+/// continues; and the place last played.
+pub fn load_rows(levels: &[(u16, String)], oni_root: &Path) -> (Vec<crate::hud::menu::LoadRow>, Option<(u16, i64)>) {
+    use crate::hud::menu::LoadRow;
+    let mut rows = Vec::new();
+    for (level, name) in levels {
+        let exists = oni_root.join(format!("levels/{level:02}/environment.glb")).is_file();
+        if !exists || !level_unlocked(*level) {
+            continue;
+        }
+        rows.push(LoadRow { text: name.clone(), level: *level, save_point: 0 });
+        for (sp, text) in continues_of(*level) {
+            rows.push(LoadRow { text, level: *level, save_point: sp });
+        }
+    }
+    (rows, place())
+}
+
+/// The place last played: level and save point.
+pub fn place() -> Option<(u16, i64)> {
+    let doc = read_continues(&continues_file()?);
+    Some((doc["place"]["level"].as_u64()? as u16, doc["place"]["savePoint"].as_i64().unwrap_or(0)))
+}
+
+/// The game's mode: shipped bugs (`--faithful`, chosen at a new game) or not.
+pub fn game_faithful() -> bool {
+    continues_file().map(|p| read_continues(&p)).is_some_and(|d| d["faithful"].as_bool() == Some(true))
+}
+
+pub fn set_game_faithful(on: bool) {
+    let Some(path) = continues_file() else { return };
+    let mut doc = read_continues(&path);
+    doc["faithful"] = serde_json::json!(on);
+    write_continues(&path, &doc);
 }
 
 fn read_continues(path: &std::path::Path) -> serde_json::Value {
@@ -180,13 +284,10 @@ pub fn load_continue(level: u16, n: i64) -> Option<Continue> {
 pub fn store_continue(level: u16, c: &Continue) {
     let Some(path) = continues_file() else { return };
     let mut doc = read_continues(&path);
-    doc[format!("{level:02}")][c.save_point.to_string()] = c.to_json();
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    if let Err(e) = std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap_or_default()) {
-        eprintln!("game: can't keep the continue ({e})");
-    }
+    let mut v = c.to_json();
+    v["name"] = serde_json::json!(continue_name(level, c.save_point));
+    doc[format!("{level:02}")][c.save_point.to_string()] = v;
+    write_continues(&path, &doc);
 }
 
 /// What the player has met (the pause screen's item kinds and weapon
@@ -202,11 +303,9 @@ pub fn load_unlocks() -> Option<(u32, Vec<String>)> {
 pub fn store_unlocks(items: u32, weapons: &[String]) {
     let Some(path) = continues_file() else { return };
     let mut doc = read_continues(&path);
-    doc["unlocked"] = serde_json::json!({ "items": items, "weapons": weapons });
-    if let Some(dir) = path.parent() {
-        let _ = std::fs::create_dir_all(dir);
-    }
-    let _ = std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap_or_default());
+    doc["unlocked"]["items"] = serde_json::json!(items);
+    doc["unlocked"]["weapons"] = serde_json::json!(weapons);
+    write_continues(&path, &doc);
 }
 
 #[cfg(test)]
@@ -226,6 +325,13 @@ mod tests {
             ..Continue::default()
         };
         assert_eq!(Continue::from_json(&c.to_json()), Some(c));
+    }
+
+    #[test]
+    fn continues_are_named_as_shipped() {
+        assert_eq!(continue_name(1, 1), "Syndicate Warehouse");
+        assert_eq!(continue_name(1, 3), "    Save Point 2");
+        assert_eq!(continue_name(4, 2), "     Save Point 2");
     }
 
     #[test]

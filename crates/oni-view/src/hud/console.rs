@@ -133,7 +133,7 @@ pub fn load_dialog(common: &Path) -> Option<Dialog> {
 }
 
 /// A string's glyph cells from `x`, its line's top at `top`.
-fn glyphs(font: &text::Font, s: &str, mut x: f32, top: f32) -> Vec<[f32; 4]> {
+pub(super) fn glyphs(font: &text::Font, s: &str, mut x: f32, top: f32) -> Vec<[f32; 4]> {
     let (aw, ah) = (font.atlas_size[0], font.atlas_size[1]);
     let chh = font.cell_height() as f32;
     let mut tris = Vec::new();
@@ -147,7 +147,7 @@ fn glyphs(font: &text::Font, s: &str, mut x: f32, top: f32) -> Vec<[f32; 4]> {
     tris
 }
 
-fn rgba(shade: u32) -> [f32; 4] {
+pub(super) fn rgba(shade: u32) -> [f32; 4] {
     [((shade >> 16) & 0xFF) as f32 / 255.0, ((shade >> 8) & 0xFF) as f32 / 255.0, (shade & 0xFF) as f32 / 255.0, 1.0]
 }
 

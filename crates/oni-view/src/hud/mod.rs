@@ -9,6 +9,7 @@
 pub mod cinematic;
 pub mod console;
 pub mod pause;
+pub mod menu;
 pub mod text;
 
 use std::collections::HashMap;
@@ -1053,6 +1054,50 @@ impl PartSpec {
     /// Its top row's height.
     pub fn top_height(&self) -> f32 {
         (self.slices[0][0][3] - self.slices[0][0][1]).abs()
+    }
+
+    /// Its top-left part's size (`PSrPartSpec_GetSize(…, PScPart_LeftTop)`).
+    pub fn corner(&self) -> [f32; 2] {
+        let s = self.slices[0][0];
+        [(s[2] - s[0]).abs(), (s[3] - s[1]).abs()]
+    }
+
+    /// Its top-right part's width.
+    pub fn right_width(&self) -> f32 {
+        let s = self.slices[2][0];
+        (s[2] - s[0]).abs()
+    }
+
+    /// One slice drawn stretched over `width` × `height` from `at`.
+    fn slice(&self, c: usize, r: usize, at: [f32; 2], width: f32, height: f32) -> OverlayDraw {
+        let [u0, v0, u1, v1] = self.slices[c][r];
+        let (u0, v0, u1, v1) = (u0 / self.size[0], v0 / self.size[1], u1 / self.size[0], v1 / self.size[1]);
+        let (l, t, rr, b) = (at[0], at[1], at[0] + width, at[1] + height);
+        OverlayDraw {
+            texture: Some(self.texture.clone()),
+            tris: vec![[l, t, u0, v0], [rr, t, u1, v0], [rr, b, u1, v1], [l, t, u0, v0], [rr, b, u1, v1], [l, b, u0, v1]],
+            color: [1.0, 1.0, 1.0, 1.0],
+            additive: false,
+        }
+    }
+
+    /// Its top-left part alone (`PScPart_LeftTop`: checkboxes, slider
+    /// thumbs, arrows).
+    pub fn draw_corner(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
+        vec![self.slice(0, 0, at, width, height)]
+    }
+
+    /// Its middle part alone (`PScPart_MiddleMiddle`).
+    pub fn draw_middle(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
+        vec![self.slice(1, 1, at, width, height)]
+    }
+
+    /// Its top row (`PScPart_TopRow`: the slider's track): the ends at
+    /// their widths, the middle between.
+    pub fn draw_top_row(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
+        let (lw, rw) = (self.corner()[0], self.right_width());
+        let mw = (width - lw - rw).max(0.0);
+        vec![self.slice(0, 0, at, lw, height), self.slice(1, 0, [at[0] + lw, at[1]], mw, height), self.slice(2, 0, [at[0] + lw + mw, at[1]], rw, height)]
     }
 
     /// The frame drawn `width` × `height` from `at`: the corners at their

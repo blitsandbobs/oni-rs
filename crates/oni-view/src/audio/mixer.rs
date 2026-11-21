@@ -139,11 +139,13 @@ pub struct Voice {
     /// The gains being heard (ramping toward the target to avoid clicks).
     heard: Option<[f32; 2]>,
     pos: f64,
+    /// Paused (`SSrPlayingChannels_Pause`): heard no more, kept where it is.
+    pub paused: bool,
 }
 
 impl Voice {
     pub fn new(now: Play, level: f32, pan: (Side, f32)) -> Voice {
-        Voice { now, next: None, level, pan, heard: None, pos: 0.0 }
+        Voice { now, next: None, level, pan, heard: None, pos: 0.0, paused: false }
     }
 
     /// The composed (linear) volume — what stealing compares.
@@ -182,6 +184,14 @@ impl Mixer {
         self.voices[c] = None;
     }
 
+    /// Every voice playing paused, or every paused one going on
+    /// (`SSrPlayingChannels_Pause`, `_Resume`).
+    pub fn pause_all(&mut self, on: bool) {
+        for v in self.voices.iter_mut().flatten() {
+            v.paused = on;
+        }
+    }
+
     /// The output gains channel `c` is heading for.
     pub fn gains(&self, c: usize) -> [f32; 2] {
         self.voice(c).map_or([0.0; 2], |v| self.law.gains(v.volume(), v.pan.0, v.pan.1))
@@ -193,6 +203,10 @@ impl Mixer {
         let (rate, law) = (self.rate, self.law);
         for slot in &mut self.voices {
             let Some(v) = slot else { continue };
+            if v.paused {
+                v.heard = None;
+                continue;
+            }
             let mut target = law.gains(v.volume(), v.pan.0, v.pan.1);
             let start = v.heard.unwrap_or(target);
             let mut ended = false;
