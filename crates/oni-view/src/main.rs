@@ -37,6 +37,7 @@ mod gltf;
 mod hud;
 mod mission;
 mod nav;
+mod neutrals;
 mod particles;
 mod physics;
 mod quads;

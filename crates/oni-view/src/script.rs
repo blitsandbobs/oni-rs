@@ -2278,6 +2278,35 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // neutral_of(id) → fighter id's neutral interaction (`docs/NEUTRAL.md`):
+    // {behavior (id), with (whom it talks with), line (0-based, nil before
+    // the conversation), accepted, begun, items_given, completed, resume_at}
+    // — nil without a behaviour or an interaction.
+    let h = host.clone();
+    g.set(
+        "neutral_of",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let w = &host.world;
+            let Some(f) = w.fighters.get(id) else { return Ok(None) };
+            if f.neutral.behavior.is_none() && f.neutral_with.is_none() {
+                return Ok(None);
+            }
+            let t = lua.create_table()?;
+            t.set("behavior", f.neutral.behavior)?;
+            t.set("with", f.neutral_with)?;
+            t.set("begun", f.neutral.begun)?;
+            t.set("items_given", f.neutral.items_given)?;
+            t.set("completed", f.neutral.completed)?;
+            t.set("resume_at", f.neutral.resume_at)?;
+            if let Some(r) = w.neutral_runs.get(&id) {
+                t.set("line", r.line)?;
+                t.set("accepted", r.accepted)?;
+            }
+            Ok(Some(t))
+        })?,
+    )?;
+
     // Looks along the floor from fighter `id` toward yaw `deg` up to `dist`:
     // the free distance before a wall, and the distance to a ledge (or nil).
     let h = host.clone();

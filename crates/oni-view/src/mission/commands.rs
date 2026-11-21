@@ -1286,6 +1286,29 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             host.world().order_path(id, &path);
             nil()
         }
+        // A character's neutral behaviour, by name ("none": none;
+        // `AI2iScript_SetNeutralBehavior`).
+        "ai2_neutralbehavior" => {
+            if let Some(id) = ai(host, a(0)) {
+                let name = a(1).map(|v| match v {
+                    Value::String(s) => s.to_string_lossy().to_string(),
+                    v => format!("{v:?}"),
+                });
+                let world = host.world();
+                match name.as_deref() {
+                    None | Some("none") => {
+                        world.neutral_behavior(id, None, false);
+                    }
+                    Some(n) => match world.neutrals.values().find(|b| b.name == n).map(|b| b.id) {
+                        Some(b) => {
+                            world.neutral_behavior(id, Some(b), false);
+                        }
+                        None => eprintln!("script: ai2_neutralbehavior: no behaviour '{n}'"),
+                    },
+                }
+            }
+            nil()
+        }
         "ai2_setjobstate" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().make_job(id);

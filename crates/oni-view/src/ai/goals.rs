@@ -506,6 +506,9 @@ pub enum Goal {
     Path(Box<Patrol>),
     /// Running to an alarm console to raise the alarm.
     Alarm(Box<AlarmRun>),
+    /// A neutral character's interaction with the player
+    /// (`AI2cGoal_Neutral`): the world runs it (`world/neutral.rs`).
+    Neutral,
 }
 
 /// On the way to an alarm console.
@@ -550,6 +553,7 @@ impl Goal {
             Goal::Panic(_) => "panic",
             Goal::Path(_) => "path",
             Goal::Alarm(_) => "alarm",
+            Goal::Neutral => "neutral",
         }
     }
 }
@@ -896,6 +900,10 @@ pub struct Agent {
     pub want_pickup: Option<usize>,
     /// Extra spread on its shots (degrees; a patrol's shoot-at-flag).
     pub extra_spread: f32,
+    /// It left its neutral interaction (for the world to stop it,
+    /// `AI2rNeutral_Exit`): Some(true) when a danger made it (the enemy
+    /// line, not the call to come back).
+    pub neutral_exit: Option<bool>,
 }
 
 impl Agent {
@@ -931,6 +939,7 @@ impl Agent {
             trigger: false,
             want_pickup: None,
             extra_spread: 0.0,
+            neutral_exit: None,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
         }
     }
@@ -1192,6 +1201,39 @@ impl Agent {
         self.steer = None;
     }
 
+    // --- the neutral interaction's movement (`world/neutral.rs`) ---------
+
+    /// Enters its neutral interaction (`AI2rNeutral_Enter`): running, not
+    /// aiming, no glances.
+    pub fn neutral_enter(&mut self, cx: &mut Ctx) {
+        self.exit(cx);
+        self.neutral_exit = None;
+        self.goal = Goal::Neutral;
+        self.mode = MoveMode::RunNoAim;
+        self.glance = None;
+        self.look = Look::None;
+        eprintln!("ai: {} → neutral", self.name);
+    }
+
+    /// Stands where it is (`AI2rPath_Halt`), or turns to `face` there.
+    pub fn neutral_halt(&mut self, feet: Vec3, face: Option<f32>) {
+        self.halt();
+        if let Some(f) = face {
+            self.dest = Some(Dest { at: feet, within: 0.0, stop: true, face: Some(f) });
+        }
+    }
+
+    /// Walks rather than runs from now on (to give its items).
+    pub fn neutral_walk(&mut self) {
+        self.mode = MoveMode::WalkNoAim;
+    }
+
+    /// Its movement order found no way.
+    pub fn move_failed(&self) -> bool {
+        self.path_failed()
+    }
+
+
     fn pace(&self, cx: &Ctx) -> Pace {
         let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
         self.mode.pace(cx.alert(), hurry)
@@ -1235,6 +1277,10 @@ impl Agent {
             Goal::Panic(_) => self.mode = MoveMode::ByAlert,
             Goal::Path(_) => self.waiting_script = false,
             Goal::Alarm(_) => self.mode = MoveMode::ByAlert,
+            Goal::Neutral => {
+                self.mode = MoveMode::ByAlert;
+                self.neutral_exit.get_or_insert(false);
+            }
             Goal::Combat(c) => {
                 cx.fights.leave(cx.me);
                 // The alert drops to high on leaving combat.
@@ -1360,7 +1406,7 @@ impl Agent {
             Goal::Panic(_) => self.panic_update(cx),
             Goal::Path(_) => self.patrol_update(cx),
             Goal::Alarm(_) => self.alarm_update(cx),
-            Goal::Idle | Goal::None => {}
+            Goal::Idle | Goal::None | Goal::Neutral => {}
         }
         let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
         let pace = self.mode.pace(cx.perception.alert, hurry);
@@ -3238,6 +3284,10 @@ impl Agent {
             _ => return,
         };
         if !self.panicking() {
+            // (A neutral interaction is broken off by the danger.)
+            if matches!(self.goal, Goal::Neutral) {
+                self.neutral_exit = Some(true);
+            }
             self.exit(cx);
             self.halt();
             self.mode = MoveMode::RunNoAim;

@@ -28,6 +28,7 @@ mod fonts;
 mod melee;
 mod bsl;
 mod consoles;
+mod neutrals;
 mod doors;
 mod lasers;
 mod objects;
@@ -318,6 +319,7 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 characters::write(&dat, raw, &root)?;
                 patrols::write(&dat, raw, &root)?;
                 consoles::write(&dat, raw, &root, &console_classes)?;
+                neutrals::write(&dat, raw, &root)?;
                 doors::write(&dat, raw, &root)?;
                 placed::write(&dat, &root)?;
                 lasers::write(&dat, raw, &root, &laser_classes)?;

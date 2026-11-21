@@ -810,6 +810,13 @@ impl World {
     /// A powerup falls from fighter `who` (`WPrPowerup_Drop`): from its
     /// middle, nudged up to 1 aside, turned at random, with a little random
     /// speed sideways.
+    /// A powerup by name falls from fighter `who` (`drop_powerup`).
+    pub(super) fn drop_powerup_named(&mut self, who: usize, kind: &str, amount: u16) {
+        if let Some(k) = POWERUPS.iter().position(|n| *n == kind) {
+            self.drop_powerup(who, k, amount);
+        }
+    }
+
     fn drop_powerup(&mut self, who: usize, kind: usize, amount: u16) {
         let f = &self.fighters[who];
         let pelvis = f.sight_points()[0];
@@ -1507,6 +1514,11 @@ impl World {
         let kick = knock.then(|| self.fighters[who].last_impact * self.armory.weapons[w].kick_scale());
         self.drop_weapon_index(w, kick);
         self.set_weapon_varient(who);
+    }
+
+    /// Gun `w`, held by no one, falls to the floor (`WPrMagicDrop`).
+    pub(super) fn drop_weapon_free(&mut self, w: usize) {
+        self.drop_weapon_index(w, None);
     }
 
     fn drop_weapon_index(&mut self, w: usize, kick: Option<Vec3>) {

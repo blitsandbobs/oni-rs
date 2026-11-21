@@ -153,6 +153,8 @@ pub struct Placed {
     pub job_id: Option<u16>,
     pub combat_id: u16,
     pub melee_id: Option<u16>,
+    /// Its neutral behaviour (`docs/NEUTRAL.md`).
+    pub neutral_id: Option<u16>,
     /// Added to its class's hit points.
     pub hp_offset: i32,
     /// The alarm groups it answers (bits).
@@ -276,6 +278,7 @@ impl LevelAi {
                 job_id: c["jobId"].as_u64().map(|v| v as u16),
                 combat_id: c["combatProfileId"].as_u64().unwrap_or(0) as u16,
                 melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
+                neutral_id: c["neutralId"].as_u64().map(|v| v as u16),
                 hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
                 weapon: c["weapon"].as_str().filter(|w| !w.is_empty() && *w != "none").map(String::from),
                 ammo_percent: c["ammoPercent"].as_u64().map(|v| v as u32),

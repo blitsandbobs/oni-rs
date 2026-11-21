@@ -103,6 +103,15 @@ pub struct Fighter {
     pub film: Option<FilmPlay>,
     /// Using a console (its controls are the console's meanwhile).
     pub console: Option<crate::consoles::Use>,
+    /// Its neutral behaviour and how far it got (`world/neutral.rs`).
+    pub neutral: crate::world::neutral::Settings,
+    /// The one it is in a neutral interaction with
+    /// (`neutral_interaction_char`), and whether that can't be broken off.
+    pub neutral_with: Option<usize>,
+    pub neutral_uninterruptable: bool,
+    /// How long the player has held keys that would end one
+    /// (`neutral_keyabort_frames`).
+    pub neutral_keyabort: u32,
     /// An alarm it answers went off (its alarm script is due).
     pub alarmed: bool,
     /// The alarm groups it answers (bits).
@@ -368,6 +377,10 @@ impl Fighter {
             gone: false,
             film: None,
             console: None,
+            neutral: Default::default(),
+            neutral_with: None,
+            neutral_uninterruptable: false,
+            neutral_keyabort: 0,
             alarmed: false,
             alarm_groups: 0,
             death_delete: 0,

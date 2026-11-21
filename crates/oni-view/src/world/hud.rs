@@ -99,6 +99,10 @@ impl World {
         if let Some(k) = self.powerup_in_reach(0) {
             out.push(super::weapons::POWERUPS[self.armory.powerups[k].kind]);
         }
+        // (Neutral characters to talk to: above pickups, below doors.)
+        if self.neutral_prompt() {
+            out.push("nci");
+        }
         if self.door_prompt(0) {
             out.push("usedoor");
         }

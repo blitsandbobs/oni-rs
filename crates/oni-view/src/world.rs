@@ -30,6 +30,7 @@ pub mod fog;
 mod hypo;
 mod hud;
 mod lens;
+pub mod neutral;
 pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
@@ -137,6 +138,10 @@ pub struct World {
     pub level_dir: std::path::PathBuf,
     /// The level's consoles.
     pub consoles: Vec<crate::consoles::Console>,
+    /// The level's neutral behaviours, by id, and the interactions under
+    /// way, by character (`world/neutral.rs`).
+    pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
+    pub(crate) neutral_runs: std::collections::HashMap<usize, neutral::Run>,
     /// The level's laser triggers, and their beams out this tick (from, to,
     /// colour — for drawing).
     pub lasers: Vec<crate::lasers::Laser>,
@@ -289,6 +294,8 @@ impl World {
             player_name: "player".into(),
             level_dir: Default::default(),
             consoles: Vec::new(),
+            neutrals: Default::default(),
+            neutral_runs: Default::default(),
             doors: Vec::new(),
             lasers: Vec::new(),
             beams: Vec::new(),
@@ -778,6 +785,8 @@ impl World {
         if let Some(p) = placed {
             self.arm(id, p);
         }
+        // (Its neutral behaviour, from the start: `AI2rNeutral_ChangeBehavior`.)
+        self.neutral_behavior(id, placed.and_then(|p| p.neutral_id), true);
     }
 
     /// Arms fighter `id` as `p` was placed: its gun (as full as placed) and
@@ -814,6 +823,7 @@ impl World {
         self.fog = Default::default();
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
+        self.neutrals = crate::neutrals::load(level_dir);
         self.doors = crate::doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);
@@ -1668,6 +1678,9 @@ impl World {
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.
         let controls = if self.input_enabled { controls & self.key_mask } else { 0 };
+        // (Talking to a neutral character: what would end it, and what
+        // would act, held back.)
+        let controls = self.neutral_keys(controls);
         let action = controls & crate::anim::input::key::ACTION != 0 && self.last_controls & crate::anim::input::key::ACTION == 0;
         self.last_controls = controls;
         let mut controls = controls;
@@ -1683,7 +1696,7 @@ impl World {
             if let Some(c) = self.console_in_reach(0, false) {
                 self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
                 controls &= !crate::anim::input::key::ACTION;
-            } else if self.door_action(0) {
+            } else if self.door_action(0) || self.neutral_action(0) {
                 controls &= !crate::anim::input::key::ACTION;
             }
         }
@@ -1698,6 +1711,7 @@ impl World {
         }
         self.perceive();
         self.run_agents();
+        self.neutral_tick();
         self.plan_paths();
         // Someone lifted by a weapon is pulled toward the lifter (its
         // place: the pelvis over the feet, `actual_position`).

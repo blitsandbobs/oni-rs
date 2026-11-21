@@ -55,6 +55,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `door_jello.lua` | Level 1's door 18: shut, its own quads between the camera and Konoko go see-through and are drawn so; opening, its quads hide and its moving leaf goes see-through as an object (fixed mode; Q17 as shipped) and blocks a lens flare's ray. |
+| `neutral.lua` | Neutral characters (#14), level 1: the truck driver notices Konoko and comes up; Action facing him starts his line (her moves held back; this one can't be walked out of); at its end his script switches the warehouse console on and he runs to it. A punch breaks another civilian's talk off; given a giving behaviour by script, he walks up and hands Konoko a pistol. |
 | `object_jello.lua` | Level 3's van: its rear door between Konoko and the camera goes see-through (fixed) and stays solid as shipped (Q17, the ray read as a point); away from it nothing is. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `gamma.lua` | The gamma option: 0.5 leaves a frame as drawn, 1 brightens it, 0 darkens it (the original's display ramp). |
@@ -206,6 +207,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `overlays_of(id)` | The partial-body clips playing on a fighter: `{slot = recoil / inventory / hit, clip, type, frame}` each. |
 | `timer()` | The countdown: what it shows now (nil while blinked off), ticks left, `on` / `fail`; nils with none. |
 | `passive_of(id)` / `script_id_of(id)` | Whether an AI is passive (a script, a cutscene); the id the scripts know a character by (the player 0, a `chr_create`d character its setup's; nil otherwise). |
+| `neutral_of(id)` | A fighter's neutral interaction (`docs/NEUTRAL.md`): `{behavior, with, line (0-based; nil before talking), accepted, begun, items_given, completed, resume_at}`, or nil without a behaviour or an interaction. |
 | `place(name)` / `goals(id)` / `goal_of(id)` | Goals: place one of the level's characters by name (class, position, job, alerts, profiles; returns its id); give a spawned character default goals (idle); what an agent is doing (`job patrol <path> @<waypoint>`, `pursuit goTo`, `combat Melee → 2`, `idle`, …). `nav_state(id)` also reads an agent's current walk. |
 | `watch(id)` / `alert_of(id)` / `contact_of(id, other)` / `team(id, name)` / `noise(x, y, z, kind, volume [, maker])` | Perception: make a placed character watch and listen; its alert level; how sure it is of another (`definite` … `forgotten`, nil); set its team; make a noise (`interesting`, `danger`, `melee`, `gunshot`, `ignore`). |
 | `technique(id, name)` | Make melee AI `id` use its profile's technique `name` next (once it can). |
