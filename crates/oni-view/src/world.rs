@@ -2389,6 +2389,7 @@ impl World {
     /// handling of the original's known bugs.
     pub fn set_quirks(&mut self, quirks: Quirks) {
         self.quirks = quirks;
+        self.hud.stretch_portraits = quirks.portraits_stretched();
         for f in &mut self.fighters {
             f.quirks = quirks;
         }

@@ -203,6 +203,9 @@ pub struct Hud {
     /// `ui_show_help`; the pause screen closing turns it off).
     help: Option<help::Help>,
     pub help_on: bool,
+    /// The cutscene inserts scaled on each axis alone, stretched on a wide
+    /// screen as shipped (Q27).
+    pub stretch_portraits: bool,
     /// What the player has met — the item kinds (bits by powerup type) and
     /// weapon classes, unlocked for the pause screen for good — and what is
     /// new since it was last looked at.
@@ -271,6 +274,7 @@ impl Default for Hud {
             pause: None,
             help: None,
             help_on: false,
+            stretch_portraits: false,
             pause_data: pause::Data::default(),
             items_seen: 0,
             weapon_classes_seen: Vec::new(),
@@ -970,7 +974,7 @@ impl Hud {
         out.extend(text_draws(&fonts, &laid));
         // The cutscene inserts, over everything (`OCrCinematic_Draw`): each
         // picture, then its frame 3 pixels out all round.
-        for (c, r) in self.cinematics.rects(w, h) {
+        for (c, r) in self.cinematics.rects(w, h, self.stretch_portraits) {
             let mut d = rect(Some(c.texture.clone()), r, [1.0, 1.0, 1.0, 1.0]);
             if c.mirror {
                 for v in &mut d.tris {

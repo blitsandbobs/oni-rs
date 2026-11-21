@@ -251,20 +251,33 @@ impl Cinematics {
 
     /// Each insert's rectangle on a `w` × `h` screen (left, top, right,
     /// bottom; rounded as `OCiCinematic_Draw` rounds them).
-    pub fn rects(&self, w: f32, h: f32) -> Vec<(&Cinematic, [f32; 4])> {
+    pub fn rects(&self, w: f32, h: f32, stretch: bool) -> Vec<(&Cinematic, [f32; 4])> {
         let (sx, sy) = (w / SCREEN_W, h / SCREEN_H);
+        // Off 4:3 each picture keeps its shape — the smaller scale both ways
+        // — and stays aligned as its position has it: by its left edge,
+        // middle or right edge across, top, middle or bottom down. (Shipped,
+        // each axis is scaled on its own: stretched on a wide screen, Q27.)
+        let s = sx.min(sy);
+        let place = |at: f32, size: f32, scale: f32, side: Side| -> (f32, f32) {
+            if stretch {
+                return (at * scale, (at + size) * scale);
+            }
+            let anchor = match side {
+                Side::Start => 0.0,
+                Side::Center => 0.5,
+                Side::End => 1.0,
+            };
+            let pin = (at + size * anchor) * scale;
+            let lo = pin - size * s * anchor;
+            (lo, lo + size * s)
+        };
         self.list
             .iter()
             .map(|c| {
-                (
-                    c,
-                    [
-                        (c.at[0] * sx).round(),
-                        (c.at[1] * sy).round(),
-                        ((c.at[0] + c.size[0]) * sx).round(),
-                        ((c.at[1] + c.size[1]) * sy).round(),
-                    ],
-                )
+                let (_, _, _, _, row, column) = POSITION[usize::from(c.end)];
+                let (l, r) = place(c.at[0], c.size[0], sx, column);
+                let (t, b) = place(c.at[1], c.size[1], sy, row);
+                (c, [l.round(), t.round(), r.round(), b.round()])
             })
             .collect()
     }
@@ -273,6 +286,30 @@ impl Cinematics {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wide_screens_keep_the_shape_and_the_alignment() {
+        let mut c = Cinematics::default();
+        let tex = Some((PathBuf::from("x.png"), [288.0, 288.0]));
+        // A top-right portrait, arrived.
+        c.start("a", tex, -1, -1, 3, 3, 0.0, false);
+        let r = c.rects(1920.0, 1080.0, false)[0].1;
+        let stretched = c.rects(1920.0, 1080.0, true)[0].1;
+        // Square (the height's scale both ways)…
+        assert!(((r[2] - r[0]) - (r[3] - r[1])).abs() <= 1.0, "{r:?}");
+        // …with its right edge and top where the stretched one's are.
+        assert_eq!(
+            (r[2], r[1], r[3]),
+            (stretched[2], stretched[1], stretched[3])
+        );
+        // (Shipped: a third wider than high on 16:9.)
+        assert!((stretched[2] - stretched[0]) / (stretched[3] - stretched[1]) > 1.3);
+        // On 4:3 both agree.
+        assert_eq!(
+            c.rects(1024.0, 768.0, false)[0].1,
+            c.rects(1024.0, 768.0, true)[0].1
+        );
+    }
 
     #[test]
     fn positions_inset_and_aligned() {

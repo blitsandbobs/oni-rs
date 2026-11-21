@@ -167,6 +167,12 @@ impl Quirks {
     pub fn interrupted_reload_loses_clip(self) -> bool {
         self.faithful
     }
+
+    /// Q27: the cutscene inserts are scaled from their 4:3 virtual screen on
+    /// each axis alone, so a wide screen stretches them.
+    pub fn portraits_stretched(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]
