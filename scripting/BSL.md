@@ -299,6 +299,26 @@ assignments taking effect in a skipped branch after a local `var`, `return`
 in a skipped branch, a trailing `#` comment joining the next line, string
 `+`, the 6-frame call limit, the 32 KB handler-name buffer.
 
+The two branch bugs, traced (`BFW_ScriptLang_Parse.c`; #26):
+- **`return`.** It leaves the function without checking the branch
+  (`Statement_Return_ReturnFromExpr` jumps to `done` in any execution
+  mode). No shipped script uses `return`.
+- **Assignments.** Declaring a local `var` sets the parser's `eval` flag,
+  even in a skipped branch. From then on, expressions are evaluated
+  whatever the branch: assignments, arithmetic and comparisons. It lasts
+  for the rest of that pass of the parser, which includes script functions
+  called in it, and ends at the next `sleep` or blocking command, which
+  resumes a fresh pass. Calls, `sleep` and nested `if`s still respect the
+  branch. A skipped sleep or call leaves its argument on the expression
+  stack, which explains the wiki's "dprint twice becomes the return value".
+  The OniGalore *BSL:Manual* says assignments to globals are safe. The
+  source doesn't scope it that way; what matters is whether a local was
+  declared earlier in the pass.
+- **Shipped effect.** Of the 13 functions that declare locals, only the
+  warehouse's `need_ammo` reaches an assignment in a skipped branch in the
+  same pass. With the gun not empty, it resets `already_reloaded` to 0,
+  which that run then never reads, so nothing changes in play.
+
 ## Open questions
 1. The per-command parameter specs (types, enums) are applied loosely: our
    commands read what they need and ignore the rest.
