@@ -3109,11 +3109,19 @@ impl Agent {
                 if closest.distance(pelvis) > reach {
                     continue;
                 }
-                // (As shipped, the distance is the closest point's distance
-                // from the world's origin, not from the body — so the weight
-                // is almost always far below zero, and projectiles go
-                // undodged. SHIPPED BALANCE: kept in every mode.)
-                let mut weight = ((p.radius - closest.length()) / 10.0).min(0.8);
+                // The danger: from the body to the trajectory's closest
+                // point (`AI2rManeuver_NotifyNearbyProjectile`'s
+                // direction-to-trajectory, as a spread's direction to its
+                // centre). Shipped, both it and the distance are the closest
+                // point's own, from the world's origin — so the weight is
+                // almost always far below zero and projectiles go undodged
+                // (Q24; the Daodan DLL's `projaware`).
+                let danger = if cx.quirks.projectiles_from_origin() {
+                    closest
+                } else {
+                    closest - pelvis
+                };
+                let mut weight = ((p.radius - danger.length()) / 10.0).min(0.8);
                 if weight < -0.3 {
                     continue;
                 }
@@ -3122,7 +3130,22 @@ impl Agent {
                     continue;
                 }
                 let lifetime = (45.0 * class.dodge_time_scale).round() as u32;
-                let heading = (pelvis - closest).with_y_zero().normalize_or(Vec3::X);
+                // Away from it; nearly a direct hit, square to its path
+                // (`AI2iManeuver_MakeDodgeFromDanger`, within 10), to a side
+                // with room.
+                let heading = if (closest - pelvis).with_y_zero().length() < 10.0 {
+                    let side = path.cross(Vec3::Y).normalize_or(Vec3::X);
+                    let clear = |d: Vec3| {
+                        (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP)
+                    };
+                    if clear(side) || !clear(-side) {
+                        side
+                    } else {
+                        -side
+                    }
+                } else {
+                    (pelvis - closest).with_y_zero().normalize_or(Vec3::X)
+                };
                 found.push(Dodge {
                     key: p.id | (1 << 63),
                     weight,
@@ -3253,6 +3276,15 @@ impl Agent {
         match &self.goal {
             Goal::Combat(k) => k.dodge,
             _ => None,
+        }
+    }
+
+    /// How many of the dangers it is dodging are projectiles (not guns'
+    /// firing cones).
+    pub fn projectile_dodges(&self) -> usize {
+        match &self.goal {
+            Goal::Combat(k) => k.dodges.iter().filter(|d| d.key >> 63 == 1).count(),
+            _ => 0,
         }
     }
 

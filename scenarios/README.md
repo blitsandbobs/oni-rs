@@ -111,6 +111,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `sounds.lua` | Level 1: glass-breaking impulses — placed and panned (PC law), the alt past three copies, nothing out of earshot, a full stereo pool gives up its quietest channel, all play out. |
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |
 | `cooldown.lua` | Q23: the Mercury Bow fired, dropped and picked up again still waits out its delay (fixed); under `--faithful` the drop cleared it, the shipped cooldown exploit. |
+| `dodge_projectile.lua` | Q24: a Super Ball fired past an armed soldier (inside its dodge radius) makes it step away from the ball's path (fixed); under `--faithful` it stands its ground, the shipped projectile check reading from the world's origin. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
 | `envanim.lua` | `chr_envanim` carries Konoko along an object clip and leaves her at its end; `chr_nocollision` lets her walk through the training barrier. |
 | `env_show.lua` | `env_show`: the training room's barrier (reference 2010) stops Konoko while shown; a script hides it and she runs through. |
@@ -211,7 +212,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `sound_objects()` | The level's sound objects, each `ambient`, `x`, `y`, `z`, `box` (else a sphere), `state` (`Off`, `Starting`, `Playing`, `Stopping`), `volume`, `playing`. |
 | `impulse(name [, x, y, z [, volume]])` / `channels()` / `sound_volume(v)` | Play an impulse sound (placed or not) → its channel 0–15 or nil; the 16 channels (`clip`, `locked`, `volume` linear, `left` / `right` output gains); set the overall volume to head for. |
 | `turret(id, what)` / `turret_state(id)` | Switch turrets by script id (`activate`, `deactivate`, `reset`; −1 every); a turret's state (`active`, `yaw`, `pitch` degrees, `target`, `firing`, `shots`). |
-| `hold_fire(on)` / `dodge_of(id)` | Hold fire 1 down; an agent's dodge now (x, z, weight; nil: none). |
+| `hold_fire(on)` / `dodge_of(id)` | Hold fire 1 down; an agent's dodge now (x, z, weight; nil: none) and how many projectiles it is dodging. |
 | `gun_chance(id, percent)` | Set an agent's chance to go for a gun (its class's, else). |
 | `env_show(ref, on)` / `env_broken(from [, to])` | Show / hide a script reference's level part; how many references in the range have all their glass broken. |
 | `shots()` / `weapons_lying()` | Live particles; guns lying free. |

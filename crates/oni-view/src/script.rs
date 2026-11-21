@@ -2383,11 +2383,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "dodge_of",
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
-            let d = match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
-                Some(crate::ai::Brain::Agent(a)) => a.dodging(),
-                _ => None,
+            let (d, projectiles) = match host.world.fighters.get(id).and_then(|f| f.brain.as_ref())
+            {
+                Some(crate::ai::Brain::Agent(a)) => (a.dodging(), a.projectile_dodges()),
+                _ => (None, 0),
             };
-            Ok((d.map(|(v, _)| v.x), d.map(|(v, _)| v.z), d.map(|(_, w)| w)))
+            Ok((
+                d.map(|(v, _)| v.x),
+                d.map(|(v, _)| v.z),
+                d.map(|(_, w)| w),
+                projectiles,
+            ))
         })?,
     )?;
     let h = host.clone();

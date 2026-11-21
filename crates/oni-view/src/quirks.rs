@@ -147,6 +147,13 @@ impl Quirks {
     pub fn drop_resets_cooldown(self) -> bool {
         self.faithful
     }
+
+    /// Q24: the projectile dodge measures the trajectory's closest point
+    /// from the world's origin, not from the character, so AIs almost never
+    /// dodge projectiles.
+    pub fn projectiles_from_origin(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]
