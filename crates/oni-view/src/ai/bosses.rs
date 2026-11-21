@@ -76,6 +76,65 @@ pub enum Boss {
     None,
     Barabbas(Barabbas),
     SuperNinja(SuperNinja),
+    MutantMuro(MutantMuro),
+}
+
+// Mutant Muro (`AI2cMutantMuro_*`).
+const MM_ZEUS_CONTINUE: u32 = 120;
+const MM_ZEUS_DISABLE: u32 = 300;
+const MM_ZEUS_TARGET_DISTANCE: f32 = 60.0;
+const MM_ZEUS_DISABLE_DISTANCE: f32 = 40.0;
+const MM_ZEUS_MAXIMUM: u32 = 720;
+const MM_SHIELD_REGEN: u32 = 240;
+const MM_SHIELD_ZEUS_DECAY: u32 = 90;
+const MM_SHIELD_ZEUS_DISABLE: u32 = 600;
+const MM_SHIELD_ATTACK_DECAY: u32 = 30;
+const MM_SHIELD_ATTACK_DISABLE: u32 = 360;
+const MM_SHIELD_REQUIRED: u32 = 360;
+const MM_DAMAGE_STOP_ZEUS: u32 = 35;
+const MM_DAMAGE_TURTLE: u32 = 11;
+const MM_TURTLE_FORGET: u32 = 75;
+const MM_TURTLE_DISTANCE: f32 = 30.0;
+
+/// Mutant Muro's state (`AI2tBehaviorState_MutantMuro`): his thunderbolt's
+/// timers, his super shield's, and the hurt that makes him turtle.
+#[derive(Clone, Debug, Default)]
+pub struct MutantMuro {
+    beam_maximum: u32,
+    beam_continue: u32,
+    beam_disable: u32,
+    shield_decay_max: u32,
+    shield_decay: u32,
+    shield_disable: u32,
+    shield_regen: u32,
+    shield_regen_max: u32,
+    shield_active: u32,
+    total_damage: u32,
+    damage_decay: u32,
+    seen_clip: u32,
+}
+
+impl MutantMuro {
+    /// His shield drops (`AI2iMutantMuro_DisableShield`): decaying over
+    /// `decay` ticks from where it is, then off for `disable`.
+    fn disable_shield(&mut self, decay: u32, disable: u32) {
+        if self.shield_disable > 0 || self.shield_decay > 0 {
+            self.shield_disable = self.shield_disable.max(disable);
+            if self.shield_decay > 0 {
+                self.shield_decay = self.shield_decay * decay / self.shield_decay_max.max(1);
+                self.shield_decay_max = decay;
+            }
+        } else if self.shield_regen > 0 {
+            self.shield_decay = self.shield_regen * decay / self.shield_regen_max.max(1);
+            self.shield_decay_max = decay;
+            self.shield_disable = disable;
+        } else {
+            self.shield_decay = decay;
+            self.shield_decay_max = decay;
+            self.shield_disable = disable;
+        }
+        self.shield_active = 0;
+    }
 }
 
 /// The super ninja's modes (`AI2cSuperNinja_*`).
@@ -673,5 +732,171 @@ impl Agent {
         let n = self.ninja();
         n.flee_damage += damage;
         n.flee_stay = SN_DAMAGE_STAY;
+    }
+}
+
+impl Agent {
+    fn muro(&mut self) -> &mut MutantMuro {
+        let k = self.combat();
+        if !matches!(k.boss, Boss::MutantMuro(_)) {
+            k.boss = Boss::MutantMuro(MutantMuro::default());
+        }
+        match &mut k.boss {
+            Boss::MutantMuro(m) => m,
+            _ => unreachable!(),
+        }
+    }
+
+    pub(super) fn is_muro(&self) -> bool {
+        matches!(self.combat_ref().map(|k| &k.boss), Some(Boss::MutantMuro(_)))
+    }
+
+    /// His thunderbolt holds him in it (`AI2cCombatMessage_SwitchBehavior`):
+    /// no change of range band while it goes on.
+    pub(super) fn muro_locked(&self, behavior: &str) -> bool {
+        match self.combat_ref().map(|k| &k.boss) {
+            Some(Boss::MutantMuro(m)) => behavior == "mutantMuroThunderbolt" && m.beam_continue > 0 && m.beam_disable == 0,
+            _ => false,
+        }
+    }
+
+    /// His super moves wait on a shield up 6 s
+    /// (`AI2cCombatMessage_ShieldCharging`).
+    pub(super) fn muro_shield_charging(&self) -> bool {
+        match self.combat_ref().map(|k| &k.boss) {
+            Some(Boss::MutantMuro(m)) => m.shield_active < MM_SHIELD_REQUIRED,
+            _ => false,
+        }
+    }
+
+    /// Hurt: toward turtling (and out of the thunderbolt), forgotten 75
+    /// ticks on.
+    pub(super) fn muro_hurt(&mut self, damage: u32) {
+        let m = self.muro();
+        m.total_damage += damage;
+        m.damage_decay = MM_TURTLE_FORGET;
+    }
+
+    /// Each tick: a clip that drops the shield as it begins
+    /// (`AI2cCombatMessage_NewAnimation`, `ONcAnimFlag_DisableShield`).
+    pub(super) fn muro_tick(&mut self, cx: &Ctx) {
+        let b = cx.body;
+        let m = self.muro();
+        if b.started != m.seen_clip {
+            m.seen_clip = b.started;
+            if b.disables_shield {
+                m.disable_shield(MM_SHIELD_ATTACK_DECAY, MM_SHIELD_ATTACK_DISABLE);
+            }
+        }
+    }
+
+    /// The primary movement of Mutant Muro's behaviours
+    /// (`AI2iBehavior_MutantMuro{,Zeus,Melee}`): his shield's course, then
+    /// the thunderbolt from afar (`mutantMuroThunderbolt`) or melee — turtling
+    /// when hurt close in without his shield (`mutantMuroMelee`).
+    pub(super) fn muro_primary(&mut self, behavior: &str, dist: f32, w: &mut [f32; 7], cx: &mut Ctx) {
+        use crate::anim::types::ty;
+        use pm::*;
+        let b = cx.body;
+        let have_los = self.combat().have_los;
+        let m = self.muro();
+        // His shield.
+        if m.total_damage > 0 {
+            if m.damage_decay > UPDATE {
+                m.damage_decay -= UPDATE;
+            } else {
+                m.damage_decay = 0;
+                m.total_damage = 0;
+            }
+        }
+        let tick = |t: &mut u32| *t = t.saturating_sub(UPDATE);
+        let amount = if m.shield_decay > 0 {
+            let a = m.shield_decay as f32 / m.shield_decay_max.max(1) as f32;
+            tick(&mut m.shield_decay);
+            m.shield_active = 0;
+            a
+        } else if m.shield_disable > 0 {
+            if m.shield_disable > UPDATE {
+                m.shield_disable -= UPDATE;
+            } else {
+                m.shield_disable = 0;
+                m.shield_regen = MM_SHIELD_REGEN;
+                m.shield_regen_max = MM_SHIELD_REGEN;
+            }
+            m.shield_active = 0;
+            0.0
+        } else if m.shield_regen > 0 {
+            let a = 1.0 - m.shield_regen as f32 / m.shield_regen_max.max(1) as f32;
+            tick(&mut m.shield_regen);
+            m.shield_active = 0;
+            a
+        } else {
+            m.shield_active += UPDATE;
+            1.0
+        };
+        tick(&mut m.beam_maximum);
+        tick(&mut m.beam_continue);
+        tick(&mut m.beam_disable);
+        self.set_super = Some(amount);
+        let m = self.muro();
+        if behavior == "mutantMuroThunderbolt" {
+            if b.fallen {
+                w[GETUP] = 1.0;
+                return;
+            }
+            let enable = dist > MM_ZEUS_TARGET_DISTANCE || have_los;
+            let disable = dist < MM_ZEUS_DISABLE_DISTANCE || m.total_damage > MM_DAMAGE_STOP_ZEUS;
+            if disable {
+                m.beam_disable = MM_ZEUS_DISABLE;
+            } else if enable {
+                m.beam_continue = MM_ZEUS_CONTINUE;
+            }
+            if m.beam_maximum == 0 || m.beam_continue == 0 || m.beam_disable > 0 {
+                if m.beam_maximum == 0 && m.beam_continue > 0 && m.beam_disable == 0 {
+                    // Out of it by running too long: not again at once.
+                    m.beam_disable = MM_ZEUS_DISABLE;
+                }
+                m.beam_maximum = MM_ZEUS_MAXIMUM;
+                m.beam_continue = 0;
+                m.total_damage = 0;
+                m.damage_decay = 0;
+                w[ADVANCE] = 1.0;
+                return;
+            }
+            w[HOLD] = 1.0;
+            if b.queued == ty::MURO_THUNDERBOLT || (!b.standing_still && b.anim_type != ty::MURO_THUNDERBOLT) {
+                return;
+            }
+            if !b.has_thunderbolt {
+                m.beam_disable = MM_ZEUS_DISABLE;
+                return;
+            }
+            m.disable_shield(MM_SHIELD_ZEUS_DECAY, MM_SHIELD_ZEUS_DISABLE);
+            self.fight_mode = true;
+            self.anim_request = Some((ty::MURO_THUNDERBOLT, false));
+            return;
+        }
+        m.beam_maximum = MM_ZEUS_MAXIMUM;
+        m.beam_continue = 0;
+        if amount > 0.5 {
+            m.total_damage = 0;
+            m.damage_decay = 0;
+        } else if m.total_damage > MM_DAMAGE_TURTLE && dist < MM_TURTLE_DISTANCE {
+            if b.fallen {
+                w[GETUP] = 1.0;
+            } else {
+                w[HOLD] = 1.0;
+                if b.standing_still {
+                    // Turtle: out of any stun, into the crouch back.
+                    m.total_damage = 0;
+                    m.damage_decay = 0;
+                    self.clear_stun = true;
+                    self.fight_mode = true;
+                    self.anim_request = Some((ty::CROUCH_BACK, false));
+                }
+            }
+            return;
+        }
+        w[MELEE] = 1.0;
     }
 }

@@ -774,6 +774,9 @@ impl World {
             fallen,
             victim: crate::anim::reaction::is_victim(f.motion.kind),
             invisibility: f.inventory.invisibility,
+            queued: f.motion.queued,
+            disables_shield: f.motion.current().has_flag(crate::anim::types::flag::DISABLE_SHIELD),
+            has_thunderbolt: f.motion.coll.lookup(crate::anim::types::ty::MURO_THUNDERBOLT, f.motion.state, f.motion.varient | crate::anim::types::var::FIGHT).is_some(),
         };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
@@ -830,10 +833,18 @@ impl World {
             };
             // A super ninja's powers: invisibility, teleports, hanging on.
             let powers = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => Some((std::mem::take(&mut a.give_invisibility), a.teleport_to.take(), a.teleport_now.take(), a.hold_height.take())),
+                Some(crate::ai::Brain::Agent(a)) => Some((std::mem::take(&mut a.give_invisibility), a.teleport_to.take(), a.teleport_now.take(), a.hold_height.take(), a.set_super.take(), a.clear_stun)),
                 _ => None,
             };
-            if let Some((invis, to, now, hold)) = powers {
+            if let Some((invis, to, now, hold, set_super, clear_stun)) = powers {
+                let f = &mut self.fighters[i];
+                if let Some(v) = set_super {
+                    f.super_amount = v;
+                }
+                if clear_stun {
+                    let m = &mut f.motion;
+                    (m.hit_stun, m.block_stun, m.stagger_stun, m.soft_pause, m.hard_pause) = (0, 0, 0, 0, 0);
+                }
                 if invis > 0 {
                     self.give_powerup(i, "invis", Some(invis), true);
                 }

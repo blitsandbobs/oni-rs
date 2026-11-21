@@ -129,6 +129,8 @@ pub(super) struct TechInfo {
     /// The first throw move.
     pub throw: Option<usize>,
     pub needs_slot: bool,
+    /// The first attack drops a super shield (`ONcAnimFlag_DisableShield`).
+    pub disables_shield: bool,
 }
 
 /// Block stun longer than this makes an attack worth landing on a block.
@@ -188,6 +190,9 @@ pub struct Melee {
     ahead: Option<crate::physics::Probe>,
     difficulty: Difficulty,
     pub(super) quirks: crate::quirks::Quirks,
+    /// Its super shield is still charging: no super moves yet
+    /// (`AI2rCombat_WaitingForShieldCharge`; Mutant Muro).
+    pub shield_charging: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -229,6 +234,7 @@ impl Melee {
             ahead: None,
             difficulty: Difficulty::default(),
             quirks: Default::default(),
+            shield_charging: false,
         }
     }
 
@@ -668,6 +674,9 @@ impl Melee {
         }
         let w = &self.profile.weights;
         let mut f = 1.0;
+        if info.disables_shield && self.shield_charging {
+            return 0.0;
+        }
         if info.attack.is_some() {
             let (high_ok, low_ok) = target.could_block;
             f *= if !high_ok && !low_ok {
@@ -1344,6 +1353,7 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
                             info.high = flags & strike::HIGH != 0;
                             info.low = flags & strike::LOW != 0;
                             info.unblockable = flags & strike::UNBLOCKABLE != 0;
+                            info.disables_shield = c.has_flag(crate::anim::types::flag::DISABLE_SHIELD);
                             info.block_stun = c.attacks.iter().any(|a| a.block_stun > BLOCK_STUN_THRESHOLD);
                             info.stagger = c.attacks.iter().any(|a| a.stagger > 0);
                             if let Some(r) = &c.reach {

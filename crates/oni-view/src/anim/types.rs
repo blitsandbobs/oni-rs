@@ -195,6 +195,9 @@ pub mod var {
 pub mod flag {
     /// The whole clip is immune to hits.
     pub const INVULNERABLE: u32 = 1;
+    /// A super move that drops a super shield for a while
+    /// (`ONcAnimFlag_DisableShield`: Mutant Muro's).
+    pub const DISABLE_SHIELD: u32 = 22;
     /// A block clip that stops high / low attacks.
     pub const BLOCK_HIGH: u32 = 2;
     pub const BLOCK_LOW: u32 = 3;

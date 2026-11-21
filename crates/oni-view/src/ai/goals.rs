@@ -373,6 +373,11 @@ pub struct Body {
     pub victim: bool,
     /// Invisibility left.
     pub invisibility: u16,
+    /// The clip queued next, whether the current one drops a super shield
+    /// (`ONcAnimFlag_DisableShield`), whether it has a thunderbolt to do.
+    pub queued: u16,
+    pub disables_shield: bool,
+    pub has_thunderbolt: bool,
 }
 
 /// The gun in an AI's hand, as targeting sees it.
@@ -863,7 +868,7 @@ pub struct Combat {
     /// Shooting: its aim on the target, whether it has a line of fire, and
     /// whether this is the first sight of this enemy (startle shots).
     targeting: Option<Box<crate::ai::ranged::Targeting>>,
-    have_los: bool,
+    pub(super) have_los: bool,
     first_sight: bool,
     /// How much too close for the gun the target is (0–1).
     too_close: f32,
@@ -949,6 +954,10 @@ pub struct Agent {
     pub teleport_to: Option<(Vec3, f32)>,
     pub teleport_now: Option<(Vec3, f32)>,
     pub hold_height: Option<f32>,
+    /// Its super amount, set outright (Mutant Muro's shield), and its stun
+    /// cleared (to turtle).
+    pub set_super: Option<f32>,
+    pub clear_stun: bool,
     /// A gun it wants to bend for now (the world drops its own and starts
     /// the pickup).
     pub want_pickup: Option<usize>,
@@ -1000,6 +1009,8 @@ impl Agent {
             teleport_to: None,
             teleport_now: None,
             hold_height: None,
+            set_super: None,
+            clear_stun: false,
             want_pickup: None,
             extra_spread: 0.0,
             neutral_exit: None,
@@ -1443,6 +1454,7 @@ impl Agent {
         self.give_invisibility = 0;
         self.teleport_now = None;
         self.hold_height = None;
+        self.clear_stun = false;
         self.extra_spread = 0.0;
         if let Some((_, t)) = &mut self.glance {
             *t = t.saturating_sub(1);
@@ -2470,6 +2482,8 @@ impl Agent {
                 self.barabbas_hurt(damage.max(0) as u32, cx);
             } else if self.ninja_mode().is_some() {
                 self.ninja_hurt(damage.max(0) as u32);
+            } else if self.is_muro() {
+                self.muro_hurt(damage.max(0) as u32);
             }
         }
         if c.who == Some(target) && matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
@@ -2550,6 +2564,13 @@ impl Agent {
             self.ninja_tick(cx);
             if self.ninja_fell(cx) {
                 return;
+            }
+        }
+        if self.is_muro() {
+            self.muro_tick(cx);
+            let charging = self.muro_shield_charging();
+            if let Some(m) = self.combat().melee.as_mut() {
+                m.shield_charging = charging;
             }
         }
         if self.combat().target_dead {
@@ -2816,15 +2837,8 @@ impl Agent {
         self.aim = None;
         self.trigger = false;
         let behavior = {
-            let k = self.combat();
-            let index = match k.band {
-                Band::Long | Band::None => 0,
-                Band::Medium => 1,
-                Band::Short => 2,
-                Band::MediumRetreat => 3,
-                Band::LongRetreat => 4,
-            };
-            self.profile.behavior[index].clone()
+            let band = self.combat().band;
+            self.profile.behavior[band_index(band)].clone()
         };
         let Some(g) = cx.gun.filter(|g| g.usable) else {
             self.combat().targeting = None;
@@ -2927,6 +2941,10 @@ impl Agent {
         let dist = (target_feet - cx.feet).with_y_zero().length();
         let now = cx.now;
         let has_melee = self.combat().melee.is_some();
+        // (Mutant Muro held in his thunderbolt keeps its band:
+        // `AI2cCombatMessage_SwitchBehavior`.)
+        let band = self.combat().band;
+        let locked = band != Band::None && self.muro_locked(&profile.behavior[band_index(band)]);
         let k = self.combat();
         k.try_advance = k.try_advance.saturating_sub(COMBAT_PERIOD as u32);
         let mut w = [0.0f32; 7];
@@ -2953,14 +2971,10 @@ impl Agent {
             } else {
                 Band::Long
             };
-            let index = match k.band {
-                Band::Long | Band::None => 0,
-                Band::Medium => 1,
-                Band::Short => 2,
-                Band::MediumRetreat => 3,
-                Band::LongRetreat => 4,
-            };
-            let behavior = profile.behavior[index].as_str();
+            if locked {
+                k.band = prev;
+            }
+            let behavior = profile.behavior[band_index(k.band)].as_str();
             let base = match k.band {
                 Band::MediumRetreat => Band::Medium,
                 Band::LongRetreat => Band::Long,
@@ -2976,7 +2990,7 @@ impl Agent {
             };
             let armed = cx.gun.is_some_and(|g| g.usable);
             // (A behaviour that isn't a boss's: no boss state.)
-            let boss = (behavior.starts_with("barabbas") || behavior.starts_with("superNinja")).then(|| behavior.to_string());
+            let boss = (behavior.starts_with("barabbas") || behavior.starts_with("superNinja") || behavior.starts_with("mutantMuro")).then(|| behavior.to_string());
             if boss.is_none() && !matches!(k.boss, super::bosses::Boss::None) {
                 k.boss = super::bosses::Boss::None;
                 self.mode = MoveMode::ByAlert;
@@ -3023,7 +3037,8 @@ impl Agent {
             }
             match &boss {
                 Some(b) if b.starts_with("barabbas") => self.barabbas_primary(b, dist, &mut w, cx),
-                Some(b) => self.ninja_primary(b, dist, &mut w, cx),
+                Some(b) if b.starts_with("superNinja") => self.ninja_primary(b, dist, &mut w, cx),
+                Some(b) => self.muro_primary(b, dist, &mut w, cx),
                 None => {}
             }
             // (A boss may not mind being too close for its gun.)
@@ -3559,6 +3574,18 @@ fn movement_flag(w: &Waypoint) -> Option<i16> {
         Waypoint::MoveTo { at: Target::Flag(f), .. } | Waypoint::LookAt(Target::Flag(f)) => Some(*f),
         Waypoint::Guard { flag, .. } => Some(*flag),
         _ => None,
+    }
+}
+
+/// A range band's behaviour in the combat profile (long, medium, short,
+/// medium retreat, long retreat).
+fn band_index(b: Band) -> usize {
+    match b {
+        Band::Long | Band::None => 0,
+        Band::Medium => 1,
+        Band::Short => 2,
+        Band::MediumRetreat => 3,
+        Band::LongRetreat => 4,
     }
 }
 
