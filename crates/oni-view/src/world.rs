@@ -2681,12 +2681,20 @@ impl World {
         // ticks running, or dying for 15 s.
         // (Falling too long, or dying for 15 s, it makes no corpse.)
         for f in &mut self.fighters {
+            // (Falling too long counts from the death on, `Dead_2_Moving`:
+            // a body falling out of the world never gets to lie still.)
+            // (A body that slid off an edge falls without a flight: its time
+            // off the ground counts the same.)
+            let air_time = f.motion.air.frames.max(f.motion.air.off_ground);
+            if (f.motion.dying || f.motion.corpse)
+                && !f.settled
+                && air_time >= crate::fighter::MAX_AIR_FRAMES + 30
+            {
+                f.no_corpse = true;
+                f.settled = true;
+                continue;
+            }
             if f.motion.corpse && !f.settled {
-                if f.motion.air.frames >= crate::fighter::MAX_AIR_FRAMES + 30 {
-                    f.no_corpse = true;
-                    f.settled = true;
-                    continue;
-                }
                 if !f.airborne() && f.motion.air.off_ground == 0 {
                     f.death_still += 1;
                 } else {

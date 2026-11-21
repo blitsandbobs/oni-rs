@@ -39,7 +39,10 @@ assert(wait_for(function() return effects(m).super > 0.5 end, 30), "shield up")
 print("shield: ok", effects(m).super)
 
 -- From afar, kept there: the thunderbolt, after 5 s.
-local keep = function()
+-- (Every half second, so she lands in between: kept in the air she would
+-- die of the fall after 5 s, as in the original.)
+local keep = function(t)
+    if t % 30 ~= 1 then return end
     local a, b, c = pos_of(m)
     teleport(0, a, b + 5, c + 220)
 end

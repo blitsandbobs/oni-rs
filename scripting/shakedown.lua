@@ -17,11 +17,58 @@ local x0, y0, z0 = pos()
 local hp0 = hp(0)
 local first_outcome, outcome_at
 local step_err
-for t = 60, TICKS, 60 do
-  local ok2, e = pcall(step, 60)
-  if not ok2 then step_err = string.format("tick %d: %s", t, tostring(e)) break end
-  local m = mission_info()
-  if m.outcome and not first_outcome then first_outcome, outcome_at = tostring(m.outcome), t end
+local TOUR = os.getenv("SHAKE_TOUR")
+if TOUR == "" then TOUR = nil end
+-- Characters lost out of the world (NaN, or far below everything).
+local function lost_characters(where)
+  for i = 0, count() - 1 do
+    if present(i) then
+      local x, y, z = pos_of(i)
+      if x ~= x or y ~= y or z ~= z or y < -5000 then
+        print(string.format("LOST %s: fighter %d %s hp %s dead %s at (%s, %s, %s)", where, i, tostring(class_of(i)), tostring(hp(i)), tostring(dead(i)), x, y, z))
+      end
+    end
+  end
+end
+if TOUR then
+  -- Tour (shakedown.sh --tour): the player, kept alive, is put in every
+  -- trigger volume and at every console in turn (using it), twice over, so
+  -- most of the level's scripts run; errors are reported with the stop.
+  local stops = dofile(TOUR)
+  local seen_errors = 0
+  local t = 0
+  for pass = 1, 2 do
+    for _, s in ipairs(stops) do
+      local label, x, y, z, face = s[1], s[2], s[3], s[4], s[5]
+      pcall(skip_cutscene)
+      teleport(0, x, y, z)
+      if face then facing(math.deg(face)) end
+      for k = 1, 9 do
+        set_hp(0, 100000)
+        if face and k == 2 then action() end
+        local ok2, e = pcall(step, 10)
+        t = t + 10
+        if not ok2 then step_err = string.format("%s (pass %d): %s", label, pass, tostring(e)) break end
+      end
+      if step_err then break end
+      local m = mission_info()
+      local errs = m.errors or {}
+      for i = seen_errors + 1, #errs do print(string.format("TOUR-ERROR at %s (pass %d): %s", label, pass, tostring(errs[i]))) end
+      seen_errors = #errs
+      if m.outcome ~= nil and not first_outcome then first_outcome, outcome_at = tostring(m.outcome), t end
+      lost_characters(label)
+    end
+    if step_err then break end
+  end
+  print(string.format("TOUR %d stops x 2, %d ticks", #stops, t))
+else
+  for t = 60, TICKS, 60 do
+    local ok2, e = pcall(step, 60)
+    if not ok2 then step_err = string.format("tick %d: %s", t, tostring(e)) break end
+    local m = mission_info()
+    if m.outcome and not first_outcome then first_outcome, outcome_at = tostring(m.outcome), t end
+  end
+  lost_characters("the end")
 end
 local m = mission_info()
 local x, y, z = pos()

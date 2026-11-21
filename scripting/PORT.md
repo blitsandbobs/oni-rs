@@ -96,6 +96,13 @@ subsystem is wired. It is not loaded by the engine yet.
   (about 45 s at the default minute each) — and reports per run the script
   errors, crashes and where the player ended (an idle player is often beaten
   up or knocked off a ledge: not a fault), then the commands skipped.
+- `scripting/shakedown.sh --tour` runs each level from its start with the
+  player, kept alive, put in every trigger volume and at every console in
+  turn (using it), twice over (`scripting/tour_stops.py` lists the stops), so
+  most of the level's scripts run. It reports script errors with the stop that
+  raised them, and characters lost out of the world (NaN, or below −5000).
+  The player losing is expected: the tour walks into kill volumes. About
+  3 minutes for all levels.
 - `python3 scripting/script_commands.py` lists every engine command the
   translated scripts use that has no handler, by levels and calls — also those
   no idle run reaches. Some are the original scripts' own mistakes (a typo

@@ -117,6 +117,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `fix_tarmac_respawn.lua` | S2: restored at level 4's save point 3, the tarmac's guards stay gone; under `--faithful` they spawn again and the game saves back at save point 2. |
 | `fix_door14_lock.lua` | S3: level 18's door 14 closes before it locks behind Konoko; under `--faithful` it locks open. |
 | `fix_mukade_stranded.lua` | S5: level 12's Mukade stranded on the lower roof below the arena teleports back to its centre after 3 s; under `--faithful` he stays there. |
+| `fall_out_of_world.lua` | A striker dropped off level 12's roof where nothing is below dies after 5 s in the air and is gone with no corpse (`ONcMaxFramesInAir`); found by the shakedown tour, where such bodies fell forever. |
 | `reload_knocked.lua` | Q26: a reload knocked out before the clip goes in gives the clip back (fixed); under `--faithful` it is lost. |
 | `throw_wall.lua` | Q25: a forward punch at a dummy on the other side of a locked door stays a punch (fixed); under `--faithful` it throws the dummy through the door. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |

@@ -930,7 +930,7 @@ impl Fighter {
                 if air.off_ground == 0 {
                     air.jump_height = self.physics.feet.y;
                 }
-                air.off_ground += 1;
+                air.off_ground = air.off_ground.saturating_add(1);
             } else {
                 air.off_ground = 0;
             }
@@ -1048,10 +1048,13 @@ impl Fighter {
         let air = &mut self.motion.air;
         let moved = air.velocity;
         air.frames = air.frames.saturating_add(1);
-        if air.frames > MAX_AIR_FRAMES {
-            self.hp = 0; // a fatal fall (death itself is not modelled yet)
-        }
+        let too_long = air.frames > MAX_AIR_FRAMES;
         air.velocity.y = (air.velocity.y - t.jump_gravity).max(t.max_velocity);
+        // In the air too long: a fatal fall (`ONrCharacter_TakeDamage` of all
+        // its hit points, owner "falling").
+        if too_long && self.hp > 0 {
+            self.take_damage(self.hp, Vec3::ZERO);
+        }
         moved
     }
 
@@ -1358,6 +1361,11 @@ impl Fighter {
             } else {
                 self.knockback
             };
+        }
+        // (Its time in the air runs on, as a living body's does: falling too
+        // long, it makes no corpse.)
+        if self.motion.air.frames > 0 {
+            self.motion.air.frames = self.motion.air.frames.saturating_add(1);
         }
         let mut v = self.corpse_velocity;
         let speed = Vec3::new(self.velocity.x, 0.0, self.velocity.z).length();
