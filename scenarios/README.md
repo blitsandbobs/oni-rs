@@ -256,6 +256,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `stitch()` → `weight` | Current clip-blend weight (0 = not blending). |
 | `anim()` → `name` | The player's current clip. |
 | `screenshot(path [,w,h])` | Render one frame to a PNG (default 800×600). |
+| `render_frames(n, w, h [,step])` | Draw n frames offscreen (read back, not saved), a game tick between them if `step`; returns the mean wall time per frame in ms. For profiling the renderer. |
 
 The movement/combat calls (`input`, `strafe`, `jump`, `punch`, `facing`, …) act
 on the **player** (fighter 0); `*_of(id)` read any fighter by its spawn id.
