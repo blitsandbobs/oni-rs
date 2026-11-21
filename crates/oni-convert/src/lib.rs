@@ -40,6 +40,7 @@ mod weapons;
 mod anim_sounds;
 mod impacts;
 mod sounds;
+mod pause_pages;
 mod text_consoles;
 mod turrets;
 
@@ -255,7 +256,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
     // The text console dialog's text font (level 0's), the pages' base.
-    let mut console_font = text_consoles::Font { size: 7, style: 0, shade: 0xFFFF_FFFF };
+    let mut console_font = text_consoles::Font { size: 7, style: 0, shade: Some(0xFFFF_FFFF) };
+    // The pause screen's main area font (level 0's), its pages' base.
+    let mut pause_font = text_consoles::Font { size: 10, style: 1, shade: Some(0xFFFF_7F00) };
     // The animated textures (by file stem), from every file.
     let mut texture_anims: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 
@@ -383,8 +386,17 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 text_consoles::write_dialog(&dialog, &root_to_common(&root))?;
                 console_font = font;
             }
-        } else if let Err(e) = text_consoles::write(text_consoles::consoles(&dat, &registry, console_font), &root) {
-            stats.warnings.push(format!("text_consoles.json: {e}"));
+            if let Some((doc, font)) = pause_pages::common(&dat, &registry) {
+                pause_pages::write(&doc, &root_to_common(&root).join("pause_screen.json"))?;
+                pause_font = font;
+            }
+        } else {
+            if let Err(e) = text_consoles::write(text_consoles::consoles(&dat, &registry, console_font), &root) {
+                stats.warnings.push(format!("text_consoles.json: {e}"));
+            }
+            if let Some(doc) = pause_pages::level(&dat, &registry, pause_font) {
+                pause_pages::write(&doc, &root.join("pause_pages.json"))?;
+            }
         }
 
         // level.json for playable levels.

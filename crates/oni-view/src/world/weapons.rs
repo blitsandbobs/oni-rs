@@ -909,6 +909,10 @@ impl World {
                 self.event_sound(event, None);
             }
         }
+        if give > 0 && who == 0 && self.fighters[who].player {
+            self.hud.item_met(kind as u32);
+            self.keep_unlocks();
+        }
         let inv = &mut self.fighters[who].inventory;
         match kind {
             0 => inv.ammo += give,
@@ -919,6 +923,13 @@ impl World {
             _ => inv.lsi |= give > 0,
         }
         give
+    }
+
+    /// What the player has met, kept between runs (in play).
+    fn keep_unlocks(&self) {
+        if self.persist_continues {
+            crate::game::store_unlocks(self.hud.items_seen, &self.hud.weapon_classes_seen);
+        }
     }
 
     /// The nearest powerup fighter `who` could take, within reach.
@@ -1449,6 +1460,9 @@ impl World {
         if who == 0 && self.fighters[who].player {
             let instance = self.armory.weapons[w].class.instance.clone();
             self.hud.new_weapon(&instance);
+            let class = self.armory.weapons[w].class.name.clone();
+            self.hud.weapon_met(&class);
+            self.keep_unlocks();
         }
         if let Some(old) = self.fighters[who].hand.take() {
             self.drop_weapon_index(old, None);

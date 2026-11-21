@@ -8,6 +8,7 @@
 
 pub mod cinematic;
 pub mod console;
+pub mod pause;
 pub mod text;
 
 use std::collections::HashMap;
@@ -177,6 +178,17 @@ pub struct Hud {
     console_dialog: Option<console::Dialog>,
     /// `part_specs.json`: the part specifications by name.
     part_specs: serde_json::Value,
+    /// The pause screen up (F1), and what it can show.
+    pub pause: Option<pause::Pause>,
+    pause_data: pause::Data,
+    /// What the player has met — the item kinds (bits by powerup type) and
+    /// weapon classes, unlocked for the pause screen for good — and what is
+    /// new since it was last looked at.
+    pub items_seen: u32,
+    pub weapon_classes_seen: Vec<String>,
+    pub new_item: Option<u32>,
+    pub new_weapon_class: Option<String>,
+    pub new_move: bool,
     border: Option<PartSpec>,
     /// The textures flagged additive (`texture_flags.json`).
     additive: std::collections::HashSet<String>,
@@ -234,6 +246,13 @@ impl Default for Hud {
             consoles: HashMap::new(),
             console_dialog: None,
             part_specs: serde_json::Value::Null,
+            pause: None,
+            pause_data: pause::Data::default(),
+            items_seen: 0,
+            weapon_classes_seen: Vec::new(),
+            new_item: None,
+            new_weapon_class: None,
+            new_move: false,
             additive: Default::default(),
             fonts: Fonts::default(),
             texture_sizes: HashMap::new(),
@@ -327,6 +346,7 @@ impl Hud {
             textures: common.join("textures"),
             border,
             consoles: console::load(&common.join(format!("../levels/{level:02}"))),
+            pause_data: pause::Data::load(common, &common.join(format!("../levels/{level:02}"))),
             console_dialog: console::load_dialog(common),
             part_specs: specs,
             additive,
@@ -583,6 +603,102 @@ impl Hud {
         self.text_console = None;
     }
 
+    /// Whether a modal screen is up (a console's text, the pause screen):
+    /// the game stands still.
+    pub fn modal(&self) -> bool {
+        self.text_console.is_some() || self.pause.is_some()
+    }
+
+    /// This level's new moves flag the diary (`ONiPS_DiaryPage_Init` at the
+    /// level's start — not when restoring a saved game).
+    pub fn level_started(&mut self) {
+        self.new_move = self.pause_data.new_moves(i64::from(self.level));
+    }
+
+    /// The player met an item kind (`WPrPowerup_Give`): new, the first time
+    /// (the LSI always: it is only read about while carried).
+    pub fn item_met(&mut self, kind: u32) {
+        if kind == 5 || self.items_seen & (1 << kind) == 0 {
+            if kind != 5 {
+                self.items_seen |= 1 << kind;
+            }
+            self.new_item = Some(kind);
+        }
+    }
+
+    /// The player took up a weapon class: new, the first time
+    /// (`ONrInGameUI_NewWeapon`).
+    pub fn weapon_met(&mut self, class: &str) {
+        if !self.weapon_classes_seen.iter().any(|c| c.eq_ignore_ascii_case(class)) {
+            self.weapon_classes_seen.push(class.to_string());
+            self.new_weapon_class = Some(class.to_string());
+        }
+    }
+
+    /// F1 (`ONrPauseScreen_Display`): opens the pause screen; once it has
+    /// been up a second, closes it.
+    pub fn pause_toggle(&mut self, has_lsi: bool, weapon: Option<&str>) {
+        if let Some(p) = &self.pause {
+            if p.may_close() {
+                self.pause = None;
+            }
+            return;
+        }
+        let player = pause::Player {
+            level: i64::from(self.level),
+            objective: self.objective,
+            has_lsi,
+            weapon,
+            items_seen: self.items_seen,
+            weapons_seen: &self.weapon_classes_seen,
+            new_objective: self.new_objective,
+            new_item: self.new_item,
+            new_weapon: self.new_weapon_class.as_deref(),
+            new_move: self.new_move,
+        };
+        self.pause = Some(pause::Pause::open(&self.pause_data, &player));
+        self.pause_read();
+    }
+
+    /// A pause screen button (by id: 101–105 the sections, 106 / 107
+    /// Previous / Next, 2 Close).
+    pub fn pause_press(&mut self, id: i64) {
+        let Some(mut p) = self.pause.take() else { return };
+        if p.press(&self.pause_data, id) {
+            self.pause = Some(p);
+            self.pause_read();
+        }
+    }
+
+    /// The pause screen button at a screen point (`w` × `h` screen).
+    pub fn pause_hit(&self, w: f32, h: f32, x: f32, y: f32) -> Option<i64> {
+        self.pause.as_ref().and_then(|p| p.hit(&self.pause_data, w, h, x, y))
+    }
+
+    /// The section showing is read: it stops flashing, and what was new
+    /// there isn't (the objective: no more prompting).
+    fn pause_read(&mut self) {
+        let Some(p) = self.pause.as_mut() else { return };
+        p.mark_read();
+        match p.tab {
+            pause::Tab::Objective => self.read_objective(),
+            pause::Tab::Items => self.new_item = None,
+            pause::Tab::Weapons => self.new_weapon_class = None,
+            pause::Tab::Diary => self.new_move = false,
+            pause::Tab::Help => {}
+        }
+    }
+
+    /// The pause screen's state, for tests.
+    pub fn pause_state(&self) -> Option<pause::State> {
+        let p = self.pause.as_ref()?;
+        let (pages, page) = p.pages(&self.pause_data);
+        let shown = p.page(&self.pause_data).map(|(pg, _)| pg);
+        let strings = |f: fn(&console::Page) -> &Vec<console::Line>| shown.map(|pg| f(pg).iter().map(|l| l.text.clone()).collect()).unwrap_or_default();
+        let (previous, next) = p.buttons(&self.pause_data);
+        Some(pause::State { tab: p.tab, page, pages, text: strings(|pg| &pg.text), hint: strings(|pg| &pg.hint), previous, next })
+    }
+
     /// A part specification by name (`part_specs.json`).
     fn part(&self, name: &str) -> Option<PartSpec> {
         PartSpec::from_json(&self.part_specs["partSpecs"][name], &self.textures)
@@ -664,13 +780,16 @@ impl Hud {
                 out.extend(b.draw([r[0] - 3.0, r[1] - 3.0], (r[2] - r[0]).round() + 6.0, (r[3] - r[1]).round() + 6.0));
             }
         }
-        // A data console's text, over everything.
+        // A data console's text, or the pause screen, over everything.
+        let size = |p: &std::path::Path| -> Option<[f32; 2]> {
+            let r = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(p).ok()?)).read_info().ok()?;
+            Some([r.info().width as f32, r.info().height as f32])
+        };
         if let (Some(open), Some(d)) = (&self.text_console, &self.console_dialog) {
-            let size = |p: &std::path::Path| -> Option<[f32; 2]> {
-                let r = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(p).ok()?)).read_info().ok()?;
-                Some([r.info().width as f32, r.info().height as f32])
-            };
             out.extend(console::draw(open, d, &self.fonts, &|n| self.part(n), &self.textures, &size, w, h));
+        }
+        if let Some(p) = &self.pause {
+            out.extend(p.draw(&self.pause_data, &self.fonts, &|n| self.part(n), &self.textures, &size, w, h));
         }
         out
     }

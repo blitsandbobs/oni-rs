@@ -49,6 +49,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `block.lua` | Automatic blocking: a dummy facing the player head-on blocks a punch (no damage); turned 60° away it can't. |
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
+| `pause.lua` | The pause screen on level 3: F1 opens it on the objectives (current first, Previous to older), items and weapons only once met, the diary up to this level on its first page, the help; the game stands still; Close. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
@@ -162,6 +163,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
 | `fog()` / `image_mean(path, x0, y0, x1, y1)` | The fog now: `r, g, b, start, end` (screen depth); a saved screenshot's mean colour over a region (fractions), `r, g, b`. |
 | `jello_objects()` | The placed objects see-through this tick (in the camera's way), by name. |
+| `pause_toggle()` / `pause_screen()` / `pause_press(b)` | F1 on the pause screen; its state `{tab, page (from 1), pages, lines, hint, previous, next}` or nil; a button: `"objective"`, `"items"`, `"weapons"`, `"diary"`, `"help"`, `"previous"`, `"next"`, `"close"`. |
 | `text_console()` / `text_console_key(k)` | The data console showing its text, `{name, page (from 1), pages, last, lines}` or nil; presses Space (`"next"`) or Esc (`"close"`) on it. |
 | `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |
 | `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |

@@ -111,6 +111,16 @@ impl World {
     }
 
     /// The HUD's overlay for a frame, on a screen `w` × `h` (HUD pixels).
+    /// F1: the pause screen opened (with what the player carries) or —
+    /// once it has been up a second — closed.
+    pub fn pause_toggle(&mut self) {
+        let (lsi, weapon) = match self.fighters.first() {
+            Some(p) => (p.inventory.lsi, p.hand.or(p.holster).map(|w| self.armory.weapons[w].class.name.clone())),
+            None => (false, None),
+        };
+        self.hud.pause_toggle(lsi, weapon.as_deref());
+    }
+
     pub fn hud_draw(&mut self, w: f32, h: f32) -> Vec<OverlayDraw> {
         let player = self.hud_player();
         let letterboxed = self.letterbox;

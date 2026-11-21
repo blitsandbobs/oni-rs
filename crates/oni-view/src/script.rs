@@ -175,7 +175,7 @@ impl ScriptHost {
             let controls = self.held | taps;
             taps = 0;
             // (A data console's text up: the game stands still.)
-            if self.world.hud.text_console.is_some() {
+            if self.world.hud.modal() {
                 continue;
             }
             self.world.step(controls);
@@ -661,6 +661,51 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(w.jello_objects.iter().filter_map(|&k| names.get(k).map(|n| n.0.clone())).collect::<Vec<_>>())
         })?,
     )?;
+    // pause_toggle(): F1 (the pause screen opened, or closed once up a
+    // second). pause_screen() → {tab, page (from 1), pages, lines, hint,
+    // previous, next} or nil. pause_press(button): "objective", "items",
+    // "weapons", "diary", "help", "previous", "next" or "close".
+    let h = host.clone();
+    g.set("pause_toggle", lua.create_function(move |_, ()| {
+        h.borrow_mut().world.pause_toggle();
+        Ok(())
+    })?)?;
+    let h = host.clone();
+    g.set(
+        "pause_screen",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let Some(s) = host.world.hud.pause_state() else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("tab", format!("{:?}", s.tab).to_ascii_lowercase())?;
+            t.set("page", s.page + 1)?;
+            t.set("pages", s.pages)?;
+            t.set("lines", s.text)?;
+            t.set("hint", s.hint)?;
+            t.set("previous", s.previous)?;
+            t.set("next", s.next)?;
+            Ok(Some(t))
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "pause_press",
+        lua.create_function(move |_, button: String| {
+            let id = match button.as_str() {
+                "objective" => 101,
+                "items" => 102,
+                "weapons" => 103,
+                "diary" => 104,
+                "help" => 105,
+                "previous" => 106,
+                "next" => 107,
+                "close" => 2,
+                _ => return Err(mlua::Error::runtime(format!("no pause screen button {button}"))),
+            };
+            h.borrow_mut().world.hud.pause_press(id);
+            Ok(())
+        })?,
+    )?;
     // text_console() → {name, page, pages, last, lines} or nil: the data
     // console showing its text (page from 1; lines: the page's strings).
     // text_console_key("next" | "close"): Space / Esc on it.
@@ -893,6 +938,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             // (`mission_begin(true, n)`: from the level's save point n.)
             if let Some(n) = save_point {
                 m.state.vars.insert("save_point".into(), mlua::Value::Integer(n));
+            }
+            // (A level begun afresh flags its new moves.)
+            if save_point.unwrap_or(0) == 0 {
+                host.world.hud.level_started();
             }
             // (`mission_begin(false)`: the scripts loaded, the level's own
             // start not run.)

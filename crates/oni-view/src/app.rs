@@ -96,6 +96,15 @@ fn mission_level(
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
     world.persist_continues = true;
+    // What the player has met in earlier runs (the pause screen's pages);
+    // a level begun afresh flags its new moves.
+    if let Some((items, weapons)) = crate::game::load_unlocks() {
+        world.hud.items_seen = items;
+        world.hud.weapon_classes_seen = weapons;
+    }
+    if save_point == 0 {
+        world.hud.level_started();
+    }
     world.attach_doors(crate::door_meshes(&scene));
     world.attach_glass(crate::glass_parts(&scene));
     world.attach_weapons(&oni_root.join("common"));
@@ -164,6 +173,8 @@ struct State {
     /// Mouse buttons held while the cursor is captured (play mode).
     mouse_held: HashSet<oni_config::MouseButton>,
     looking: bool,
+    /// The cursor (logical pixels), for the pause screen's buttons.
+    cursor: [f32; 2],
     /// Play mode: whether the mouse is captured (locked + hidden, turning the
     /// character). Toggled with Esc so the cursor can be freed without quitting.
     captured: bool,
@@ -470,6 +481,7 @@ impl ApplicationHandler for App {
             keys: HashSet::new(),
             mouse_held: HashSet::new(),
             looking: false,
+            cursor: [0.0, 0.0],
             captured: self.play,
             bindings: oni_config::Bindings::oni_defaults(),
             tuning: oni_config::InputTuning::default(),
@@ -516,11 +528,33 @@ impl ApplicationHandler for App {
                         st.keys.clear();
                         return;
                     }
-                    // F1 (the pause screen's key): the objective is read.
+                    // The pause screen up (modal): F1 closes it once it has
+                    // been up a second, Esc is its Close; nothing else.
+                    if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
+                        if event.state == ElementState::Pressed && !event.repeat {
+                            match code {
+                                KeyCode::F1 => pw.world.pause_toggle(),
+                                KeyCode::Escape => pw.world.hud.pause_press(2),
+                                _ => {}
+                            }
+                            if pw.world.hud.pause.is_none() {
+                                apply_capture(&st.window, st.captured);
+                            }
+                        }
+                        st.keys.clear();
+                        return;
+                    }
+                    // F1: the pause screen (the cursor freed for its buttons).
                     if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
                         if let Some(pw) = st.play.as_mut() {
-                            pw.world.hud.read_objective();
+                            pw.world.pause_toggle();
+                            if pw.world.hud.pause.is_some() {
+                                st.mouse_held.clear();
+                                apply_capture(&st.window, false);
+                            }
                         }
+                        st.keys.clear();
+                        return;
                     }
                     if code == KeyCode::Escape && event.state == ElementState::Pressed {
                         if st.play.is_some() {
@@ -557,8 +591,26 @@ impl ApplicationHandler for App {
                     apply_capture(&st.window, true);
                 }
             }
+            WindowEvent::CursorMoved { position, .. } => {
+                let scale = st.window.scale_factor() as f32;
+                st.cursor = [position.x as f32 / scale, position.y as f32 / scale];
+            }
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = state == ElementState::Pressed;
+                // The pause screen up: a click is on its buttons.
+                if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
+                    if pressed && button == MouseButton::Left {
+                        let scale = st.window.scale_factor() as f32;
+                        let (w, h) = (st.config.width as f32 / scale, st.config.height as f32 / scale);
+                        if let Some(id) = pw.world.hud.pause_hit(w, h, st.cursor[0], st.cursor[1]) {
+                            pw.world.hud.pause_press(id);
+                        }
+                        if pw.world.hud.pause.is_none() {
+                            apply_capture(&st.window, st.captured);
+                        }
+                    }
+                    return;
+                }
                 if pressed {
                     if let Some(f) = st.play.as_mut().and_then(|p| p.flow.as_mut()) {
                         f.key = true;
@@ -724,7 +776,7 @@ impl State {
         let dx = std::mem::take(&mut pw.mouse_dx);
         let dy = std::mem::take(&mut pw.mouse_dy);
         // (A data console's text up: the game stands still.)
-        let frozen = pw.world.hud.text_console.is_some();
+        let frozen = pw.world.hud.modal();
         let (dx, dy) = if frozen { (0.0, 0.0) } else { (dx, dy) };
         // (As the game ships — its "invert mouse" option on — the mouse
         // moved down aims down.)

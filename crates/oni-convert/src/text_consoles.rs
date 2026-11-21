@@ -16,12 +16,13 @@ const STYLE: i64 = 2;
 const SHADE: i64 = 4;
 const SIZE: i64 = 8;
 
-/// A resolved font: size, style (0 plain, 1 bold, 2 italic), shade (ARGB).
+/// A resolved font: size, style (0 plain, 1 bold, 2 italic), shade (ARGB;
+/// none: whatever the drawing pushes under it — the objectives' green / red).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Font {
     pub size: i64,
     pub style: i64,
-    pub shade: u32,
+    pub shade: Option<u32>,
 }
 
 impl Font {
@@ -38,26 +39,30 @@ impl Font {
             f.style = info["font_style"].as_i64().unwrap_or(f.style);
         }
         if flags & SHADE != 0 {
-            f.shade = info["font_shade"].as_u64().unwrap_or(u64::from(f.shade)) as u32;
+            f.shade = info["font_shade"].as_u64().map(|v| v as u32).or(f.shade);
         }
         let _ = FAMILY;
         f
     }
 
     fn json(self) -> Value {
-        json!({ "size": self.size, "style": self.style, "shade": format!("#{:08x}", self.shade) })
+        let mut v = json!({ "size": self.size, "style": self.style });
+        if let Some(s) = self.shade {
+            v["shade"] = json!(format!("#{s:08x}"));
+        }
+        v
     }
 }
 
 /// A file's instances decoded on demand, found by their `$ref` names.
-struct Records<'a> {
+pub(crate) struct Records<'a> {
     dat: &'a Dat<'a>,
     registry: &'a oni_template::Registry,
     by_ref: HashMap<String, usize>,
 }
 
 impl<'a> Records<'a> {
-    fn new(dat: &'a Dat<'a>, registry: &'a oni_template::Registry) -> Records<'a> {
+    pub(crate) fn new(dat: &'a Dat<'a>, registry: &'a oni_template::Registry) -> Records<'a> {
         let by_ref = dat
             .instances
             .iter()
@@ -74,7 +79,7 @@ impl<'a> Records<'a> {
     }
 
     /// The instance a `{"$ref": …}` names: its tag and decoded fields.
-    fn get(&self, link: &Value) -> Option<(FourCc, Value)> {
+    pub(crate) fn get(&self, link: &Value) -> Option<(FourCc, Value)> {
         let inst = &self.dat.instances[*self.by_ref.get(link["$ref"].as_str()?)?];
         let layout = self.registry.get(inst.tag)?;
         let rec = oni_template::decode(layout, self.dat.instance_data(inst)?, self.dat.header.endian).ok()?;
@@ -83,7 +88,7 @@ impl<'a> Records<'a> {
 }
 
 /// A C string from its bytes.
-fn text(v: &Value) -> String {
+pub(crate) fn text(v: &Value) -> String {
     let bytes: Vec<u8> = v.as_array().into_iter().flatten().map(|b| b.as_i64().unwrap_or(0) as u8).take_while(|&b| b != 0).collect();
     // (Mac Roman in the data; the shipped consoles' text is ASCII.)
     bytes.iter().map(|&b| b as char).collect()
@@ -113,6 +118,27 @@ fn picture(r: &Records<'_>, link: &Value) -> Option<Value> {
     }
 }
 
+/// A page (`IGPG`): its picture, then its text and hint strings, fonts
+/// pushed over `base`.
+pub(crate) fn page(r: &Records<'_>, link: &Value, base: Font) -> Option<Value> {
+    let (_, page) = r.get(link)?;
+    let font = base.push(&page["font_info"]);
+    let mut v = json!({
+        "text": strings(r, &page["text"], font),
+        "hint": strings(r, &page["hint"], font),
+    });
+    if let Some(pic) = picture(r, &page["pict"]) {
+        v["picture"] = pic;
+    }
+    Some(v)
+}
+
+/// A page array's (`IGPA`) pages.
+pub(crate) fn page_array(r: &Records<'_>, link: &Value, base: Font) -> Vec<Value> {
+    let Some((_, pa)) = r.get(link) else { return Vec::new() };
+    pa["pages"].as_array().into_iter().flatten().filter_map(|p| page(r, p, base)).collect()
+}
+
 /// The text consoles in `dat` (by name), their fonts resolved over `base`
 /// (the dialog's text font).
 pub fn consoles(dat: &Dat<'_>, registry: &oni_template::Registry, base: Font) -> serde_json::Map<String, Value> {
@@ -121,25 +147,7 @@ pub fn consoles(dat: &Dat<'_>, registry: &oni_template::Registry, base: Font) ->
     for inst in dat.instances.iter().filter(|i| i.tag.to_string() == "TxtC") {
         let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else { continue };
         let Some((_, txtc)) = r.get(&json!({ "$ref": name })) else { continue };
-        let Some((_, pa)) = r.get(&txtc["console_data"]) else { continue };
-        let pages: Vec<Value> = pa["pages"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| r.get(p))
-            .map(|(_, page)| {
-                let font = base.push(&page["font_info"]);
-                let mut v = json!({
-                    "text": strings(&r, &page["text"], font),
-                    "hint": strings(&r, &page["hint"], font),
-                });
-                if let Some(pic) = picture(&r, &page["pict"]) {
-                    v["picture"] = pic;
-                }
-                v
-            })
-            .collect();
-        out.insert(name.to_string(), json!({ "pages": pages }));
+        out.insert(name.to_string(), json!({ "pages": page_array(&r, &txtc["console_data"], base) }));
     }
     out
 }
@@ -147,8 +155,14 @@ pub fn consoles(dat: &Dat<'_>, registry: &oni_template::Registry, base: Font) ->
 /// The text console dialog (`dialog_text_console`): its size and controls,
 /// and its text area's font (the pages' base), if `dat` has it.
 pub fn dialog(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value, Font)> {
+    named_dialog(dat, registry, "dialog_text_console")
+}
+
+/// A dialog (`WMDD`) by name: its size and controls, and its main text
+/// area's (110) font.
+pub(crate) fn named_dialog(dat: &Dat<'_>, registry: &oni_template::Registry, name: &str) -> Option<(Value, Font)> {
     let r = Records::new(dat, registry);
-    let (_, d) = r.get(&json!({ "$ref": "dialog_text_console" }))?;
+    let (_, d) = r.get(&json!({ "$ref": name }))?;
     let mut base = None;
     let items: Vec<Value> = d["items"]
         .as_array()?
@@ -158,7 +172,7 @@ pub fn dialog(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
             let font = Font {
                 size: f["font_size"].as_i64().unwrap_or(7),
                 style: f["font_style"].as_i64().unwrap_or(0),
-                shade: f["font_shade"].as_u64().unwrap_or(0xFFFF_FFFF) as u32,
+                shade: Some(f["font_shade"].as_u64().unwrap_or(0xFFFF_FFFF) as u32),
             };
             if it["id"] == 110 {
                 base = Some(font);

@@ -180,6 +180,26 @@ pub fn store_continue(level: u16, c: &Continue) {
     }
 }
 
+/// What the player has met (the pause screen's item kinds and weapon
+/// classes; `ONrPersist_ItemUnlocked`, `_WeaponUnlocked`), kept between runs.
+pub fn load_unlocks() -> Option<(u32, Vec<String>)> {
+    let doc = read_continues(&continues_file()?);
+    let u = doc.get("unlocked")?;
+    let weapons = u["weapons"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_string)).collect();
+    Some((u["items"].as_u64().unwrap_or(0) as u32, weapons))
+}
+
+/// Keeps what the player has met (`ONrPersist_UnlockItem`, `_UnlockWeapon`).
+pub fn store_unlocks(items: u32, weapons: &[String]) {
+    let Some(path) = continues_file() else { return };
+    let mut doc = read_continues(&path);
+    doc["unlocked"] = serde_json::json!({ "items": items, "weapons": weapons });
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    let _ = std::fs::write(&path, serde_json::to_string_pretty(&doc).unwrap_or_default());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
