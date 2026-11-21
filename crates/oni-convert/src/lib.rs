@@ -125,6 +125,32 @@ fn default_scripts_dir(input_dir: &Path) -> Option<PathBuf> {
     p.is_dir().then_some(p)
 }
 
+/// The game's movies (`docs/MOVIES.md`): `outro.bik`, the ending, copied as
+/// it is to `movies/` (the viewer decodes Bink itself, `oni-bink`). Looked
+/// for in the game data folder (where the game keeps it), then in a
+/// `movies/` folder beside it; quietly skipped when absent.
+fn copy_movies(input_dir: &Path, output_dir: &Path) -> std::io::Result<()> {
+    const NAME: &str = "outro.bik";
+    let found = [
+        input_dir.join(NAME),
+        input_dir
+            .parent()
+            .map_or_else(PathBuf::new, |p| p.join("movies").join(NAME)),
+    ]
+    .into_iter()
+    .find(|p| p.is_file());
+    let Some(from) = found else { return Ok(()) };
+    let to = output_dir.join("movies").join(NAME);
+    std::fs::create_dir_all(output_dir.join("movies"))?;
+    // (Unchanged: copied only when it differs in size.)
+    if std::fs::metadata(&to).map(|m| m.len()).ok()
+        != std::fs::metadata(&from).map(|m| m.len()).ok()
+    {
+        std::fs::copy(&from, &to)?;
+    }
+    Ok(())
+}
+
 /// The level's name (its `ONLV` descriptor), which names its script folder.
 fn level_name(dat: &Dat<'_>) -> Option<String> {
     dat.instances
@@ -195,6 +221,7 @@ pub fn convert_with(
     scripts_dir: Option<&Path>,
 ) -> std::io::Result<Report> {
     std::fs::create_dir_all(output_dir)?;
+    copy_movies(input_dir, output_dir)?;
     let mut dats: Vec<PathBuf> = std::fs::read_dir(input_dir)?
         .flatten()
         .map(|e| e.path())

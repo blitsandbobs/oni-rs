@@ -172,6 +172,9 @@ struct OverlayVertex {
 /// Something drawn over the frame (the HUD): triangles in screen pixels
 /// (x, y, u, v per corner, three a triangle, y down) of a texture (none:
 /// plain), tinted by `color` (RGBA, 0–1).
+/// The overlay texture name that draws the movie's picture.
+pub const MOVIE_TEXTURE: &str = "<movie>";
+
 #[derive(Clone, Debug)]
 pub struct OverlayDraw {
     pub texture: Option<std::path::PathBuf>,
@@ -299,6 +302,10 @@ pub struct Renderer {
     overlay_additive_pipeline: wgpu::RenderPipeline,
     /// The HUD's textures (unfiltered, as the original draws it), by file.
     overlay_textures: std::collections::HashMap<std::path::PathBuf, usize>,
+    /// The movie playing's picture (`movie.rs`): its texture (rewritten each
+    /// frame), its place in `tex_bgs`, its size. An overlay draws it by
+    /// naming [`MOVIE_TEXTURE`].
+    movie: Option<(wgpu::Texture, usize, (u32, u32))>,
     overlay_white: wgpu::BindGroup,
     nearest: wgpu::Sampler,
     /// This frame's overlay, in screen pixels of a screen `overlay_size`
@@ -883,6 +890,7 @@ impl Renderer {
             overlay_pipeline,
             overlay_additive_pipeline,
             overlay_textures: Default::default(),
+            movie: None,
             overlay_white,
             nearest,
             overlay: Vec::new(),
@@ -976,6 +984,67 @@ impl Renderer {
     /// (for [`CharDraw::model`]). Several world instances can share one uploaded
     /// model, each drawn with its own pose. Character textures are appended to
     /// the shared texture table and de-duplicated within this model.
+    /// The movie's picture this frame (`w` × `h` RGBA, display values): its
+    /// texture made the first time (or at a new size), then rewritten.
+    pub fn movie_frame(&mut self, gpu: &Gpu, w: u32, h: u32, rgba: &[u8]) {
+        if self.movie.as_ref().is_none_or(|m| m.2 != (w, h)) {
+            let tex = gpu.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("movie"),
+                size: wgpu::Extent3d {
+                    width: w,
+                    height: h,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: wgpu::TextureFormat::Rgba8UnormSrgb,
+                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                view_formats: &[],
+            });
+            let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
+            // (Smoothed as it is scaled to the window.)
+            let bg = gpu.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("movie"),
+                layout: &self.tex_bgl,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(&view),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    },
+                ],
+            });
+            self.tex_bgs.push(bg);
+            self.movie = Some((tex, self.tex_bgs.len() - 1, (w, h)));
+        }
+        let Some((tex, _, _)) = &self.movie else {
+            return;
+        };
+        gpu.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: tex,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            rgba,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(4 * w),
+                rows_per_image: Some(h),
+            },
+            wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+
     pub fn add_character(&mut self, gpu: &Gpu, ch: &crate::skel::Character) -> usize {
         let device = &gpu.device;
         let mut char_tex: std::collections::BTreeMap<std::path::PathBuf, usize> =
@@ -1611,6 +1680,12 @@ impl Renderer {
         let mut batches: Vec<(Option<usize>, bool, std::ops::Range<u32>)> = Vec::new();
         for d in &draws {
             let tex = d.texture.as_ref().map(|p| {
+                if let (true, Some((_, i, _))) = (
+                    p.as_path() == std::path::Path::new(MOVIE_TEXTURE),
+                    &self.movie,
+                ) {
+                    return *i;
+                }
                 if let Some(&i) = self.overlay_textures.get(p) {
                     return i;
                 }

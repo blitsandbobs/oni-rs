@@ -33,6 +33,7 @@ mod hud;
 mod impacts;
 mod lasers;
 mod mission;
+mod movie;
 mod nav;
 mod neutrals;
 mod objphys;
@@ -130,10 +131,13 @@ fn main() {
         println!("unlocked: open Load Game in the main menu");
         return;
     }
+    // For testing: the ending movie, then the main menu.
+    let outro = first.as_deref() == Some("--outro");
+    let first = if outro { None } else { first };
     let Some(scene_path) = first.map(PathBuf::from) else {
         // No arguments: the game, from its main menu.
         match find_assets() {
-            Some(root) => run_game(root),
+            Some(root) => run_game(root, outro),
             None => {
                 eprintln!("oni-view: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
                 eprintln!("usage: oni-view [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
@@ -318,6 +322,7 @@ fn main() {
                 save_point,
                 sound_law,
                 front_end: None,
+                outro: false,
             },
         ),
     }
@@ -387,7 +392,7 @@ fn find_assets() -> Option<PathBuf> {
 
 /// The game as the player has it: the main menu, then the levels it
 /// starts (`app::run` with no level, the menus' assets at `root`).
-fn run_game(root: PathBuf) {
+fn run_game(root: PathBuf, outro: bool) {
     eprintln!("oni-view: assets at {}", root.display());
     let scene = gltf::Scene {
         prims: Vec::new(),
@@ -420,6 +425,7 @@ fn run_game(root: PathBuf) {
             save_point: 0,
             sound_law: audio::mixer::Law::Pc,
             front_end: Some(root),
+            outro,
         },
     );
 }

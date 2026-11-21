@@ -251,6 +251,20 @@ struct State {
     gamma: f32,
     /// The game is over: close.
     quit: bool,
+    /// The ending movie playing (`docs/MOVIES.md`).
+    movie: Option<MoviePlay>,
+}
+
+/// The ending movie playing: the player, its sound's own mixer and output,
+/// whether a key or click asked it to stop, and where the game goes after
+/// (the main menu, else closing).
+struct MoviePlay {
+    movie: crate::movie::Movie,
+    mixer: std::sync::Arc<std::sync::Mutex<crate::audio::mixer::Mixer>>,
+    output: Option<crate::audio::output::Output>,
+    volume: f32,
+    skip: bool,
+    to_menu: bool,
 }
 
 pub struct App {
@@ -270,6 +284,8 @@ pub struct App {
     sound_law: crate::audio::mixer::Law,
     /// Start at the main menu, the assets here (no level given).
     front_end: Option<std::path::PathBuf>,
+    /// First the ending movie (`--outro`, for testing).
+    outro: bool,
     state: Option<State>,
 }
 
@@ -300,6 +316,8 @@ pub struct PlaySetup {
     /// Start at the main menu (the converted assets' root): the player's
     /// default, `oni-view` with no arguments.
     pub front_end: Option<std::path::PathBuf>,
+    /// With the menu: play the ending movie first (`oni-view --outro`).
+    pub outro: bool,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -322,6 +340,7 @@ pub fn run(
         save_point,
         sound_law,
         front_end,
+        outro,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -341,6 +360,7 @@ pub fn run(
         save_point,
         sound_law,
         front_end,
+        outro,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -623,10 +643,23 @@ impl ApplicationHandler for App {
             front,
             gamma: user.gamma,
             quit: false,
+            movie: None,
         });
-        // No level given: the main menu.
+        // No level given: the main menu (after the ending movie, asked to).
         if let Some(st) = self.state.as_mut().filter(|_| self.front_end.is_some()) {
-            st.open_menu();
+            let outro = self
+                .front_end
+                .as_ref()
+                .filter(|_| self.outro)
+                .map(|r| r.join("movies/outro.bik"));
+            match outro.map(|p| crate::movie::Movie::open(&p)) {
+                Some(Ok(movie)) => st.start_movie(movie, true),
+                Some(Err(e)) => {
+                    eprintln!("movie: {e}");
+                    st.open_menu();
+                }
+                None => st.open_menu(),
+            }
         }
     }
 
@@ -643,6 +676,13 @@ impl ApplicationHandler for App {
                 st.cam.aspect = st.config.width as f32 / st.config.height as f32;
             }
             WindowEvent::KeyboardInput { event, .. } => {
+                // The movie: a key ends it (`BFW_Bink.c`).
+                if let Some(m) = st.movie.as_mut() {
+                    if event.state == ElementState::Pressed && !event.repeat {
+                        m.skip = true;
+                    }
+                    return;
+                }
                 if event.state == ElementState::Pressed && !event.repeat {
                     if let Some(f) = st.play.as_mut().and_then(|p| p.flow.as_mut()) {
                         f.key = true;
@@ -781,6 +821,11 @@ impl ApplicationHandler for App {
             }
             WindowEvent::MouseInput { state, button, .. } => {
                 let pressed = state == ElementState::Pressed;
+                // The movie: so does a left click.
+                if let Some(m) = st.movie.as_mut() {
+                    m.skip |= pressed && button == MouseButton::Left;
+                    return;
+                }
                 // The main menu up: the left button is on its dialogs.
                 if st.menu_open() {
                     if button == MouseButton::Left {
@@ -891,6 +936,10 @@ impl State {
         let now = Instant::now();
         let dt = (now - self.last).as_secs_f32().min(0.1);
         self.last = now;
+        if self.movie.is_some() {
+            self.movie_tick(dt);
+            return;
+        }
         // The menus: their sound, and what they started.
         self.front_tick(dt);
         if self.play.is_none() && self.front.is_some() {
@@ -1149,6 +1198,79 @@ impl State {
         Some(after)
     }
 
+    /// The ending movie begins: its sound on a mixer of its own (the
+    /// level's is gone), at the options' volume.
+    fn start_movie(&mut self, movie: crate::movie::Movie, to_menu: bool) {
+        let mixer = std::sync::Arc::new(std::sync::Mutex::new(crate::audio::mixer::Mixer::new(
+            44100.0,
+        )));
+        let output = crate::audio::output::Output::open(mixer.clone());
+        eprintln!("movie: the ending ({} frames)", movie.frame_count());
+        self.movie = Some(MoviePlay {
+            movie,
+            mixer,
+            output,
+            volume: self.settings.volume,
+            skip: false,
+            to_menu,
+        });
+    }
+
+    /// The movie, `dt` on: its picture to the frame due, its sound queued
+    /// half a second at a time on the first stereo channel (played through
+    /// by hand without an output device); at its end, or asked to stop,
+    /// the game goes on as after the last level.
+    fn movie_tick(&mut self, dt: f32) {
+        use crate::audio::mixer::{Clip, Play, Side, Voice};
+        let Some(m) = self.movie.as_mut() else { return };
+        let done = match m.movie.advance(f64::from(dt)) {
+            Ok(done) => done || m.skip,
+            Err(e) => {
+                eprintln!("movie: {e}");
+                true
+            }
+        };
+        if let Some((rate, channels)) = m.movie.audio_format() {
+            let mut mixer = m.mixer.lock().unwrap();
+            let room = mixer.voice(0).is_none_or(|v| v.next.is_none());
+            if room {
+                if let Some(samples) = m.movie.take_audio() {
+                    let clip = std::sync::Arc::new(Clip {
+                        name: "outro".into(),
+                        rate: rate as f32,
+                        channels,
+                        samples,
+                    });
+                    let play = Play {
+                        clip,
+                        pitch: 1.0,
+                        volume: 1.0,
+                        looping: false,
+                        part: 0,
+                    };
+                    match mixer.voice_mut(0) {
+                        Some(v) => v.next = Some(play),
+                        None => mixer.start(0, Voice::new(play, m.volume, (Side::Centre, 1.0))),
+                    }
+                }
+            }
+            if m.output.is_none() {
+                let frames = (f64::from(dt) * f64::from(mixer.rate)) as usize;
+                mixer.mix(None, frames);
+            }
+        }
+        if done {
+            let to_menu = m.to_menu;
+            eprintln!("movie: over");
+            self.movie = None;
+            if to_menu {
+                self.open_menu();
+            } else {
+                self.quit = true;
+            }
+        }
+    }
+
     /// The level again from its save point, or the next level from its
     /// start, or the end.
     fn after_splash(&mut self, after: crate::game::After) {
@@ -1162,8 +1284,19 @@ impl State {
                 eprintln!("game: the end");
                 // (Won: the cheat codes work from now on.)
                 crate::game::mark_won_game();
+                let to_menu = self.front.as_ref().is_some_and(|f| f.started_here);
+                // The ending movie, then on (`Oni.c`: after level 19's win).
+                let outro = oni_root.join("movies/outro.bik");
+                match crate::movie::Movie::open(&outro) {
+                    Ok(movie) => {
+                        self.play = None;
+                        self.start_movie(movie, to_menu);
+                        return;
+                    }
+                    Err(e) => eprintln!("movie: no ending movie ({e})"),
+                }
                 // (Begun at the menu: back to it.)
-                if self.front.as_ref().is_some_and(|f| f.started_here) {
+                if to_menu {
                     self.play = None;
                     self.open_menu();
                 } else {
@@ -1259,6 +1392,38 @@ impl State {
             self.renderer.fog = pw.world.fog.fog;
         }
         self.renderer.gamma = self.gamma;
+        // The movie over everything: on black, as big as fits, centred
+        // (`BKcScale_Fill_Window`).
+        if let Some(m) = self.movie.as_mut() {
+            let (mw, mh) = m.movie.size();
+            if let Some(rgba) = m.movie.take_picture() {
+                self.renderer.movie_frame(&self.gpu, mw, mh, rgba);
+            }
+            let scale = self.window.scale_factor() as f32;
+            let (w, h) = (
+                self.config.width as f32 / scale,
+                self.config.height as f32 / scale,
+            );
+            let s = (w / mw as f32).min(h / mh as f32);
+            let (dw, dh) = (mw as f32 * s, mh as f32 * s);
+            let (x, y) = ((w - dw) * 0.5, (h - dh) * 0.5);
+            self.renderer.overlay = vec![
+                crate::render::OverlayDraw {
+                    texture: None,
+                    tris: quad([0.0, 0.0, w, h]),
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    additive: false,
+                },
+                crate::render::OverlayDraw {
+                    texture: (m.movie.frame().is_some())
+                        .then(|| std::path::PathBuf::from(crate::render::MOVIE_TEXTURE)),
+                    tris: quad([x, y, x + dw, y + dh]),
+                    color: [1.0; 4],
+                    additive: false,
+                },
+            ];
+            self.renderer.overlay_size = [w, h];
+        }
         // The main menu over everything (black behind it).
         if let Some(o) = self.menu_overlay() {
             let scale = self.window.scale_factor() as f32;
