@@ -2137,8 +2137,18 @@ impl World {
                 if lens == Some(0.0) {
                     return None;
                 }
-                let alpha =
-                    read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0) * lens.unwrap_or(1.0);
+                // (A fading flare fades with the fog, as a thing at its depth
+                // would: `P3rModifyAlphaByFogFromDepth`.)
+                let fog = match c.lens.as_ref() {
+                    Some(l) if l.fade.is_some() => self.flare_fog(sys.world_position(p)),
+                    _ => 1.0,
+                };
+                if fog <= 0.0 {
+                    return None;
+                }
+                let alpha = read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0)
+                    * lens.unwrap_or(1.0)
+                    * fog;
                 let channel = |shift: u32| ((shade >> shift) & 0xFF) as f32 / 255.0 * alpha;
                 Some(crate::render::Sprite {
                     at: sys.world_position(p),
@@ -2168,6 +2178,34 @@ impl World {
     /// v 0 at it, 1 at the link; its colour at its end, the link's at the
     /// other, both at its alpha. A contrail emitter draws the part of the
     /// band to its newest emission that has grown since it was emitted.
+    /// How much of a lens flare at `at` the fog leaves (`gl_calculate_fog_factor`
+    /// at its screen depth, linear from the fog's start to its end). As
+    /// shipped (Q28) a flare past the end is left whole.
+    fn flare_fog(&self, at: Vec3) -> f32 {
+        let f = &self.fog.fog;
+        let (start, end) = (f.start, f.end);
+        if start == end || start >= 1.0 || end <= 0.0 {
+            return 1.0;
+        }
+        let clip = self.camera.render_camera(4.0 / 3.0).view_proj() * at.extend(1.0);
+        if clip.w <= 1e-6 {
+            return 1.0;
+        }
+        // (Screen depth as the fog has it: −1 near, 1 far.)
+        let z = clip.z / clip.w * 2.0 - 1.0;
+        if z <= start {
+            1.0
+        } else if z >= end {
+            if self.quirks.flares_unfogged_past_fog_end() {
+                1.0
+            } else {
+                0.0
+            }
+        } else {
+            (end - z) / (end - start)
+        }
+    }
+
     /// How many contrail links are drawn now.
     pub fn contrail_count(&self) -> usize {
         self.contrails().len()

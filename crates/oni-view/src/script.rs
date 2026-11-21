@@ -1654,7 +1654,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, ()| {
             let host = h.borrow();
             let l = &host.world.lens;
-            Ok((l.len(), l.values().filter(|v| v.1 > 0.0).count()))
+            // (And how many are drawn — after the fog's fading too.)
+            let drawn = host.world.sprites().iter().filter(|s| s.no_depth).count();
+            Ok((l.len(), l.values().filter(|v| v.1 > 0.0).count(), drawn))
         })?,
     )?;
     // flares_behind_characters(on): the option (#58) for this run's frames —

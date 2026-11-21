@@ -174,6 +174,13 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q28: a fading lens flare beyond the fog's end is drawn at full
+    /// strength (`gl_calculate_fog_factor` gives 1 there, where its own
+    /// linear ramp falls to 0).
+    pub fn flares_unfogged_past_fog_end(self) -> bool {
+        self.faithful
+    }
+
     /// Whether the level scripts run as shipped, without our fixes to their
     /// most glaring mistakes (`docs/SCRIPT_FIXES.md`).
     pub fn scripts_as_shipped(self) -> bool {
