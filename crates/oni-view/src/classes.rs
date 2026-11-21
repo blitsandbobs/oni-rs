@@ -135,14 +135,16 @@ impl Classes {
             shadow: crate::decal::Shadow::from_json(&c["shadow"]).map(Rc::new),
             // (Its super particles: those named `super…`, on a body part.)
             super_particles: Rc::new(
-                c["particles"]
-                    .as_array()
+                crate::world::anim_particles::class_particles(&c)
                     .into_iter()
-                    .flatten()
-                    .filter(|p| p["name"].as_str().is_some_and(|n| n.len() >= 5 && n[..5].eq_ignore_ascii_case("super")))
-                    .filter_map(|p| Some((p["class"].as_str()?.to_string(), p["part"].as_u64().filter(|&k| k < 19)? as usize)))
+                    .filter(|p| p.name.len() >= 5 && p.name[..5].eq_ignore_ascii_case("super"))
+                    .filter_map(|p| match p.part {
+                        crate::world::anim_particles::ClassPart::Part(k) if k < 19 => Some((p.class, k)),
+                        _ => None,
+                    })
                     .collect(),
             ),
+            class_particles: Rc::new(crate::world::anim_particles::class_particles(&c)),
         };
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)

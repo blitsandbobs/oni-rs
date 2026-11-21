@@ -75,6 +75,16 @@ pub struct Attack {
     pub flags: u32,
 }
 
+/// A particle a clip puts on the body (`TRtParticle`): a class particle by
+/// name, on a body part, active from its start to its stop frame.
+#[derive(Clone, Debug)]
+pub struct ClipParticle {
+    pub start: u16,
+    pub stop: u16,
+    pub part: u16,
+    pub name: String,
+}
+
 /// An animation clip.
 #[derive(Clone)]
 pub struct Clip {
@@ -108,6 +118,8 @@ pub struct Clip {
     pub max_interpolation: u16,
     /// Attack hit windows + effects (empty for non-attack clips).
     pub attacks: Vec<Attack>,
+    /// The particles it puts on the body (`extras.particles`; at most 16).
+    pub particles: Vec<ClipParticle>,
     /// Animation flag bits (`ONcAnimFlag_*`, test with `1 << flag`).
     pub flags: u32,
     /// Alternate entry states (Oni shortcuts): selectable from `state` too.
@@ -627,6 +639,17 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         end_interpolation: u16_field("endBlend"),
         max_interpolation: ex["maxBlendIn"].as_u64().map_or(u16::MAX, |v| v as u16),
         attacks,
+        particles: ex["particles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|p| ClipParticle {
+                start: p["start"].as_u64().unwrap_or(0) as u16,
+                stop: p["stop"].as_u64().unwrap_or(0) as u16,
+                part: p["part"].as_u64().unwrap_or(0) as u16,
+                name: p["name"].as_str().unwrap_or("").to_string(),
+            })
+            .collect(),
         flags: named_bits(&ex["flags"], &sc::ANIM_FLAGS),
         shortcuts: ex["shortcuts"]
             .as_array()

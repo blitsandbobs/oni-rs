@@ -181,6 +181,8 @@ const PTR_SELF_DAMAGE: usize = 4; // TRtTakeDamage[] (damage u16, frame u16)
 const PTR_SHORTCUTS: usize = 6; // TRtShortcut[]
 const PTR_THROW: usize = 7; // TRtThrowInfo (one, or none)
 const PTR_FOOTSTEPS: usize = 8; // TRtFootstep[] (frame u16, type u16)
+const PTR_PARTICLES: usize = 9; // TRtParticle[] (24 bytes each)
+const TRAM_NUM_PARTICLES: usize = 383; // `numParticles` u8
 const TRAM_NUM_FOOTSTEPS: usize = 382; // `numFootsteps` u8
 const PTR_BODY: usize = 10; // TRtPosition[numFrames]: per-tick body extent
 const PTR_DATA: usize = 11; // keyframe data
@@ -497,6 +499,9 @@ pub struct Clip {
     /// Damage the character playing this clip takes, as `(frame, damage)`
     /// pairs — how a thrown victim gets hurt.
     pub self_damage: Vec<(u16, u16)>,
+    /// The particles it attaches to the body (`TRtParticle`): active from
+    /// its start to its stop frame, on a body part, a class particle by name.
+    pub particles: Vec<AnimParticle>,
     /// Frames a foot comes down (`footsteps`): where the footstep sounds and
     /// noises come.
     pub footsteps: Vec<u16>,
@@ -675,6 +680,29 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 .collect()
         }
     };
+    // Its particles (`startFrame`, `stopFrame`, `partIndex`, pad,
+    // `particleName[16]`).
+    let particles = {
+        let off = ptrs.get(PTR_PARTICLES).copied().unwrap_or(0) as usize;
+        let count = read_u8(d, TRAM_NUM_PARTICLES).unwrap_or(0) as usize;
+        if off == 0 {
+            Vec::new()
+        } else {
+            (0..count.min(16))
+                .filter_map(|k| {
+                    let o = off + k * 24;
+                    let name = raw.get(o + 8..o + 24)?;
+                    let end = name.iter().position(|&b| b == 0).unwrap_or(16);
+                    Some(AnimParticle {
+                        start: read_u16(raw, o)?,
+                        stop: read_u16(raw, o + 2)?,
+                        part: read_u16(raw, o + 4)?,
+                        name: String::from_utf8_lossy(&name[..end]).into_owned(),
+                    })
+                })
+                .collect()
+        }
+    };
     let footsteps = {
         let off = ptrs.get(PTR_FOOTSTEPS).copied().unwrap_or(0) as usize;
         let count = read_u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
@@ -781,6 +809,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         throw,
         self_damage,
         footsteps,
+        particles,
         footstep_kinds,
         attack_name,
         sound_frame: read_u16(d, TRAM_SOUND_FRAME).unwrap_or(0),
@@ -840,6 +869,16 @@ fn decode_reach(d: &[u8], raw: &[u8]) -> Option<Reach> {
         direction: read_u32(d, TRAM_STRIKE_DIRECTION)? as u16,
         strikes,
     })
+}
+
+/// A particle an animation attaches (`TRtParticle`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AnimParticle {
+    pub start: u16,
+    pub stop: u16,
+    pub part: u16,
+    /// The class particle's name (`ONtCharacterParticle.name`).
+    pub name: String,
 }
 
 /// Decodes the `attacks` array, bounding its length by the gap to the next

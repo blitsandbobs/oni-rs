@@ -34,6 +34,7 @@ pub mod neutral;
 pub mod corpses;
 pub mod magic;
 pub mod cheats;
+pub mod anim_particles;
 pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
@@ -101,6 +102,8 @@ pub struct CharKind {
     pub model: usize,
     /// Its super particles: class and body part (`ONtCharacterParticle`).
     pub super_particles: Rc<Vec<(String, usize)>>,
+    /// All its class's particles (what its animations attach).
+    pub class_particles: Rc<Vec<anim_particles::ClassParticle>>,
     /// Its low body's model, for the magic effects (if converted).
     pub magic_model: Option<usize>,
     pub character: Rc<Character>,
@@ -413,6 +416,7 @@ impl World {
         }
         f.magic_model = kind.magic_model;
         f.super_particles = kind.super_particles.clone();
+        f.class_particles = kind.class_particles.clone();
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
@@ -2077,6 +2081,7 @@ impl World {
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
         self.cheats_tick();
+        self.anim_particles_tick();
         self.slowmo_timer = self.slowmo_timer.saturating_sub(1);
         for i in 0..self.fighters.len() {
             self.inventory_tick(i);
@@ -2197,6 +2202,10 @@ impl World {
     /// (hit or kill), else the striking part's; on the struck part's
     /// material (`docs/AUDIO.md`, *Impact effects*).
     fn blow_effect(&mut self, a: usize, b: usize, result: usize, attack_parts: u32, struck_parts: u32, damage: u16) {
+        // Hit or killed: the particles on the striking parts are pulsed.
+        if result != 1 {
+            self.anim_particles_pulse(a, attack_parts);
+        }
         let Some(impacts) = self.impacts.clone() else { return };
         let (fa, fb) = (&self.fighters[a], &self.fighters[b]);
         let struck = crate::impacts::primary_part(struck_parts);

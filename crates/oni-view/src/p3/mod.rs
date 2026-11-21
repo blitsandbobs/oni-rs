@@ -559,6 +559,19 @@ impl System {
     }
 
     /// Kills a particle from outside (a weapon dropped, a level ending).
+    /// `P3rSetTint`: a particle of a class taking the global tint takes
+    /// `tint` (its tint variable).
+    pub fn set_tint(&mut self, h: Handle, tint: u32) {
+        let classes = self.classes.clone();
+        let Some(p) = self.get_mut(h) else { return };
+        let c = &classes.list[p.class];
+        if let (Value::Var(k), true) = (&c.tint, c.has(cflag::USE_GLOBAL_TINT)) {
+            if let Some(v) = p.vars.get_mut(*k) {
+                *v = Val::U(tint);
+            }
+        }
+    }
+
     /// `P3rKillTemporaryParticles`: every temporary particle dies.
     pub fn kill_temporary(&mut self, host: &mut dyn Host) {
         let doomed: Vec<Handle> = self.iter().filter(|(_, p)| p.flags & pflag::TEMPORARY != 0).map(|(h, _)| h).collect();

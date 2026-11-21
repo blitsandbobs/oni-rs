@@ -158,6 +158,8 @@ pub struct Motion {
     pub frame: u16,
     /// The state the current clip was entered from.
     pub entered_from: u16,
+    /// Clips started so far (a new one, or the same one again, counts).
+    pub started: u32,
     /// The current clip's animation type.
     pub kind: u16,
     /// The type to play when the current clip ends (0 = none requested).
@@ -278,6 +280,7 @@ impl Motion {
             clip,
             frame: 0,
             entered_from: st::STANDING,
+            started: 0,
             kind,
             queued: ty::NONE,
             state,
@@ -566,6 +569,7 @@ impl Motion {
         n: u16,
         turn: f32,
     ) {
+        self.started = self.started.wrapping_add(1);
         if n > 0 {
             let mut saved = ch.local_rotations(Some(self.current()), self.frame_time());
             if let Some((prev, w)) = self.blend_pose() {

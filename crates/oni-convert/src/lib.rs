@@ -1989,6 +1989,9 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
         put("footsteps", json!(clip.footsteps));
         put("footstepKinds", json!(clip.footstep_kinds));
     }
+    if !clip.particles.is_empty() {
+        put("particles", json!(clip.particles.iter().map(|p| json!({ "start": p.start, "stop": p.stop, "part": p.part, "name": p.name })).collect::<Vec<_>>()));
+    }
     if !clip.attack_name.is_empty() {
         put("attackName", json!(clip.attack_name));
     }

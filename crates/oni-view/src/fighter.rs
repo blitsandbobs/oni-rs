@@ -104,6 +104,11 @@ pub struct Fighter {
     /// (`super_amount`).
     pub external_super: f32,
     pub super_amount: f32,
+    /// Its class's particles (`ONCP`), the current clip's made from them,
+    /// and whether its death's "killed" flash has played (`FinalFlash`).
+    pub class_particles: std::rc::Rc<Vec<crate::world::anim_particles::ClassParticle>>,
+    pub anim_particles: crate::world::anim_particles::AnimParticles,
+    pub final_flash: bool,
     /// Its super particles (class, body part) and those made, running.
     pub super_particles: std::rc::Rc<Vec<(String, usize)>>,
     pub super_handles: Option<Vec<crate::p3::Handle>>,
@@ -409,6 +414,9 @@ impl Fighter {
             external_super: 0.0,
             super_amount: 0.0,
             super_particles: Default::default(),
+            class_particles: Default::default(),
+            anim_particles: Default::default(),
+            final_flash: false,
             super_handles: None,
             super_running: false,
             cheat_unstoppable: false,
