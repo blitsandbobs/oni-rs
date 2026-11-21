@@ -42,6 +42,7 @@ mod particles;
 mod patrols;
 mod pause_pages;
 mod placed;
+mod sky;
 mod sounds;
 mod text_consoles;
 mod turrets;
@@ -499,6 +500,15 @@ pub fn convert_with(
             }
             if let Err(e) = characters::write_setups(&dat, &registry, &root) {
                 stats.warnings.push(format!("setups.json: {e}"));
+            }
+            if let Some(level0) = files
+                .first()
+                .filter(|z| z.level == 0)
+                .and_then(|z| Dat::parse(&z.bytes).ok())
+            {
+                if let Err(e) = sky::write(&dat, &level0, &registry, &root) {
+                    stats.warnings.push(format!("sky.json: {e}"));
+                }
             }
             if let Err(e) = corpses::write(&dat, &registry, &root) {
                 stats.warnings.push(format!("corpses.json: {e}"));

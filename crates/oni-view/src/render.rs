@@ -389,6 +389,11 @@ pub struct Renderer {
     pub flares_behind_characters: bool,
     char_depth_pipeline: wgpu::RenderPipeline,
     flare_depth_pipeline: wgpu::RenderPipeline,
+    /// The level's sky (`docs/SKY.md`): its box's faces, each a quad round
+    /// the eye with its texture (in `tex_bgs`), drawn first — no depth, no
+    /// fog — and its pipeline.
+    sky: Vec<(GpuPrim, usize)>,
+    sky_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
@@ -603,6 +608,15 @@ impl Renderer {
             true,
             "fs_main",
             wgpu::CompareFunction::Less,
+        );
+        // The sky: under everything, unfogged (`ONiGameState_Display_NonReflectable`:
+        // fog, depth writes and the depth test off).
+        let sky_pipeline = make_pipeline_full(
+            "sky",
+            None,
+            false,
+            "fs_nofog",
+            wgpu::CompareFunction::Always,
         );
         let flare_depth_pipeline = make_pipeline_full(
             "flare behind characters",
@@ -945,6 +959,8 @@ impl Renderer {
             flares_behind_characters: false,
             char_depth_pipeline,
             flare_depth_pipeline,
+            sky: Vec::new(),
+            sky_pipeline,
             particle_pipeline,
             decal_pipeline,
             decal_additive_pipeline,
@@ -1026,6 +1042,94 @@ impl Renderer {
     /// (for [`CharDraw::model`]). Several world instances can share one uploaded
     /// model, each drawn with its own pose. Character textures are appended to
     /// the shared texture table and de-duplicated within this model.
+    /// The level's sky (`levels/NN/sky.json`, `docs/SKY.md`;
+    /// `MSrGeomContext_Method_Skybox_Create`): a box 5 each way round the
+    /// eye, its top, left, right, front and back faces each one texture
+    /// across it (clamped at the edges, so the faces meet cleanly). None
+    /// without the file.
+    pub fn attach_sky(&mut self, gpu: &Gpu, level_dir: &std::path::Path) {
+        self.sky.clear();
+        let Some(doc) = std::fs::read_to_string(level_dir.join("sky.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        else {
+            return;
+        };
+        const D: f32 = 5.0;
+        let corner = [
+            [-D, D, -D],
+            [D, D, -D],
+            [D, D, D],
+            [-D, D, D],
+            [-D, -D, -D],
+            [D, -D, -D],
+            [D, -D, D],
+            [-D, -D, D],
+        ];
+        // (Top, left, right, front, back: the corners each face takes, in
+        // the order of its texture's (0,0), (1,0), (1,1), (0,1).)
+        const FACES: [[usize; 4]; 5] = [
+            [3, 2, 1, 0],
+            [3, 0, 4, 7],
+            [1, 2, 6, 5],
+            [0, 1, 5, 4],
+            [2, 3, 7, 6],
+        ];
+        const UV: [[f32; 2]; 4] = [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]];
+        let sampler = gpu.device.create_sampler(&wgpu::SamplerDescriptor {
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            mipmap_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let common = level_dir.join("../../common/textures");
+        for (face, name) in FACES
+            .iter()
+            .zip(doc["textures"].as_array().into_iter().flatten())
+        {
+            let Some(name) = name.as_str() else { continue };
+            let path = [
+                level_dir.join("textures").join(format!("{name}.png")),
+                common.join(format!("{name}.png")),
+            ]
+            .into_iter()
+            .find(|p| p.is_file());
+            let Some((w, h, rgba)) = path.and_then(|p| load_png(&p).ok()) else {
+                continue;
+            };
+            self.tex_bgs
+                .push(make_texture_bg(gpu, &self.tex_bgl, &sampler, w, h, &rgba));
+            let texture = self.tex_bgs.len() - 1;
+            let vertices = face
+                .iter()
+                .zip(UV)
+                .map(|(&c, uv)| Vertex {
+                    pos: corner[c],
+                    normal: [0.0, 1.0, 0.0],
+                    uv,
+                    color: [0.8; 3],
+                })
+                .collect();
+            let prim = Prim {
+                vertices,
+                indices: vec![0, 1, 2, 0, 2, 3],
+                texture: None,
+                blend: false,
+                additive: false,
+                door: None,
+                leaf: 0,
+                visible: true,
+                collide: false,
+                env_ref: None,
+                glass: None,
+                one_sided: false,
+            };
+            self.sky.push((upload_prim(&gpu.device, &prim), texture));
+        }
+    }
+
     /// The movie's picture this frame (`w` × `h` RGBA, display values): its
     /// texture made the first time (or at a new size), then rewritten.
     pub fn movie_frame(&mut self, gpu: &Gpu, w: u32, h: u32, rgba: &[u8]) {
@@ -1310,6 +1414,22 @@ impl Renderer {
                 pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..p.count, 0, 0..1);
             };
+            // The sky first, round the eye (`ONrSky_Draw`).
+            if !self.sky.is_empty() {
+                pass.set_pipeline(&self.sky_pipeline);
+                let model = Mat4::from_translation(self.eye);
+                for (p, t) in &self.sky {
+                    pass.set_push_constants(
+                        wgpu::ShaderStages::VERTEX,
+                        0,
+                        bytemuck::cast_slice(&push_block(model, [0.0; 4])),
+                    );
+                    pass.set_bind_group(1, self.tex_bgs.get(*t).unwrap_or(&self.default_tex), &[]);
+                    pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                    pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..p.count, 0, 0..1);
+                }
+            }
             for (bucket, pipeline, cull_pipeline) in [
                 (
                     Bucket::Opaque,

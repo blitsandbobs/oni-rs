@@ -159,6 +159,7 @@ impl ScriptHost {
         // (After the weapons: that is where the level quads load.)
         renderer.attach_quads(&scene, &world.quads);
         renderer.attach_texture_anims(&gpu, world.texture_anims());
+        renderer.attach_sky(&gpu, &cast.level_dir);
         if world.nav.is_none() {
             eprintln!("  (no navigation data for this level)");
         }

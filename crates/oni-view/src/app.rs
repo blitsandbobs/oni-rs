@@ -140,6 +140,7 @@ fn mission_level(
     // (After the weapons: that is where the level quads load.)
     renderer.attach_quads(&scene, &world.quads);
     renderer.attach_texture_anims(gpu, world.texture_anims());
+    renderer.attach_sky(gpu, &level_dir);
     progress(70);
     let mut m = crate::mission::Mission::load(&level_dir)?;
     m.state
@@ -529,6 +530,7 @@ impl ApplicationHandler for App {
                     // (After the weapons: that is where the level quads load.)
                     renderer.attach_quads(&scene, &world.quads);
                     renderer.attach_texture_anims(&gpu, world.texture_anims());
+                    renderer.attach_sky(&gpu, &self.cast.level_dir);
                     if self.mission {
                         // The level's own scripts populate it.
                         match (
