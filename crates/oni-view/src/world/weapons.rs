@@ -240,6 +240,16 @@ impl<'a> ShotHost<'a> {
         if super_shield || f.weapon_immune {
             return false;
         }
+        // Its class shrugs off a share of the stun and knockback (not the
+        // damage) of this kind of hit (`damageResistance`), unless a belt
+        // takes it.
+        let (stun, knockback) = match f.motion.tuning.damage_resistance.get(kind as usize) {
+            Some(&r) if r > 0.0 && f.inventory.shield == 0 => {
+                let keep = (1.0 - r).max(0.0);
+                ((stun.max(0) as f32 * keep).round() as i32, knockback * keep)
+            }
+            _ => (stun, knockback),
+        };
         // A boss shield takes its class's share off the hit, its knockback
         // and its stun (a fraction left over counting by chance).
         let (damage, stun, knockback) = if f.boss_shield && f.inventory.shield == 0 {
@@ -2380,6 +2390,25 @@ impl World {
                 f.recoil = f.recoil.clamp(0.0, r.max);
             }
             f.aiming_ud = f.aiming_ud.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        }
+        // A throw's action frame takes the victim's gun
+        // (`ONrCharacter_Update`'s throw swap): into the thrower's hand if
+        // it has none in hand or stowed, else knocked from the victim's.
+        for who in 0..self.fighters.len() {
+            let f = &self.fighters[who];
+            let Some(victim) = f.throwing else { continue };
+            if f.motion.current().action_frame != Some(f.motion.frame) || f.motion.current().frames() == 0 {
+                continue;
+            }
+            let Some(gun) = self.fighters.get(victim).and_then(|v| v.hand) else { continue };
+            if f.hand.is_none() && f.holster.is_none() {
+                self.fighters[victim].hand = None;
+                self.set_weapon_varient(victim);
+                self.take_weapon(who, gun);
+                eprintln!("throw: fighter {who} takes {victim}'s gun");
+            } else {
+                self.drop_weapon(victim, true);
+            }
         }
         // Knocked down: the gun flies.
         for who in 0..self.fighters.len() {

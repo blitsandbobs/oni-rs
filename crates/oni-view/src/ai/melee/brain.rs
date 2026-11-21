@@ -104,8 +104,10 @@ pub struct Output {
     pub face: Option<f32>,
     /// Start this attack fresh (forget the combo in progress).
     pub fresh_attack: bool,
-    /// Throw the target with this throw type.
+    /// Throw the target with this throw type — a disarm, only with the
+    /// victim's side for that gun (its variant bits; 0 any).
     pub throw: Option<u16>,
+    pub throw_victim: u16,
 }
 
 /// Facts about a technique fixed for a given animation set.
@@ -699,8 +701,16 @@ impl Melee {
         if let Some(ti) = info.throw {
             let Move::Throw(index) = t.moves[ti] else { return 0.0 };
             let th = &THROWS[index];
-            if th.disarm != tables::Disarm::No {
-                return 0.0; // nobody carries weapons yet (#10)
+            // A disarm wants the target holding that kind of gun and our
+            // hand empty. (Q22: as shipped a rifle disarm checks for a
+            // pistol too — then gives up, the target having no rifle out.)
+            let (pistol, rifle) = held_gun(target);
+            let armed = held_gun(me) != (false, false);
+            let rifle_wants = if self.quirks.rifle_disarm_wants_pistol() { pistol } else { rifle };
+            match th.disarm {
+                tables::Disarm::Pistol if !pistol || armed => return 0.0,
+                tables::Disarm::Rifle if !rifle_wants || armed => return 0.0,
+                _ => {}
             }
             let rel = wrap(target.facing - me.facing).abs();
             if th.from_behind != behind {
@@ -893,14 +903,24 @@ impl Melee {
     }
 
     /// A throw move's range for our animation set.
+    /// (A disarm: only throws whose victim side is for that gun.)
     pub(super) fn throw_range(&self, index: usize, me: &View) -> f32 {
         let th = &THROWS[index];
         let state = if th.running { MeleeState::Running } else { MeleeState::Standing };
-        me.motion
-            .coll
-            .all(tables::ty(th.anim), state.anim_state())
+        let needs = match th.disarm {
+            tables::Disarm::Pistol => var::RIGHTY_PISTOL | var::LEFTY_PISTOL,
+            tables::Disarm::Rifle => var::RIGHTY_RIFLE | var::LEFTY_RIFLE,
+            tables::Disarm::No => 0,
+        };
+        let coll = &me.motion.coll;
+        coll.all(tables::ty(th.anim), state.anim_state())
             .into_iter()
-            .filter_map(|c| me.motion.coll.entries[c].clip.throw.map(|t| t.range))
+            .filter_map(|c| coll.entries[c].clip.throw)
+            .filter(|t| {
+                needs == 0
+                    || coll.all(t.target_anim_type, MeleeState::Standing.anim_state()).into_iter().any(|v| coll.entries[v].clip.varient & needs != 0)
+            })
+            .map(|t| t.range)
             .fold(0.0, f32::max)
     }
 }
@@ -1404,4 +1424,12 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
         info.allow_transition = true;
     }
     info
+}
+
+/// Whether fighter `v` holds a pistol, a rifle, out (its animation variant:
+/// the gun in its hand).
+pub(super) fn held_gun(v: &View) -> (bool, bool) {
+    use crate::anim::types::var;
+    let r = v.motion.varient;
+    (r & (var::RIGHTY_PISTOL | var::LEFTY_PISTOL) != 0, r & (var::RIGHTY_RIFLE | var::LEFTY_RIFLE) != 0)
 }

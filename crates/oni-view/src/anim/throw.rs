@@ -57,6 +57,9 @@ pub struct Sense {
     pub candidates: Vec<Candidate>,
     /// An AI's ordered throw: any strike it starts becomes this throw type.
     pub only: Option<u16>,
+    /// …and with the victim's side in one of these variants (a disarm: its
+    /// gun's; 0 any).
+    pub victim_needs: u16,
 }
 
 /// A throw that has just begun.
@@ -137,6 +140,9 @@ pub fn attempt(
         let Some(target_clip) = coll.lookup(t.target_anim_type, victim.state, theirs) else {
             continue;
         };
+        if sense.victim_needs != 0 && coll.entries[target_clip].clip.varient & sense.victim_needs == 0 {
+            continue;
+        }
         let score = (u32::from(coll.entries[target_clip].clip.varient) << 16) | u32::from(c.varient);
         if score > best.map_or(0, |b| b.0) {
             best = Some((score, clip, target_clip));
@@ -172,6 +178,7 @@ mod tests {
                 invulnerable: false,
             }],
             only: None,
+            victim_needs: 0,
         }
     }
 

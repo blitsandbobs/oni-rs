@@ -114,6 +114,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `stairs.lua` | Stairs: Konoko runs up a flight (steps aren't collided with — the ramp under them is); the Bay 4 comguy climbs to its alarm console (#32). |
 | `hearing.lua` | Hearing bodies (#13): a crouched walk is silent, running is heard, a landed blow alarms (medium). |
 | `cutscene_skip.lua` | Skipping a cutscene: too soon (under 10 ticks in) nothing; then 20 frames' fade to black with the sound off, 32 ticks a frame unseen until the cutscene ends, 20 frames' fade back, the sound back. |
+| `disarm.lua` | Throws take guns: an unarmed Konoko's front throw takes an armed dummy's pistol, an armed one's knocks it to the floor; a striker's "Disarm Front" takes hers. |
 | `death.lua` | Death (#12): a body stays — unless its class deletes its dead after a delay (the mad bomber, 190 ticks). |
 | `teams.lua` | Teams (#11): a friend's punch passes through; an enemy's lands; auto-facing turns toward an enemy, never a friend. |
 | `text_console.lua` | Level 3's data console: `text_console` opens its 3 pages in a modal dialog — the game stands still; Space turns the page and closes on the last (Close), Esc closes; no such console opens nothing. |

@@ -781,6 +781,23 @@ impl World {
             queued: f.motion.queued,
             disables_shield: f.motion.current().has_flag(crate::anim::types::flag::DISABLE_SHIELD),
             has_thunderbolt: f.motion.coll.lookup(crate::anim::types::ty::MURO_THUNDERBOLT, f.motion.state, f.motion.varient | crate::anim::types::var::FIGHT).is_some(),
+            can_pickup: picks_up(f.motion.current()),
+            picking_up: matches!(f.motion.kind, 157..=159 | 227..=229),
+            escapes: {
+                use crate::anim::types::ty;
+                [ty::CROUCH_FORWARD, ty::CROUCH_BACK, ty::CROUCH_LEFT, ty::CROUCH_RIGHT].map(|kind| {
+                    // (The roll that way, else the slide: one that can pick up.)
+                    [kind, ty::SLIDE].into_iter().find_map(|k| {
+                        let c = f.motion.coll.lookup(k, f.motion.state, f.motion.varient)?;
+                        let clip = &f.motion.coll.entries[c].clip;
+                        picks_up(clip).then(|| {
+                            let n = clip.root_motion.len().saturating_sub(1);
+                            let [x, z] = clip.root_motion[..n].iter().fold([0.0, 0.0], |a, m| [a[0] + m[0], a[1] + m[1]]);
+                            (k, glam::Quat::from_rotation_y(f.facing.facing) * Vec3::new(x, 0.0, z))
+                        })
+                    })
+                })
+            },
         };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
@@ -886,10 +903,13 @@ impl World {
                 }
             }
             // A gun it bends for: its own (useless) one goes to the floor.
-            let want = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => a.want_pickup.take(),
-                _ => None,
+            let (want, drop) = match self.fighters[i].brain.as_mut() {
+                Some(crate::ai::Brain::Agent(a)) => (a.want_pickup.take(), std::mem::take(&mut a.drop_gun)),
+                _ => (None, false),
             };
+            if drop {
+                self.drop_weapon(i, false);
+            }
             if let Some(w) = want.filter(|_| self.fighters[i].pickup.is_none()) {
                 self.drop_weapon(i, false);
                 if self.start_pickup(i, Item::Weapon(w)) {
@@ -1994,14 +2014,15 @@ impl World {
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
-            let order = d.and_then(|d| d.throw);
+            let order = d.and_then(|d| d.throw.map(|t| (t, d.throw_victim)));
             let Some(target) = self.fighters[i].brain.as_ref().and_then(|b| b.melee()).map(|m| m.target) else {
                 continue;
             };
-            let sense = order.and_then(|kind| {
+            let sense = order.and_then(|(kind, needs)| {
                 let mut s = self.throw_sense(i)?;
                 s.candidates.retain(|c| c.who == target);
                 s.only = Some(kind);
+                s.victim_needs = needs;
                 Some(s)
             });
             self.fighters[i].motion.throw_sense = sense;
@@ -2434,6 +2455,7 @@ impl World {
             facing: f.facing.facing,
             candidates,
             only: None,
+            victim_needs: 0,
         })
     }
 
@@ -2755,4 +2777,11 @@ impl World {
         let result = if self.fighters[b].hp <= 0 { 2 } else { 0 };
         self.blow_effect(a, b, result, parts.0, parts.1, attack.damage);
     }
+}
+
+/// Whether a clip picks things up as it goes, for an AI
+/// (`ONcAnimFlag_Can_Pickup`, not `ONcAnimFlag_NoAIPickup`).
+fn picks_up(c: &crate::skel::Clip) -> bool {
+    use crate::anim::types::flag;
+    c.has_flag(flag::CAN_PICKUP) && !c.has_flag(flag::NO_AI_PICKUP)
 }

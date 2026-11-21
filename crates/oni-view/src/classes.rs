@@ -246,6 +246,11 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     if let Some(v) = stats["superShield"].as_bool() {
         t.super_shield = v;
     }
+    for (k, name) in ["normal", "minorStun", "majorStun", "minorKnockdown", "majorKnockdown", "blownUp", "pickUp"].iter().enumerate() {
+        if let Some(v) = f(&stats["damageResistance"][name]) {
+            t.damage_resistance[k] = v;
+        }
+    }
     if let Some(v) = f(&stats["bossShield"]) {
         t.boss_shield = v;
     }

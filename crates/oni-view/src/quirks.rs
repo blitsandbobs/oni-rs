@@ -124,6 +124,12 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q22: the melee AI weighs a rifle disarm as for a pistol (then gives
+    /// it up): it never takes a rifle.
+    pub fn rifle_disarm_wants_pistol(self) -> bool {
+        self.faithful
+    }
+
     /// Q21: the corpse array holds 20 bodies, the level's own among them.
     pub fn corpse_limit_20(self) -> bool {
         self.faithful

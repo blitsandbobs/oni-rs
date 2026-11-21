@@ -82,6 +82,10 @@ pub struct ClassTuning {
     pub super_shield: bool,
     /// What a boss shield takes off a hit (`bossShieldProtectAmount`).
     pub boss_shield: f32,
+    /// How much of a weapon hit's stun and knockback it shrugs off, by damage
+    /// kind (`damageResistance`: normal, minor stun, major stun, minor
+    /// knockdown, major knockdown, blown up, pick-up).
+    pub damage_resistance: [f32; 7],
 }
 
 impl Default for ClassTuning {
@@ -106,6 +110,7 @@ impl Default for ClassTuning {
             super_hypo: false,
             super_shield: false,
             boss_shield: 0.0,
+            damage_resistance: [0.0; 7],
         }
     }
 }

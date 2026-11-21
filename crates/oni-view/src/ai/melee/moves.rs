@@ -548,6 +548,16 @@ fn evade(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize
 fn throw(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize) -> Step {
     let th = &THROWS[index];
     let anim = tables::ty(th.anim);
+    // (A disarm wants the victim's side for that gun: `AI2iMelee_FindThrow`'s
+    // desired variant.)
+    out.throw_victim = {
+        use crate::anim::types::var;
+        match th.disarm {
+            tables::Disarm::Pistol => var::RIGHTY_PISTOL | var::LEFTY_PISTOL,
+            tables::Disarm::Rifle => var::RIGHTY_RIFLE | var::LEFTY_RIFLE,
+            tables::Disarm::No => 0,
+        }
+    };
     if m.mv.launched {
         let c = me.motion.current();
         if c.has_flag(flag::THROW_SOURCE) || !c.attacks.is_empty() {
@@ -567,6 +577,13 @@ fn throw(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize
     }
     if target.knockdown_resistant || target.motion.invulnerable() {
         return Step::Abort;
+    }
+    // A disarm: the target must still have that gun out.
+    let (pistol, rifle) = super::brain::held_gun(target);
+    match th.disarm {
+        tables::Disarm::Pistol if !pistol => return Step::Abort,
+        tables::Disarm::Rifle if !rifle => return Step::Abort,
+        _ => {}
     }
     let rel = {
         let d = target.facing - me.facing;

@@ -106,6 +106,9 @@ pub struct ClassCombat {
     pub default_profile: u16,
     /// Chance (percent) it goes for a gun when it has none.
     pub gun_pickup_percent: u32,
+    /// The chance it goes for a gun with a roll or slide that picks it up
+    /// (`gun_runningpickup_percentage`).
+    pub gun_running_pickup_percent: u32,
     /// Dodging: at all, while its own gun fires, and whether a dodge stops
     /// it firing; how long a danger must last before it reacts (ticks), and
     /// how its dodges' lifetimes and weights are scaled.
@@ -125,6 +128,7 @@ impl Default for ClassCombat {
             taunt_percent: 40,
             default_profile: 0,
             gun_pickup_percent: 0,
+            gun_running_pickup_percent: 0,
             dodge: false,
             dodge_while_firing: false,
             dodge_stops_firing: false,
@@ -147,6 +151,7 @@ impl ClassCombat {
             taunt_percent: u("deadTauntPercent", d.taunt_percent),
             default_profile: u("defaultCombatProfileId", 0) as u16,
             gun_pickup_percent: u("gunPickupPercent", 0),
+            gun_running_pickup_percent: u("gunRunningPickupPercent", 0),
             dodge: has("dodge"),
             dodge_while_firing: has("dodgeWhileFiring"),
             dodge_stops_firing: has("dodgeStopsFiring"),
@@ -375,6 +380,13 @@ pub struct Body {
     pub victim: bool,
     /// Invisibility left.
     pub invisibility: u16,
+    /// Its clip can pick things up as it goes (`ONcAnimFlag_Can_Pickup`,
+    /// not `NoAIPickup`), is a pickup clip; and the escape moves that can
+    /// (forward, back, left, right: the clip type and where it ends, from
+    /// the feet).
+    pub can_pickup: bool,
+    pub picking_up: bool,
+    pub escapes: [Option<(u16, Vec3)>; 4],
     /// The clip queued next, whether the current one drops a super shield
     /// (`ONcAnimFlag_DisableShield`), whether it has a thunderbolt to do.
     pub queued: u16,
@@ -879,6 +891,10 @@ pub struct Combat {
     gun_target: Option<usize>,
     gun_roll: Option<bool>,
     unreachable: Vec<usize>,
+    /// Picking it up on the run: its roll of the class's chance (once a
+    /// gun), and whether it is doing so (`gun_running_pickup`).
+    running_roll: Option<bool>,
+    gun_running: bool,
     /// Decisions left of the melee its gun earned (the target is down).
     weapon_melee: u32,
     /// What it is dodging, and the way to go now (weighted; none below a
@@ -963,6 +979,8 @@ pub struct Agent {
     /// A gun it wants to bend for now (the world drops its own and starts
     /// the pickup).
     pub want_pickup: Option<usize>,
+    /// Its own gun let go (before a running pickup).
+    pub drop_gun: bool,
     /// Extra spread on its shots (degrees; a patrol's shoot-at-flag).
     pub extra_spread: f32,
     /// It left its neutral interaction (for the world to stop it,
@@ -1014,6 +1032,7 @@ impl Agent {
             set_super: None,
             clear_stun: false,
             want_pickup: None,
+            drop_gun: false,
             extra_spread: 0.0,
             neutral_exit: None,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
@@ -2364,6 +2383,8 @@ impl Agent {
             first_sight: true,
             too_close: 0.0,
             gun_target: None,
+            running_roll: None,
+            gun_running: false,
             gun_roll: None,
             unreachable: Vec::new(),
             weapon_melee: 0,
@@ -2698,6 +2719,16 @@ impl Agent {
             Primary::Gun => {
                 let k = self.combat();
                 let gun = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).copied();
+                // Rolling or sliding for it: no new clip, just aim at it
+                // (and take it when it is near).
+                if self.combat().gun_running && cx.body.can_pickup {
+                    self.halt();
+                    if let Some(f) = gun {
+                        if f.at.with_y_zero().distance(cx.feet.with_y_zero()) < 16.0 {
+                            self.want_pickup = Some(f.index);
+                        }
+                    }
+                } else {
                 match gun {
                     Some(f) if f.at.with_y_zero().distance(cx.feet.with_y_zero()) <= GUN_REACH => {
                         self.halt();
@@ -2714,6 +2745,7 @@ impl Agent {
                         }
                     }
                     None => self.halt(),
+                }
                 }
             }
         }
@@ -3204,6 +3236,84 @@ impl Agent {
             k.primary = pick;
             k.advance_goal = None;
         }
+        // Going for a gun: maybe on the run (its chance rolled once a gun).
+        if pick == Primary::Gun && self.combat().gun_target.is_some() {
+            if self.combat().running_roll.is_none() {
+                let roll = self.rng.next() % 100 < self.class.gun_running_pickup_percent;
+                self.combat().running_roll = Some(roll);
+            }
+            let running = self.combat().running_roll == Some(true) && self.try_running_pickup(cx);
+            self.combat().gun_running = running;
+        } else {
+            let k = self.combat();
+            k.running_roll = None;
+            k.gun_running = false;
+        }
+    }
+
+    /// A gun picked up on the run (`AI2rManeuver_TryRunningGunPickup`):
+    /// already in a clip that picks up, it takes the gun within 16; standing,
+    /// with the gun 5–70 off on the level (within 5 up or down) and straight
+    /// ahead, behind or to a side (within 20°), it starts the roll or slide
+    /// that way that can pick up — once the move would carry it 10 past the
+    /// gun and the way is clear. True while this is how it goes for it.
+    fn try_running_pickup(&mut self, cx: &Ctx) -> bool {
+        use std::f32::consts::{FRAC_PI_2, PI};
+        const MIN: f32 = 5.0;
+        const MAX: f32 = 70.0;
+        const OVERSHOOT: f32 = 10.0;
+        const VERTICAL: f32 = 5.0;
+        const DELTA: f32 = 20.0 * PI / 180.0;
+        const RADIUS: f32 = 16.0;
+        let Some(gun) = self.combat().gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).copied() else { return false };
+        let b = cx.body;
+        let d = gun.at - cx.feet;
+        let dist = d.with_y_zero().length();
+        if !b.inactive_upright {
+            if b.picking_up || !b.can_pickup {
+                return false;
+            }
+            if dist < RADIUS {
+                self.want_pickup = Some(gun.index);
+            }
+            return true;
+        }
+        if d.y.abs() > VERTICAL || !(MIN..=MAX).contains(&dist) {
+            return false;
+        }
+        let angle = d.x.atan2(d.z);
+        let rel = (angle - cx.facing + PI).rem_euclid(2.0 * PI) - PI;
+        let way = if rel.abs() < DELTA {
+            0
+        } else if (rel - FRAC_PI_2).abs() < DELTA {
+            2
+        } else if (rel + FRAC_PI_2).abs() < DELTA {
+            3
+        } else if rel.abs() > PI - DELTA {
+            1
+        } else {
+            return false;
+        };
+        let Some((kind, end)) = b.escapes[way] else { return false };
+        // The way must be clear.
+        let flat = end.with_y_zero();
+        let clear = match (flat.try_normalize(), self.nav.is_some()) {
+            (Some(dir), true) => (cx.probe)(cx.feet, glam::Vec2::new(dir.x, dir.z), flat.length(), crate::nav::Square::Border3).is_some_and(|p| p.stopped.is_none()),
+            _ => true,
+        };
+        if !clear {
+            return false;
+        }
+        // Not far enough yet: keep going for it, it will be.
+        let along = angle.sin() * end.x + angle.cos() * end.z;
+        if along < dist + OVERSHOOT {
+            return true;
+        }
+        eprintln!("ai: {}: running pickup", self.name);
+        self.anim_request = Some((kind, true));
+        // (Its own empty gun goes.)
+        self.drop_gun = true;
+        true
     }
 
     // --- alarm (`docs/GOALS.md`, *Alarm*) --------------------------------------

@@ -211,6 +211,8 @@ pub mod flag {
     pub const THROW_TARGET: u32 = 16;
     /// Rolls and slides: a pickup happens at once, without its own clip.
     pub const CAN_PICKUP: u32 = 20;
+    /// …but not for an AI (`ONcAnimFlag_NoAIPickup`).
+    pub const NO_AI_PICKUP: u32 = 23;
 }
 
 /// Shortcut flag masks (`TRtShortcut.flags`).

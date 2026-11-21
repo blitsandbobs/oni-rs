@@ -1977,6 +1977,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // running_pickup_chance(id, percent): its chance of picking a gun up on
+    // the run (`gun_runningpickup_percentage`).
+    let h = host.clone();
+    g.set(
+        "running_pickup_chance",
+        lua.create_function(move |_, (id, percent): (usize, u32)| {
+            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+                a.class.gun_running_pickup_percent = percent;
+            }
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "env_show",
