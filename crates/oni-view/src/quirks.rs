@@ -140,6 +140,13 @@ impl Quirks {
     pub fn teleport_pops_in(self) -> bool {
         self.faithful
     }
+
+    /// Q23: letting go of a gun zeroes its fire and reload delays
+    /// (`WPrRelease`), so dropping it and picking it up skips them — the
+    /// community's "cooldown exploit".
+    pub fn drop_resets_cooldown(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]

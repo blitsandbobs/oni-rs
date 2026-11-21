@@ -2210,8 +2210,9 @@ impl World {
             particles, weapons, ..
         } = &mut self.armory;
         let now = self.now as u64;
+        let reset = self.quirks.drop_resets_cooldown();
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        weapons[w].release(particles, &mut host, kick);
+        weapons[w].release(particles, &mut host, kick, reset);
     }
 
     /// The pistol / rifle animation variant for what fighter `who` holds.

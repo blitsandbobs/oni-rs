@@ -487,8 +487,16 @@ impl Weapon {
     }
 
     /// Let go (dropped, or the holder died): it falls, knocked away by
-    /// `kick` (per tick), and lies a while before fading.
-    pub fn release(&mut self, sys: &mut System, host: &mut dyn Host, kick: Option<Vec3>) {
+    /// `kick` (per tick), and lies a while before fading. Its fire and
+    /// reload delays carry over to whoever picks it up, unless `reset_cooldown`
+    /// (Q23: the shipped `WPrRelease` zeroes them).
+    pub fn release(
+        &mut self,
+        sys: &mut System,
+        host: &mut dyn Host,
+        kick: Option<Vec3>,
+        reset_cooldown: bool,
+    ) {
         self.release_trigger(sys, host, true);
         self.stop_background(sys, host);
         self.kill_particles(sys, host);
@@ -510,8 +518,10 @@ impl Weapon {
         self.owner = None;
         self.must_fire = 0;
         self.reload_time = 0;
-        self.chamber = 0;
-        self.reload_delay = 0;
+        if reset_cooldown {
+            self.chamber = 0;
+            self.reload_delay = 0;
+        }
         self.start_delay.iter_mut().for_each(|d| *d = 0);
         self.fade_time = 0;
         self.free_time = if self.class.has(flag::DONT_FADE_OUT) {

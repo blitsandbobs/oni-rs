@@ -1519,7 +1519,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Weapons (`docs/WEAPONS.md`): give_weapon(id, class) puts a new gun in
-    // a fighter's hand; weapon(id) → class, ammo, firing (nil: unarmed);
+    // a fighter's hand; weapon(id) → class, ammo, firing, the ticks till it
+    // fires again (nil: unarmed);
     // aim(id, pitch) sets its aim pitch (radians, up positive);
     // reload(id), drop_weapon(id[, knock]); give_ammo(id, clips, cells);
     // shots() → live particles; weapons_lying() → guns on the floor.
@@ -1545,6 +1546,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 gun.map(|g| g.class.name.clone()),
                 gun.map(|g| g.ammo),
                 gun.map(|g| g.firing),
+                gun.map(|g| g.chamber),
             ))
         })?,
     )?;

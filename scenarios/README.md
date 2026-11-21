@@ -110,6 +110,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `impacts.lua` | Level 1: Konoko's running footsteps sound by the floor (tile) and her light weight; a punch landing on a dummy sounds by the struck part, and swooshes (her variant's punch sound). |
 | `sounds.lua` | Level 1: glass-breaking impulses — placed and panned (PC law), the alt past three copies, nothing out of earshot, a full stereo pool gives up its quietest channel, all play out. |
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |
+| `cooldown.lua` | Q23: the Mercury Bow fired, dropped and picked up again still waits out its delay (fixed); under `--faithful` the drop cleared it, the shipped cooldown exploit. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
 | `envanim.lua` | `chr_envanim` carries Konoko along an object clip and leaves her at its end; `chr_nocollision` lets her walk through the training barrier. |
 | `env_show.lua` | `env_show`: the training room's barrier (reference 2010) stops Konoko while shown; a script hides it and she runs through. |
@@ -173,7 +174,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `play_film(id, name [, mode])` | Plays one of the level's films on a fighter (`""` from its start, `"fromhere"`, `"interp"`); its length. |
 | `present(id)` | Whether a fighter is still in the level (not deleted). |
 | `damage(id, n [, dx, dz])` | Deals `n` damage to a fighter (it dies at 0 health), with a small shove along (dx, dz) if given (the blow's way: it lights the hit ring). |
-| `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing (nil: unarmed). |
+| `give_weapon(id, class)` / `weapon(id)` | Put a new gun of `class` (`w1_tap` …) in a fighter's hand; what it holds: class, ammo, firing, ticks till it fires again (nil: unarmed). |
 | `aim(id, pitch)` / `aim_of(id)` | Set / read a fighter's aim pitch (radians, up positive). |
 | `use_hypo(id)` / `hypo_left(id)` | Use a hypo as Tab does (whether it was used); the health it still has to give. |
 | `lens_flares()` / `lens_flare_near(x, y, z)` | How many lens flares there are, and how many are shown now; the opacity share of the flare nearest a point. |
