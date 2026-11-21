@@ -232,6 +232,7 @@ impl ScriptHost {
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
+        self.renderer.jello_doors = self.world.jello_doors.iter().copied().collect();
         self.renderer.anim_time = self.world.game_tick();
         self.renderer.eye = cam.eye;
         self.renderer.fog = self.world.fog.fog;
@@ -691,6 +692,30 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let names = w.object_states();
             Ok(w.jello_objects.iter().filter_map(|&k| names.get(k).map(|n| n.0.clone())).collect::<Vec<_>>())
         })?,
+    )?;
+    // jello_doors() → {quads, leaves}: how many of the see-through quads this
+    // tick are closed doors' own (their "gunk"), and the leaves of open or
+    // moving doors see-through as objects ("door id:leaf").
+    let h = host.clone();
+    g.set(
+        "jello_doors",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            let t = lua.create_table()?;
+            t.set("quads", w.jello.iter().filter(|&&q| w.quads.quads.get(q as usize).is_some_and(|q| q.object_tag >> 24 == 3)).count())?;
+            let leaves: Vec<String> = w.jello_doors.iter().filter_map(|&(o, l)| w.doors.iter().find(|d| d.object_id == o).map(|d| format!("{}:{l}", d.id))).collect();
+            t.set("leaves", leaves)?;
+            Ok(t)
+        })?,
+    )?;
+    // object_in_way(ax, ay, az, bx, by, bz) → whether the segment between
+    // the points meets an animating object (a placed object, an open or
+    // moving door's leaf: `AMrRayToObject`, as a lens flare's test asks).
+    let h = host.clone();
+    g.set(
+        "object_in_way",
+        lua.create_function(move |_, (ax, ay, az, bx, by, bz): (f32, f32, f32, f32, f32, f32)| Ok(h.borrow().world.segment_meets_object(Vec3::new(ax, ay, az), Vec3::new(bx, by, bz))))?,
     )?;
     // overall_volume() → the sound's overall volume now (0–1).
     let h = host.clone();
@@ -1654,9 +1679,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     })?)?;
     // quad_plane(q) → a, b, c, d: a level quad's plane.
     // jello_drawn() → how many see-through (jello) triangles the last
-    // screenshot drew.
+    // screenshot drew, and how many of them were doors'.
     let h = host.clone();
-    g.set("jello_drawn", lua.create_function(move |_, ()| Ok(h.borrow().renderer.jello_triangles()))?)?;
+    g.set("jello_drawn", lua.create_function(move |_, ()| Ok((h.borrow().renderer.jello_triangles(), h.borrow().renderer.jello_door_triangles())))?)?;
     // decals_drawn(x, y, z) → {{quad, alpha}, …}: the decals drawn from
     // that eye this frame (alpha 0..1, as drawn).
     let h = host.clone();

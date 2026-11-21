@@ -337,6 +337,7 @@ impl World {
     /// Clears last tick's see-through walls (`M3rGeom_Clear_Jello`).
     fn jello_clear(&mut self) {
         self.jello_objects.clear();
+        self.jello_doors.clear();
         for q in std::mem::take(&mut self.jello) {
             if let Some(q) = self.quads.quads.get_mut(q as usize) {
                 q.flags &= !flag::JELLO;
@@ -395,12 +396,14 @@ impl World {
                 segment_meets_sphere(v.location, end, self.object_matrix(k).w_axis.truncate(), r)
             })
             .collect();
+        // (A door not closed: its leaves are objects, met the same way.)
+        self.jello_doors = self.door_leaves_met(v.location, end);
     }
 }
 
 /// Whether the segment from `a` to `b` meets the sphere (`CLrSphere_Line`):
 /// either end inside it, or its nearest point between them.
-fn segment_meets_sphere(a: Vec3, b: Vec3, centre: Vec3, r: f32) -> bool {
+pub(super) fn segment_meets_sphere(a: Vec3, b: Vec3, centre: Vec3, r: f32) -> bool {
     let r2 = r * r;
     if a.distance_squared(centre) < r2 || b.distance_squared(centre) < r2 {
         return true;

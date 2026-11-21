@@ -54,6 +54,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
+| `door_jello.lua` | Level 1's door 18: shut, its own quads between the camera and Konoko go see-through and are drawn so; opening, its quads hide and its moving leaf goes see-through as an object (fixed mode; Q17 as shipped) and blocks a lens flare's ray. |
 | `object_jello.lua` | Level 3's van: its rear door between Konoko and the camera goes see-through (fixed) and stays solid as shipped (Q17, the ray read as a point); away from it nothing is. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
 | `gamma.lua` | The gamma option: 0.5 leaves a frame as drawn, 1 brightens it, 0 darkens it (the original's display ramp). |
@@ -168,9 +169,11 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `fog()` / `image_mean(path, x0, y0, x1, y1)` | The fog now: `r, g, b, start, end` (screen depth); a saved screenshot's mean colour over a region (fractions), `r, g, b`. |
 | `jello_objects()` | The placed objects see-through this tick (in the camera's way), by name. |
 | `pause_toggle()` / `pause_screen()` / `pause_press(b)` | F1 on the pause screen; its state `{tab, page (from 1), pages, lines, hint, previous, next}` or nil; a button: `"objective"`, `"items"`, `"weapons"`, `"diary"`, `"help"`, `"previous"`, `"next"`, `"close"`. |
+| `jello_doors()` | `{quads, leaves}`: how many see-through quads this tick are closed doors' own, and the open or moving doors' leaves see-through as objects (`"door id:leaf"`). |
+| `object_in_way(ax, ay, az, bx, by, bz)` | Whether the segment meets an animating object — a placed object's sphere, an open or moving door's leaf (a lens flare's test, `AMrRayToObject`). |
 | `text_console()` / `text_console_key(k)` / `text_console_click(x, y)` | The data console showing its text, `{name, page (from 1), pages, last, lines, button}` (`button`: its button's `{x, y, w, h}` on 640 × 480) or nil; presses Space (`"next"`) or Esc (`"close"`) on it; clicks at screen x, y (true: on the button, Next or Close). |
 | `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |
-| `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |
+| `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew (and, second, how many were doors'); marks level quad `q` see-through or not, as the camera does (until its next update). |
 | `ray(x1, y1, z1, x2, y2, z2)` | The first level quad between two points (any flags): `{quad, at={x,y,z}, flags, object_tag, jello}`, or nil. |
 | `animated_textures()` / `particle_textures(class)` | The animated textures the level and its models draw, `{name, frame}` each (as of the last screenshot); the texture (file stem) each live particle of a class shows now. |
 | `decals_drawn(x, y, z)` | The decals drawn from that eye now: `{quad, alpha}` each (alpha 0–1, as drawn), in drawing order. |

@@ -107,6 +107,32 @@ impl DoorBox {
         DoorBox { center: origin + axes[0] * mid.x + axes[1] * mid.y + axes[2] * mid.z, axes, half: (hi - lo) / 2.0, solid: true }
     }
 
+    /// Whether the segment from `a` to `b` meets it (either end inside, or
+    /// crossing it).
+    pub fn meets_segment(&self, a: Vec3, b: Vec3) -> bool {
+        let (mut t0, mut t1) = (0.0f32, 1.0f32);
+        for k in 0..3 {
+            let (o, d) = (self.axes[k].dot(a - self.center), self.axes[k].dot(b - a));
+            let h = self.half[k];
+            if d.abs() < 1e-9 {
+                if o.abs() > h {
+                    return false;
+                }
+                continue;
+            }
+            let (mut lo, mut hi) = ((-h - o) / d, (h - o) / d);
+            if lo > hi {
+                std::mem::swap(&mut lo, &mut hi);
+            }
+            t0 = t0.max(lo);
+            t1 = t1.min(hi);
+            if t0 > t1 {
+                return false;
+            }
+        }
+        true
+    }
+
     /// Its six faces: outward normal and corners.
     fn faces(&self) -> [(Vec3, [Vec3; 4]); 6] {
         std::array::from_fn(|f| {

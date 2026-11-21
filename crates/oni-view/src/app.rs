@@ -1068,6 +1068,7 @@ impl State {
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
             self.renderer.jello = pw.world.jello.clone();
+            self.renderer.jello_doors = pw.world.jello_doors.iter().copied().collect();
             self.renderer.anim_time = pw.world.game_tick();
             self.renderer.eye = self.cam.eye;
             self.renderer.fog = pw.world.fog.fog;

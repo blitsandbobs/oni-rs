@@ -4,7 +4,9 @@
 //! point is tested from the camera (`MSrGeomContext_Method_PointVisible`,
 //! the shipped software path): from 5 in front of the camera to the point
 //! pulled back toward it by the class's tolerance, it must meet no level
-//! quad the player can't see through and no character. A flare with lens
+//! quad the player can't see through, no character and no animating object
+//! (a placed object's sphere, an open or moving door's leaf:
+//! `AMrRayToObject`). A flare with lens
 //! frames fades in and out over them as it is seen or hidden
 //! (`P3rLensFlare_Fade`); one without just shows or not.
 //!
@@ -117,7 +119,12 @@ impl World {
             return false;
         }
         let ray = end - from;
-        !bodies.iter().any(|(k, bones)| super::weapons::ray_body(&self.fighters[*k], bones, from, ray).is_some())
+        if bodies.iter().any(|(k, bones)| super::weapons::ray_body(&self.fighters[*k], bones, from, ray).is_some()) {
+            return false;
+        }
+        // (An animating object in the way: a placed object, a door's
+        // leaf while it isn't closed.)
+        !self.segment_meets_object(from, end)
     }
 
     /// One tick of every lens flare's fade (after the camera has moved).

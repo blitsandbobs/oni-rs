@@ -258,6 +258,9 @@ pub struct Renderer {
     tri_quads: Vec<Option<TriQuads>>,
     /// The quads drawn see-through this frame (the camera's jello).
     pub jello: Vec<u32>,
+    /// The door leaves (object id, leaf) drawn see-through this frame: open
+    /// or moving, in the camera's way (as objects: 31 of 255).
+    pub jello_doors: std::collections::HashSet<(u32, u8)>,
     /// Index buffers for the jello last built: for it, per prim, the solid
     /// rest and the see-through part.
     jello_cache: (Vec<u32>, std::collections::HashMap<usize, JelloSplit>),
@@ -703,6 +706,7 @@ impl Renderer {
             gamma_pass: crate::gamma::GammaPass::new(device, format),
             tri_quads: Vec::new(),
             jello: Vec::new(),
+            jello_doors: Default::default(),
             jello_cache: Default::default(),
             additive_pipeline,
             flare_pipeline,
@@ -950,12 +954,14 @@ impl Renderer {
                     p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
+                // (Its solid and see-through parts; what glows on it glows on.)
+                let door_seen_through = |p: &GpuPrim| matches!(p.bucket, Bucket::Opaque | Bucket::Alpha) && p.door.is_some_and(|d| self.jello_doors.contains(&d));
                 // (Each bucket starts on its pipeline: what follows the level's
                 // prims — beams, sprites, characters, objects — draws with it,
                 // unculled.)
                 pass.set_pipeline(pipeline);
                 let mut culling = false;
-                for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p)) {
+                for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p) && !door_seen_through(p)) {
                     if culling != p.cull {
                         pass.set_pipeline(if p.cull { cull_pipeline } else { pipeline });
                         culling = p.cull;
@@ -987,7 +993,10 @@ impl Renderer {
                         // `AKcGQ_Flag_2Sided`, so from behind it is still faintly
                         // there.)
                         pass.set_pipeline(&self.jello_pipeline);
-                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&Mat4::IDENTITY.to_cols_array()));
+                        // (A door's leaf where it stands: a closed door's
+                        // quads go see-through as any wall's.)
+                        let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
+                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&model.to_cols_array()));
                         pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
                         pass.set_index_buffer(seen.slice(..), wgpu::IndexFormat::Uint32);
@@ -998,6 +1007,14 @@ impl Renderer {
                 // The objects in the camera's way, faint (`OBrDraw`'s jello
                 // alpha, 31 of 255): all their parts, with what is seen
                 // through.
+                if bucket == Bucket::Alpha && !self.jello_doors.is_empty() {
+                    pass.set_pipeline(&self.object_jello_pipeline);
+                    for p in self.prims.iter().filter(|p| door_seen_through(p) && shown(p)) {
+                        let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
+                        draw_prim(&mut pass, p, model);
+                    }
+                    pass.set_pipeline(pipeline);
+                }
                 if bucket == Bucket::Alpha && characters.iter().any(|d| d.see_through) {
                     pass.set_pipeline(&self.object_jello_pipeline);
                     for d in characters.iter().filter(|d| d.see_through) {
@@ -1108,9 +1125,6 @@ impl Renderer {
             .iter()
             .filter(|p| p.visible)
             .map(|p| {
-                if p.door.is_some() {
-                    return None;
-                }
                 let at = |i: u32| p.vertices[i as usize].pos;
                 let tris: Vec<u32> = p.indices.chunks_exact(3).map(|t| by_tri.get(&key(at(t[0]), at(t[1]), at(t[2]))).copied().unwrap_or(u32::MAX)).collect();
                 tris.iter().any(|&q| q != u32::MAX).then(|| TriQuads { indices: p.indices.clone(), quads: tris })
@@ -1121,6 +1135,11 @@ impl Renderer {
     /// How many see-through (jello) triangles the last frame drew.
     pub fn jello_triangles(&self) -> u32 {
         self.jello_cache.1.values().map(|(_, _, _, n)| n / 3).sum()
+    }
+
+    /// How many of those were doors' (a closed door's own quads).
+    pub fn jello_door_triangles(&self) -> u32 {
+        self.jello_cache.1.iter().filter(|(&k, _)| self.prims.get(k).is_some_and(|p| p.door.is_some())).map(|(_, (_, _, _, n))| n / 3).sum()
     }
 
     /// Rebuilds the see-through split of the prims the jello touches, when

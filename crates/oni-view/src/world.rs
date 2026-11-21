@@ -179,6 +179,9 @@ pub struct World {
     /// The placed objects see-through this tick (the camera's jello on
     /// objects, `OBcFlags_JelloObjects`).
     pub jello_objects: Vec<usize>,
+    /// The door leaves (object id, leaf) see-through this tick: open or
+    /// moving, their leaves are objects too (the camera's jello on them).
+    pub jello_doors: Vec<(u32, u8)>,
     /// The fog (`world/fog.rs`).
     pub fog: fog::FogState,
     /// The level's placed objects as authored, and those scripts have made.
@@ -306,6 +309,7 @@ impl World {
             timer_expired: None,
             jello: Vec::new(),
             jello_objects: Vec::new(),
+            jello_doors: Vec::new(),
             persist_continues: false,
             pause_volume: 1.0,
             fog: Default::default(),
@@ -943,6 +947,25 @@ impl World {
     /// original's template names go).
     pub fn object_anim(&self, name: &str) -> Option<Rc<oni_geom::objanim::ObjectAnimation>> {
         self.object_anims.get(name).or_else(|| self.object_anims.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, a)| a)).cloned()
+    }
+
+    /// Whether the segment from `a` to `b` meets an animating object
+    /// (`AMrRayToObject`): a placed object's sphere, or the leaf of a door
+    /// that isn't closed (its leaves are objects then, met by their boxes).
+    pub fn segment_meets_object(&self, a: Vec3, b: Vec3) -> bool {
+        self.door_boxes.iter().any(|d| d.solid && d.meets_segment(a, b))
+            || (0..self.objects.len()).any(|k| camera::segment_meets_sphere(a, b, self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius))
+    }
+
+    /// The leaves (object id, leaf) of the doors that aren't closed whose
+    /// boxes the segment from `a` to `b` meets.
+    pub(crate) fn door_leaves_met(&self, a: Vec3, b: Vec3) -> Vec<(u32, u8)> {
+        self.door_leaf_boxes
+            .iter()
+            .zip(&self.door_boxes)
+            .filter(|(_, w)| w.solid && w.meets_segment(a, b))
+            .map(|(l, _)| (self.doors[l.door].object_id, l.leaf as u8))
+            .collect()
     }
 
     /// Door `id`'s leaves this tick: each one's box (centre, half sizes),
