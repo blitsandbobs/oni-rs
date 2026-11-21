@@ -31,6 +31,10 @@ struct Attachment {
 }
 
 /// A turret class (`common/turrets.json`).
+/// Ticks out of view before a turret's idle effect stops
+/// (`OBJcTurret_NotVisibleTime`).
+const TURRET_NOT_VISIBLE: u32 = 120;
+
 pub struct TurretClass {
     pub head: Option<PathBuf>,
     pub barrel: Option<PathBuf>,
@@ -68,7 +72,10 @@ pub struct Turret {
     pub firing: bool,
     pub target: Option<usize>,
     los: bool,
-    background: bool,
+    /// Its idle effect is on (`OBJcTurretFlag_BackgroundFX`).
+    pub background: bool,
+    /// Ticks out of view (`notvisible_time`).
+    unseen: u32,
     particles: Vec<Option<Handle>>,
     /// Barrel space → world (its particles ride it).
     matrix: Rc<Cell<Mat4>>,
@@ -257,6 +264,7 @@ pub fn load(level_dir: &Path, common: &Path, particles: &p3::Classes) -> Vec<Tur
                 target: None,
                 los: false,
                 background: false,
+                unseen: 0,
                 particles: Vec::new(),
                 matrix: Rc::new(Cell::new(Mat4::IDENTITY)),
                 targeting: None,
@@ -380,10 +388,23 @@ impl World {
             {
                 self.turret_particles(k);
             }
-            // (Always taken as in view: its idle effect comes on once.)
-            if !self.turrets[k].background && !self.turrets[k].active {
-                self.turrets[k].background = true;
-                self.turret_send(k, event::BG_START, -1);
+            // Its idle effect (`OBJiTurret_Update`): on while it is drawn,
+            // off once it has been out of view for 2 s. (Drawn: in the
+            // camera's view — the original asks whether its octree nodes
+            // were seen.)
+            let seen = self.in_view(self.turrets[k].position - self.camera.view.location);
+            if seen {
+                self.turrets[k].unseen = 0;
+                if !self.turrets[k].background {
+                    self.turrets[k].background = true;
+                    self.turret_send(k, event::BG_START, -1);
+                }
+            } else {
+                self.turrets[k].unseen += 1;
+                if self.turrets[k].unseen >= TURRET_NOT_VISIBLE && self.turrets[k].background {
+                    self.turrets[k].background = false;
+                    self.turret_send(k, event::BG_STOP, -1);
+                }
             }
             let t = &mut self.turrets[k];
             if t.active {

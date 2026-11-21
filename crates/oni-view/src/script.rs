@@ -2429,6 +2429,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             r.set("target", t.target)?;
             r.set("firing", t.firing)?;
             r.set("shots", t.shots)?;
+            r.set("idle_effect", t.background)?;
             Ok(mlua::Value::Table(r))
         })?,
     )?;

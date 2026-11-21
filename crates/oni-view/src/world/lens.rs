@@ -93,7 +93,7 @@ impl World {
     /// in front of it counting as seen.
     /// Whether a point `to` from the camera is on the screen, give or take
     /// an octree leaf (see the module notes).
-    fn in_view(&self, to: Vec3) -> bool {
+    pub(super) fn in_view(&self, to: Vec3) -> bool {
         let (v, cam) = (self.camera.view, &self.camera);
         let ahead = to.dot(v.view);
         if ahead <= NEAR || ahead > cam.far + LEAF {
