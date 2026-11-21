@@ -1236,10 +1236,29 @@ impl World {
     /// lying free with physics, the placed objects shown (their spheres) and
     /// — for a gun, `characters` — the characters' stacks, but not the dead
     /// once settled (their physics off).
+    /// The characters as obstacles to loose things (each its body's tree).
+    pub(super) fn character_obstacles(&self) -> Vec<crate::objphys::Obstacle> {
+        self.fighters
+            .iter()
+            .filter(|f| !f.gone && !f.settled)
+            .map(|f| {
+                let t = f.tree();
+                crate::objphys::Obstacle {
+                    spheres: t.leaves.iter().map(|s| (s.center, s.radius)).collect(),
+                    whole: (t.root.center, t.root.radius),
+                    character: true,
+                }
+            })
+            .collect()
+    }
+
+    /// What loose thing `me` may meet: the other loose guns and powerups,
+    /// the objects, and (given) the characters — built once by the caller,
+    /// as they don't move while the loose things do.
     pub(super) fn loose_obstacles(
         &self,
         me: Option<Loose>,
-        characters: bool,
+        characters: Option<&[crate::objphys::Obstacle]>,
     ) -> Vec<crate::objphys::Obstacle> {
         use crate::objphys::Obstacle;
         let one = |c: Vec3, r: f32, character: bool| Obstacle {
@@ -1274,15 +1293,8 @@ impl World {
                 false,
             ));
         }
-        if characters {
-            for f in self.fighters.iter().filter(|f| !f.gone && !f.settled) {
-                let t = f.tree();
-                out.push(Obstacle {
-                    spheres: t.leaves.iter().map(|s| (s.center, s.radius)).collect(),
-                    whole: (t.root.center, t.root.radius),
-                    character: true,
-                });
-            }
+        if let Some(c) = characters {
+            out.extend_from_slice(c);
         }
         out
     }
@@ -1297,7 +1309,7 @@ impl World {
         let others: Vec<Vec<crate::objphys::Obstacle>> = (0..self.armory.powerups.len())
             .map(|k| {
                 if self.armory.powerups[k].body.is_some() {
-                    self.loose_obstacles(Some(Loose::Powerup(k)), false)
+                    self.loose_obstacles(Some(Loose::Powerup(k)), None)
                 } else {
                     Vec::new()
                 }
@@ -3015,6 +3027,7 @@ impl World {
             }
         }
         // Free guns.
+        let mut characters: Option<Vec<crate::objphys::Obstacle>> = None;
         for w in 0..self.armory.weapons.len() {
             let gun = &self.armory.weapons[w];
             if gun.owner.is_some() || gun.gone {
@@ -3024,7 +3037,10 @@ impl World {
             // bodies stop it too: characters, objects, loose things.)
             let others = if self.armory.weapons[w].body.is_some() && !self.armory.weapons[w].resting
             {
-                self.loose_obstacles(Some(Loose::Weapon(w)), true)
+                if characters.is_none() {
+                    characters = Some(self.character_obstacles());
+                }
+                self.loose_obstacles(Some(Loose::Weapon(w)), characters.as_deref())
             } else {
                 Vec::new()
             };

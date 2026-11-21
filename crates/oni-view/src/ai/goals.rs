@@ -446,12 +446,9 @@ pub struct Body {
     /// Invisibility left.
     pub invisibility: u16,
     /// Its clip can pick things up as it goes (`ONcAnimFlag_Can_Pickup`,
-    /// not `NoAIPickup`), is a pickup clip; and the escape moves that can
-    /// (forward, back, left, right: the clip type and where it ends, from
-    /// the feet).
+    /// not `NoAIPickup`), is a pickup clip.
     pub can_pickup: bool,
     pub picking_up: bool,
-    pub escapes: [Option<(u16, Vec3)>; 4],
     /// The clip queued next, whether the current one drops a super shield
     /// (`ONcAnimFlag_DisableShield`), whether it has a thunderbolt to do.
     pub queued: u16,
@@ -501,6 +498,10 @@ pub struct Ctx<'a> {
     /// A clear line through the level, past what the mask's flags let
     /// through (`crate::quads::flag::LOS_*`).
     pub sight: &'a dyn Fn(Vec3, Vec3, u32) -> bool,
+    /// The escape move that can pick up, way `0`–`3` (forward, back, left,
+    /// right): its clip type and where it ends, from the feet. Looked up
+    /// only when asked, as the original does at the running pickup.
+    pub escape: &'a dyn Fn(usize) -> Option<(u16, Vec3)>,
     /// The length of the way between two points (None: no way).
     pub path_length: &'a dyn Fn(Vec3, Vec3) -> Option<f32>,
     /// The local probe ([`crate::nav::Navigation::probe`]): from, direction,
@@ -3683,7 +3684,7 @@ impl Agent {
         } else {
             return false;
         };
-        let Some((kind, end)) = b.escapes[way] else {
+        let Some((kind, end)) = (cx.escape)(way) else {
             return false;
         };
         // The way must be clear.

@@ -173,6 +173,8 @@ pub struct Motion {
     pub state: u16,
     pub varient: u16,
     blend: Option<Blend>,
+    /// Counts the blends begun (part of the pose's cache key).
+    blend_gen: u32,
     /// Remaining frames of the previous blend, carried into an overlapping one.
     blend_carry: u16,
     pub last_attack: u16,
@@ -291,6 +293,7 @@ impl Motion {
             state,
             varient: 0,
             blend: None,
+            blend_gen: 0,
             blend_carry: 0,
             last_attack: ty::NONE,
             attack_ended: Some(0),
@@ -376,6 +379,17 @@ impl Motion {
     /// Seconds into the current clip (for sampling keyframes).
     pub fn frame_time(&self) -> f32 {
         f32::from(self.frame) / skel::FPS
+    }
+
+    /// What the body's pose depends on here (for its cache): the clip
+    /// playing, its frame, the blend under way.
+    pub fn pose_key(&self, key: &mut Vec<u32>) {
+        let clip = self.current() as *const Clip as usize as u64;
+        key.extend([clip as u32, (clip >> 32) as u32, u32::from(self.frame)]);
+        match &self.blend {
+            Some(b) => key.extend([self.blend_gen, u32::from(b.itr), u32::from(b.count)]),
+            None => key.push(u32::MAX),
+        }
     }
 
     /// The saved pose and its weight while a blend is in progress.
@@ -654,6 +668,7 @@ impl Motion {
                 .blend
                 .as_ref()
                 .map_or(self.blend_carry, |b| b.count - b.itr);
+            self.blend_gen = self.blend_gen.wrapping_add(1);
             self.blend = Some(Blend {
                 saved,
                 height: self.height(),

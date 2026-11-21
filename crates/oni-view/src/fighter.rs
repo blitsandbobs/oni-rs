@@ -67,6 +67,9 @@ fn is_landing(t: u16) -> bool {
     )
 }
 
+/// A pose kept, and the key it was worked out under.
+type PoseCache = (Vec<u32>, Vec<Mat4>);
+
 /// One character instance in the world.
 pub struct Fighter {
     /// Uploaded render-model index (see [`crate::render::Renderer::add_character`]).
@@ -170,6 +173,9 @@ pub struct Fighter {
     /// Its body makes no corpse (`ONcCharacterFlag_NoCorpse`): it fell or
     /// died too long.
     pub no_corpse: bool,
+    /// The last pose worked out, and what it was worked out from
+    /// ([`Fighter::bones`]): asked for again unchanged, it is reused.
+    pose_cache: std::cell::RefCell<Option<PoseCache>>,
     /// Poison (a script calling `chr_poison` each tick): when it was last
     /// poisoned and its count toward the next dose.
     poison_last: u64,
@@ -463,6 +469,7 @@ impl Fighter {
             death_still: 0,
             death_moving: 0,
             no_corpse: false,
+            pose_cache: std::cell::RefCell::new(None),
             poison_last: 0,
             poison_count: 0,
             passive,
@@ -1613,6 +1620,72 @@ impl Fighter {
     /// body's clip, the overlays on it, and — holding a gun, when the clip
     /// allows — the aim pose (`docs/WEAPONS.md`, *Aim poses*).
     pub fn bones(&self) -> Vec<Mat4> {
+        let key = self.pose_key();
+        if let Some((k, pose)) = &*self.pose_cache.borrow() {
+            if *k == key {
+                // (Checked builds prove the key: the pose worked out afresh
+                // must be the one kept.)
+                debug_assert!(
+                    *pose == self.pose_now(),
+                    "pose cache: same key, another pose"
+                );
+                return pose.clone();
+            }
+        }
+        let pose = self.pose_now();
+        *self.pose_cache.borrow_mut() = Some((key, pose.clone()));
+        pose
+    }
+
+    /// Everything [`Fighter::pose_now`] reads: the clip, frame and blend,
+    /// the overlays, the aim's inputs, the placement.
+    fn pose_key(&self) -> Vec<u32> {
+        let mut key = Vec::with_capacity(48);
+        self.motion.pose_key(&mut key);
+        for o in &self.overlays {
+            match o {
+                Some(o) => key.extend([o.clip as u32, u32::from(o.frame)]),
+                None => key.push(u32::MAX),
+            }
+        }
+        let alive = self.alive();
+        key.push(u32::from(alive));
+        if alive {
+            let screen = |s: Option<&crate::anim::aim::Screen>| {
+                s.map_or(0, |s| s as *const crate::anim::aim::Screen as usize as u64)
+            };
+            let s = screen(self.screen(self.overlay_dont_aim()));
+            let old = screen(self.aim_screen_old.and_then(|i| self.aiming.get(i)));
+            let since = self
+                .ticks
+                .saturating_sub(self.aim_screen_since)
+                .min(AIM_SCREEN_BLEND + 1);
+            key.extend([
+                s as u32,
+                (s >> 32) as u32,
+                old as u32,
+                (old >> 32) as u32,
+                since as u32,
+            ]);
+            key.extend(
+                [
+                    self.facing.aim(),
+                    self.facing.facing,
+                    self.aiming_lr,
+                    self.aiming_ud,
+                    self.recoil,
+                    self.auto_aim.0,
+                    self.auto_aim.1,
+                ]
+                .map(f32::to_bits),
+            );
+        }
+        key.extend(self.placement.to_cols_array().map(f32::to_bits));
+        key
+    }
+
+    /// The body's pose now, worked out.
+    fn pose_now(&self) -> Vec<Mat4> {
         let mut layers = Vec::new();
         let mut dont_aim = false;
         for o in self.overlays.iter().flatten() {

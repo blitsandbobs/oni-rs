@@ -431,7 +431,10 @@ impl Quads {
                 prev = Some((cx, cz));
                 for (x, z) in cells {
                     let c = z * g.size[0] + x;
-                    if seen_cells.contains(&c) {
+                    // (A straight line never comes back to a cell it has
+                    // left: only the last few can be met again.)
+                    let recent = seen_cells.len().saturating_sub(12);
+                    if seen_cells[recent..].contains(&c) {
                         continue;
                     }
                     seen_cells.push(c);

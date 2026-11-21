@@ -21,6 +21,11 @@ members = [
 [profile.test]
 opt-level = 2
 
+# Release with debug info, for profiling (`xctrace` / Instruments).
+[profile.profiling]
+inherits = "release"
+debug = true
+
 # Release speed with the checks a debug build makes: integer overflow and
 # debug assertions panic (scripting/shakedown.sh runs on it).
 [profile.checked]

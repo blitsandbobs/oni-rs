@@ -914,34 +914,33 @@ impl World {
                 .is_some(),
             can_pickup: picks_up(f.motion.current()),
             picking_up: matches!(f.motion.kind, 157..=159 | 227..=229),
-            escapes: {
-                use crate::anim::types::ty;
-                [
-                    ty::CROUCH_FORWARD,
-                    ty::CROUCH_BACK,
-                    ty::CROUCH_LEFT,
-                    ty::CROUCH_RIGHT,
-                ]
-                .map(|kind| {
-                    // (The roll that way, else the slide: one that can pick up.)
-                    [kind, ty::SLIDE].into_iter().find_map(|k| {
-                        let c = f.motion.coll.lookup(k, f.motion.state, f.motion.varient)?;
-                        let clip = &f.motion.coll.entries[c].clip;
-                        picks_up(clip).then(|| {
-                            let n = clip.root_motion.len().saturating_sub(1);
-                            let [x, z] = clip.root_motion[..n]
-                                .iter()
-                                .fold([0.0, 0.0], |a, m| [a[0] + m[0], a[1] + m[1]]);
-                            (
-                                k,
-                                glam::Quat::from_rotation_y(f.facing.facing) * Vec3::new(x, 0.0, z),
-                            )
-                        })
-                    })
-                })
-            },
         };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
+        // (The roll that way, else the slide: one that can pick up.)
+        let (motion, body_facing) = (&f.motion, f.facing.facing);
+        let escape_fn = |way: usize| {
+            use crate::anim::types::ty;
+            let kind = [
+                ty::CROUCH_FORWARD,
+                ty::CROUCH_BACK,
+                ty::CROUCH_LEFT,
+                ty::CROUCH_RIGHT,
+            ][way];
+            [kind, ty::SLIDE].into_iter().find_map(|k| {
+                let c = motion.coll.lookup(k, motion.state, motion.varient)?;
+                let clip = &motion.coll.entries[c].clip;
+                picks_up(clip).then(|| {
+                    let n = clip.root_motion.len().saturating_sub(1);
+                    let [x, z] = clip.root_motion[..n]
+                        .iter()
+                        .fold([0.0, 0.0], |a, m| [a[0] + m[0], a[1] + m[1]]);
+                    (
+                        k,
+                        glam::Quat::from_rotation_y(body_facing) * Vec3::new(x, 0.0, z),
+                    )
+                })
+            })
+        };
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
         if let Some(perception) = f.perception.as_mut() {
             let mut cx = Ctx {
@@ -960,6 +959,7 @@ impl World {
                 perception,
                 level: &level,
                 sight: &sight_fn,
+                escape: &escape_fn,
                 path_length: &path_fn,
                 probe: &probe_fn,
                 others: &others,
