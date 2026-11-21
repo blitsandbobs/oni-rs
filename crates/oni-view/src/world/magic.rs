@@ -48,11 +48,14 @@ pub struct Magic {
     pub invis_active: bool,
     /// How visible the body is (1 seen, 0 gone).
     pub invis_alpha: f32,
+    /// In a teleport's fade (`ONcCharacterFlag_Teleporting`): drawn at
+    /// `invis_alpha` too.
+    pub teleporting: bool,
 }
 
 impl Default for Magic {
     fn default() -> Magic {
-        Magic { shield_parts: [0; PARTS], shield_active: false, daodan: false, invis_active: false, invis_alpha: 1.0 }
+        Magic { shield_parts: [0; PARTS], shield_active: false, daodan: false, invis_active: false, invis_alpha: 1.0, teleporting: false }
     }
 }
 
@@ -147,7 +150,7 @@ impl Magic {
 
     /// How visible the body is drawn (1: as usual).
     pub fn body_alpha(&self) -> f32 {
-        if self.invis_active {
+        if self.invis_active || self.teleporting {
             self.invis_alpha
         } else {
             1.0
@@ -185,6 +188,31 @@ impl World {
         f.effects.invis_update(remaining);
         if remaining > 0 && remaining != ENDLESS {
             f.inventory.invisibility = remaining - 1;
+        }
+        // A teleport's fade (`ONrCharacter_Invis_Update`): out over the
+        // teleport-in clip from its action frame; back in over the
+        // teleport-out up to its action frame (Q20: as shipped, never).
+        use crate::anim::types::ty;
+        let (kind, frame) = (f.motion.kind, f32::from(f.motion.frame));
+        let c = f.motion.current();
+        let action = f32::from(c.action_frame.unwrap_or(0));
+        let duration = c.frames() as f32;
+        let fade = if kind == ty::TELEPORT_IN && frame >= action {
+            Some(((frame + 1.0 - action) / (duration - action).max(1.0), f.effects.invis_alpha))
+        } else if kind == ty::TELEPORT_OUT && frame <= action && !self.quirks.teleport_pops_in() {
+            // (Capped only by an invisibility it wears, not by the fade-out
+            // just done.)
+            let cap = if f.effects.invis_active { f.effects.invis_alpha } else { 1.0 };
+            Some(((action + 1.0 - frame) / (action + 1.0), cap))
+        } else {
+            None
+        };
+        match fade {
+            Some((invis, cap)) => {
+                f.effects.invis_alpha = (1.0 - invis).clamp(0.0, cap);
+                f.effects.teleporting = true;
+            }
+            None => f.effects.teleporting = false,
         }
     }
 
@@ -250,6 +278,21 @@ impl World {
             particles.send(h, ev, t, &mut host);
         }
         self.fighters[who].super_running = on;
+    }
+
+    /// A teleport landing (`ONrCharacter_NewAnimationHook`): as its
+    /// teleport-out clip begins, the character is moved to where the
+    /// teleport goes, facing the way it says.
+    pub(super) fn teleport_tick(&mut self, who: usize) {
+        let Some(f) = self.fighters.get(who) else { return };
+        if f.motion.kind != crate::anim::types::ty::TELEPORT_OUT {
+            return;
+        }
+        let Some((at, facing)) = self.fighters[who].teleport_dest.take() else { return };
+        self.teleport(who, at, Some(facing));
+        let f = &mut self.fighters[who];
+        f.motion.air.frames = 0;
+        f.motion.air.velocity = Vec3::ZERO;
     }
 
     /// Whether the AI can see fighter `who` at all

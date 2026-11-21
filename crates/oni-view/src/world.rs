@@ -735,6 +735,7 @@ impl World {
                 dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
                 fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
                 invisible: f.inventory.invisibility > 0,
+                facing: f.facing.facing,
             })
             .collect();
         let gun = self.gun_view(i);
@@ -766,6 +767,13 @@ impl World {
             inactive_upright: f.motion.inactive_upright(),
             powering_up: f.motion.kind == powerup_type && f.motion.current().from_state == powerup_state,
             powerup_type,
+            anim_type: f.motion.kind,
+            started: f.motion.started,
+            action_frame: f.motion.current().action_frame.is_some_and(|a| f.motion.frame == a),
+            standing_still: f.motion.kind == crate::anim::types::ty::STAND && f.motion.state == st::STANDING && f.motion.entered_from == st::STANDING,
+            fallen,
+            victim: crate::anim::reaction::is_victim(f.motion.kind),
+            invisibility: f.inventory.invisibility,
         };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
@@ -820,8 +828,39 @@ impl World {
                 Some(crate::ai::Brain::Agent(a)) => Some((a.anim_request.take(), std::mem::take(&mut a.heal), std::mem::take(&mut a.fight_mode))),
                 _ => None,
             };
+            // A super ninja's powers: invisibility, teleports, hanging on.
+            let powers = match self.fighters[i].brain.as_mut() {
+                Some(crate::ai::Brain::Agent(a)) => Some((std::mem::take(&mut a.give_invisibility), a.teleport_to.take(), a.teleport_now.take(), a.hold_height.take())),
+                _ => None,
+            };
+            if let Some((invis, to, now, hold)) = powers {
+                if invis > 0 {
+                    self.give_powerup(i, "invis", Some(invis), true);
+                }
+                if let Some(t) = to {
+                    self.fighters[i].teleport_dest = Some(t);
+                }
+                let f = &mut self.fighters[i];
+                if let Some(y) = hold {
+                    let mut at = f.feet();
+                    at.y = y;
+                    f.teleport(at);
+                }
+                if let Some(t) = now {
+                    // Straight into the teleport-out, seen.
+                    f.teleport_dest = Some(t);
+                    f.inventory.invisibility = 0;
+                    let ch = f.character.clone();
+                    f.motion.force_stand(&ch);
+                    f.motion.request(&ch, crate::anim::motion::Urge::Force, false, crate::anim::types::ty::TELEPORT_OUT);
+                }
+            }
             if let Some((anim, heal, fight)) = asked {
                 let f = &mut self.fighters[i];
+                // (The stance first: the special moves are its clips.)
+                if fight {
+                    f.motion.fight_mode();
+                }
                 if let Some((kind, force)) = anim {
                     let ch = f.character.clone();
                     let urge = if force { crate::anim::motion::Urge::Force } else { crate::anim::motion::Urge::Appropriate };
@@ -829,9 +868,6 @@ impl World {
                 }
                 if heal > 0 && f.alive() {
                     f.hp = (f.hp + heal).min(f.max_hp);
-                }
-                if fight {
-                    f.motion.fight_mode();
                 }
             }
             // A gun it bends for: its own (useless) one goes to the floor.
@@ -2116,6 +2152,7 @@ impl World {
         for i in 0..self.fighters.len() {
             self.inventory_tick(i);
             self.super_tick(i);
+            self.teleport_tick(i);
             self.magic_tick(i);
         }
         self.hud_tick();

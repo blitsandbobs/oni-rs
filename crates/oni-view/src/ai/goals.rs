@@ -344,6 +344,8 @@ pub struct Other {
     pub fallen: bool,
     /// Wearing invisibility (lost at once, `AI2iCombat_TargetKnowledge…`).
     pub invisible: bool,
+    /// Which way it faces (its cosmetic facing).
+    pub facing: f32,
 }
 
 /// An AI's own body, as its goals see it.
@@ -360,6 +362,17 @@ pub struct Body {
     pub powering_up: bool,
     /// The powerup animation type (`ONcAnimType_Powerup`).
     pub powerup_type: u16,
+    /// Its clip: the type, a count of clips begun (a new one shows as a
+    /// change), whether this tick is its action frame.
+    pub anim_type: u16,
+    pub started: u32,
+    pub action_frame: bool,
+    /// Standing still (`ONrCharacter_IsStandingStill`), down, reeling.
+    pub standing_still: bool,
+    pub fallen: bool,
+    pub victim: bool,
+    /// Invisibility left.
+    pub invisibility: u16,
 }
 
 /// The gun in an AI's hand, as targeting sees it.
@@ -929,6 +942,13 @@ pub struct Agent {
     pub fight_mode: bool,
     /// Health it has given itself regenerating (`regenerated_amount`).
     pub regenerated: i32,
+    /// Invisibility it gives itself (the super ninja's), where its teleport
+    /// takes it (and facing which way: `teleportDestination`), a teleport
+    /// out at once (from a fall), and a height it hangs at.
+    pub give_invisibility: u16,
+    pub teleport_to: Option<(Vec3, f32)>,
+    pub teleport_now: Option<(Vec3, f32)>,
+    pub hold_height: Option<f32>,
     /// A gun it wants to bend for now (the world drops its own and starts
     /// the pickup).
     pub want_pickup: Option<usize>,
@@ -976,6 +996,10 @@ impl Agent {
             heal: 0,
             fight_mode: false,
             regenerated: 0,
+            give_invisibility: 0,
+            teleport_to: None,
+            teleport_now: None,
+            hold_height: None,
             want_pickup: None,
             extra_spread: 0.0,
             neutral_exit: None,
@@ -1416,6 +1440,9 @@ impl Agent {
         self.anim_request = None;
         self.heal = 0;
         self.fight_mode = false;
+        self.give_invisibility = 0;
+        self.teleport_now = None;
+        self.hold_height = None;
         self.extra_spread = 0.0;
         if let Some((_, t)) = &mut self.glance {
             *t = t.saturating_sub(1);
@@ -2438,8 +2465,12 @@ impl Agent {
             self.fight_timer = self.profile.alarm.fight_ticks;
         }
         // Hurt, a boss reacts (`AI2cCombatMessage_Hurt`).
-        if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) && self.boss_mode().is_some() {
-            self.barabbas_hurt(damage.max(0) as u32, cx);
+        if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
+            if self.boss_mode().is_some() {
+                self.barabbas_hurt(damage.max(0) as u32, cx);
+            } else if self.ninja_mode().is_some() {
+                self.ninja_hurt(damage.max(0) as u32);
+            }
         }
         if c.who == Some(target) && matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
             let k = self.combat();
@@ -2514,6 +2545,13 @@ impl Agent {
         }
         let target = self.combat().target;
         let target_feet = cx.others.get(target).map_or(cx.feet, |o| o.feet);
+        // A super ninja: his clips' news; a fall takes his update over.
+        if self.ninja_mode().is_some() {
+            self.ninja_tick(cx);
+            if self.ninja_fell(cx) {
+                return;
+            }
+        }
         if self.combat().target_dead {
             let (half, chance) = (self.class.investigate_body / 2, self.class.taunt_percent);
             let roll = self.rng.next() % 100;
@@ -2938,7 +2976,7 @@ impl Agent {
             };
             let armed = cx.gun.is_some_and(|g| g.usable);
             // (A behaviour that isn't a boss's: no boss state.)
-            let boss = behavior.starts_with("barabbas").then(|| behavior.to_string());
+            let boss = (behavior.starts_with("barabbas") || behavior.starts_with("superNinja")).then(|| behavior.to_string());
             if boss.is_none() && !matches!(k.boss, super::bosses::Boss::None) {
                 k.boss = super::bosses::Boss::None;
                 self.mode = MoveMode::ByAlert;
@@ -2983,11 +3021,13 @@ impl Agent {
                     }
                 }
             }
-            if let Some(b) = &boss {
-                self.barabbas_primary(b, dist, &mut w, cx);
+            match &boss {
+                Some(b) if b.starts_with("barabbas") => self.barabbas_primary(b, dist, &mut w, cx),
+                Some(b) => self.ninja_primary(b, dist, &mut w, cx),
+                None => {}
             }
             // (A boss may not mind being too close for its gun.)
-            let ignores_too_close = boss.is_some() && self.barabbas_ignores_too_close();
+            let ignores_too_close = self.boss_mode().is_some() && self.barabbas_ignores_too_close();
             let k = self.combat();
             // Its gun put the target down: in to finish it hand to hand.
             let t = cx.others.get(k.target);

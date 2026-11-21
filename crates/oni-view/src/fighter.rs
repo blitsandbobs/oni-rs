@@ -109,6 +109,9 @@ pub struct Fighter {
     pub class_particles: std::rc::Rc<Vec<crate::world::anim_particles::ClassParticle>>,
     pub anim_particles: crate::world::anim_particles::AnimParticles,
     pub final_flash: bool,
+    /// Where its teleport-out puts it, facing which way
+    /// (`teleportDestination`, `teleportDestFacing`).
+    pub teleport_dest: Option<(glam::Vec3, f32)>,
     /// Its super particles (class, body part) and those made, running.
     pub super_particles: std::rc::Rc<Vec<(String, usize)>>,
     pub super_handles: Option<Vec<crate::p3::Handle>>,
@@ -417,6 +420,7 @@ impl Fighter {
             class_particles: Default::default(),
             anim_particles: Default::default(),
             final_flash: false,
+            teleport_dest: None,
             super_handles: None,
             super_running: false,
             cheat_unstoppable: false,

@@ -670,9 +670,14 @@ impl Motion {
         }
     }
 
-    /// The current clip has run out: play what was queued (or stand).
+    /// The current clip has run out: play what was queued (or stand) —
+    /// a teleport-in always goes on to its teleport-out
+    /// (`ONrCharacter_ForcedFollowingAnimType`).
     fn next_clip(&mut self, ch: &Character) {
-        let next = if self.lock_frames > 0 && self.playing_own() {
+        let forced = (self.kind == ty::TELEPORT_IN).then(|| self.coll.lookup(ty::TELEPORT_OUT, self.state, self.varient)).flatten();
+        let next = if let Some(f) = forced {
+            f
+        } else if self.lock_frames > 0 && self.playing_own() {
             self.clip
         } else {
             self.coll

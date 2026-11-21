@@ -123,6 +123,12 @@ impl Quirks {
     pub fn invert_mouse_titled_off(self) -> bool {
         self.faithful
     }
+
+    /// Q20: a teleport's fade back in (its teleport-out clip) never runs —
+    /// the character pops back into view.
+    pub fn teleport_pops_in(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]

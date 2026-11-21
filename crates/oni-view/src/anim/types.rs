@@ -123,6 +123,10 @@ pub mod ty {
     pub const LAND_BACK_HARD: u16 = 140;
     pub const LAND_DEAD: u16 = 141;
     pub const POWERUP: u16 = 219;
+    pub const TELEPORT_IN: u16 = 222;
+    pub const TELEPORT_OUT: u16 = 223;
+    pub const NINJA_FIREBALL: u16 = 224;
+    pub const NINJA_INVISIBLE: u16 = 225;
     pub const MURO_THUNDERBOLT: u16 = 231;
     pub const CROUCH_TURN_LEFT: u16 = 142;
     pub const CROUCH_TURN_RIGHT: u16 = 143;
