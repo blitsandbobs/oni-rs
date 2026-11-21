@@ -26,6 +26,10 @@ pub enum After {
 pub struct Splash {
     pub texture: PathBuf,
     pub after: After,
+    /// Its music (the win and fail splashes': `main_menu_win`,
+    /// `loss_screen_music`), faded in over a second and out over a second as
+    /// the splash fades out, then halted.
+    pub music: Option<&'static str>,
     phase: Phase,
     /// Ticks into the phase.
     t: f32,
@@ -47,7 +51,12 @@ const HASTY: f32 = 30.0;
 
 impl Splash {
     pub fn new(texture: PathBuf, after: After) -> Splash {
-        Splash { texture, after, phase: Phase::In, t: 0.0 }
+        Splash { texture, after, music: None, phase: Phase::In, t: 0.0 }
+    }
+
+    /// Whether it is fading out.
+    pub fn fading_out(&self) -> bool {
+        self.phase == Phase::Out
     }
 
     /// Moves it on `ticks` (real time, in sixtieths), with or without a key

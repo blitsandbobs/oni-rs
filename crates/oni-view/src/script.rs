@@ -176,6 +176,8 @@ impl ScriptHost {
             taps = 0;
             // (A data console's text up: the game stands still.)
             if self.world.hud.modal() {
+                // (The sound runs on.)
+                self.world.audio.tick(Some(&self.world.quads));
                 continue;
             }
             self.world.step(controls);
@@ -661,6 +663,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(w.jello_objects.iter().filter_map(|&k| names.get(k).map(|n| n.0.clone())).collect::<Vec<_>>())
         })?,
     )?;
+    // overall_volume() → the sound's overall volume now (0–1).
+    let h = host.clone();
+    g.set("overall_volume", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.volume()))?)?;
     // pause_toggle(): F1 (the pause screen opened, or closed once up a
     // second). pause_screen() → {tab, page (from 1), pages, lines, hint,
     // previous, next} or nil. pause_press(button): "objective", "items",
@@ -702,7 +707,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 "close" => 2,
                 _ => return Err(mlua::Error::runtime(format!("no pause screen button {button}"))),
             };
-            h.borrow_mut().world.hud.pause_press(id);
+            h.borrow_mut().world.pause_press(id, true);
             Ok(())
         })?,
     )?;
@@ -940,7 +945,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 m.state.vars.insert("save_point".into(), mlua::Value::Integer(n));
             }
             // (A level begun afresh flags its new moves.)
-            if save_point.unwrap_or(0) == 0 {
+            if save_point.unwrap_or(0) == 0 && run != Some(false) {
                 host.world.hud.level_started();
             }
             // (`mission_begin(false)`: the scripts loaded, the level's own

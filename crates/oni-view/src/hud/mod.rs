@@ -528,13 +528,16 @@ impl Hud {
         }
         self.shield.update(u32::from(p.shield), u32::from(p.shield), f32::from(MAX_SHIELD) / 180.0);
         let mut sound = None;
-        if self.new_objective && (self.immediate_prompt || self.now.saturating_sub(self.last_prompt) > PROMPT_EVERY) {
+        // (A new move — this level's diary — prompts as a new objective does,
+        // with its own message.)
+        if (self.new_objective || self.new_move) && (self.immediate_prompt || self.now.saturating_sub(self.last_prompt) > PROMPT_EVERY) {
             if !in_cutscene && self.now >= 30 {
                 sound = Some(if self.immediate_prompt { "objectiveNew" } else { "objectivePrompt" });
             }
-            if !self.messages.visible("new_objective") {
-                if let Some(t) = self.message_text("new_objective").map(str::to_string) {
-                    self.messages.print(&t, Some("new_objective"), NEW_OBJECTIVE_FADE);
+            let name = if self.new_move { "new_move" } else { "new_objective" };
+            if !self.messages.visible(name) {
+                if let Some(t) = self.message_text(name).map(str::to_string) {
+                    self.messages.print(&t, Some(name), NEW_OBJECTIVE_FADE);
                 }
             }
             self.immediate_prompt = false;
@@ -613,6 +616,7 @@ impl Hud {
     /// level's start — not when restoring a saved game).
     pub fn level_started(&mut self) {
         self.new_move = self.pause_data.new_moves(i64::from(self.level));
+        self.immediate_prompt |= self.new_move;
     }
 
     /// The player met an item kind (`WPrPowerup_Give`): new, the first time
@@ -684,7 +688,10 @@ impl Hud {
             pause::Tab::Objective => self.read_objective(),
             pause::Tab::Items => self.new_item = None,
             pause::Tab::Weapons => self.new_weapon_class = None,
-            pause::Tab::Diary => self.new_move = false,
+            pause::Tab::Diary => {
+                self.new_move = false;
+                self.messages.fade(Some("new_move"));
+            }
             pause::Tab::Help => {}
         }
     }

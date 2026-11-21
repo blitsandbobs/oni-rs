@@ -161,6 +161,8 @@ pub struct World {
     pub saved: Option<crate::game::Continue>,
     /// Save points write their continue to disk (play mode; `game.rs`).
     pub persist_continues: bool,
+    /// The overall volume the pause screen will restore.
+    pub pause_volume: f32,
     /// The game settings' hypo values (`world/hypo.rs`), and the hypo key
     /// last tick (it acts as pressed).
     pub hypo: hypo::HypoSettings,
@@ -298,6 +300,7 @@ impl World {
             jello: Vec::new(),
             jello_objects: Vec::new(),
             persist_continues: false,
+            pause_volume: 1.0,
             fog: Default::default(),
             object_anims: Default::default(),
             object_setups: Vec::new(),

@@ -154,6 +154,31 @@ impl Audio {
         self.desired = v.clamp(0.0, 1.0);
     }
 
+    /// The overall volume now (`SS2rVolume_Get`).
+    pub fn volume(&self) -> f32 {
+        self.overall
+    }
+
+    /// Every sound stopped at once (`SSrStopAll`): the playing ones, the
+    /// scripts' slots, the dialogue.
+    pub fn stop_all(&mut self) {
+        let ids: Vec<u32> = self.playing.iter().map(|p| p.id).collect();
+        for id in ids {
+            self.halt(id);
+        }
+        self.script_slots.clear();
+        self.dialog = Default::default();
+    }
+
+    /// A script slot's sound of that name halted at once (`OSrMusic_Halt`).
+    pub fn script_halt(&mut self, name: &str) {
+        let ids: Vec<u32> = self.script_slots.iter().flatten().filter(|(_, n)| n.eq_ignore_ascii_case(name)).filter_map(|(id, _)| *id).collect();
+        for id in ids {
+            self.halt(id);
+        }
+        self.script_slots.retain(|s| s.as_ref().is_none_or(|(_, n)| !n.eq_ignore_ascii_case(name)));
+    }
+
     /// A tick: without an output device the mixer first plays a tick's
     /// worth; the overall volume moves; the handles follow their sounds in
     /// and out of earshot; the playing ambients step; every channel takes its

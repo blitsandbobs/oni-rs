@@ -28,6 +28,8 @@ struct PlayWorld {
     mouse_dx: f32,
     mouse_dy: f32,
     accum: f32,
+    /// Real time banked for the sound alone (the game standing still).
+    audio_accum: f32,
     /// The level's own scripts (`--mission`), and the classes they spawn
     /// from.
     mission: Option<(crate::mission::Mission, crate::classes::Classes)>,
@@ -127,6 +129,7 @@ fn mission_level(
             mouse_dx: 0.0,
             mouse_dy: 0.0,
             accum: 0.0,
+            audio_accum: 0.0,
             mission: Some((m, classes)),
             _audio: audio,
             flow: Some(Flow { oni_root: oni_root.to_path_buf(), level, splash: None, key: false }),
@@ -438,6 +441,7 @@ impl ApplicationHandler for App {
                             mouse_dx: 0.0,
                             mouse_dy: 0.0,
                             accum: 0.0,
+                            audio_accum: 0.0,
                             mission,
                             _audio: audio,
                             flow: None,
@@ -534,7 +538,7 @@ impl ApplicationHandler for App {
                         if event.state == ElementState::Pressed && !event.repeat {
                             match code {
                                 KeyCode::F1 => pw.world.pause_toggle(),
-                                KeyCode::Escape => pw.world.hud.pause_press(2),
+                                KeyCode::Escape => pw.world.pause_press(2, false),
                                 _ => {}
                             }
                             if pw.world.hud.pause.is_none() {
@@ -603,7 +607,7 @@ impl ApplicationHandler for App {
                         let scale = st.window.scale_factor() as f32;
                         let (w, h) = (st.config.width as f32 / scale, st.config.height as f32 / scale);
                         if let Some(id) = pw.world.hud.pause_hit(w, h, st.cursor[0], st.cursor[1]) {
-                            pw.world.hud.pause_press(id);
+                            pw.world.pause_press(id, true);
                         }
                         if pw.world.hud.pause.is_none() {
                             apply_capture(&st.window, st.captured);
@@ -758,7 +762,10 @@ impl State {
         let sens = MOUSE_SENS * tuning.mouse_sensitivity;
 
         // A splash screen up: the game stands still until it is over, then
-        // goes on as the splash says.
+        // goes on as the splash says (its sound still running).
+        if let Some(pw) = self.play.as_mut().filter(|p| p.flow.as_ref().is_some_and(|f| f.splash.is_some())) {
+            audio_only(pw, dt);
+        }
         if let Some(after) = self.splash_tick(dt) {
             self.after_splash(after);
             return;
@@ -798,7 +805,9 @@ impl State {
 
         pw.accum += dt;
         if frozen {
+            // (The sound runs on: loops, fades, the volume.)
             pw.accum = 0.0;
+            audio_only(pw, dt);
         }
         while pw.accum >= TICK {
             pw.accum -= TICK;
@@ -845,21 +854,36 @@ impl State {
                     _ => After::End,
                 };
                 flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "win_splash_screen").unwrap_or_default(), after));
+                splash_music(&mut pw.world.audio, flow.splash.as_mut(), "main_menu_win");
             }
             Some(false) => {
                 eprintln!("game: level {} lost", flow.level);
                 flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "fail_splash_screen").unwrap_or_default(), After::Restart));
+                splash_music(&mut pw.world.audio, flow.splash.as_mut(), "loss_screen_music");
             }
             None => {}
         }
         flow.key = false;
     }
 
-    /// Moves the splash on by real time; what follows once it is over.
+    /// Moves the splash on by real time — its music fading out with it,
+    /// halted at its end; what follows once it is over.
     fn splash_tick(&mut self, dt: f32) -> Option<crate::game::After> {
-        let flow = self.play.as_mut()?.flow.as_mut()?;
+        let pw = self.play.as_mut()?;
+        let flow = pw.flow.as_mut()?;
         let key = std::mem::take(&mut flow.key);
-        let after = flow.splash.as_mut()?.tick(dt * 60.0, key)?;
+        let splash = flow.splash.as_mut()?;
+        let was_out = splash.fading_out();
+        let after = splash.tick(dt * 60.0, key);
+        if let Some(music) = splash.music {
+            if splash.fading_out() && !was_out {
+                pw.world.audio.script_volume(music, 0.0, 1.0);
+            }
+            if after.is_some() {
+                pw.world.audio.script_halt(music);
+            }
+        }
+        let after = after?;
         flow.splash = None;
         Some(after)
     }
@@ -1015,6 +1039,27 @@ fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
 /// Grabs or releases the mouse cursor for play mode. Tries OS cursor-lock
 /// first (continuous turning), falling back to confine-to-window; hides the
 /// cursor while captured.
+/// The win or fail splash's music (`ONrGameState_SplashScreen`): every
+/// other sound stopped, `music` started silent and faded in over a second.
+fn splash_music(audio: &mut crate::audio::Audio, splash: Option<&mut crate::game::Splash>, music: &'static str) {
+    let Some(splash) = splash else { return };
+    audio.stop_all();
+    if audio.script_start(music, 0.0) {
+        audio.script_volume(music, 1.0, 1.0);
+        splash.music = Some(music);
+    }
+}
+
+/// The sound alone ticked on by real time (the game standing still: a
+/// splash, the pause screen, a console's text).
+fn audio_only(pw: &mut PlayWorld, dt: f32) {
+    pw.audio_accum += dt;
+    while pw.audio_accum >= TICK {
+        pw.audio_accum -= TICK;
+        pw.world.audio.tick(Some(&pw.world.quads));
+    }
+}
+
 fn apply_capture(window: &Window, on: bool) {
     use winit::window::CursorGrabMode;
     if on {

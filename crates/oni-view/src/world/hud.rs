@@ -23,6 +23,10 @@ pub fn hit_quadrant(facing: f32, dir: Vec3) -> usize {
     }
 }
 
+/// The overall volume while the pause screen is up, of what it was
+/// (`ONcPauseScreen_VolumeCut`).
+const PAUSE_VOLUME_CUT: f32 = 0.5;
+
 impl World {
     /// What the HUD shows of the player now.
     pub fn hud_player(&self) -> Option<Player> {
@@ -114,11 +118,42 @@ impl World {
     /// F1: the pause screen opened (with what the player carries) or —
     /// once it has been up a second — closed.
     pub fn pause_toggle(&mut self) {
+        let was = self.hud.pause.is_some();
         let (lsi, weapon) = match self.fighters.first() {
             Some(p) => (p.inventory.lsi, p.hand.or(p.holster).map(|w| self.armory.weapons[w].class.name.clone())),
             None => (false, None),
         };
         self.hud.pause_toggle(lsi, weapon.as_deref());
+        self.pause_sounds(was);
+    }
+
+    /// A pause screen button pressed (by id; `clicked`: with the mouse,
+    /// which clicks — `WMcButton_ClickSound`).
+    pub fn pause_press(&mut self, id: i64, clicked: bool) {
+        let was = self.hud.pause.is_some();
+        if clicked {
+            self.audio.impulse_play("button_click", None, None, None);
+        }
+        self.hud.pause_press(id);
+        self.pause_sounds(was);
+    }
+
+    /// The pause screen's sounds (`ONrPauseScreen_Display`): opening, its
+    /// sound and the overall volume halved; closing, the volume back and its
+    /// sound.
+    fn pause_sounds(&mut self, was: bool) {
+        match (was, self.hud.pause.is_some()) {
+            (false, true) => {
+                self.audio.impulse_play("pause_screen_open", None, None, None);
+                self.pause_volume = self.audio.volume();
+                self.audio.set_volume(self.pause_volume * PAUSE_VOLUME_CUT);
+            }
+            (true, false) => {
+                self.audio.set_volume(self.pause_volume);
+                self.audio.impulse_play("pause_screen_close", None, None, None);
+            }
+            _ => {}
+        }
     }
 
     pub fn hud_draw(&mut self, w: f32, h: f32) -> Vec<OverlayDraw> {

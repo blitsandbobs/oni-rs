@@ -1,7 +1,8 @@
 -- The pause screen (docs/HUD.md, *Pause screen*): F1 opens it on the
 -- objectives — the current one first, Previous back to older ones — with
 -- items and weapons only once met, the diary up to this level (starting on
--- its first page) and the help; the game stands still while it is up.
+-- its first page) and the help; the game stands still while it is up, its
+-- sound on at half volume.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/03/environment.glb \
@@ -20,9 +21,14 @@ step(2)
 assert(mission_call("obj2"))
 step(2)
 
+local v0 = overall_volume()
 pause_toggle()
 local p = pause_screen()
 assert(p and p.tab == "objective", "F1 opens it on the objectives")
+-- The sound runs on, at half volume (`ONcPauseScreen_VolumeCut`).
+step(20)
+print("volume:", v0, "→", overall_volume())
+assert(math.abs(overall_volume() - v0 * 0.5) < 1e-3, "half volume while it is up")
 print("objective page", p.page, "of", p.pages, ":", p.lines[1])
 assert(p.page == 1 and p.pages == 2 and p.lines[1]:match("Muro and his Strikers"), "the current (second) objective first")
 assert(p.previous and not p.next, "only Previous: back to the first")
@@ -54,6 +60,8 @@ p = pause_screen()
 assert(p.lines[1] == "Controls" and not p.previous and not p.next, "the help: one page, no paging")
 pause_press("close")
 assert(pause_screen() == nil, "Close")
+step(20)
+assert(math.abs(overall_volume() - v0) < 1e-3, "the volume back when it closes")
 
 -- Met a pistol and its clips: their pages, the new ones flagged first.
 assert(give_weapon(0, "w1_tap"), "a pistol")
