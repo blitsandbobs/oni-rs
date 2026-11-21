@@ -51,7 +51,7 @@ impl Host for Fake {
     fn targets(&self) -> Vec<Target> {
         vec![Target { who: 7, position: self.target, velocity: Vec3::ZERO }]
     }
-    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32) {
+    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32, _damage: f32, _blast: Option<super::glass::Blast>) {
         self.glass.push((centre, radius));
     }
     fn super_amount(&self, who: usize) -> f32 {
@@ -116,6 +116,7 @@ fn classes() -> Rc<Classes> {
             ],
             "events": { "update": [0, 2], "collideEnv": [2, 4] }
         },
+        "shard": { "flags": ["hasVelocity", "hasOrientation"], "lifetime": 10.0 },
         "once": {
             "flags": [],
             "emitters": [ {
@@ -436,4 +437,32 @@ fn motion_and_texture_actions_follow_the_original() {
     let v = sys.get(drift).unwrap().velocity;
     assert!((v.y - 10.0 * (1.0 - (-6.0f32).exp())).abs() < 0.01, "{v}");
     assert!((v.x - 5.0 * (-3.0f32).exp()).abs() < 0.01, "{v}");
+}
+
+#[test]
+fn broken_glass_bursts_into_shards_over_the_pane_blown_away_from_a_blast() {
+    use super::glass::{Blast, Pane};
+    // A 40 × 40 pane upright in z = 0, facing +z.
+    let pane = Pane {
+        corners: [Vec3::new(0.0, 10.0, 0.0), Vec3::new(40.0, 10.0, 0.0), Vec3::new(40.0, 50.0, 0.0), Vec3::new(0.0, 50.0, 0.0)],
+        normal: Vec3::Z,
+        d: 0.0,
+    };
+    let shards = |blast: Option<Blast>| {
+        let mut sys = System::new(classes());
+        let class = sys.classes.get("shard").unwrap();
+        sys.break_glass(class, &pane, 10.0, blast, 2, &mut Fake::default());
+        sys.iter().map(|(_, p)| (p.position, p.velocity)).collect::<Vec<_>>()
+    };
+    // Shot: 3 × 3 cells of 15, 5 shards each, over the pane, barely moving.
+    let shot = shards(None);
+    assert_eq!(shot.len(), 45);
+    assert!(shot.iter().all(|(at, v)| (0.0..=40.0).contains(&at.x) && (10.0..=50.0).contains(&at.y) && at.z == 0.0 && v.length() <= 10.0 + 1e-4));
+    // A blast behind the pane (−z) blows the shards out to +z, one in front
+    // back to −z.
+    let mean_z = |s: &[(Vec3, Vec3)]| s.iter().map(|(_, v)| v.z).sum::<f32>() / s.len() as f32;
+    let behind = shards(Some(Blast { centre: Vec3::new(20.0, 30.0, -10.0), dir: None, radius: 20.0 }));
+    assert!(mean_z(&behind) > 20.0, "{}", mean_z(&behind));
+    let front = shards(Some(Blast { centre: Vec3::new(20.0, 30.0, 10.0), dir: None, radius: 20.0 }));
+    assert!(mean_z(&front) < -20.0, "{}", mean_z(&front));
 }

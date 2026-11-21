@@ -1073,6 +1073,27 @@ impl World {
         }
     }
 
+    /// Pane `k` struck hard enough: broken, and burst into shards
+    /// (`p3::glass`) — at the original's highest detail (graphics quality
+    /// isn't applied yet, #37).
+    pub(crate) fn shatter(&mut self, k: usize, damage: f32, blast: Option<crate::p3::glass::Blast>) {
+        let Some(p) = self.glass.get(k) else { return };
+        if p.broken {
+            return;
+        }
+        let quad = p.quad;
+        self.set_glass(k, true);
+        let Some(class) = self.armory.particles.classes.get("glass_shard") else { return };
+        let Some(q) = self.quads.quads.get(quad as usize) else { return };
+        let (normal, d) = self.quads.plane(q.plane);
+        let pane = crate::p3::glass::Pane { corners: std::array::from_fn(|i| self.quads.corner(q, i)), normal, d };
+        let now = self.now as u64;
+        let weapons::Armory { particles, .. } = &mut self.armory;
+        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        host.quads = Some(&self.quads);
+        particles.break_glass(class, &pane, damage, blast, 2, &mut host);
+    }
+
     /// How many of the script references `from..=to` have no unbroken
     /// pane left (`env_broken`; a reference with no glass counts as broken).
     pub fn env_broken(&self, from: u32, to: u32) -> u32 {

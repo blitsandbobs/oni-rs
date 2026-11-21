@@ -11,6 +11,7 @@ pub mod class;
 mod emit;
 mod actions;
 pub mod effect;
+pub mod glass;
 
 use std::cell::Cell;
 use std::rc::Rc;
@@ -220,15 +221,17 @@ pub trait Host {
     /// A blast (`WPrBlast`).
     #[allow(clippy::too_many_arguments)]
     fn blast(&mut self, centre: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, radius: f32, falloff: u32, owner: u32, stamp: u64, self_immune: bool);
-    /// Damages a level surface (breaks glass); true if it broke.
+    /// Damages a level surface (breaks glass, `damage` hard); true if it
+    /// broke.
     fn damage_surface(&mut self, _surface: u32, _damage: f32) -> bool {
         false
     }
     fn breakable(&self, _surface: u32) -> bool {
         false
     }
-    /// Breaks the glass within `radius` of a blast.
-    fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32) {}
+    /// Breaks the glass within `radius` of `centre`, `damage` hard, blown
+    /// out by `blast` (none: shattered as by a shot).
+    fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32, _damage: f32, _blast: Option<glass::Blast>) {}
     /// Character `who`'s super amount (`ONtCharacter.super_amount`; not
     /// tracked yet: none).
     fn super_amount(&self, _who: usize) -> f32 {

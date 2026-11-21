@@ -254,9 +254,11 @@ impl System {
                     Some(k) => k.point + k.normal * 0.5,
                     None => self.world_position(p),
                 };
-                // (Breaking glass too, unless told not to.)
+                // (Breaking glass too, unless told not to: blown out along
+                // its flight when it was moving.)
                 if !matches!(a.param(7), Value::Enum(0)) {
-                    host.damage_surfaces_near(centre, radius);
+                    let dir = c.has(cflag::VELOCITY).then_some(p.velocity).filter(|v| v.length() > 4.0).map(Vec3::normalize);
+                    host.damage_surfaces_near(centre, radius, damage, Some(super::glass::Blast { centre, dir, radius }));
                 }
                 if p.flags & pflag::CUTSCENE_KILLED == 0 {
                     let who = self.owner_word(p, c);
@@ -476,10 +478,17 @@ impl System {
                 }
             }
             // Bursts like a glass charge (`P3iAction_GlassCharge`): every
-            // breakable pane within the radius shatters.
+            // breakable pane within the radius shatters — blown out along
+            // its Y at this speed, or (none) as if shot.
             Kind::GlassCharge => {
-                let radius = f!(1);
-                host.damage_surfaces_near(self.world_position(p), radius);
+                let (speed, radius) = (f!(0), f!(1));
+                let centre = self.world_position(p);
+                let blast = (speed != 0.0).then(|| super::glass::Blast {
+                    centre,
+                    dir: c.has(cflag::ORIENTATION).then(|| self.world_orientation(p).y_axis),
+                    radius,
+                });
+                host.damage_surfaces_near(centre, radius, speed, blast);
             }
             // Its texture animation set to show a tick now
             // (`P3iAction_SetTextureTick`), or a random time

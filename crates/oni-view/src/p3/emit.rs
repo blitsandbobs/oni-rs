@@ -73,7 +73,7 @@ fn construct_orientation(dir_o: Orient, up_o: Orient, parent: Option<Mat3>, offs
 
 impl System {
     /// A random unit vector.
-    fn random_unit(&mut self) -> Vec3 {
+    pub(super) fn random_unit(&mut self) -> Vec3 {
         loop {
             let v = Vec3::new(self.signed_random(), self.signed_random(), self.signed_random());
             let l = v.length_squared();

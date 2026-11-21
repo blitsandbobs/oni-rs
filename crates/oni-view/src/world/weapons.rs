@@ -153,7 +153,8 @@ pub struct ShotHost<'a> {
     panes: Vec<(bool, Vec3, f32)>,
     /// The doors' leaves (what shots hit besides the level).
     pub doors: &'a [crate::chrphys::DoorBox],
-    pub broke: Vec<usize>,
+    /// Panes broken: which, how hard, what blew them out.
+    pub broke: Vec<(usize, f32, Option<p3::glass::Blast>)>,
     /// Each fighter's extra spread (degrees) on its shots, and turrets'.
     inaccuracy: Vec<f32>,
     turret_spread: f32,
@@ -325,10 +326,11 @@ fn ray_sphere(from: Vec3, ray: Vec3, centre: Vec3, r: f32) -> Option<f32> {
 }
 
 impl ShotHost<'_> {
-    /// Breaks pane `k` now (later shots this tick fly through it).
-    fn break_pane(&mut self, k: usize) {
+    /// Breaks pane `k` now (later shots this tick fly through it), `damage`
+    /// hard, blown out by `blast`.
+    fn break_pane(&mut self, k: usize, damage: f32, blast: Option<p3::glass::Blast>) {
         self.panes[k].0 = true;
-        self.broke.push(k);
+        self.broke.push((k, damage, blast));
         self.sounds.push((self.panes[k].1, 300.0, None));
     }
 }
@@ -370,20 +372,20 @@ impl Host for ShotHost<'_> {
         surface > 0 && self.panes.get(surface as usize - 1).is_some_and(|p| !p.0)
     }
 
-    fn damage_surface(&mut self, surface: u32, _damage: f32) -> bool {
+    fn damage_surface(&mut self, surface: u32, damage: f32) -> bool {
         if !self.breakable(surface) {
             return false;
         }
         let k = surface as usize - 1;
-        self.break_pane(k);
+        self.break_pane(k, damage, None);
         true
     }
 
-    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32) {
+    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32, damage: f32, blast: Option<p3::glass::Blast>) {
         for k in 0..self.panes.len() {
             let (broken, at, reach) = self.panes[k];
             if !broken && at.distance(centre) <= radius + reach {
-                self.break_pane(k);
+                self.break_pane(k, damage, blast);
             }
         }
     }
@@ -2148,8 +2150,8 @@ impl World {
         let sounds = std::mem::take(&mut host.sounds);
         let broke = std::mem::take(&mut host.broke);
         drop(host);
-        for k in broke {
-            self.set_glass(k, true);
+        for (k, damage, blast) in broke {
+            self.shatter(k, damage, blast);
         }
         for (at, volume, maker) in sounds {
             self.sound(crate::ai::perception::Stimulus::SoundGunshot, at, volume, maker, None);
