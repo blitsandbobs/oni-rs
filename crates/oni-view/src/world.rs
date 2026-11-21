@@ -714,12 +714,20 @@ impl World {
                 continue;
             }
             let eye = points[i][1];
-            // (An agent's eyes follow where its head looks.)
-            let yaw = match &self.fighters[i].brain {
-                Some(crate::ai::Brain::Agent(a)) => a.eye.unwrap_or(self.fighters[i].facing.facing),
-                _ => self.fighters[i].facing.facing,
+            // Along its aim while it aims (`aimingVector`: the head's turn,
+            // pitched — "up" is square to it), else its body's facing.
+            let (look, up) = match self.fighters[i].ai_aim {
+                Some((yaw, pitch)) => {
+                    let dir = Vec3::new(
+                        yaw.sin() * pitch.cos(),
+                        pitch.sin(),
+                        yaw.cos() * pitch.cos(),
+                    );
+                    let right = Vec3::new(-dir.z, 0.0, dir.x);
+                    (dir, right.cross(dir).normalize_or(Vec3::Y))
+                }
+                None => (forward(self.fighters[i].facing.facing), Vec3::Y),
             };
-            let look = forward(yaw);
             for j in 0..n {
                 if j == i || !alive[j] || !seeable[j] {
                     continue;
@@ -730,7 +738,7 @@ impl World {
                 }
                 let known = p.about(j).is_some_and(|c| c.strength == Strength::Definite);
                 let aim = feet[j] + Vec3::Y * self.fighters[j].motion.height();
-                let Some(stimulus) = p.tuning.sees(aim - eye, look, known, faithful) else {
+                let Some(stimulus) = p.tuning.sees(aim - eye, look, up, known, faithful) else {
                     continue;
                 };
                 let seen = points[j].iter().find(|&&pt| self.quads.sees(eye, pt));

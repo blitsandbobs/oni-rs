@@ -254,12 +254,13 @@ impl Tuning {
 
     /// The vision cone (behaviour per `docs/PERCEPTION.md`, *Vision*): how a
     /// target at `to` (from the eye, world) is seen by an eye looking along
-    /// `look` (horizontal unit). `known`: already a definite contact.
+    /// `look` (unit), `up` square to it. `known`: already a definite contact.
     /// `faithful_vertical`: the shipped game's vertical limit (Q9).
     pub fn sees(
         &self,
         to: Vec3,
         look: Vec3,
+        up: Vec3,
         known: bool,
         faithful_vertical: bool,
     ) -> Option<Stimulus> {
@@ -278,7 +279,7 @@ impl Tuning {
             } else {
                 self.vertical.sin()
             };
-            if dir.y.abs() > limit {
+            if dir.dot(up).abs() > limit {
                 return None;
             }
         }
@@ -856,40 +857,84 @@ pub fn forward(yaw: f32) -> Vec3 {
 mod tests {
     use super::*;
 
+    /// Looking along a pitched aim, the cone pitches with it (`aimingVector`,
+    /// its up square to it): a target well above is seen looking up at it,
+    /// not looking level.
+    #[test]
+    fn the_cone_follows_a_pitched_aim() {
+        let t = Tuning::default();
+        let p = 50f32.to_radians();
+        let to = Vec3::new(0.0, p.sin(), p.cos()) * 100.0;
+        let level = forward(0.0);
+        assert_eq!(
+            t.sees(to, level, Vec3::Y, false, false),
+            None,
+            "too far up, looking level"
+        );
+        let look = Vec3::new(0.0, p.sin(), p.cos());
+        let right = Vec3::new(-look.z, 0.0, look.x);
+        let up = right.cross(look).normalize();
+        assert_eq!(
+            t.sees(to, look, up, false, false),
+            Some(Stimulus::SightDefinite)
+        );
+    }
+
     #[test]
     fn the_cone_sees_ahead_far_and_aside_near() {
         let t = Tuning::default();
         let look = forward(0.0);
         assert_eq!(
-            t.sees(Vec3::new(0.0, 0.0, 300.0), look, false, false),
+            t.sees(Vec3::new(0.0, 0.0, 300.0), look, Vec3::Y, false, false),
             Some(Stimulus::SightDefinite)
         );
         assert_eq!(
-            t.sees(Vec3::new(0.0, 0.0, 500.0), look, false, false),
+            t.sees(Vec3::new(0.0, 0.0, 500.0), look, Vec3::Y, false, false),
             None,
             "beyond sight"
         );
         // 70° off: inside the peripheral cone only, near enough.
         let a = 70f32.to_radians();
         assert_eq!(
-            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 100.0, look, false, false),
+            t.sees(
+                Vec3::new(a.sin(), 0.0, a.cos()) * 100.0,
+                look,
+                Vec3::Y,
+                false,
+                false
+            ),
             Some(Stimulus::SightPeripheral)
         );
         assert_eq!(
-            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 200.0, look, false, false),
+            t.sees(
+                Vec3::new(a.sin(), 0.0, a.cos()) * 200.0,
+                look,
+                Vec3::Y,
+                false,
+                false
+            ),
             None
         );
         // Behind: never.
-        assert_eq!(t.sees(Vec3::new(0.0, 0.0, -50.0), look, false, false), None);
+        assert_eq!(
+            t.sees(Vec3::new(0.0, 0.0, -50.0), look, Vec3::Y, false, false),
+            None
+        );
         // A known target stays seen anywhere in the widest cone.
         assert_eq!(
-            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 400.0, look, true, false),
+            t.sees(
+                Vec3::new(a.sin(), 0.0, a.cos()) * 400.0,
+                look,
+                Vec3::Y,
+                true,
+                false
+            ),
             Some(Stimulus::SightDefinite)
         );
         // 45° up, 100 away: over the authored 40° — but within the shipped 50°.
         let up = Vec3::new(0.0, 1.0, 1.0).normalize() * 100.0;
-        assert_eq!(t.sees(up, look, false, false), None);
-        assert!(t.sees(up, look, false, true).is_some());
+        assert_eq!(t.sees(up, look, Vec3::Y, false, false), None);
+        assert!(t.sees(up, look, Vec3::Y, false, true).is_some());
     }
 
     #[test]

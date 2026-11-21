@@ -315,6 +315,9 @@ pub struct Fighter {
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
     pub ai_aim: Option<(f32, f32)>,
+    /// Its gun's poses off (`ONcCharacterFlag_DontUseGunVarient`): an AI
+    /// in a no-aim movement mode holds its gun but moves as if unarmed.
+    pub no_gun_varient: bool,
     /// The body's facing when `ai_aim` was last set (the aim turns with it).
     pub ai_aim_facing: f32,
     /// Aiming its gun exactly (`ONrCharacter_DoExactAiming`): since when it
@@ -531,6 +534,7 @@ impl Fighter {
             shooting: Rc::new(Vec::new()),
             targeting: Default::default(),
             ai_aim: None,
+            no_gun_varient: false,
             ai_aim_facing: 0.0,
         }
     }

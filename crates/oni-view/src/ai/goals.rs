@@ -206,16 +206,28 @@ impl MoveMode {
         }
     }
 
-    /// The pace at `alert`, hurrying or not (by alert: walk until medium
-    /// when hurrying, else always walk).
-    pub fn pace(self, alert: Alert, hurry: bool) -> Pace {
+    /// The mode itself at `alert`, hurrying or not (`AI2rMovement_Default`:
+    /// by alert, the no-aim walk until medium; then walking, or running
+    /// when hurrying).
+    pub fn resolved(self, alert: Alert, hurry: bool) -> MoveMode {
         use MoveMode::*;
-        let m = match self {
+        match self {
             ByAlert if hurry => [WalkNoAim, WalkNoAim, RunNoAim, Run, Run][alert as usize],
             ByAlert => [WalkNoAim, WalkNoAim, Walk, Walk, Walk][alert as usize],
             m => m,
-        };
-        match m {
+        }
+    }
+
+    /// Whether it aims with its gun, unforced
+    /// (`AI2rMovementState_ResetAimingVarient`): not in the no-aim modes.
+    pub fn aims_weapon(self) -> bool {
+        !matches!(self, MoveMode::WalkNoAim | MoveMode::RunNoAim)
+    }
+
+    /// The pace at `alert`, hurrying or not.
+    pub fn pace(self, alert: Alert, hurry: bool) -> Pace {
+        use MoveMode::*;
+        match self.resolved(alert, hurry) {
             Creep => Pace::Creep,
             WalkNoAim | Walk => Pace::Walk,
             _ => Pace::Run,
@@ -1024,6 +1036,12 @@ pub struct Agent {
     pub want_pickup: Option<usize>,
     /// Its own gun let go (before a running pickup).
     pub drop_gun: bool,
+    /// It aims with its gun, rather than just looking
+    /// (`AI2tMovementState.aiming_weapon`): in combat as its targeting
+    /// forces it (with a gun it aims, else looking), else by its movement
+    /// mode. Not: its gun's poses go (`ONcCharacterFlag_DontUseGunVarient`)
+    /// and its gun's aiming speed doesn't count.
+    pub aiming_weapon: bool,
     /// Extra spread on its shots (degrees; a patrol's shoot-at-flag).
     pub extra_spread: f32,
     /// It left its neutral interaction (for the world to stop it,
@@ -1082,6 +1100,7 @@ impl Agent {
             clear_stun: false,
             want_pickup: None,
             drop_gun: false,
+            aiming_weapon: true,
             extra_spread: 0.0,
             neutral_exit: None,
             rng: Rng(seed.wrapping_mul(2_654_435_761).max(1)),
@@ -1433,9 +1452,27 @@ impl Agent {
     }
 
     fn pace(&self, cx: &Ctx) -> Pace {
-        let hurry =
-            matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
-        self.mode.pace(cx.alert(), hurry)
+        self.mode.pace(cx.alert(), self.hurrying())
+    }
+
+    fn hurrying(&self) -> bool {
+        matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running)
+    }
+
+    /// Whether it aims with its gun now (see `aiming_weapon`): fighting, as
+    /// its targeting forces (`AI2iAI_TargetingCallback_ForceAimWithWeapon`:
+    /// with a usable gun it aims — not a boss that only looks — else it
+    /// looks); otherwise its movement mode says.
+    fn aims_weapon_now(&self, cx: &Ctx) -> bool {
+        if matches!(self.goal, Goal::Combat(_)) {
+            let boss_looks = self.barabbas_targeting().is_some_and(|b| !b.aim)
+                || self.ninja_mode().is_some()
+                || self.is_muro();
+            return cx.gun.is_some_and(|g| g.usable) && !boss_looks;
+        }
+        self.mode
+            .resolved(cx.alert(), self.hurrying())
+            .aims_weapon()
     }
 
     fn arrived(&self, cx: &Ctx) -> bool {
@@ -1588,6 +1625,7 @@ impl Agent {
         self.hold_height = None;
         self.clear_stun = false;
         self.extra_spread = 0.0;
+        self.aiming_weapon = self.aims_weapon_now(cx);
         if let Some((_, t)) = &mut self.glance {
             *t = t.saturating_sub(1);
             if *t == 0 {

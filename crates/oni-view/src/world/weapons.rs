@@ -1650,11 +1650,18 @@ impl World {
         const MAX_OFF: f32 = 130.0 * PI / 180.0;
         let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
         let mut out = vec![0u32; self.fighters.len()];
+        let mut varients = Vec::new();
         for (i, f) in self.fighters.iter_mut().enumerate() {
             let Some(crate::ai::Brain::Agent(a)) = f.brain.as_ref() else {
                 f.ai_aim = None;
                 continue;
             };
+            // Aiming with its gun or just looking: its gun's poses with it.
+            if f.no_gun_varient == a.aiming_weapon {
+                f.no_gun_varient = !a.aiming_weapon;
+                varients.push(i);
+            }
+            let aiming_weapon = a.aiming_weapon;
             // (A film carries its own aim.)
             if f.film.is_some() || !f.alive() {
                 f.ai_aim = None;
@@ -1682,8 +1689,10 @@ impl World {
                 None => (facing, 0.0),
             };
             let (dy, dp) = (wrap(yaw - cy), pitch - cp);
+            // (The gun's aiming speed only aiming with it.)
             let gun = f
                 .hand
+                .filter(|_| aiming_weapon)
                 .map_or(1.0, |w| self.armory.weapons[w].class.aiming_speed.max(0.01));
             let step = TAU / 60.0 * speed * gun;
             let dist = (dy * dy + dp * dp).sqrt();
@@ -1709,6 +1718,9 @@ impl World {
             if trigger && !single {
                 out[i] = if alternate { key::FIRE2 } else { key::FIRE1 };
             }
+        }
+        for i in varients {
+            self.set_weapon_varient(i);
         }
         out
     }
@@ -2211,7 +2223,8 @@ impl World {
         let f = &mut self.fighters[who];
         f.motion.varient &=
             !(var::RIGHTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_PISTOL | var::LEFTY_RIFLE);
-        match rifle {
+        // (Its gun's poses off: as unarmed, `ONrCharacter_SetWeaponVarient`.)
+        match rifle.filter(|_| !f.no_gun_varient) {
             Some(true) => f.motion.varient |= var::RIGHTY_RIFLE,
             Some(false) => f.motion.varient |= var::RIGHTY_PISTOL,
             None => {}
