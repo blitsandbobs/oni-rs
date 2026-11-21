@@ -341,6 +341,9 @@ pub struct System {
     /// New particles are temporary (`particle_temp_start`): they, and what
     /// they emit, go at `particle_temp_kill`.
     pub temporary: bool,
+    /// The variables an action reads, as they were when it began (reused,
+    /// not allocated afresh for every action of every particle).
+    scratch_vars: Vec<Val>,
 }
 
 /// The outcome of running an action list.
@@ -368,6 +371,7 @@ impl System {
             decals: effect::Decals::default(),
             serial: 0,
             temporary: false,
+            scratch_vars: Vec::new(),
         }
     }
 

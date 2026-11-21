@@ -108,7 +108,7 @@ impl World {
             && to.dot(right).abs() <= ahead * tan_y * cam.aspect + slack(tan_y * cam.aspect)
     }
 
-    fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[(usize, Vec<glam::Mat4>)]) -> bool {
+    fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[super::weapons::RayBody]) -> bool {
         let v = self.camera.view;
         let to = at - v.location;
         if !self.in_view(to) {
@@ -123,9 +123,7 @@ impl World {
             return false;
         }
         let ray = end - from;
-        if bodies.iter().any(|(k, bones)| {
-            super::weapons::ray_body(&self.fighters[*k], bones, from, ray).is_some()
-        }) {
+        if bodies.iter().any(|b| b.ray(from, ray).is_some()) {
             return false;
         }
         // (An animating object in the way: a placed object, a door's
@@ -154,9 +152,9 @@ impl World {
             return;
         }
         // The characters' bodies, near the camera's line, once.
-        let bodies: Vec<(usize, Vec<glam::Mat4>)> = (0..self.fighters.len())
+        let bodies: Vec<super::weapons::RayBody> = (0..self.fighters.len())
             .filter(|&k| !self.fighters[k].gone)
-            .map(|k| (k, self.fighters[k].bones()))
+            .map(|k| super::weapons::RayBody::new(&self.fighters[k], &self.fighters[k].bones()))
             .collect();
         let mut next = std::collections::HashMap::with_capacity(flares.len());
         for (h, at, tol, fade) in flares {

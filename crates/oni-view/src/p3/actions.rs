@@ -75,6 +75,27 @@ impl System {
         hit: Option<Collision>,
         host: &mut dyn Host,
     ) -> Outcome {
+        // (The variables as they were when the action began.)
+        let mut vars = std::mem::take(&mut self.scratch_vars);
+        vars.clear();
+        vars.extend_from_slice(&p.vars);
+        let o = self.action_with(p, h, i, t, dt, hit, host, &vars);
+        self.scratch_vars = vars;
+        o
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn action_with(
+        &mut self,
+        p: &mut Particle,
+        h: Handle,
+        i: usize,
+        t: f64,
+        dt: f32,
+        hit: Option<Collision>,
+        host: &mut dyn Host,
+        vars: &[Val],
+    ) -> Outcome {
         let classes = self.classes.clone();
         let c = &classes.list[p.class];
         let a = &c.actions[i];
@@ -87,7 +108,6 @@ impl System {
             dead: false,
             stop: true,
         };
-        let vars = p.vars.clone();
         macro_rules! f {
             ($k:expr) => {
                 match self.eval_f(a.param($k), &vars) {
@@ -179,7 +199,7 @@ impl System {
                     return none;
                 }
                 let time = f!(0);
-                let Some(alpha) = self.eval_f(&c.alpha, &vars) else {
+                let Some(alpha) = self.eval_f(&c.alpha, vars) else {
                     return none;
                 };
                 if alpha <= 0.0 {
@@ -688,7 +708,7 @@ impl System {
                 let Some(class) = classes.get(name) else {
                     return none;
                 };
-                let offset = self.eval_f(a.param(1), &vars).unwrap_or(0.0);
+                let offset = self.eval_f(a.param(1), vars).unwrap_or(0.0);
                 let orient = match a.param(2) {
                     Value::Enum(e) => Some(*e),
                     _ => None,
@@ -731,7 +751,7 @@ impl System {
                 if speed < 0.01 {
                     return none;
                 }
-                let scale = self.eval_f(&c.scale, &vars).unwrap_or(1.0);
+                let scale = self.eval_f(&c.scale, vars).unwrap_or(1.0);
                 p.lifetime = 2.0 * scale / speed;
                 p.fadeout_time = p.lifetime;
                 p.flags |= pflag::CHOP;
@@ -740,7 +760,7 @@ impl System {
             Kind::Hide => p.flags |= pflag::HIDDEN,
             Kind::SetVariable => {
                 let v = var!(0);
-                if let Some(x) = self.eval(a.param(0), &vars) {
+                if let Some(x) = self.eval(a.param(0), vars) {
                     p.vars[v] = x;
                 }
             }

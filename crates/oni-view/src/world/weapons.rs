@@ -824,6 +824,71 @@ const LASER_WIDTH: f32 = 0.2;
 
 /// Where a ray first meets fighter `f`'s body (its parts' boxes): the
 /// fraction along it.
+/// A body made ready for many rays at once (`ray_body` over and over):
+/// each part's inverse matrix and box, and a sphere holding them all.
+pub(super) struct RayBody {
+    parts: Vec<(Mat4, Vec3, Vec3)>,
+    centre: Vec3,
+    radius: f32,
+}
+
+impl RayBody {
+    pub(super) fn new(f: &Fighter, bones: &[Mat4]) -> RayBody {
+        let mut parts = Vec::new();
+        let mut corners = Vec::new();
+        for part in &f.character.parts {
+            let Some(m) = bones.get(part.bone) else {
+                continue;
+            };
+            let (lo, hi) = part.bound_box;
+            for k in 0..8 {
+                let c = Vec3::new(
+                    if k & 1 == 0 { lo.x } else { hi.x },
+                    if k & 2 == 0 { lo.y } else { hi.y },
+                    if k & 4 == 0 { lo.z } else { hi.z },
+                );
+                corners.push(m.transform_point3(c));
+            }
+            parts.push((m.inverse(), lo, hi));
+        }
+        let (mut a, mut b) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));
+        for c in &corners {
+            a = a.min(*c);
+            b = b.max(*c);
+        }
+        let centre = (a + b) * 0.5;
+        let radius = corners
+            .iter()
+            .map(|c| c.distance(centre))
+            .fold(0.0, f32::max)
+            + 0.01;
+        RayBody {
+            parts,
+            centre,
+            radius,
+        }
+    }
+
+    /// [`ray_body`]'s answer for this body.
+    pub(super) fn ray(&self, from: Vec3, ray: Vec3) -> Option<f32> {
+        if self.parts.is_empty() || ray_sphere(from, ray, self.centre, self.radius).is_none() {
+            return None;
+        }
+        self.parts
+            .iter()
+            .filter_map(|(inv, lo, hi)| {
+                ray_box(
+                    inv.transform_point3(from),
+                    inv.transform_vector3(ray),
+                    *lo,
+                    *hi,
+                )
+                .map(|(t, _)| t)
+            })
+            .min_by(f32::total_cmp)
+    }
+}
+
 pub(super) fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
     f.character
         .parts
