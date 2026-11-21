@@ -31,6 +31,8 @@ use crate::skel::Character;
 
 /// Vertical speed a character walks off a ledge with.
 const LEDGE_DROP_SPEED: f32 = 0.5;
+/// Ticks an aiming screen's change is blended over (`num_interp_frames`).
+const AIM_SCREEN_BLEND: u64 = 8;
 /// Ticks airborne after which the fall is fatal.
 pub const MAX_AIR_FRAMES: u16 = 300;
 /// Share of the pending knockback applied each tick, and what remains.
@@ -300,6 +302,14 @@ pub struct Fighter {
     pub weapon_empty: bool,
     /// Its class's aiming screens.
     pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
+    /// The aiming screen now and the one before (indices in `aiming`), and
+    /// when it changed — its own tick count (`ONtActiveCharacter`'s
+    /// `aimingScreen`, `oldAimingScreen`, `oldAimingScreenTime`): for 8 ticks
+    /// after a change the pose blends from the old to the new.
+    aim_screen: Option<usize>,
+    aim_screen_old: Option<usize>,
+    aim_screen_since: u64,
+    ticks: u64,
     /// Its AI's shooting skills and targeting settings, and where its aim
     /// points now (absolute yaw, pitch) while it aims a gun.
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
@@ -514,6 +524,10 @@ impl Fighter {
             overlays: [None; 3],
             pickup: None,
             aiming: Rc::new(Vec::new()),
+            aim_screen: None,
+            aim_screen_old: None,
+            aim_screen_since: 0,
+            ticks: 0,
             shooting: Rc::new(Vec::new()),
             targeting: Default::default(),
             ai_aim: None,
@@ -624,6 +638,7 @@ impl Fighter {
         self.motion.advance(&ch);
         self.facing.rotate(self.motion.take_facing_change());
         self.track_throw();
+        self.track_aim_screen();
 
         // Noises: rolling or sliding (faint) and taunting (interesting), at
         // the clip's half-way point. (Crouched walking is silent.)
@@ -1628,7 +1643,7 @@ impl Fighter {
         if !self.alive() {
             return None;
         }
-        let s = self.screen(dont_aim)?;
+        let s = self.screen(dont_aim);
         let wrap = |a: f32| {
             (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
         };
@@ -1641,7 +1656,38 @@ impl Fighter {
         if yaw == 0.0 && pitch == 0.0 {
             return None;
         }
-        Some(crate::anim::aim::layer(&self.character, s, yaw, pitch))
+        // Within 8 ticks of the screen changing: from the old screen's pose
+        // to the new one's (`TRrAimingScreen_Apply_Lerp`).
+        let layer =
+            |s: &crate::anim::aim::Screen| crate::anim::aim::layer(&self.character, s, yaw, pitch);
+        let since = self.ticks.saturating_sub(self.aim_screen_since);
+        let old = self.aim_screen_old.and_then(|i| self.aiming.get(i));
+        let blending = since <= AIM_SCREEN_BLEND
+            && !std::ptr::eq(
+                old.map_or(std::ptr::null(), |o| o as *const _),
+                s.map_or(std::ptr::null(), |n| n as *const _),
+            );
+        if !blending {
+            return s.map(layer);
+        }
+        crate::anim::aim::blend(
+            old.map(layer),
+            s.map(layer),
+            since as f32 / AIM_SCREEN_BLEND as f32,
+        )
+    }
+
+    /// Keeps the aiming screen's change in step (`ONrCharacter_BuildQuaternions`).
+    fn track_aim_screen(&mut self) {
+        self.ticks += 1;
+        let now = self
+            .screen(self.overlay_dont_aim())
+            .and_then(|s| self.aiming.iter().position(|x| std::ptr::eq(x, s)));
+        if now != self.aim_screen {
+            self.aim_screen_old = self.aim_screen;
+            self.aim_screen_since = self.ticks;
+            self.aim_screen = now;
+        }
     }
 
     /// A render draw referencing `bones` (kept alive by the caller).

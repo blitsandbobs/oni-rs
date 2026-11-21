@@ -106,6 +106,40 @@ fn step(d: f32, deltas: [f32; 2], frames: [u16; 2]) -> (i32, f32) {
     }
 }
 
+/// Two screens' layers blended, `t` of the way from `a` to `b`
+/// (`TRrAimingScreen_Apply_Lerp`): a part both turn, from one turn to the
+/// other; a part only one turns, from or to no turn; none of either, nothing.
+pub fn blend(a: Option<Layer>, b: Option<Layer>, t: f32) -> Option<Layer> {
+    let (used_a, used_b) = (
+        a.as_ref().map_or(0, |l| l.used),
+        b.as_ref().map_or(0, |l| l.used),
+    );
+    let used = used_a | used_b;
+    if used == 0 {
+        return None;
+    }
+    let n = a.as_ref().or(b.as_ref()).map_or(0, |l| l.rotations.len());
+    let turn = |l: &Option<Layer>, bits: u32, i: usize| {
+        l.as_ref()
+            .filter(|_| bits & (1 << i) != 0)
+            .and_then(|l| l.rotations.get(i).copied())
+            .unwrap_or(Quat::IDENTITY)
+    };
+    let rotations = (0..n)
+        .map(|i| {
+            let (x, y) = (turn(&a, used_a, i), turn(&b, used_b, i));
+            let y = if x.dot(y) < 0.0 { -y } else { y };
+            x.lerp(y, t).normalize()
+        })
+        .collect();
+    Some(Layer {
+        rotations,
+        used,
+        replace: 0,
+        weight: 1.0,
+    })
+}
+
 /// The screen's layer for an aim `yaw` / `pitch` away from straight ahead
 /// (radians; up positive): the four frames around it blended, each part's
 /// rotation a turn to put on top of the body's.
@@ -135,5 +169,45 @@ pub fn layer(ch: &Character, s: &Screen, yaw: f32, pitch: f32) -> Layer {
         used: s.clip.used_parts,
         replace: 0,
         weight: 1.0,
+    }
+}
+
+#[cfg(test)]
+mod blend_tests {
+    use super::*;
+
+    fn layer(used: u32, angle: f32) -> Layer {
+        Layer {
+            rotations: vec![Quat::from_rotation_y(angle); 3],
+            used,
+            replace: 0,
+            weight: 1.0,
+        }
+    }
+
+    #[test]
+    fn blends_from_the_old_screen_to_the_new() {
+        // Part 0 turned by both, part 1 by the old only, part 2 by the new only.
+        let old = layer(0b011, 0.4);
+        let new = layer(0b101, 0.8);
+        let half = blend(Some(old), Some(new), 0.5).unwrap();
+        assert_eq!(half.used, 0b111);
+        let angle = |q: Quat| q.to_axis_angle().1;
+        assert!(
+            (angle(half.rotations[0]) - 0.6).abs() < 0.01,
+            "between the two"
+        );
+        assert!(
+            (angle(half.rotations[1]) - 0.2).abs() < 0.01,
+            "the old's, half gone"
+        );
+        assert!(
+            (angle(half.rotations[2]) - 0.4).abs() < 0.01,
+            "the new's, half come"
+        );
+        // From no screen: the new one's turn coming in.
+        let from_none = blend(None, Some(layer(0b001, 0.8)), 0.25).unwrap();
+        assert!((angle(from_none.rotations[0]) - 0.2).abs() < 0.01);
+        assert!(blend(None, None, 0.5).is_none());
     }
 }
