@@ -15,7 +15,7 @@ use serde_json::{json, Value};
 use crate::text_consoles::{text, Records};
 
 /// The dialogs, by their instance names.
-const DIALOGS: [&str; 7] = [
+const DIALOGS: [&str; 8] = [
     "dialog_mainmenu",
     "dialog_loadgame",
     "dialog_options",
@@ -23,6 +23,7 @@ const DIALOGS: [&str; 7] = [
     "dialog_QuitYesNo",
     "dialog_ChangeRestart",
     "dialog_ll_progress",
+    "dialog_Progress",
 ];
 
 /// One dialog (`WMtDialogData`): its id, title, style, size and items.

@@ -1062,6 +1062,12 @@ impl PartSpec {
         [(s[2] - s[0]).abs(), (s[3] - s[1]).abs()]
     }
 
+    /// Its bottom-right part's size (`PScPart_RightBottom`).
+    pub fn bottom_right(&self) -> [f32; 2] {
+        let s = self.slices[2][2];
+        [(s[2] - s[0]).abs(), (s[3] - s[1]).abs()]
+    }
+
     /// Its top-right part's width.
     pub fn right_width(&self) -> f32 {
         let s = self.slices[2][0];

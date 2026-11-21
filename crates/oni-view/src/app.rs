@@ -76,7 +76,12 @@ fn mission_level(
     set: &Settings,
     save_point: i64,
     saved: Option<crate::game::Continue>,
+    progress: &mut dyn FnMut(u32),
 ) -> Result<(Renderer, PlayWorld), String> {
+    // (The level-load dialog's steps, `ONrLevel_Load`: the original's
+    // percents at the matching points of this loading order.)
+    progress(0);
+    progress(10);
     let level_dir = oni_root.join(format!("levels/{level:02}"));
     let scene = match scene {
         Some(s) => s,
@@ -88,7 +93,9 @@ fn mission_level(
             s
         }
     };
+    progress(20);
     let mut renderer = Renderer::new(gpu, &scene, &[], format);
+    progress(28);
     let mut classes = crate::classes::Classes::open(oni_root, level).map_err(|e| format!("classes: {e}"))?;
     let kind = classes.kind(&set.player, |ch| renderer.add_character(gpu, ch))?;
     // (A level begun: the place last played, the level unlocked.)
@@ -98,9 +105,12 @@ fn mission_level(
         world.set_quirks(crate::quirks::Quirks::FAITHFUL);
     }
     world.difficulty = classes.difficulty(&set.difficulty);
+    progress(30);
     world.nav = crate::nav::Navigation::load(&level_dir).ok().map(std::rc::Rc::new);
+    progress(35);
     world.spawn(&kind, Vec3::ZERO, 0.0, false);
     world.load_level(&level_dir);
+    progress(55);
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
     world.persist_continues = true;
@@ -115,20 +125,25 @@ fn mission_level(
     }
     world.attach_doors(crate::door_meshes(&scene));
     world.attach_glass(crate::glass_parts(&scene));
+    progress(65);
     world.attach_weapons(&oni_root.join("common"));
     // (After the weapons: that is where the level quads load.)
     renderer.attach_quads(&scene, &world.quads);
     renderer.attach_texture_anims(gpu, world.texture_anims());
+    progress(70);
     let mut m = crate::mission::Mission::load(&level_dir)?;
     m.state.vars.insert("save_point".into(), mlua::Value::Integer(save_point));
     {
         let mut host = PlayHost { world: &mut world, classes: &mut classes, renderer: &mut renderer, gpu };
         m.begin(&mut host);
     }
+    progress(85);
     world.audio.mixer.lock().unwrap().law = set.sound_law;
     world.audio.set_volume(set.volume);
     let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
     world.audio.realtime = audio.is_some();
+    progress(90);
+    progress(100);
     Ok((
         renderer,
         PlayWorld {
@@ -370,7 +385,9 @@ impl ApplicationHandler for App {
             if self.save_point > 0 && saved.is_none() {
                 eprintln!("game: no continue kept for save point {} (the level's start)", self.save_point);
             }
-            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, saved) {
+            // (The game's mode kept with it, for its continues.)
+            crate::game::set_game_faithful(settings.faithful);
+            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, saved, &mut |_| {}) {
                 Ok((r, pw)) => {
                     renderer = r;
                     charview = None;
@@ -1003,13 +1020,8 @@ impl State {
         };
         // (The old level's sound stops with its world.)
         self.play = None;
-        let format = self.config.format;
-        match mission_level(&self.gpu, format, &oni_root, target, None, &self.settings, save_point, saved) {
-            Ok((r, pw)) => {
-                self.renderer = r;
-                self.play = Some(pw);
-                eprintln!("game: level {target}, save point {save_point}");
-            }
+        match self.load_level(&oni_root, target, save_point, saved) {
+            Ok(()) => eprintln!("game: level {target}, save point {save_point}"),
             Err(e) => {
                 eprintln!("game: can't load level {target}: {e}");
                 self.quit = true;

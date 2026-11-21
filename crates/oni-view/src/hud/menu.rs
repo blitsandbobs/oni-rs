@@ -29,6 +29,7 @@ const CHECKBOX: u16 = 5;
 const LISTBOX: u16 = 8;
 const PICTURE: u16 = 11;
 const POPUP: u16 = 12;
+const PROGRESSBAR: u16 = 13;
 const SLIDER: u16 = 17;
 const TEXT: u16 = 20;
 
@@ -58,6 +59,9 @@ const MENU_LEFT: f32 = 12.0;
 const MENU_RIGHT: f32 = 10.0;
 /// Two clicks this close make a double click (the platform's).
 const DOUBLE_CLICK: f32 = 0.5;
+/// A slider's timer (`WMcSlider_TimerFrequency`: 10 sixtieths): held down
+/// on its track, it pages again each time it fires.
+const SLIDER_REPEAT: f32 = 10.0 / 60.0;
 
 // --- the data ------------------------------------------------------------
 
@@ -204,7 +208,11 @@ pub enum Ctl {
     /// Pressed (the mouse went down on it and is over it).
     Button { hilite: bool, down: bool },
     Check(bool),
-    Slider { min: i32, max: i32, value: i32, drag: Option<f32> },
+    /// `drag`: the thumb held, the mouse's offset from it; `held`: the
+    /// left button down on it (its timer presses again).
+    Slider { min: i32, max: i32, value: i32, drag: Option<f32>, held: bool },
+    /// A progress bar's percent (`WMtProgressBar`).
+    Progress(u32),
     /// Rows (string, data), the one selected, the first showing.
     List { rows: Vec<(String, u32)>, selected: Option<usize>, start: usize },
     /// Items (id, string), the one chosen; its menu open (and just opened:
@@ -273,6 +281,9 @@ pub struct Window {
     last_click: Option<(usize, usize, Instant)>,
     /// The line height of each list (by control index).
     line: HashMap<usize, f32>,
+    /// When the sliders' timer fires next (`WMrTimer_Start` at their
+    /// creation: it runs from the dialog's making).
+    timer: Instant,
 }
 
 impl Window {
@@ -289,7 +300,8 @@ impl Window {
                 let ctl = match i.kind {
                     BUTTON => Ctl::Button { hilite: false, down: false },
                     CHECKBOX => Ctl::Check(false),
-                    SLIDER => Ctl::Slider { min: 0, max: 100, value: 0, drag: None },
+                    SLIDER => Ctl::Slider { min: 0, max: 100, value: 0, drag: None, held: false },
+                    PROGRESSBAR => Ctl::Progress(0),
                     LISTBOX => {
                         line.insert(k, data.look.line_height(i.font));
                         Ctl::List { rows: Vec::new(), selected: None, start: 0 }
@@ -303,7 +315,7 @@ impl Window {
                 Control { def: i.clone(), visible: i.flags & FLAG_VISIBLE != 0, enabled: i.flags & FLAG_DISABLED == 0, ctl }
             })
             .collect();
-        Window { name: name.to_string(), size: def.size, controls, focus: None, last_click: None, line }
+        Window { name: name.to_string(), size: def.size, controls, focus: None, last_click: None, line, timer: Instant::now() + std::time::Duration::from_secs_f32(SLIDER_REPEAT) }
     }
 
     fn index(&self, id: i64) -> Option<usize> {
@@ -332,6 +344,13 @@ impl Window {
 
     pub fn check(&self, id: i64) -> bool {
         matches!(self.control(id).map(|c| &c.ctl), Some(Ctl::Check(true)))
+    }
+
+    /// A progress bar's percent (`WMcMessage_SetValue`: at most 100).
+    pub fn set_progress(&mut self, id: i64, percent: u32) {
+        if let Some(Ctl::Progress(p)) = self.control_mut(id).map(|c| &mut c.ctl) {
+            *p = percent.min(100);
+        }
     }
 
     pub fn set_slider(&mut self, id: i64, min: i32, max: i32, value: i32) {
@@ -439,6 +458,10 @@ impl Window {
         let c = &mut self.controls[k];
         let [rx, ry, rw, _] = c.def.rect;
         let (lx, ly) = (x - at[0] - rx, y - at[1] - ry);
+        if let Ctl::Slider { held, .. } = &mut c.ctl {
+            *held = true;
+            return slider_press(look, &c.def, &mut c.ctl, lx, ly).into_iter().collect();
+        }
         let mut out = Vec::new();
         match &mut c.ctl {
             Ctl::Button { hilite, down } => {
@@ -449,18 +472,6 @@ impl Window {
                 *open = true;
                 *fresh = true;
                 *hover = None;
-            }
-            Ctl::Slider { min, max, value, drag } => {
-                let (track, thumb_w) = slider_track(look, rw);
-                let span = (track[1] - track[0] - thumb_w).max(1.0);
-                let thumb = track[0] + (*value - *min) as f32 * span / (*max - *min).max(1) as f32;
-                let page = ((*max - *min) / 10).max(1);
-                if lx >= thumb && lx < thumb + thumb_w {
-                    *drag = Some(thumb - lx);
-                } else {
-                    *value = (*value + if lx < thumb { -page } else { page }).clamp(*min, *max);
-                    out.push(Command { id: c.def.id, notify: Notify::NewPosition, button: false });
-                }
             }
             Ctl::List { rows, selected, start } => {
                 let scroll_w = if c.def.style & LIST_SCROLLBAR != 0 { look.part("up_arrow").map_or(0.0, |p| p.corner()[0]) } else { 0.0 };
@@ -492,6 +503,27 @@ impl Window {
         out
     }
 
+    /// The window manager's timers (`WMiTimer_Update`), at `now` with the
+    /// mouse at screen `x`, `y`: when the sliders' fires, each slider the
+    /// left button is down on is pressed again where the mouse is
+    /// (`WMiSlider_HandleTimer`) — paging on until the thumb comes under
+    /// the mouse, which then takes it.
+    pub fn tick(&mut self, look: &Look, w: f32, h: f32, x: f32, y: f32, now: Instant) -> Vec<Command> {
+        if now <= self.timer {
+            return Vec::new();
+        }
+        self.timer = now + std::time::Duration::from_secs_f32(SLIDER_REPEAT);
+        let at = self.at(w, h);
+        let mut out = Vec::new();
+        for c in &mut self.controls {
+            if matches!(c.ctl, Ctl::Slider { held: true, .. }) && c.enabled {
+                let (lx, ly) = (x - at[0] - c.def.rect[0], y - at[1] - c.def.rect[1]);
+                out.extend(slider_press(look, &c.def, &mut c.ctl, lx, ly));
+            }
+        }
+        out
+    }
+
     /// The mouse moved (the left button `held` or not).
     pub fn mouse_move(&mut self, look: &Look, w: f32, h: f32, x: f32, y: f32, held: bool) -> Vec<Command> {
         let at = self.at(w, h);
@@ -507,7 +539,7 @@ impl Window {
             let inside = c.contains(at, x, y);
             match &mut c.ctl {
                 Ctl::Button { hilite, down } if *down && held => *hilite = inside,
-                Ctl::Slider { min, max, value, drag: Some(off) } if held => {
+                Ctl::Slider { min, max, value, drag: Some(off), .. } if held => {
                     let (track, thumb_w) = slider_track(look, c.def.rect[2]);
                     let span = (track[1] - track[0] - thumb_w).max(1.0);
                     let lx = x - at[0] - c.def.rect[0];
@@ -549,7 +581,7 @@ impl Window {
                     }
                     (*hilite, *down) = (false, false);
                 }
-                Ctl::Slider { drag, .. } => *drag = None,
+                Ctl::Slider { drag, held, .. } => (*drag, *held) = (None, false),
                 Ctl::Check(on) if inside && focus == Some(k) => {
                     *on = !*on;
                     out.push(Command { id: c.def.id, notify: Notify::Click, button: false });
@@ -730,6 +762,22 @@ impl Window {
                         out.extend(p.draw_corner([x, r[1] + ((rh - th) / 2.0).floor()], tw, th));
                     }
                 }
+                // (`WMiProgressBar_Paint`: the track over the whole; the
+                // fill inside its edges, as wide as the percent, at least
+                // its two ends' width.)
+                (Ctl::Progress(percent), _) => {
+                    if let Some(p) = look.part("progressbar_track") {
+                        out.extend(p.draw([r[0], r[1]], rw, rh));
+                        if c.enabled && *percent > 0 {
+                            let ([lw, lh], [bw, bh]) = (p.corner(), p.bottom_right());
+                            let (iw, ih) = (rw - (lw + bw) + 2.0, rh - (lh + bh) + 2.0);
+                            let fw = (*percent as f32 * iw / 100.0).floor().max(lw + bw);
+                            if let Some(f) = look.part("progressbar_fill") {
+                                out.extend(f.draw([r[0] + lw - 1.0, r[1] + lh - 1.0], fw, ih));
+                            }
+                        }
+                    }
+                }
                 (Ctl::Popup { items, selected, .. }, _) => {
                     let p = look.part("popup_menu");
                     let lw = p.as_ref().map_or(0.0, |p| p.corner()[0]);
@@ -784,6 +832,38 @@ impl Window {
         }
         out
     }
+}
+
+/// A slider pressed at `lx`, `ly` in it (`WMiSlider_HandleMouseEvent`,
+/// `WMcMessage_LMouseDown`): on the thumb (not yet held), the thumb taken;
+/// else left of it (to its first pixel) a page less, right of it (from its
+/// last) a page more — a tenth of the range, at least one — reported.
+fn slider_press(look: &Look, def: &ItemDef, ctl: &mut Ctl, lx: f32, ly: f32) -> Option<Command> {
+    let Ctl::Slider { min, max, value, drag, .. } = ctl else { return None };
+    let [_, _, rw, rh] = def.rect;
+    let (track, thumb_w) = slider_track(look, rw);
+    let thumb_h = look.part("sl_thumb").map_or(0.0, |p| p.corner()[1]);
+    let span = (track[1] - track[0] - thumb_w).max(1.0);
+    let thumb = track[0] + ((*value - *min) as f32 * span / (*max - *min).max(1) as f32).floor();
+    let thumb_top = ((rh - thumb_h) / 2.0).floor();
+    let in_thumb = lx >= thumb && lx < thumb + thumb_w && ly >= thumb_top && ly < thumb_top + thumb_h;
+    let in_height = ly >= 0.0 && ly < rh;
+    let page = ((*max - *min) / 10).max(1);
+    let step = if in_thumb && drag.is_none() {
+        *drag = Some(thumb - lx);
+        0
+    } else if in_height && lx >= 0.0 && lx < thumb + 1.0 {
+        -page
+    } else if in_height && lx >= thumb + thumb_w - 1.0 && lx < rw {
+        page
+    } else {
+        0
+    };
+    if step == 0 {
+        return None;
+    }
+    *value = (*value + step).clamp(*min, *max);
+    Some(Command { id: def.id, notify: Notify::NewPosition, button: false })
 }
 
 /// A slider's track (its run between the track's end caps, within the
@@ -1105,5 +1185,28 @@ mod tests {
         // Cancel (Close) back to the main menu.
         click(&mut m, &d, 180.0, 410.0);
         assert_eq!(m.top().unwrap().name, "mainmenu");
+    }
+
+    #[test]
+    fn a_slider_held_on_its_track_pages_on_its_timer() {
+        let d = data();
+        let mut w = Window::new(&d, "options");
+        w.set_slider(VOLUME, 0, 100, 0);
+        let value = |w: &Window| w.slider(VOLUME).unwrap();
+        // (The options dialog fills the screen: its slider at 160, 215.)
+        let (x, y) = (160.0 + 110.0, 225.0);
+        let cmds = w.mouse_down(&d.look, 640.0, 480.0, x, y);
+        assert_eq!(cmds, vec![Command { id: VOLUME, notify: Notify::NewPosition, button: false }]);
+        assert_eq!(value(&w), 10, "a page: a tenth of the range");
+        // Its timer: a page each firing, not more often than every 10/60 s.
+        let t0 = w.timer + std::time::Duration::from_millis(1);
+        assert_eq!(w.tick(&d.look, 640.0, 480.0, x, y, t0).len(), 1);
+        assert!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_millis(100)).is_empty(), "not yet");
+        assert_eq!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_millis(200)).len(), 1);
+        assert_eq!(value(&w), 30);
+        // Let go: no more.
+        w.mouse_up(&d.look, 640.0, 480.0, x, y);
+        assert!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_secs(1)).is_empty());
+        assert_eq!(value(&w), 30);
     }
 }

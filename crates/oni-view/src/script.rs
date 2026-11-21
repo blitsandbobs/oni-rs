@@ -94,6 +94,11 @@ struct ScriptHost {
     oni_root: std::path::PathBuf,
     /// The main menu up (`menu_open`), and its data.
     menu: Option<(crate::hud::menu::Data, crate::hud::menu::MainMenu)>,
+    /// Where `menu_press` holds the left button down (screen, 640 × 480),
+    /// and the timer's clock it advances (`menu_timer`).
+    menu_held: Option<([f32; 2], std::time::Instant)>,
+    /// The level-load dialog shown alone (`menu_loading`).
+    loading: Option<(crate::hud::menu::Data, crate::hud::menu::Window)>,
 }
 
 impl crate::mission::Host for ScriptHost {
@@ -164,6 +169,8 @@ impl ScriptHost {
             mission: None,
             oni_root,
             menu: None,
+            menu_held: None,
+            loading: None,
         })
     }
 
@@ -228,9 +235,14 @@ impl ScriptHost {
         self.renderer.anim_time = self.world.game_tick();
         self.renderer.eye = cam.eye;
         self.renderer.fog = self.world.fog.fog;
-        self.renderer.overlay = match &self.menu {
-            Some((data, m)) => m.draw(data, w as f32, h as f32),
-            None => self.world.hud_draw(w as f32, h as f32),
+        self.renderer.overlay = match (&self.loading, &self.menu) {
+            (Some((data, d)), _) => {
+                let (w, h) = (w as f32, h as f32);
+                let black = crate::render::OverlayDraw { texture: None, tris: vec![[0.0, 0.0, 0.0, 0.0], [w, 0.0, 1.0, 0.0], [w, h, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0], [w, h, 1.0, 1.0], [0.0, h, 0.0, 1.0]], color: [0.0, 0.0, 0.0, 1.0], additive: false };
+                std::iter::once(black).chain(d.draw(&data.look, w, h)).collect()
+            }
+            (None, Some((data, m))) => m.draw(data, w as f32, h as f32),
+            (None, None) => self.world.hud_draw(w as f32, h as f32),
         };
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
@@ -2022,6 +2034,71 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             cmds
         };
         Ok(run(&mut host, cmds))
+    })?)?;
+    // menu_press(id, f): the left button down on a control, a fraction `f`
+    // of the way across it (held: menu_timer(n) fires the window manager's
+    // timer n times, a slider pressing on); menu_release() lets go. Each
+    // returns what the menu asks for, as menu_click.
+    let h = host.clone();
+    g.set("menu_press", lua.create_function(move |_, (id, f): (i64, f32)| {
+        let mut host = h.borrow_mut();
+        let (w, hh) = (640.0, 480.0);
+        let (cmds, at) = {
+            let Some((data, m)) = host.menu.as_mut() else { return Ok(None) };
+            let Some(win) = m.top_mut() else { return Ok(None) };
+            let Some(c) = win.control(id).filter(|c| c.visible) else { return Err(mlua::Error::external(format!("no control {id} showing"))) };
+            let o = win.at(w, hh);
+            let [x, y, cw, ch] = c.def.rect;
+            let at = [o[0] + x + cw * f, o[1] + y + ch * 0.5];
+            (win.mouse_down(&data.look, w, hh, at[0], at[1]), at)
+        };
+        host.menu_held = Some((at, std::time::Instant::now()));
+        Ok(run(&mut host, cmds))
+    })?)?;
+    let h = host.clone();
+    g.set("menu_timer", lua.create_function(move |_, n: u32| {
+        let mut host = h.borrow_mut();
+        let Some((at, mut clock)) = host.menu_held else { return Ok(None) };
+        let mut cmds = Vec::new();
+        if let Some((data, m)) = host.menu.as_mut() {
+            if let Some(win) = m.top_mut() {
+                for _ in 0..n {
+                    clock += std::time::Duration::from_millis(200);
+                    cmds.extend(win.tick(&data.look, 640.0, 480.0, at[0], at[1], clock));
+                }
+            }
+        }
+        host.menu_held = Some((at, clock));
+        Ok(run(&mut host, cmds))
+    })?)?;
+    let h = host.clone();
+    g.set("menu_release", lua.create_function(move |_, ()| {
+        let mut host = h.borrow_mut();
+        let Some((at, _)) = host.menu_held.take() else { return Ok(None) };
+        let cmds = host.menu.as_mut().and_then(|(data, m)| Some(m.top_mut()?.mouse_up(&data.look, 640.0, 480.0, at[0], at[1]))).unwrap_or_default();
+        Ok(run(&mut host, cmds))
+    })?)?;
+    // menu_loading(percent): the level-load dialog alone over black, its
+    // bar at `percent` (screenshots draw it); menu_loading() hides it.
+    let h = host.clone();
+    g.set("menu_loading", lua.create_function(move |_, percent: Option<u32>| {
+        let mut host = h.borrow_mut();
+        let Some(p) = percent else {
+            host.loading = None;
+            return Ok(());
+        };
+        if host.loading.is_none() {
+            let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
+            if !data.has("Progress") {
+                return Err(mlua::Error::external("no level-load dialog (common/menus.json); reconvert the assets"));
+            }
+            let w = crate::hud::menu::Window::new(&data, "Progress");
+            host.loading = Some((data, w));
+        }
+        if let Some((_, w)) = host.loading.as_mut() {
+            w.set_progress(100, p);
+        }
+        Ok(())
     })?)?;
     let h = host.clone();
     g.set("menu_key", lua.create_function(move |_, name: String| {

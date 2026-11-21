@@ -1,8 +1,9 @@
 -- The main menu (docs/MENU.md): at the start Options shows and Escape does
 -- nothing; New Game asks first (with the port's faithful box, off), Load
 -- Game lists the levels reached and their continues (level 1's warehouse
--- always), Options shows the defaults, Quit asks first; over a game Resume
--- shows and Escape resumes. Each dialog drawn in the out-of-game skin.
+-- always), Options shows the defaults (a slider held pages on), Quit asks
+-- first; over a game Resume shows and Escape resumes. Each dialog drawn in
+-- the out-of-game skin, and the level-load dialog.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -57,6 +58,20 @@ assert(m.checks[107] == false and m.checks[109] == true, "subtitles off, invert 
 assert(m.popups[108] == 1, "difficulty normal")
 shot("options")
 assert(menu_click(107) == "options" and menu_state().checks[107] == true, "subtitles on")
+-- A slider held on its track pages on (its timer, WMiSlider_HandleTimer)
+-- until the thumb comes under the mouse, which then holds it.
+assert(menu_press(110, 0.75) == "options" and menu_state().sliders[110] == 60, "pressed right of the thumb: a page more")
+menu_timer(1)
+assert(menu_state().sliders[110] == 70, "held: a page each firing")
+menu_timer(20)
+local held = menu_state().sliders[110]
+print("gamma held at 75% across:", held)
+assert(held > 70 and held < 100, "paging stopped where the thumb met the mouse")
+menu_timer(5)
+assert(menu_state().sliders[110] == held, "the thumb taken: no more paging")
+menu_release()
+menu_timer(5)
+assert(menu_state().sliders[110] == held, "let go: nothing")
 menu_click(2)
 
 -- Quit: asks first.
@@ -74,4 +89,12 @@ assert(m.visible[104] == "Resume" and m.visible[102] == nil, "Resume, not Option
 assert(menu_key("escape") == "resume")
 assert(menu_click(104) == "resume")
 menu_close()
+
+-- The level-load dialog (the shipping build's Progress, 155): alone over
+-- black, its bar filling.
+for _, p in ipairs({0, 55, 100}) do
+    menu_loading(p)
+    shot("loading_" .. p)
+end
+menu_loading()
 print("ok")

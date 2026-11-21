@@ -3,19 +3,23 @@
 //! the mouse and keys, its music, and what it starts — a new game, a level
 //! from a continue — or ends.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use winit::keyboard::KeyCode;
 
 use super::{apply_capture, mission_level, State};
-use crate::hud::menu::{self, Action, Data, Key, MainMenu};
+use crate::hud::menu::{self, Action, Data, Key, MainMenu, Window};
 
 /// The main menu's music (`OScMusicScore_Win`).
 const MUSIC: &str = "main_menu_win";
 /// Its fades (`OScMainMusic_FadeInTime`, `_FadeOutTime`).
 const FADE: f32 = 0.5;
 const TICK: f32 = 1.0 / 60.0;
+/// The level-load dialog (the shipping build's, `OWcDialog_OGU_LevelLoadProgress`)
+/// and its bar (`OWcLevelLoad_ProgressBar`).
+const PROGRESS: &str = "Progress";
+const PROGRESS_BAR: i64 = 100;
 
 /// The menus: their data, the menu up, its own sound when no level plays.
 pub(super) struct Front {
@@ -234,6 +238,14 @@ impl State {
     /// has faded, what was chosen is done.
     pub(super) fn front_tick(&mut self, dt: f32) {
         let no_level = self.play.is_none();
+        // (The window manager's timers: a slider held pages on.)
+        let ((w, h), [x, y]) = (self.screen(), self.cursor);
+        let cmds = {
+            let Some(front) = self.front.as_mut() else { return };
+            let look = &front.data.look;
+            front.menu.as_mut().and_then(|m| m.stack.last_mut()).map(|win| win.tick(look, w, h, x, y, Instant::now())).unwrap_or_default()
+        };
+        self.menu_commands(cmds);
         let Some(front) = self.front.as_mut() else { return };
         if let Some((audio, _, banked)) = front.audio.as_mut().filter(|_| no_level) {
             *banked += dt;
@@ -270,11 +282,8 @@ impl State {
         let root = front.oni_root.clone();
         self.play = None;
         self.settings.faithful = faithful;
-        let format = self.config.format;
-        match mission_level(&self.gpu, format, &root, level, None, &self.settings, save_point, saved) {
-            Ok((r, pw)) => {
-                self.renderer = r;
-                self.play = Some(pw);
+        match self.load_level(&root, level, save_point, saved) {
+            Ok(()) => {
                 self.captured = true;
                 apply_capture(&self.window, true);
                 eprintln!("game: level {level}, save point {save_point}{}", if faithful { " (faithful)" } else { "" });
@@ -284,6 +293,33 @@ impl State {
                 self.open_menu();
             }
         }
+    }
+
+    /// A level loaded in place of what plays (`ONrLevel_Load` with its
+    /// progress bar): the level-load dialog over black, drawn again at
+    /// each step (`ONrLevel_LevelLoadDialog_Update`), gone once it is in.
+    pub(super) fn load_level(&mut self, root: &Path, level: u16, save_point: i64, saved: Option<crate::game::Continue>) -> Result<(), String> {
+        let format = self.config.format;
+        let scale = self.window.scale_factor() as f32;
+        let mut dialog = self.front.as_ref().filter(|f| f.data.has(PROGRESS)).map(|f| Window::new(&f.data, PROGRESS));
+        let look = self.front.as_ref().map(|f| &f.data.look);
+        let (surface, config, gpu, renderer) = (&self.surface, &self.config, &self.gpu, &mut self.renderer);
+        let mut progress = |percent: u32| {
+            let (Some(d), Some(look)) = (dialog.as_mut(), look) else { return };
+            d.set_progress(PROGRESS_BAR, percent);
+            let (w, h) = (config.width as f32 / scale, config.height as f32 / scale);
+            let mut overlay = vec![crate::render::OverlayDraw { texture: None, tris: super::quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, 1.0], additive: false }];
+            overlay.extend(d.draw(look, w, h));
+            let Ok(frame) = surface.get_current_texture() else { return };
+            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            (renderer.overlay, renderer.overlay_size) = (overlay, [w, h]);
+            renderer.render(gpu, &view, config.width, config.height, glam::Mat4::IDENTITY, &[], glam::Vec3::X, glam::Vec3::Y);
+            frame.present();
+        };
+        let (r, pw) = mission_level(gpu, format, root, level, None, &self.settings, save_point, saved, &mut progress)?;
+        self.renderer = r;
+        self.play = Some(pw);
+        Ok(())
     }
 
     /// The menu drawn over everything.
