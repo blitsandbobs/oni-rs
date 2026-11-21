@@ -2,6 +2,7 @@
 resolver = "2"
 members = [
     "crates/oni-fourcc",
+    "crates/oni-bink",
     "crates/oni-bytes",
     "crates/oni-dat",
     "crates/oni-texture",
@@ -31,5 +32,6 @@ rust-version = "1.74"
 # validated against OniSplit. See README.md.
 [workspace.dependencies]
 oni-fourcc = { path = "crates/oni-fourcc" }
+oni-bink = { path = "crates/oni-bink" }
 oni-bytes = { path = "crates/oni-bytes" }
 oni-dat = { path = "crates/oni-dat" }

@@ -25,6 +25,7 @@ under Mono on the real Anniversary Edition data and assert our output matches.
 | `oni-dat`    | The `.dat` container: enumerate every instance (tag, name, size, flags, data) | ✅ milestone 2 |
 | `oni-texture` | `TXMP` textures: pixel formats, `.raw` resolution, decode to RGBA8888 | ✅ milestone 3 |
 | `oni-sound`   | `SNDD` sounds: parse `SStFormat`, extract MS-ADPCM audio to WAV | ✅ milestone 4 |
+| `oni-bink`    | Bink 1 movies (`outro.bik`): container, video and audio decoding, FFmpeg-exact; vendored from ra2-engine (GPL-3.0-or-later) | ✅ decoding (#59) |
 | `oni-template` | generic swap-code walker + **generated standalone layouts** for 133 templates | ✅ milestone 5 |
 | `oni-template-gen` | one-time codegen: parse the C `tm_template` headers → `oni-template/src/generated.rs` (dev tool; not shipped) | ✅ |
 | `oni-geom`    | `M3GM` geometry + `TRBS` character bodies → glTF (`.glb`) | ✅ milestone 6/8 |
