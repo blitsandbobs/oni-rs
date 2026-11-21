@@ -2422,13 +2422,25 @@ impl World {
 
     /// Overlays advance a frame; each acts at its clip's action frame first
     /// (`docs/WEAPONS.md`, *Overlays*). A knockdown cancels the inventory
-    /// one.
+    /// one — a reload not yet at its action frame giving back the clip it
+    /// took (shipped, the clip is lost: Q26).
     fn overlays_tick(&mut self, who: usize) {
+        let refund = !self.quirks.interrupted_reload_loses_clip();
         let f = &mut self.fighters[who];
-        if f.overlays[crate::fighter::INVENTORY].is_some()
-            && reaction::is_knockdown(f.motion.current().anim_type)
-        {
-            f.overlays[crate::fighter::INVENTORY] = None;
+        if let Some(o) = f.overlays[crate::fighter::INVENTORY] {
+            if reaction::is_knockdown(f.motion.current().anim_type) {
+                f.overlays[crate::fighter::INVENTORY] = None;
+                let c = f.motion.clip_of(o.clip);
+                let unfilled =
+                    clip::is_reload(c.anim_type) && c.action_frame.is_some_and(|a| o.frame <= a);
+                if refund && unfilled && !f.infinite_ammo {
+                    match f.hand.and_then(|w| self.armory.weapons[w].ammo_type()) {
+                        Some(0) => f.inventory.ammo += 1,
+                        Some(1) => f.inventory.cells += 1,
+                        _ => {}
+                    }
+                }
+            }
         }
         for slot in [
             crate::fighter::RECOIL,

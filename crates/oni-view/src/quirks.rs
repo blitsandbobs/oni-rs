@@ -161,6 +161,12 @@ impl Quirks {
     pub fn throw_through_walls(self) -> bool {
         self.faithful
     }
+
+    /// Q26: a reload takes its clip when it starts and fills the gun at its
+    /// clip's action frame; knocked down in between, the clip is lost.
+    pub fn interrupted_reload_loses_clip(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]

@@ -112,6 +112,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |
 | `cooldown.lua` | Q23: the Mercury Bow fired, dropped and picked up again still waits out its delay (fixed); under `--faithful` the drop cleared it, the shipped cooldown exploit. |
 | `dodge_projectile.lua` | Q24: a Super Ball fired past an armed soldier (inside its dodge radius) makes it step away from the ball's path (fixed); under `--faithful` it stands its ground, the shipped projectile check reading from the world's origin. |
+| `reload_knocked.lua` | Q26: a reload knocked out before the clip goes in gives the clip back (fixed); under `--faithful` it is lost. |
 | `throw_wall.lua` | Q25: a forward punch at a dummy on the other side of a locked door stays a punch (fixed); under `--faithful` it throws the dummy through the door. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
 | `envanim.lua` | `chr_envanim` carries Konoko along an object clip and leaves her at its end; `chr_nocollision` lets her walk through the training barrier. |
