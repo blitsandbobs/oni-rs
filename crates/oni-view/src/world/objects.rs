@@ -389,6 +389,12 @@ impl World {
     /// The objects to draw: each model, its matrix, and the flat shade
     /// it is lit by, if any (`obj_shade`, `OBcFlags_FlatLighting`).
     pub fn object_draws(&self) -> Vec<(PathBuf, Mat4, Option<[f32; 3]>)> {
+        // (The laser triggers' emitter eyes are drawn as objects too.)
+        let eyes = self
+            .lasers
+            .iter()
+            .flat_map(|l| l.eye_draws())
+            .map(|(p, m)| (p, m, None));
         (0..self.objects.len())
             .filter(|&k| {
                 self.objects[k].flags & oflag::INVISIBLE == 0 && !self.jello_objects.contains(&k)
@@ -401,6 +407,7 @@ impl World {
                     .iter()
                     .map(move |p| (p.clone(), m, shade))
             })
+            .chain(eyes)
             .collect()
     }
 

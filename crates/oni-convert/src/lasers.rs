@@ -22,8 +22,18 @@ const PERSISTENT_FLAGS: u16 = 0x38;
 /// direction in the trigger's own space.
 pub type Track = Vec<[f32; 6]>;
 
+/// A laser class: its track, and its emitter's eye — the model drawn at
+/// each emitter (`OBJiTrigger_Draw`: the emitter class's geometry) and,
+/// per frame, the emitter's matrix in the trigger's space (12 floats,
+/// column by column, translation last).
+pub struct Class {
+    pub track: Track,
+    pub eye: Option<String>,
+    pub frames: Vec<[f32; 12]>,
+}
+
 /// The laser classes (level 0's `TRIG` templates), by name.
-pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<String, Track> {
+pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<String, Class> {
     let (Some(trig), Some(trge)) = (registry.get(TAG_TRIG), registry.get(TAG_TRGE)) else {
         return BTreeMap::new();
     };
@@ -58,6 +68,16 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<Str
             let anim = instance(rec.int("animation"))
                 .and_then(|i| oni_geom::objanim::decode_object_animation(dat, i));
             let frames = anim.as_ref().map_or(1, |a| a.num_frames.max(1) as i32);
+            let eye = instance(em.int("geometry"))
+                .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)));
+            let matrices: Vec<[f32; 12]> = (0..frames)
+                .map(|fr| {
+                    anim.as_ref().map_or(
+                        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                        |a| a.matrix(fr),
+                    )
+                })
+                .collect();
             let track = (0..frames)
                 .map(|fr| {
                     let m = anim.as_ref().map_or(
@@ -75,7 +95,14 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<Str
                     [o[0], o[1], o[2], d[0] / dl, d[1] / dl, d[2] / dl]
                 })
                 .collect();
-            Some((name, track))
+            Some((
+                name,
+                Class {
+                    track,
+                    eye,
+                    frames: matrices,
+                },
+            ))
         })
         .collect()
 }
@@ -143,19 +170,32 @@ pub fn write(
     dat: &Dat<'_>,
     raw: &[u8],
     root: &Path,
-    classes: &BTreeMap<String, Track>,
+    classes: &BTreeMap<String, Class>,
 ) -> std::io::Result<()> {
     let l = lasers(dat, raw);
     if l.is_empty() {
         return Ok(());
     }
-    let used: BTreeMap<&String, &Track> = classes
+    let used: Vec<(&String, &Class)> = classes
         .iter()
         .filter(|(n, _)| l.iter().any(|x| x["class"].as_str() == Some(n.as_str())))
+        .collect();
+    let tracks: serde_json::Map<String, Value> = used
+        .iter()
+        .map(|(n, c)| ((*n).clone(), json!(c.track)))
+        .collect();
+    let eyes: serde_json::Map<String, Value> = used
+        .iter()
+        .filter_map(|(n, c)| {
+            Some((
+                (*n).clone(),
+                json!({ "model": c.eye.as_ref()?, "frames": c.frames }),
+            ))
+        })
         .collect();
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("lasers.json"),
-        serde_json::to_string_pretty(&json!({ "lasers": l, "classes": used }))?,
+        serde_json::to_string_pretty(&json!({ "lasers": l, "classes": tracks, "eyes": eyes }))?,
     )
 }

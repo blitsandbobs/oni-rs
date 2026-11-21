@@ -53,6 +53,9 @@ pub struct Laser {
     track: Rc<Vec<[f32; 6]>>,
     /// Per track frame: how far the beam reaches before the level.
     reach: Vec<Option<f32>>,
+    /// Its emitters' eye (`OBJiTrigger_Draw`): the model, and per track
+    /// frame the emitter's matrix in the trigger's space.
+    eye: Option<Rc<(std::path::PathBuf, Vec<glam::Mat4>)>>,
 }
 
 impl Laser {
@@ -146,6 +149,28 @@ impl Laser {
         self.active && self.laser_on && !self.hidden
     }
 
+    /// Its emitters' eyes to draw (unless hidden): the model and, for each
+    /// emitter, its matrix in the world — the trigger's placement times its
+    /// frame's (`OBJiTrigger_Draw`).
+    pub fn eye_draws(&self) -> Vec<(std::path::PathBuf, glam::Mat4)> {
+        let Some(eye) = self.eye.as_ref().filter(|_| !self.hidden) else {
+            return Vec::new();
+        };
+        let place = glam::Mat4::from_cols(
+            self.axes[0].extend(0.0),
+            self.axes[1].extend(0.0),
+            self.axes[2].extend(0.0),
+            self.position.extend(1.0),
+        );
+        self.emitters
+            .iter()
+            .filter_map(|e| {
+                let f = (e.frame.max(0.0) as usize).min(eye.1.len().checked_sub(1)?);
+                Some((eye.0.clone(), place * eye.1[f]))
+            })
+            .collect()
+    }
+
     /// Emitter `i`'s beam in the world: origin, direction, and its track
     /// frame (whose reach is cached).
     pub fn beam(&self, i: usize) -> (Vec3, Vec3, usize) {
@@ -204,6 +229,31 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
         let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
         Vec3::new(f(0), f(1), f(2))
     };
+    let common = level_dir.join("../../common");
+    let mut eyes: std::collections::HashMap<String, Rc<(std::path::PathBuf, Vec<glam::Mat4>)>> =
+        Default::default();
+    if let Some(e) = doc["eyes"].as_object() {
+        for (name, v) in e {
+            let Some(model) = v["model"].as_str() else {
+                continue;
+            };
+            let frames = v["frames"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|m| {
+                    let f = |i: usize| m[i].as_f64().unwrap_or(0.0) as f32;
+                    glam::Mat4::from_cols(
+                        glam::Vec4::new(f(0), f(1), f(2), 0.0),
+                        glam::Vec4::new(f(3), f(4), f(5), 0.0),
+                        glam::Vec4::new(f(6), f(7), f(8), 0.0),
+                        glam::Vec4::new(f(9), f(10), f(11), 1.0),
+                    )
+                })
+                .collect();
+            eyes.insert(name.clone(), Rc::new((common.join(model), frames)));
+        }
+    }
     let mut tracks: std::collections::HashMap<String, Rc<Vec<[f32; 6]>>> = Default::default();
     if let Some(cl) = doc["classes"].as_object() {
         for (name, t) in cl {
@@ -264,6 +314,7 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
                     .cloned()
                     .unwrap_or_default(),
                 reach: Vec::new(),
+                eye: eyes.get(l["class"].as_str().unwrap_or("")).cloned(),
                 class: l["class"].as_str().unwrap_or("").to_string(),
             };
             laser.reset();

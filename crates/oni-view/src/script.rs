@@ -1397,6 +1397,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // laser_eyes() → {{x, y, z}, …}: where the laser triggers' emitter eyes
+    // are drawn (#78).
+    let h = host.clone();
+    g.set(
+        "laser_eyes",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            Ok(host
+                .world
+                .lasers
+                .iter()
+                .flat_map(|l| l.eye_draws())
+                .map(|(_, m)| {
+                    let t = m.w_axis;
+                    vec![t.x, t.y, t.z]
+                })
+                .collect::<Vec<_>>())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "mission_info",
