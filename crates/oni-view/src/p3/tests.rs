@@ -192,6 +192,19 @@ fn classes() -> Rc<Classes> {
             } ]
         },
         "spark": { "flags": [], "lifetime": 0.5 },
+        "rats": {
+            "flags": [],
+            "actions": [ { "type": "emitParticles", "params": [ {"enum": 0}, {"range": [4.0, 7.0]} ] } ],
+            "events": { "pulse": [0, 1] },
+            "emitters": [ {
+                "class": "spark", "limit": 0, "chance": 65535, "burst": 1.0, "link": "none",
+                "rate": { "type": "continuous", "values": [] },
+                "position": { "type": "point", "values": [] },
+                "direction": { "type": "straight", "values": [] },
+                "speed": { "type": "uniform", "values": [0.0] },
+                "orientDir": "parentPosY", "orientUp": "parentPosZ"
+            } ]
+        },
         "hole": {
             "flags2": ["decal"],
             "appearance": { "scale": 0.5, "alpha": 0.8, "instance": "_HOLE", "maxDecals": 3, "decalFadeFrames": 60 }
@@ -323,6 +336,17 @@ fn hole(sys: &mut System, name: &str, host: &mut Fake) -> Option<Handle> {
         },
     };
     sys.create_effect(&spec, &data, host)
+}
+
+#[test]
+fn a_random_emit_count_emits_its_low_end() {
+    // (`P3iAction_EmitParticles` reads the count as a constant: a range's
+    // low end, never a draw.)
+    let mut sys = System::new(classes());
+    let mut host = Fake::default();
+    let rats = spawn(&mut sys, "rats", Vec3::ZERO, Vec3::ZERO, &mut host);
+    sys.send(rats, event::PULSE, 0.0, &mut host);
+    assert_eq!(count(&sys, "spark"), 4);
 }
 
 #[test]

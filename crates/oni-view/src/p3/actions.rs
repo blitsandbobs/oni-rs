@@ -234,9 +234,15 @@ impl System {
                 else {
                     return none;
                 };
-                // (The fraction of the count never counts: always floored.)
+                // (The fraction of the count never counts: always floored.
+                // A random count isn't drawn: the action reads the value as
+                // a constant, which the union overlays on a range's low end
+                // and a bell curve's mean — `env_rat_e01` emits 1, `m_block`
+                // 10.)
                 let n = match a.param(1) {
-                    Value::Float(x) => x.max(0.0).floor() as u32,
+                    Value::Float(x) | Value::Range(x, _) | Value::Bell(x, _) => {
+                        x.max(0.0).floor() as u32
+                    }
                     _ => 0,
                 };
                 self.emit(p, h, e, t, n, host);
