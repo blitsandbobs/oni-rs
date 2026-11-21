@@ -101,6 +101,18 @@ Controls are the shipped defaults (W/S/A/D, mouse, Space, Shift, Ctrl, Q,
 Tab, R, F1 for the pause screen); `CLAUDE.md` lists them with the
 developers' launch options.
 
+### Starting any level
+
+```sh
+cargo run --release -p oni-view -- --unlock-all
+```
+
+unlocks every level and puts each one's save points in the main menu's Load
+Game list (from the save points its scripts keep; one begun this way starts
+there with nothing carried over, the player as the level's scripts set her
+up). Saved games already kept stay as they are. The saved game lives in
+`~/.oni-rs/continues.json` (or `$ONI_SAVE_DIR`).
+
 ### Cheat codes
 
 The original's cheats work as they did: open the pause screen (F1) and type

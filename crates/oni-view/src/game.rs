@@ -322,6 +322,56 @@ pub fn mark_won_game() {
     write_continues(&path, &doc);
 }
 
+/// The save points a level's scripts keep (`save_game N`), with level 1's
+/// warehouse (1, always offered).
+pub fn save_points(level: u16, level_dir: &Path) -> Vec<i64> {
+    let text = std::fs::read_to_string(level_dir.join("scripts.lua")).unwrap_or_default();
+    let mut out: Vec<i64> = text
+        .split("C[\"save_game\"](")
+        .skip(1)
+        .filter_map(|rest| rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok())
+        .filter(|n| (1..10).contains(n))
+        .collect();
+    if level == 1 {
+        out.push(1);
+    }
+    out.sort_unstable();
+    out.dedup();
+    out
+}
+
+/// For testing (`oni-view --unlock-all`): every level unlocked, and each
+/// of its save points offered in the load game list — those not kept yet as
+/// bare continues (begun there with nothing restored: the player as the
+/// scripts set her up). Continues already kept stay. Returns what it
+/// offered, by level.
+pub fn unlock_all(oni_root: &Path) -> Vec<(u16, Vec<i64>)> {
+    let Some(path) = continues_file() else { return Vec::new() };
+    let mut doc = read_continues(&path);
+    let mut levels: Vec<u16> = std::fs::read_dir(oni_root.join("levels"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .filter_map(|e| e.file_name().to_str()?.parse().ok())
+        .filter(|l: &u16| oni_root.join(format!("levels/{l:02}/environment.glb")).is_file())
+        .collect();
+    levels.sort_unstable();
+    let mut out = Vec::new();
+    for &level in &levels {
+        let points = save_points(level, &oni_root.join(format!("levels/{level:02}")));
+        for &n in &points {
+            let key = format!("{level:02}");
+            if doc[&key][n.to_string()].is_null() {
+                doc[&key][n.to_string()] = serde_json::json!({ "name": continue_name(level, n) });
+            }
+        }
+        out.push((level, points));
+    }
+    doc["unlocked"]["levels"] = serde_json::json!(levels.iter().filter(|&&l| l > 1).collect::<Vec<_>>());
+    write_continues(&path, &doc);
+    out
+}
+
 /// Whether the player killed Griffin (`ONrDidWeKillGriffen`; level 18
 /// decides, kept with the saved game).
 pub fn killed_griffin() -> bool {
@@ -339,6 +389,16 @@ pub fn set_killed_griffin(murder: bool) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn save_points_are_read_from_the_scripts() {
+        let dir = std::env::temp_dir().join(format!("oni-save-points-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("scripts.lua"), "C[\"save_game\"](3, \"autosave\")\nC[\"save_game\"](2)\nC[\"save_game\"](3)").unwrap();
+        assert_eq!(save_points(4, &dir), vec![2, 3]);
+        assert_eq!(save_points(1, &dir), vec![1, 2, 3], "level 1's warehouse too");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn a_continue_survives_its_file() {

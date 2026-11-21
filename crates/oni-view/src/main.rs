@@ -117,7 +117,20 @@ impl CharView {
 
 fn main() {
     let mut args = std::env::args().skip(1);
-    let Some(scene_path) = args.next().map(PathBuf::from) else {
+    let first = args.next();
+    // For testing: every level and its save points in the load game list.
+    if first.as_deref() == Some("--unlock-all") {
+        let Some(root) = find_assets() else {
+            eprintln!("oni-view: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
+            std::process::exit(2);
+        };
+        for (level, points) in game::unlock_all(&root) {
+            println!("level {level:2}: start, save points {points:?}");
+        }
+        println!("unlocked: open Load Game in the main menu");
+        return;
+    }
+    let Some(scene_path) = first.map(PathBuf::from) else {
         // No arguments: the game, from its main menu.
         match find_assets() {
             Some(root) => run_game(root),
