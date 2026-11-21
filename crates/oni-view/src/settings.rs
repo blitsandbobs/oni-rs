@@ -24,6 +24,10 @@ pub struct Settings {
     /// The resolution chosen (default 640 × 480; shown, not used: the window
     /// is sized freely).
     pub resolution: (u32, u32),
+    /// Not the original's (#58, `docs/PARTICLES.md`, *Lens flares*):
+    /// characters hide the lens flares behind them (default off, as
+    /// shipped). Only in the file (`"flaresBehindCharacters": true`).
+    pub flares_behind_characters: bool,
 }
 
 impl Default for Settings {
@@ -36,6 +40,7 @@ impl Default for Settings {
             gamma: 0.5,
             quality: 2,
             resolution: (640, 480),
+            flares_behind_characters: false,
         }
     }
 }
@@ -54,6 +59,7 @@ impl Settings {
             "invertMouse": self.invert_mouse, "difficulty": self.difficulty,
             "gamma": self.gamma, "quality": self.quality,
             "resolution": [self.resolution.0, self.resolution.1],
+            "flaresBehindCharacters": self.flares_behind_characters,
         })
     }
 
@@ -77,6 +83,7 @@ impl Settings {
                 (Some(w), Some(h)) => (w as u32, h as u32),
                 _ => d.resolution,
             },
+            flares_behind_characters: b("flaresBehindCharacters", d.flares_behind_characters),
         }
     }
 

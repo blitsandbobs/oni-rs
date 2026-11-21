@@ -414,6 +414,7 @@ impl ApplicationHandler for App {
         // The player's options: at the menu they set the game up; given on
         // the command line, the line's choices win.
         let user = crate::settings::Settings::load();
+        renderer.flares_behind_characters = user.flares_behind_characters;
         let settings = Settings {
             player: self.cast.player.clone(),
             difficulty: if self.front_end.is_some() {

@@ -379,6 +379,16 @@ pub struct Renderer {
     pub fog: Fog,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
+    /// The characters' depth alone, for the lens flares when characters hide
+    /// them (`flares_behind_characters`).
+    char_depth: Option<wgpu::TextureView>,
+    /// An option, off as the original draws it (#58, `docs/PARTICLES.md`,
+    /// *Lens flares*): lens flares tested against the characters' depth, so
+    /// a body covers the glow behind it. The level still hides them only by
+    /// the visibility ray.
+    pub flares_behind_characters: bool,
+    char_depth_pipeline: wgpu::RenderPipeline,
+    flare_depth_pipeline: wgpu::RenderPipeline,
 }
 
 impl Renderer {
@@ -572,6 +582,34 @@ impl Renderer {
             false,
             "fs_nofog",
             wgpu::CompareFunction::Always,
+        );
+        // (The option: the characters' depth laid down with the colour left
+        // as it is, then the flares tested against it.)
+        let keep_colour = wgpu::BlendState {
+            color: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+            alpha: wgpu::BlendComponent {
+                src_factor: wgpu::BlendFactor::Zero,
+                dst_factor: wgpu::BlendFactor::One,
+                operation: wgpu::BlendOperation::Add,
+            },
+        };
+        let char_depth_pipeline = make_pipeline_full(
+            "character depth",
+            Some(keep_colour),
+            true,
+            "fs_main",
+            wgpu::CompareFunction::Less,
+        );
+        let flare_depth_pipeline = make_pipeline_full(
+            "flare behind characters",
+            Some(additive),
+            false,
+            "fs_nofog",
+            wgpu::CompareFunction::LessEqual,
         );
         // A faded body (blended at its alpha, no depth written) and magic
         // effects (added on, no depth written): their own vertex stages.
@@ -903,6 +941,10 @@ impl Renderer {
             jello_cache: Default::default(),
             additive_pipeline,
             flare_pipeline,
+            char_depth: None,
+            flares_behind_characters: false,
+            char_depth_pipeline,
+            flare_depth_pipeline,
             particle_pipeline,
             decal_pipeline,
             decal_additive_pipeline,
@@ -1126,6 +1168,21 @@ impl Renderer {
         });
         let view = tex.create_view(&wgpu::TextureViewDescriptor::default());
         self.depth = Some((view, w, h));
+        let chars = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("character depth"),
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: DEPTH_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        });
+        self.char_depth = Some(chars.create_view(&wgpu::TextureViewDescriptor::default()));
     }
 
     /// Renders the scene into `target` (`w`×`h`) from `view_proj`. `characters`
@@ -1271,6 +1328,10 @@ impl Renderer {
                 ),
                 (Bucket::Flare, &self.flare_pipeline, &self.flare_pipeline),
             ] {
+                // (The option: the flares in a pass of their own, below.)
+                if bucket == Bucket::Flare && self.flares_behind_characters {
+                    continue;
+                }
                 let shown = |p: &&GpuPrim| {
                     p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
@@ -1535,6 +1596,9 @@ impl Renderer {
                 }
             }
         }
+        if self.flares_behind_characters {
+            self.flare_pass(&mut encoder, target, characters, &sprites);
+        }
         self.overlay_pass(gpu, &mut encoder, target);
         if ramp {
             self.gamma_pass.apply(&mut encoder, screen, power);
@@ -1662,6 +1726,89 @@ impl Renderer {
             );
         }
         self.jello_cache = (want, split);
+    }
+
+    /// The lens flares when characters hide them (`flares_behind_characters`):
+    /// the solid bodies' depth laid down on its own (the colour kept), then
+    /// the flares added where no body is in front of them.
+    fn flare_pass(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        characters: &[CharDraw],
+        sprites: &[GpuPrim],
+    ) {
+        let Some(depth) = self.char_depth.as_ref() else {
+            return;
+        };
+        let flares = self
+            .prims
+            .iter()
+            .chain(sprites)
+            .filter(|p| p.bucket == Bucket::Flare);
+        if flares.clone().next().is_none() {
+            return;
+        }
+        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("flares behind characters"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view: target,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                view: depth,
+                depth_ops: Some(wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(1.0),
+                    store: wgpu::StoreOp::Discard,
+                }),
+                stencil_ops: None,
+            }),
+            timestamp_writes: None,
+            occlusion_query_set: None,
+        });
+        pass.set_bind_group(0, &self.uniform_bg, &[]);
+        let draw = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4| {
+            pass.set_push_constants(
+                wgpu::ShaderStages::VERTEX,
+                0,
+                bytemuck::cast_slice(&push_block(model, [0.0; 4])),
+            );
+            pass.set_bind_group(
+                1,
+                self.tex_bgs
+                    .get(self.shown(p.texture))
+                    .unwrap_or(&self.default_tex),
+                &[],
+            );
+            pass.set_vertex_buffer(0, p.vbuf.slice(..));
+            pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+            pass.draw_indexed(0..p.count, 0, 0..1);
+        };
+        pass.set_pipeline(&self.char_depth_pipeline);
+        for d in characters
+            .iter()
+            .filter(|d| !d.see_through && d.alpha >= 1.0)
+        {
+            let Some(cm) = self.char_models.get(d.model) else {
+                continue;
+            };
+            for p in cm.prims.iter().filter(|p| p.bucket == Bucket::Opaque) {
+                let model = p
+                    .bone
+                    .and_then(|i| d.bones.get(i).copied())
+                    .unwrap_or(Mat4::IDENTITY);
+                draw(&mut pass, p, model);
+            }
+        }
+        pass.set_pipeline(&self.flare_depth_pipeline);
+        for p in flares {
+            draw(&mut pass, p, Mat4::IDENTITY);
+        }
     }
 
     /// Draws this frame's overlay over the target, in order.

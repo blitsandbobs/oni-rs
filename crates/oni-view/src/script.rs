@@ -1621,6 +1621,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((l.len(), l.values().filter(|v| v.1 > 0.0).count()))
         })?,
     )?;
+    // flares_behind_characters(on): the option (#58) for this run's frames —
+    // characters hide the lens flares behind them.
+    let h = host.clone();
+    g.set(
+        "flares_behind_characters",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().renderer.flares_behind_characters = on;
+            Ok(())
+        })?,
+    )?;
     // lens_flare_near(x, y, z) → the opacity share now of the lens flare
     // nearest that point (0 hidden, 1 fully seen).
     let h = host.clone();

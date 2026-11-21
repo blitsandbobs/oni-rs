@@ -53,3 +53,36 @@ step(120)
 local _, gone = lens_flares()
 assert(gone == 0, "out of sight, gone")
 print("ok")
+
+-- The option (#58): characters hide the lens flares behind them. A dummy's
+-- head over part of the lock light's glow, its centre still seen (the
+-- flare shown): as shipped the glow is drawn over the head; with the option
+-- the head covers it — the glow's region darker. Clear of the glow, the
+-- same either way.
+teleport(0, -251, 2, -623)
+set_facing(0, 150)
+local function glow(on)
+    flares_behind_characters(on)
+    local p = temp_path("lens_glow.png")
+    screenshot(p, 480, 360)
+    local r, g, b = image_mean(p, 0.6, 0.25, 0.73, 0.42)
+    os.remove(p)
+    flares_behind_characters(false)
+    return r + g + b
+end
+local dummy = spawn(-251 + 30 + 5.5, 2, -623 - 29.4, 0)
+step(40)
+teleport(0, -251, 2, -623)
+set_facing(0, 150)
+step(150) -- (the flare fades in)
+assert(lens_flare_near(-201, 13, -672) > 0.9, "the light's centre still seen")
+local shipped, hidden = glow(false), glow(true)
+print(string.format("glow over the head: %.5f, behind it: %.5f", shipped, hidden))
+assert(hidden < shipped - 0.0005, "the head covers the glow with the option")
+teleport(dummy, -251 + 30 + 8, 2, -623 - 29.4)
+step(40)
+teleport(0, -251, 2, -623)
+set_facing(0, 150)
+step(150)
+assert(math.abs(glow(false) - glow(true)) < 1e-6, "clear of the glow: the same")
+print("lens flares behind characters ok")
