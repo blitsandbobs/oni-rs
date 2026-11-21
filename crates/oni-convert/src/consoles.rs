@@ -28,20 +28,31 @@ pub struct Class {
 
 /// The console classes (level 0's `CONS` templates), by name.
 pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> HashMap<String, Class> {
-    let Some(layout) = registry.get(TAG_CONS) else { return HashMap::new() };
+    let Some(layout) = registry.get(TAG_CONS) else {
+        return HashMap::new();
+    };
     dat.instances
         .iter()
         .filter(|i| i.tag == TAG_CONS)
         .filter_map(|inst| {
             let name = inst.name.as_deref()?.trim_start_matches("CONS").to_string();
-            let rec = oni_template::decode(layout, dat.instance_data(inst)?, dat.header.endian).ok()?;
+            let rec =
+                oni_template::decode(layout, dat.instance_data(inst)?, dat.header.endian).ok()?;
             let f = |k: &str| match rec.get(k).map(|e| &e.value) {
                 Some(oni_template::Value::Float(v)) => *v,
                 _ => 0.0,
             };
             let class = Class {
-                position: [f("action_position.x"), f("action_position.y"), f("action_position.z")],
-                vector: [f("action_vector.x"), f("action_vector.y"), f("action_vector.z")],
+                position: [
+                    f("action_position.x"),
+                    f("action_position.y"),
+                    f("action_position.z"),
+                ],
+                vector: [
+                    f("action_vector.x"),
+                    f("action_vector.y"),
+                    f("action_vector.z"),
+                ],
                 flags: rec.int("flags").unwrap_or(0) as u32,
                 screen_model: match rec.get("screen_geometry").map(|e| &e.value) {
                     Some(oni_template::Value::Ref(_, r)) => {
@@ -100,7 +111,11 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
             let flags = (le_u16(d, NAME + 2) & 0x68) as u32;
             let screen = |k: usize| {
                 let s = cstr(d, NAME + 4 + k * NAME, NAME);
-                if s.is_empty() { s } else { crate::sanitize(&s) }
+                if s.is_empty() {
+                    s
+                } else {
+                    crate::sanitize(&s)
+                }
             };
             let (events, _) = events(d, NAME + 4 + 3 * NAME);
             let axes = crate::patrols::euler_axes(o.rotation);
@@ -110,7 +125,11 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
             };
             let at = rotate(class.position);
             let v = rotate(class.vector);
-            let marker = [o.position[0] + at[0], o.position[1] + at[1], o.position[2] + at[2]];
+            let marker = [
+                o.position[0] + at[0],
+                o.position[1] + at[1],
+                o.position[2] + at[2],
+            ];
             let facing = (-v[0]).atan2(-v[2]).rem_euclid(std::f32::consts::TAU);
             let mut c = json!({
                 "id": id,
@@ -137,11 +156,19 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
 }
 
 /// Writes `consoles.json` into a level folder.
-pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path, classes: &HashMap<String, Class>) -> std::io::Result<()> {
+pub fn write(
+    dat: &Dat<'_>,
+    raw: &[u8],
+    root: &Path,
+    classes: &HashMap<String, Class>,
+) -> std::io::Result<()> {
     let c = consoles(dat, raw, classes);
     if c.is_empty() {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("consoles.json"), serde_json::to_string_pretty(&json!({ "consoles": c }))?)
+    std::fs::write(
+        root.join("consoles.json"),
+        serde_json::to_string_pretty(&json!({ "consoles": c }))?,
+    )
 }

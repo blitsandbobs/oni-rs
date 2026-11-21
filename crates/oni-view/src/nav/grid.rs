@@ -38,10 +38,21 @@ pub enum Square {
 impl From<u8> for Square {
     fn from(v: u8) -> Square {
         use Square::*;
-        [Clear, NearWall, Border1, Border2, SemiPassable, Border3, Border4, Stairs, Danger, Impassable]
-            .get(usize::from(v))
-            .copied()
-            .unwrap_or(Impassable)
+        [
+            Clear,
+            NearWall,
+            Border1,
+            Border2,
+            SemiPassable,
+            Border3,
+            Border4,
+            Stairs,
+            Danger,
+            Impassable,
+        ]
+        .get(usize::from(v))
+        .copied()
+        .unwrap_or(Impassable)
     }
 }
 
@@ -112,7 +123,10 @@ pub fn search(g: &Grid, from: Vec2, to: Vec2, rules: Rules) -> Option<Vec<(i32, 
     let mut cost: HashMap<(i32, i32), f32> = HashMap::new();
     let mut came: HashMap<(i32, i32), (i32, i32)> = HashMap::new();
     cost.insert(start, 0.0);
-    open.push(Open { f: h(start), cell: start });
+    open.push(Open {
+        f: h(start),
+        cell: start,
+    });
     let start_blocked = !passable(g, start, &rules);
     let mut expanded = 0;
     while let Some(Open { cell, .. }) = open.pop() {
@@ -146,7 +160,16 @@ pub fn search(g: &Grid, from: Vec2, to: Vec2, rules: Rules) -> Option<Vec<(i32, 
             // (never from another body into a wall).
             start_blocked && !cell_ok && here < ESCAPE_COST && g.square(c) != Square::Impassable
         };
-        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1), (1, 1), (1, -1), (-1, 1), (-1, -1)] {
+        for (dx, dy) in [
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+            (1, 1),
+            (1, -1),
+            (-1, 1),
+            (-1, -1),
+        ] {
             let next = (cell.0 + dx, cell.1 + dy);
             if !open_to(next) {
                 continue;
@@ -160,7 +183,10 @@ pub fn search(g: &Grid, from: Vec2, to: Vec2, rules: Rules) -> Option<Vec<(i32, 
             if cost.get(&next).is_none_or(|&old| c < old) {
                 cost.insert(next, c);
                 came.insert(next, cell);
-                open.push(Open { f: c + h(next), cell: next });
+                open.push(Open {
+                    f: c + h(next),
+                    cell: next,
+                });
             }
         }
     }
@@ -175,7 +201,8 @@ fn nearest_passable(g: &Grid, c: (i32, i32), rules: &Rules) -> Option<(i32, i32)
                     continue;
                 }
                 let n = (c.0 + dx, c.1 + dy);
-                if n.0 >= 0 && n.1 >= 0 && n.0 < g.width && n.1 < g.height && passable(g, n, rules) {
+                if n.0 >= 0 && n.1 >= 0 && n.0 < g.width && n.1 < g.height && passable(g, n, rules)
+                {
                     return Some(n);
                 }
             }
@@ -194,7 +221,13 @@ pub struct Waypoint {
 /// Turns a square path into waypoints: a point wherever it turns (in a stair
 /// room, none), then dropping each point whose neighbours see each other
 /// along a clear line; the last point is the exact end.
-pub fn waypoints(g: &Grid, path: &[(i32, i32)], end: Vec2, stairs_room: bool, careful: bool) -> Vec<Waypoint> {
+pub fn waypoints(
+    g: &Grid,
+    path: &[(i32, i32)],
+    end: Vec2,
+    stairs_room: bool,
+    careful: bool,
+) -> Vec<Waypoint> {
     let mut cells: Vec<(i32, i32)> = Vec::new();
     if !stairs_room {
         for w in path.windows(3) {
@@ -211,7 +244,10 @@ pub fn waypoints(g: &Grid, path: &[(i32, i32)], end: Vec2, stairs_room: bool, ca
         let mut kept = Vec::new();
         let mut from = path[0];
         for k in 0..cells.len() {
-            let after = cells.get(k + 1).copied().unwrap_or(*path.last().unwrap_or(&cells[k]));
+            let after = cells
+                .get(k + 1)
+                .copied()
+                .unwrap_or(*path.last().unwrap_or(&cells[k]));
             let line = line(g, from, after, Square::Border2, 3);
             if !(line.reached && !line.escaping && line.worst < Square::Border2) {
                 kept.push(cells[k]);
@@ -222,10 +258,16 @@ pub fn waypoints(g: &Grid, path: &[(i32, i32)], end: Vec2, stairs_room: bool, ca
     }
     let mut out: Vec<Waypoint> = cells
         .into_iter()
-        .map(|c| Waypoint { at: g.centre(c), arrive: g.square(c).arrive() })
+        .map(|c| Waypoint {
+            at: g.centre(c),
+            arrive: g.square(c).arrive(),
+        })
         .collect();
     let last = path.last().map_or(Square::Clear, |&c| g.square(c));
-    out.push(Waypoint { at: end, arrive: last.arrive() });
+    out.push(Waypoint {
+        at: end,
+        arrive: last.arrive(),
+    });
     out
 }
 
@@ -247,7 +289,13 @@ pub struct Line {
 /// area (squares at or above `stop`) for up to `escape` squares at its
 /// start, but never *enter* one.
 pub fn line(g: &Grid, a: (i32, i32), b: (i32, i32), stop: Square, escape: u32) -> Line {
-    let mut out = Line { reached: false, escaping: false, worst: Square::Clear, stop: a, last_good: a };
+    let mut out = Line {
+        reached: false,
+        escaping: false,
+        worst: Square::Clear,
+        stop: a,
+        last_good: a,
+    };
     let mut budget = escape;
     let mut was_good = false;
     for c in squares_between(a, b) {
@@ -306,13 +354,24 @@ mod tests {
         for y in 0..9 {
             cells[5 + y * 10] = 9;
         }
-        Grid { origin: Vec2::ZERO, width: 10, height: 10, cells }
+        Grid {
+            origin: Vec2::ZERO,
+            width: 10,
+            height: 10,
+            cells,
+        }
     }
 
     #[test]
     fn a_path_goes_round_a_wall() {
         let g = walled();
-        let path = search(&g, Vec2::new(2.0, 2.0), Vec2::new(38.0, 2.0), Rules::default()).expect("a path");
+        let path = search(
+            &g,
+            Vec2::new(2.0, 2.0),
+            Vec2::new(38.0, 2.0),
+            Rules::default(),
+        )
+        .expect("a path");
         assert!(path.contains(&(5, 9)), "through the gap");
         let w = waypoints(&g, &path, Vec2::new(38.0, 2.0), false, false);
         assert!(w.len() >= 2 && w.last().unwrap().at == Vec2::new(38.0, 2.0));

@@ -173,8 +173,14 @@ fn decode_env_particles(dat: &Dat<'_>) -> Vec<Placed> {
 /// X Y Z then position), flags, decal scale.
 pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
     const NOT_INITIALLY_CREATED: u16 = 0x2;
-    let entry = |class: String, tag: String, m: [f32; 12], flags: u16, decal: [f32; 2], from: &str| {
-        let mut e = serde_json::json!({ "class": class, "matrix": m, "decalScale": decal, "from": from });
+    let entry = |class: String,
+                 tag: String,
+                 m: [f32; 12],
+                 flags: u16,
+                 decal: [f32; 2],
+                 from: &str| {
+        let mut e =
+            serde_json::json!({ "class": class, "matrix": m, "decalScale": decal, "from": from });
         if !tag.is_empty() {
             e["tag"] = serde_json::json!(tag);
         }
@@ -186,11 +192,18 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
     let mut out = Vec::new();
     // (Not the arrays placed objects carry: theirs ride the object.)
     let owned = object_owned(dat);
-    for (i, inst) in dat.instances.iter().enumerate().filter(|(_, i)| i.tag == TAG_ENVP) {
+    for (i, inst) in dat
+        .instances
+        .iter()
+        .enumerate()
+        .filter(|(_, i)| i.tag == TAG_ENVP)
+    {
         if owned.contains(&i) {
             continue;
         }
-        let Some(d) = dat.instance_data(inst) else { continue };
+        let Some(d) = dat.instance_data(inst) else {
+            continue;
+        };
         out.extend(envp_entries(d, "env"));
     }
     for o in crate::objects::read(dat, raw, "Particle").1 {
@@ -201,10 +214,22 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
         let axes = crate::patrols::euler_axes(o.rotation);
         let p = o.position;
         let m = [
-            axes[0][0], axes[0][1], axes[0][2], axes[1][0], axes[1][1], axes[1][2], axes[2][0], axes[2][1], axes[2][2], p[0], p[1], p[2],
+            axes[0][0], axes[0][1], axes[0][2], axes[1][0], axes[1][1], axes[1][2], axes[2][0],
+            axes[2][1], axes[2][2], p[0], p[1], p[2],
         ];
-        let decal = if d.len() >= 122 { [le_f32(d, 114), le_f32(d, 118)] } else { [1.0, 1.0] };
-        out.push(entry(cstr(d, 0, 64), cstr(d, 64, 48), m, le_u16(d, 112), decal, "object"));
+        let decal = if d.len() >= 122 {
+            [le_f32(d, 114), le_f32(d, 118)]
+        } else {
+            [1.0, 1.0]
+        };
+        out.push(entry(
+            cstr(d, 0, 64),
+            cstr(d, 64, 48),
+            m,
+            le_u16(d, 112),
+            decal,
+            "object",
+        ));
     }
     out
 }
@@ -242,7 +267,14 @@ pub fn envp_entries(d: &[u8], from: &str) -> Vec<serde_json::Value> {
 /// @8 in `OBOA`): their instance indices.
 pub fn object_owned(dat: &Dat<'_>) -> std::collections::HashSet<usize> {
     const TAG_OBOA: FourCc = FourCc(u32::from_be_bytes(*b"OBOA"));
-    let Some(d) = dat.instances.iter().find(|i| i.tag == TAG_OBOA).and_then(|i| dat.instance_data(i)) else { return Default::default() };
+    let Some(d) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_OBOA)
+        .and_then(|i| dat.instance_data(i))
+    else {
+        return Default::default();
+    };
     (0..le_u16(d, 22) as usize)
         .filter_map(|k| {
             let r = le_u32(d, 24 + k * 240 + 8);
@@ -257,7 +289,10 @@ pub fn write_env_particles(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::R
     let p = env_particles(dat, raw);
     if !p.is_empty() {
         std::fs::create_dir_all(root)?;
-        std::fs::write(root.join("env_particles.json"), serde_json::to_string_pretty(&serde_json::json!({ "particles": p }))?)?;
+        std::fs::write(
+            root.join("env_particles.json"),
+            serde_json::to_string_pretty(&serde_json::json!({ "particles": p }))?,
+        )?;
     }
     Ok(p.len())
 }

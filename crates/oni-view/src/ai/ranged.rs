@@ -32,7 +32,10 @@ impl Skill {
             error_percent: f("shotErrorPercent"),
             decay: f("shotDecay").clamp(0.0, 1.0),
             gun_inaccuracy: f("gunInaccuracy"),
-            delay: (j["delayMin"].as_u64().unwrap_or(0) as u16, j["delayMax"].as_u64().unwrap_or(0) as u16),
+            delay: (
+                j["delayMin"].as_u64().unwrap_or(0) as u16,
+                j["delayMax"].as_u64().unwrap_or(0) as u16,
+            ),
         }
     }
 }
@@ -55,7 +58,15 @@ pub struct Params {
 
 impl Default for Params {
     fn default() -> Params {
-        Params { startle_ratio: 0.5, startle_distance: 25.0, predict_amount: 1.0, position_delay: 0, delay: 5, velocity: 15, trend: 60 }
+        Params {
+            startle_ratio: 0.5,
+            startle_distance: 25.0,
+            predict_amount: 1.0,
+            position_delay: 0,
+            delay: 5,
+            velocity: 15,
+            trend: 60,
+        }
     }
 }
 
@@ -154,7 +165,14 @@ impl Targeting {
     /// Starts targeting from `shoulder` at a target at `at`. `initial`: the
     /// first sight of this enemy — the opening shots go wild (startle) unless
     /// the gun forbids it.
-    pub fn new(params: Params, gun: Gun, skill: Skill, initial: bool, at: Vec3, shoulder: Vec3) -> Targeting {
+    pub fn new(
+        params: Params,
+        gun: Gun,
+        skill: Skill,
+        initial: bool,
+        at: Vec3,
+        shoulder: Vec3,
+    ) -> Targeting {
         let d = at.distance(shoulder);
         let miss_enable = initial && !gun.no_wild_shots;
         Targeting {
@@ -167,7 +185,11 @@ impl Targeting {
             error: Vec3::ZERO,
             error_distance: 0.0,
             miss_enable,
-            miss_tolerance: if miss_enable { (d * params.startle_ratio).min(params.startle_distance) } else { 0.0 },
+            miss_tolerance: if miss_enable {
+                (d * params.startle_ratio).min(params.startle_distance)
+            } else {
+                0.0
+            },
             returning: true,
             thwarted: 0,
             delay: 0,
@@ -205,7 +227,8 @@ impl Targeting {
         if weight <= 0.0 {
             return;
         }
-        let lead = p.predict_amount * weight * self.target_distance / self.gun.prediction_speed + p.position_delay as f32 / 60.0;
+        let lead = p.predict_amount * weight * self.target_distance / self.gun.prediction_speed
+            + p.position_delay as f32 / 60.0;
         self.target_pt += velocity * lead;
     }
 
@@ -213,7 +236,11 @@ impl Targeting {
     /// line runs from the shooter to the aim point — with the skill's error
     /// while shooting. `gun` is the gun's world matrix now.
     pub fn aim(&mut self, shoulder: Vec3, gun: Mat4, shooting: bool) -> Vec3 {
-        let aim_pt = if shooting { self.target_pt + self.error } else { self.target_pt };
+        let aim_pt = if shooting {
+            self.target_pt + self.error
+        } else {
+            self.target_pt
+        };
         let mut v = aim_pt - shoulder;
         let len = v.length();
         // A lobbed shot: up along its arc (none: straight at it).
@@ -340,7 +367,11 @@ impl Targeting {
         let inacc = self.skill.error_percent * self.target_distance / 100.0;
         self.error *= self.skill.decay;
         self.error_distance = inacc * (1.0 - self.skill.decay);
-        self.error += Vec3::new(rng.unit() * 2.0 - 1.0, rng.unit() * 2.0 - 1.0, rng.unit() * 2.0 - 1.0) * inacc;
+        self.error += Vec3::new(
+            rng.unit() * 2.0 - 1.0,
+            rng.unit() * 2.0 - 1.0,
+            rng.unit() * 2.0 - 1.0,
+        ) * inacc;
         if self.gun.burst_radius == 0.0 {
             let roll = rng.unit();
             self.start_delay(roll);
@@ -397,17 +428,39 @@ mod tests {
 
     #[test]
     fn a_straight_runner_is_led_a_juker_is_not() {
-        let mut t = Targeting::new(Params::default(), gun(), Skill::default(), false, Vec3::new(0.0, 0.0, 300.0), Vec3::ZERO);
+        let mut t = Targeting::new(
+            Params::default(),
+            gun(),
+            Skill::default(),
+            false,
+            Vec3::new(0.0, 0.0, 300.0),
+            Vec3::ZERO,
+        );
         // Running +X at 60 units/s for a second.
         for k in 0..=60 {
             t.predict(Vec3::new(k as f32, 0.0, 300.0), Vec3::ZERO);
         }
         // 300 units at 900 units/s: a third of a second ahead (20 units).
-        assert!((t.target_pt.x - 80.0).abs() < 1.0, "led to {}", t.target_pt.x);
+        assert!(
+            (t.target_pt.x - 80.0).abs() < 1.0,
+            "led to {}",
+            t.target_pt.x
+        );
         // Back and forth every 10 ticks: no lead.
-        let mut j = Targeting::new(Params::default(), gun(), Skill::default(), false, Vec3::new(0.0, 0.0, 300.0), Vec3::ZERO);
+        let mut j = Targeting::new(
+            Params::default(),
+            gun(),
+            Skill::default(),
+            false,
+            Vec3::new(0.0, 0.0, 300.0),
+            Vec3::ZERO,
+        );
         for k in 0..=60 {
-            let x = if (k / 10) % 2 == 0 { (k % 10) as f32 } else { 10.0 - (k % 10) as f32 };
+            let x = if (k / 10) % 2 == 0 {
+                (k % 10) as f32
+            } else {
+                10.0 - (k % 10) as f32
+            };
             j.predict(Vec3::new(x, 0.0, 300.0), Vec3::ZERO);
         }
         assert!((j.target_pt.x - j.samples[0].x).abs() < 1e-3);
@@ -416,7 +469,10 @@ mod tests {
     #[test]
     fn fires_when_pointed_and_waits_its_delay() {
         let target = Vec3::new(0.0, 0.0, 100.0);
-        let skill = Skill { delay: (30, 30), ..Skill::default() };
+        let skill = Skill {
+            delay: (30, 30),
+            ..Skill::default()
+        };
         let mut t = Targeting::new(Params::default(), gun(), skill, false, target, Vec3::ZERO);
         let on = pointing(Vec3::Z);
         let dir = t.aim(Vec3::ZERO, on, true);
@@ -436,7 +492,14 @@ mod tests {
     #[test]
     fn startle_shots_go_wide_then_tighten() {
         let target = Vec3::new(0.0, 0.0, 100.0);
-        let mut t = Targeting::new(Params::default(), gun(), Skill::default(), true, target, Vec3::ZERO);
+        let mut t = Targeting::new(
+            Params::default(),
+            gun(),
+            Skill::default(),
+            true,
+            target,
+            Vec3::ZERO,
+        );
         // 10 units off at 100: outside the plain tolerance (2.5 × 4), inside
         // the startle one (25).
         let off = pointing(Vec3::new(0.12, 0.0, 1.0));

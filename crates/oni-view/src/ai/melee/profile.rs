@@ -14,8 +14,16 @@ use serde_json::Value;
 pub enum Move {
     Attack(usize),
     /// A delaying position (run / close / run-jump) carries its run-in band.
-    Position { index: usize, run_in: Option<RunIn> },
-    Maneuver { index: usize, duration: u32, a: f32, b: f32 },
+    Position {
+        index: usize,
+        run_in: Option<RunIn>,
+    },
+    Maneuver {
+        index: usize,
+        duration: u32,
+        a: f32,
+        b: f32,
+    },
     Evade(usize),
     Throw(usize),
 }
@@ -84,18 +92,26 @@ pub struct Profile {
 
 impl Profile {
     pub fn of_kind(&self, kind: Kind) -> impl Iterator<Item = (usize, &Technique)> {
-        self.techniques.iter().enumerate().filter(move |(_, t)| t.kind == kind)
+        self.techniques
+            .iter()
+            .enumerate()
+            .filter(move |(_, t)| t.kind == kind)
     }
 }
 
 /// All profiles by name.
 pub fn load(path: &Path) -> std::io::Result<HashMap<String, Rc<Profile>>> {
     let text = std::fs::read_to_string(path)?;
-    let doc: Value =
-        serde_json::from_str(&text).map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
+    let doc: Value = serde_json::from_str(&text)
+        .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
     Ok(doc["profiles"]
         .as_array()
-        .map(|a| a.iter().map(profile).map(|p| (p.name.clone(), Rc::new(p))).collect())
+        .map(|a| {
+            a.iter()
+                .map(profile)
+                .map(|p| (p.name.clone(), Rc::new(p)))
+                .collect()
+        })
         .unwrap_or_default())
 }
 
@@ -107,7 +123,11 @@ fn profile(p: &Value) -> Profile {
     let id = p["id"].as_u64().unwrap_or(0) as u16;
     let w = &p["weights"];
     let mut techniques = Vec::new();
-    for (key, kind) in [("actions", Kind::Action), ("reactions", Kind::Reaction), ("spacing", Kind::Spacing)] {
+    for (key, kind) in [
+        ("actions", Kind::Action),
+        ("reactions", Kind::Reaction),
+        ("spacing", Kind::Spacing),
+    ] {
         for t in p[key].as_array().into_iter().flatten() {
             techniques.push(technique(t, kind));
         }
@@ -136,7 +156,12 @@ fn profile(p: &Value) -> Profile {
 }
 
 fn technique(t: &Value, kind: Kind) -> Technique {
-    let flags: Vec<&str> = t["flags"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+    let flags: Vec<&str> = t["flags"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|v| v.as_str())
+        .collect();
     Technique {
         name: t["name"].as_str().unwrap_or("").to_string(),
         kind,
@@ -145,7 +170,12 @@ fn technique(t: &Value, kind: Kind) -> Technique {
         fearless: flags.contains(&"fearless"),
         weight: f(&t["weight"]),
         repeat_delay: t["repeatDelay"].as_u64().unwrap_or(0) as u32,
-        moves: t["moves"].as_array().into_iter().flatten().filter_map(parse_move).collect(),
+        moves: t["moves"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(parse_move)
+            .collect(),
     }
 }
 
@@ -168,7 +198,14 @@ fn parse_move(m: &Value) -> Option<Move> {
             Move::Maneuver {
                 index: index(&sc::MELEE_MANEUVERS)?,
                 duration: m["duration"].as_u64().unwrap_or(0) as u32,
-                a: pick(&["minRange", "maxRange", "targetRange", "minAngle", "closenessAngle", "chancePercent"]),
+                a: pick(&[
+                    "minRange",
+                    "maxRange",
+                    "targetRange",
+                    "minAngle",
+                    "closenessAngle",
+                    "chancePercent",
+                ]),
                 b: pick(&["threshold", "tolerance", "maxAngle"]),
             }
         }
@@ -193,10 +230,20 @@ mod tests {
         };
         assert_eq!(all.len(), 45);
         let k = &all["KONOKO"];
-        let combo = k.techniques.iter().find(|t| t.name == "Punch Combo").expect("Punch Combo");
+        let combo = k
+            .techniques
+            .iter()
+            .find(|t| t.name == "Punch Combo")
+            .expect("Punch Combo");
         assert_eq!(combo.kind, Kind::Action);
         assert_eq!(combo.moves.len(), 5);
-        assert!(matches!(combo.moves[0], Move::Position { index: 12, run_in: Some(_) }));
+        assert!(matches!(
+            combo.moves[0],
+            Move::Position {
+                index: 12,
+                run_in: Some(_)
+            }
+        ));
         assert_eq!(combo.moves[1], Move::Attack(0));
         // Every move of every profile parsed (two shipped techniques are empty).
         let doc: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -208,7 +255,11 @@ mod tests {
             .flat_map(|ts| ts.as_array().cloned().unwrap_or_default())
             .map(|t| t["moves"].as_array().map_or(0, |m| m.len()))
             .sum();
-        let parsed: usize = all.values().flat_map(|p| &p.techniques).map(|t| t.moves.len()).sum();
+        let parsed: usize = all
+            .values()
+            .flat_map(|p| &p.techniques)
+            .map(|t| t.moves.len())
+            .sum();
         assert_eq!(parsed, in_json);
     }
 }

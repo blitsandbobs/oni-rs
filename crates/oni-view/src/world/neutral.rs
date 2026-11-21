@@ -55,8 +55,10 @@ const KEY_ABORT_FRAMES: u32 = 15;
 /// Keys that end it at once, that end it if held, and that do nothing
 /// meanwhile (`LIc_BitMask_Neutral*`).
 const ABORT_KEYS: u32 = key::FIRE1 | key::FIRE2 | key::FIRE3 | key::PUNCH | key::KICK;
-const STOP_KEYS: u32 = key::FORWARD | key::BACKWARD | key::STEP_LEFT | key::STEP_RIGHT | key::CROUCH | key::JUMP;
-const LOCKOUT_KEYS: u32 = ABORT_KEYS | STOP_KEYS | key::ACTION | key::HYPO | key::RELOAD | key::SWAP | key::DROP;
+const STOP_KEYS: u32 =
+    key::FORWARD | key::BACKWARD | key::STEP_LEFT | key::STEP_RIGHT | key::CROUCH | key::JUMP;
+const LOCKOUT_KEYS: u32 =
+    ABORT_KEYS | STOP_KEYS | key::ACTION | key::HYPO | key::RELOAD | key::SWAP | key::DROP;
 
 /// A character's neutral behaviour and how far it got (`ai2State.neutral*`,
 /// kept through its interactions).
@@ -133,7 +135,10 @@ impl World {
     }
 
     fn is_agent(&self, i: usize) -> bool {
-        matches!(self.fighters.get(i).and_then(|f| f.brain.as_ref()), Some(Brain::Agent(_)))
+        matches!(
+            self.fighters.get(i).and_then(|f| f.brain.as_ref()),
+            Some(Brain::Agent(_))
+        )
     }
 
     fn in_neutral(&self, i: usize) -> bool {
@@ -153,7 +158,10 @@ impl World {
         }
         let found = id.and_then(|id| self.neutrals.get(&id).cloned());
         let s = &mut self.fighters[who].neutral;
-        *s = Settings { disable_timer: s.disable_timer, ..Settings::default() };
+        *s = Settings {
+            disable_timer: s.disable_timer,
+            ..Settings::default()
+        };
         match found {
             Some(b) => {
                 s.behavior = Some(b.id);
@@ -168,7 +176,9 @@ impl World {
     /// Whether fighter `who` is someone `target` might fight
     /// (`AI2rCharacter_PotentiallyHostile`, previous knowledge checked).
     fn potentially_hostile(&self, who: usize, target: usize) -> bool {
-        let (Some(f), Some(t)) = (self.fighters.get(who), self.fighters.get(target)) else { return false };
+        let (Some(f), Some(t)) = (self.fighters.get(who), self.fighters.get(target)) else {
+            return false;
+        };
         if who == target || f.passive {
             return false;
         }
@@ -185,7 +195,9 @@ impl World {
     fn neutral_in_danger(&self, i: usize, with: Option<usize>) -> bool {
         use crate::ai::perception::{Stimulus, Strength};
         let f = &self.fighters[i];
-        let Some(p) = f.perception.as_ref() else { return false };
+        let Some(p) = f.perception.as_ref() else {
+            return false;
+        };
         let (feet, range) = (f.feet(), f.neutral.enemy_range);
         p.contacts.iter().any(|c| {
             if c.strength <= Strength::Forgotten {
@@ -194,11 +206,18 @@ impl World {
             if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
                 return true;
             }
-            if !matches!(c.stimulus, Stimulus::SoundMelee | Stimulus::SoundGunshot | Stimulus::SightDefinite) {
+            if !matches!(
+                c.stimulus,
+                Stimulus::SoundMelee | Stimulus::SoundGunshot | Stimulus::SightDefinite
+            ) {
                 return false;
             }
-            let Some(who) = c.who.filter(|&w| w != i) else { return false };
-            let hostile = self.potentially_hostile(who, i) || c.stimulus.combat_sound() || with.is_some_and(|t| self.potentially_hostile(who, t));
+            let Some(who) = c.who.filter(|&w| w != i) else {
+                return false;
+            };
+            let hostile = self.potentially_hostile(who, i)
+                || c.stimulus.combat_sound()
+                || with.is_some_and(|t| self.potentially_hostile(who, t));
             hostile && c.location.distance_squared(feet) <= range * range
         })
     }
@@ -209,8 +228,12 @@ impl World {
         let range = self.fighters[i].neutral.enemy_range;
         let (me, them) = (self.fighters[i].feet(), self.fighters[target].feet());
         self.fighters.iter().filter(|f| f.alive()).any(|f| {
-            let Some(Brain::Agent(a)) = &f.brain else { return false };
-            let Some(t) = a.opponent().filter(|&t| t == i || t == target) else { return false };
+            let Some(Brain::Agent(a)) = &f.brain else {
+                return false;
+            };
+            let Some(t) = a.opponent().filter(|&t| t == i || t == target) else {
+                return false;
+            };
             let _ = t;
             let at = f.feet();
             at.distance_squared(me) <= range * range || at.distance_squared(them) <= range * range
@@ -222,7 +245,10 @@ impl World {
     /// it, or an animating object.
     fn neutral_blocked(&self, i: usize, point: Vec3) -> bool {
         let from = self.fighters[i].sight_points()[0];
-        !self.quads.clear(from, point, crate::quads::flag::CHR_COL_SKIP) || self.segment_meets_object(from, point)
+        !self
+            .quads
+            .clear(from, point, crate::quads::flag::CHR_COL_SKIP)
+            || self.segment_meets_object(from, point)
     }
 
     /// Whether fighter `i` would start its interaction with `target`
@@ -249,7 +275,9 @@ impl World {
             if !seen {
                 return false;
             }
-            if self.fighters[i].neutral.enemy_range > 0.0 && (self.neutral_in_danger(i, Some(target)) || self.neutral_enemies(i, target)) {
+            if self.fighters[i].neutral.enemy_range > 0.0
+                && (self.neutral_in_danger(i, Some(target)) || self.neutral_enemies(i, target))
+            {
                 self.fighters[i].neutral.last_check = now + ENEMY_SCARE_FRAMES;
                 return false;
             }
@@ -260,7 +288,9 @@ impl World {
 
     /// The cheap part of the trigger test (no timers, no rays).
     fn neutral_could_trigger(&self, i: usize, target: usize, automatic: bool) -> bool {
-        let (Some(f), Some(t)) = (self.fighters.get(i), self.fighters.get(target)) else { return false };
+        let (Some(f), Some(t)) = (self.fighters.get(i), self.fighters.get(target)) else {
+            return false;
+        };
         let s = &f.neutral;
         if !self.is_agent(i) || s.behavior.is_none() || f.neutral_with.is_some() || !f.alive() {
             return false;
@@ -276,7 +306,9 @@ impl World {
             if delta.length_squared() > s.trigger_range * s.trigger_range {
                 return false;
             }
-        } else if delta.length_squared() > MANUAL_TRIGGER_RANGE * MANUAL_TRIGGER_RANGE || !in_front(t.facing.facing, delta) {
+        } else if delta.length_squared() > MANUAL_TRIGGER_RANGE * MANUAL_TRIGGER_RANGE
+            || !in_front(t.facing.facing, delta)
+        {
             return false;
         }
         !self.potentially_hostile(i, target)
@@ -289,7 +321,8 @@ impl World {
             return false;
         }
         let delta = self.fighters[i].feet() - self.fighters[target].feet();
-        delta.length_squared() <= MANUAL_TRIGGER_RANGE * MANUAL_TRIGGER_RANGE && in_front(self.fighters[target].facing.facing, delta)
+        delta.length_squared() <= MANUAL_TRIGGER_RANGE * MANUAL_TRIGGER_RANGE
+            && in_front(self.fighters[target].facing.facing, delta)
     }
 
     /// The neutral character fighter `who`'s Action would talk to, and
@@ -318,7 +351,10 @@ impl World {
 
     /// Whether the player could talk to someone now (the "nci" prompt).
     pub(super) fn neutral_prompt(&self) -> bool {
-        self.fighters.first().is_some_and(|p| p.neutral_with.is_some()) || self.neutral_candidate(0).is_some()
+        self.fighters
+            .first()
+            .is_some_and(|p| p.neutral_with.is_some())
+            || self.neutral_candidate(0).is_some()
     }
 
     /// Fighter `who` pressed Action: a neutral character by it starts (or
@@ -327,7 +363,9 @@ impl World {
         if self.fighters[who].neutral_with.is_some() {
             return true;
         }
-        let Some((i, already)) = self.neutral_candidate(who) else { return false };
+        let Some((i, already)) = self.neutral_candidate(who) else {
+            return false;
+        };
         if !already {
             self.neutral_start(i, who);
         }
@@ -341,7 +379,11 @@ impl World {
     /// Fighter `i` enters its neutral interaction with the player
     /// (`AI2rNeutral_Enter`): from where it stands, its trigger line said.
     fn neutral_start(&mut self, i: usize, target: usize) {
-        let Some(b) = self.fighters[i].neutral.behavior.and_then(|id| self.neutrals.get(&id).cloned()) else {
+        let Some(b) = self.fighters[i]
+            .neutral
+            .behavior
+            .and_then(|id| self.neutrals.get(&id).cloned())
+        else {
             self.fighters[i].neutral.behavior = None;
             return;
         };
@@ -375,7 +417,15 @@ impl World {
 
     fn neutral_say(&mut self, who: usize, sound: &str, kind: u8) {
         if !sound.is_empty() {
-            self.say(who, Speech { sound: sound.to_string(), kind, ..Speech::default() }, false);
+            self.say(
+                who,
+                Speech {
+                    sound: sound.to_string(),
+                    kind,
+                    ..Speech::default()
+                },
+                false,
+            );
         }
     }
 
@@ -384,7 +434,14 @@ impl World {
     /// broken off (`abort`: the character says its call to come back, or
     /// `hostile`: its enemy line) or done (its end script runs); `reset`
     /// sends the neutral character back to its job. True if stopped.
-    pub fn neutral_stop(&mut self, who: usize, force: bool, abort: bool, hostile: bool, reset: bool) -> bool {
+    pub fn neutral_stop(
+        &mut self,
+        who: usize,
+        force: bool,
+        abort: bool,
+        hostile: bool,
+        reset: bool,
+    ) -> bool {
         let Some(other) = self.fighters.get(who).and_then(|f| f.neutral_with) else {
             // (Not yet talking: nothing to stop beyond the run itself.)
             if let Some(r) = self.neutral_runs.get(&who) {
@@ -413,7 +470,11 @@ impl World {
             self.fighters[a].neutral.disable_timer = DISABLE_TIMER;
         }
         if !abort {
-            if let Some(script) = ai.and_then(|a| self.neutral_runs.get(&a)).map(|r| r.behavior.end_script.clone()).filter(|s| !s.is_empty()) {
+            if let Some(script) = ai
+                .and_then(|a| self.neutral_runs.get(&a))
+                .map(|r| r.behavior.end_script.clone())
+                .filter(|s| !s.is_empty())
+            {
                 let name = self.fighter_name(who);
                 self.script_events.push((script, vec![name]));
             }
@@ -427,7 +488,12 @@ impl World {
             self.fighters[c].neutral_with = None;
             self.fighters[c].neutral_uninterruptable = false;
         }
-        eprintln!("neutral: {} and {} part{}", self.fighter_name(who), self.fighter_name(other), if abort { " (broken off)" } else { "" });
+        eprintln!(
+            "neutral: {} and {} part{}",
+            self.fighter_name(who),
+            self.fighter_name(other),
+            if abort { " (broken off)" } else { "" }
+        );
         true
     }
 
@@ -439,7 +505,9 @@ impl World {
         if !(abort && self.in_neutral(c)) {
             return;
         }
-        let Some(r) = self.neutral_runs.get_mut(&c) else { return };
+        let Some(r) = self.neutral_runs.get_mut(&c) else {
+            return;
+        };
         let (sound, kind) = if hostile {
             (r.behavior.enemy_sound.clone(), speech::YELL)
         } else if self.fighters[c].neutral.disable_resume {
@@ -465,7 +533,14 @@ impl World {
     /// once (blocking while it plays or waits to; `repeat`: again until
     /// told otherwise) or held for the line (not blocking). Returns whether
     /// it blocks.
-    fn conversation_anim(&mut self, who: usize, kind: u16, once: bool, repeat: bool, started: &mut bool) -> bool {
+    fn conversation_anim(
+        &mut self,
+        who: usize,
+        kind: u16,
+        once: bool,
+        repeat: bool,
+        started: &mut bool,
+    ) -> bool {
         let f = &mut self.fighters[who];
         let ch = f.character.clone();
         if !once {
@@ -486,8 +561,15 @@ impl World {
         if f.motion.queued == kind {
             return true;
         }
-        if f.motion.request(&ch, Urge::Appropriate, false, kind).is_none() && f.motion.state == st::STANDING {
-            eprintln!("neutral: fighter {who} can't play {} standing", oni_schema::name(&oni_schema::ANIM_TYPES, kind).unwrap_or("?"));
+        if f.motion
+            .request(&ch, Urge::Appropriate, false, kind)
+            .is_none()
+            && f.motion.state == st::STANDING
+        {
+            eprintln!(
+                "neutral: fighter {who} can't play {} standing",
+                oni_schema::name(&oni_schema::ANIM_TYPES, kind).unwrap_or("?")
+            );
             *started = true;
             return false;
         }
@@ -499,7 +581,11 @@ impl World {
     /// invisibility, the LSI, and a gun — in the hand, or to the floor if
     /// the player already carries one.
     fn neutral_give(&mut self, giver: usize, to: usize, b: &Behavior) {
-        for (kind, n) in [("ammo", b.give_ballistic), ("cell", b.give_energy), ("hypo", b.give_hypos)] {
+        for (kind, n) in [
+            ("ammo", b.give_ballistic),
+            ("cell", b.give_energy),
+            ("hypo", b.give_hypos),
+        ] {
             if n == 0 {
                 continue;
             }
@@ -529,7 +615,11 @@ impl World {
                 }
             }
         }
-        eprintln!("neutral: {} gives its items ({})", self.fighter_name(giver), b.name);
+        eprintln!(
+            "neutral: {} gives its items ({})",
+            self.fighter_name(giver),
+            b.name
+        );
     }
 
     /// Each tick: neutral characters notice the player and start (the
@@ -549,7 +639,8 @@ impl World {
                 }
             }
         }
-        self.neutral_runs.retain(|&i, _| self.fighters.get(i).is_some_and(|f| f.alive()));
+        self.neutral_runs
+            .retain(|&i, _| self.fighters.get(i).is_some_and(|f| f.alive()));
         for i in 1..self.fighters.len() {
             let f = &self.fighters[i];
             if !self.is_agent(i) || !f.alive() || f.motion.dying || f.passive {
@@ -580,7 +671,10 @@ impl World {
             _ => None,
         };
         if let Some(hostile) = exit {
-            let aborting = self.neutral_runs.get(&i).is_some_and(|r| r.line.is_none_or(|l| l < r.behavior.lines.len()));
+            let aborting = self
+                .neutral_runs
+                .get(&i)
+                .is_some_and(|r| r.line.is_none_or(|l| l < r.behavior.lines.len()));
             self.neutral_stop(i, true, aborting, hostile, false);
             self.neutral_runs.remove(&i);
         }
@@ -590,7 +684,9 @@ impl World {
     /// ends it, moving held a while ends it, and what would act is held
     /// back meanwhile. Returns the keys left.
     pub(super) fn neutral_keys(&mut self, controls: u32) -> u32 {
-        let Some(p) = self.fighters.first() else { return controls };
+        let Some(p) = self.fighters.first() else {
+            return controls;
+        };
         if p.neutral_with.is_none() {
             return controls;
         }
@@ -617,7 +713,9 @@ impl World {
 
     /// One tick of fighter `i`'s interaction (`AI2rNeutral_Update`).
     fn neutral_update(&mut self, i: usize) {
-        let Some(mut r) = self.neutral_runs.remove(&i) else { return };
+        let Some(mut r) = self.neutral_runs.remove(&i) else {
+            return;
+        };
         let t = r.target;
         let now = self.now as u64;
         if !self.fighters[t].alive() || self.fighters[i].neutral.behavior.is_none() {
@@ -666,7 +764,8 @@ impl World {
         let our = self.fighters[i].feet();
         let target = self.fighters[t].sight_points()[0];
         let d2 = our.distance_squared(target);
-        let close = d2 < r.behavior.conversation_range * r.behavior.conversation_range && !self.neutral_blocked(i, target);
+        let close = d2 < r.behavior.conversation_range * r.behavior.conversation_range
+            && !self.neutral_blocked(i, target);
         let facing = yaw(our, target);
         if close && r.accepted {
             // Turn to the player, stand, look at it.
@@ -674,7 +773,9 @@ impl World {
                 a.neutral_halt(our, Some(facing));
                 a.look_at(target);
             }
-            if self.fighters[t].neutral_with.is_some() || self.fighters[i].motion.state != st::STANDING {
+            if self.fighters[t].neutral_with.is_some()
+                || self.fighters[i].motion.state != st::STANDING
+            {
                 return true; // wait for the last one to finish, or to stand
             }
             let b = r.behavior.clone();
@@ -695,15 +796,23 @@ impl World {
             self.fighters[t].neutral_keyabort = 0;
             // (No fighting or gun stances while they talk.)
             for c in [i, t] {
-                self.fighters[c].motion.varient &= !(var::FIGHT | var::RIGHTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_PISTOL | var::LEFTY_RIFLE);
+                self.fighters[c].motion.varient &= !(var::FIGHT
+                    | var::RIGHTY_PISTOL
+                    | var::RIGHTY_RIFLE
+                    | var::LEFTY_PISTOL
+                    | var::LEFTY_RIFLE);
             }
             r.played_line = false;
             r.line = Some(resume);
-            eprintln!("neutral: {} begins its conversation (line {resume})", self.fighter_name(i));
+            eprintln!(
+                "neutral: {} begins its conversation (line {resume})",
+                self.fighter_name(i)
+            );
             return true;
         }
         // Not too far from where it set off.
-        if our.distance_squared(r.triggered_at) > r.behavior.follow_range * r.behavior.follow_range {
+        if our.distance_squared(r.triggered_at) > r.behavior.follow_range * r.behavior.follow_range
+        {
             self.fighters[i].neutral.disable_timer = DISABLE_TIMER;
             self.with_agent(i, |a, cx| a.return_to_job(true, true, cx));
             return false;
@@ -726,13 +835,17 @@ impl World {
                 self.neutral_say(i, &sound, speech::CALL);
                 let f = &mut self.fighters[i];
                 let ch = f.character.clone();
-                f.motion.request(&ch, Urge::Appropriate, false, Self::anim_type("hail"));
+                f.motion
+                    .request(&ch, Urge::Appropriate, false, Self::anim_type("hail"));
             }
         } else if d2 > (1.5 * r.behavior.trigger_range).powi(2) {
             self.with_agent(i, |a, cx| a.return_to_job(true, true, cx));
             return false;
         } else if now > r.last_run_to + RUN_TO_FRAMES {
-            let alert = self.fighters[i].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+            let alert = self.fighters[i]
+                .perception
+                .as_ref()
+                .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
             if let Some(Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
                 a.script_move(target, CLOSEST_RANGE, None, None, alert);
             }
@@ -758,7 +871,10 @@ impl World {
         if !r.played_line {
             self.neutral_say(speaker, &line.sound, speech::SAY);
             if line.give {
-                let alert = self.fighters[i].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+                let alert = self.fighters[i]
+                    .perception
+                    .as_ref()
+                    .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
                 let to = self.fighters[t].feet();
                 if let Some(Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
                     a.neutral_walk();
@@ -773,7 +889,11 @@ impl World {
         let mut block = false;
         if line.give {
             if !r.initiated_give {
-                if self.fighters[i].feet().distance_squared(self.fighters[t].feet()) < GIVE_ITEM_DIST * GIVE_ITEM_DIST {
+                if self.fighters[i]
+                    .feet()
+                    .distance_squared(self.fighters[t].feet())
+                    < GIVE_ITEM_DIST * GIVE_ITEM_DIST
+                {
                     r.initiated_give = true;
                     r.give_anim_started = false;
                     r.receive_anim_started = false;
@@ -793,7 +913,8 @@ impl World {
                         block = true;
                     } else {
                         let mut started = r.receive_anim_started;
-                        block |= self.conversation_anim(t, give, true, !r.completed_give, &mut started);
+                        block |=
+                            self.conversation_anim(t, give, true, !r.completed_give, &mut started);
                         r.receive_anim_started = started;
                         let m = &self.fighters[i].motion;
                         let fire = m.current().action_frame.unwrap_or(0);
@@ -815,12 +936,19 @@ impl World {
         } else {
             if line.anim != 0 {
                 let mut started = r.line_anim_started;
-                block |= self.conversation_anim(speaker, line.anim, line.anim_once, false, &mut started);
+                block |=
+                    self.conversation_anim(speaker, line.anim, line.anim_once, false, &mut started);
                 r.line_anim_started = started;
             }
             if line.other_anim != 0 {
                 let mut started = r.other_anim_started;
-                block |= self.conversation_anim(other, line.other_anim, line.other_anim_once, false, &mut started);
+                block |= self.conversation_anim(
+                    other,
+                    line.other_anim,
+                    line.other_anim_once,
+                    false,
+                    &mut started,
+                );
                 r.other_anim_started = started;
             }
         }

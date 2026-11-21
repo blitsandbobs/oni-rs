@@ -22,7 +22,10 @@ pub fn collect(dat: &Dat<'_>, raw: &[u8]) -> Option<Value> {
     if objects.is_empty() {
         return None;
     }
-    let list: Vec<Value> = objects.iter().filter_map(|o| character(o, version)).collect();
+    let list: Vec<Value> = objects
+        .iter()
+        .filter_map(|o| character(o, version))
+        .collect();
     Some(json!({ "characters": list }))
 }
 
@@ -65,7 +68,11 @@ fn character(o: &crate::objects::Object<'_>, version: u32) -> Option<Value> {
     let job_id = u16_at(at + 8)?;
     let combat_id = u16_at(at + 10)?;
     let melee_id = u16_at(at + 12)?;
-    let neutral_id = if version >= V_NEUTRAL { u16_at(at + 14)? } else { 0 };
+    let neutral_id = if version >= V_NEUTRAL {
+        u16_at(at + 14)?
+    } else {
+        0
+    };
     at += 16;
     let mut inventory = serde_json::Map::new();
     for (k, kind) in sc::INVENTORY.iter().enumerate() {
@@ -77,9 +84,13 @@ fn character(o: &crate::objects::Object<'_>, version: u32) -> Option<Value> {
     at += 24;
     let team = u32_at(at)?;
     let ammo = u32_at(at + 4)?;
-    let alert = |o: usize| sc::name(&sc::ALERT_LEVELS, u32_at(o).unwrap_or(0) as u16).unwrap_or("lull");
-    let pursue = |o: usize| sc::name(&sc::PURSUIT_MODES, u32_at(o).unwrap_or(0) as u16).unwrap_or("none");
-    let alarm_groups: Vec<u32> = (0..32).filter(|b| u32_at(at + 24).unwrap_or(0) & (1 << b) != 0).collect();
+    let alert =
+        |o: usize| sc::name(&sc::ALERT_LEVELS, u32_at(o).unwrap_or(0) as u16).unwrap_or("lull");
+    let pursue =
+        |o: usize| sc::name(&sc::PURSUIT_MODES, u32_at(o).unwrap_or(0) as u16).unwrap_or("none");
+    let alarm_groups: Vec<u32> = (0..32)
+        .filter(|b| u32_at(at + 24).unwrap_or(0) & (1 << b) != 0)
+        .collect();
 
     let mut c = json!({
         "id": o.id,
@@ -136,10 +147,15 @@ fn character(o: &crate::objects::Object<'_>, version: u32) -> Option<Value> {
 
 /// Writes `characters.json` into a level folder.
 pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
-    let Some(doc) = collect(dat, raw) else { return Ok(0) };
+    let Some(doc) = collect(dat, raw) else {
+        return Ok(0);
+    };
     let n = doc["characters"].as_array().map_or(0, Vec::len);
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("characters.json"), serde_json::to_string_pretty(&doc)?)?;
+    std::fs::write(
+        root.join("characters.json"),
+        serde_json::to_string_pretty(&doc)?,
+    )?;
     Ok(n)
 }
 
@@ -148,16 +164,28 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
 /// default flag (`docs/ASSET_FORMAT.md`, *Character setups*).
 pub fn setups(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
     let tag = oni_dat::FourCc::from_bytes(*b"AISA");
-    let Some(layout) = registry.get(tag) else { return Vec::new() };
+    let Some(layout) = registry.get(tag) else {
+        return Vec::new();
+    };
     let text = |v: &Value| -> String {
-        let bytes: Vec<u8> = v.as_array().into_iter().flatten().map(|b| b.as_i64().unwrap_or(0) as u8).take_while(|&b| b != 0).collect();
+        let bytes: Vec<u8> = v
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|b| b.as_i64().unwrap_or(0) as u8)
+            .take_while(|&b| b != 0)
+            .collect();
         String::from_utf8_lossy(&bytes).into_owned()
     };
     let link = |v: &Value| v["$ref"].as_str().map(str::to_string);
     let mut out = Vec::new();
     for inst in dat.instances.iter().filter(|i| i.tag == tag) {
-        let Some(data) = dat.instance_data(inst) else { continue };
-        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else { continue };
+        let Some(data) = dat.instance_data(inst) else {
+            continue;
+        };
+        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else {
+            continue;
+        };
         let fields = crate::level_json::record_to_json(&rec, dat);
         for s in fields["characterSetups"].as_array().into_iter().flatten() {
             let mut scripts = serde_json::Map::new();
@@ -206,12 +234,19 @@ pub fn setups(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
 }
 
 /// Writes `setups.json` into a level folder (nothing when it has none).
-pub fn write_setups(dat: &Dat<'_>, registry: &oni_template::Registry, root: &Path) -> std::io::Result<usize> {
+pub fn write_setups(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    root: &Path,
+) -> std::io::Result<usize> {
     let list = setups(dat, registry);
     if list.is_empty() {
         return Ok(0);
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("setups.json"), serde_json::to_string_pretty(&json!({ "setups": list }))?)?;
+    std::fs::write(
+        root.join("setups.json"),
+        serde_json::to_string_pretty(&json!({ "setups": list }))?,
+    )?;
     Ok(list.len())
 }

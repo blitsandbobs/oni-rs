@@ -64,7 +64,11 @@ impl Laser {
     /// the start offset, laser on, untriggered, active if authored so.
     pub fn reset(&mut self) {
         self.laser_on = true;
-        self.change_time = if self.time_on > 0 || self.time_off > 0 { self.time_on } else { 0 };
+        self.change_time = if self.time_on > 0 || self.time_off > 0 {
+            self.time_on
+        } else {
+            0
+        };
         let n = self.frames();
         let space = n / self.emitters.len().max(1) as f32;
         for (i, e) in self.emitters.iter_mut().enumerate() {
@@ -91,7 +95,11 @@ impl Laser {
     pub fn activate(&mut self) {
         self.active = true;
         self.laser_on = true;
-        self.change_time = if self.time_on > 0 || self.time_off > 0 { self.time_on } else { 0 };
+        self.change_time = if self.time_on > 0 || self.time_off > 0 {
+            self.time_on
+        } else {
+            0
+        };
     }
 
     fn advance(&mut self) {
@@ -142,9 +150,18 @@ impl Laser {
     /// frame (whose reach is cached).
     pub fn beam(&self, i: usize) -> (Vec3, Vec3, usize) {
         let f = (self.emitters[i].frame.max(0.0) as usize).min(self.track.len().saturating_sub(1));
-        let t = self.track.get(f).copied().unwrap_or([0.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
-        let to_world = |v: [f32; 3]| self.axes[0] * v[0] + self.axes[1] * v[1] + self.axes[2] * v[2];
-        (self.position + to_world([t[0], t[1], t[2]]), to_world([t[3], t[4], t[5]]).normalize_or_zero(), f)
+        let t = self
+            .track
+            .get(f)
+            .copied()
+            .unwrap_or([0.0, 0.0, 0.0, -1.0, 0.0, 0.0]);
+        let to_world =
+            |v: [f32; 3]| self.axes[0] * v[0] + self.axes[1] * v[1] + self.axes[2] * v[2];
+        (
+            self.position + to_world([t[0], t[1], t[2]]),
+            to_world([t[3], t[4], t[5]]).normalize_or_zero(),
+            f,
+        )
     }
 
     /// The level's reach at track frame `f`, worked out once.
@@ -204,7 +221,11 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
         .into_iter()
         .flatten()
         .map(|l| {
-            let has = |f: &str| l["flags"].as_array().is_some_and(|a| a.iter().any(|x| x == f));
+            let has = |f: &str| {
+                l["flags"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|x| x == f))
+            };
             let speed = l["speed"].as_f64().unwrap_or(1.0) as f32;
             let n = l["emitters"].as_u64().unwrap_or(1).clamp(1, 32) as usize;
             let mut laser = Laser {
@@ -225,9 +246,23 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
                 initial_active: has("initialActive"),
                 reverse: has("reverseAnim"),
                 ping_pong: has("pingPong"),
-                emitters: vec![Emitter { frame: 0.0, step: 1.0 }; n],
-                events: l["events"].as_array().into_iter().flatten().map(crate::consoles::event).collect(),
-                track: tracks.get(l["class"].as_str().unwrap_or("")).cloned().unwrap_or_default(),
+                emitters: vec![
+                    Emitter {
+                        frame: 0.0,
+                        step: 1.0
+                    };
+                    n
+                ],
+                events: l["events"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .map(crate::consoles::event)
+                    .collect(),
+                track: tracks
+                    .get(l["class"].as_str().unwrap_or(""))
+                    .cloned()
+                    .unwrap_or_default(),
                 reach: Vec::new(),
                 class: l["class"].as_str().unwrap_or("").to_string(),
             };
@@ -249,7 +284,9 @@ mod tests {
     use super::*;
 
     fn laser(ping_pong: bool) -> Laser {
-        let track: Vec<[f32; 6]> = (0..101).map(|f| [0.0, 0.0, f as f32 * 0.3, -1.0, 0.0, 0.0]).collect();
+        let track: Vec<[f32; 6]> = (0..101)
+            .map(|f| [0.0, 0.0, f as f32 * 0.3, -1.0, 0.0, 0.0])
+            .collect();
         let mut l = Laser {
             class: String::new(),
             id: 1,
@@ -269,7 +306,10 @@ mod tests {
             initial_active: false,
             reverse: false,
             ping_pong,
-            emitters: vec![Emitter { frame: 0.0, step: 1.0 }],
+            emitters: vec![Emitter {
+                frame: 0.0,
+                step: 1.0,
+            }],
             events: Vec::new(),
             track: Rc::new(track),
             reach: Vec::new(),
@@ -288,7 +328,10 @@ mod tests {
         for _ in 0..200 {
             l.tick();
         }
-        assert!(l.emitters[0].frame > 99.0, "half a frame a tick: across in 200 ticks");
+        assert!(
+            l.emitters[0].frame > 99.0,
+            "half a frame a tick: across in 200 ticks"
+        );
         l.tick();
         l.tick();
         assert_eq!(l.emitters[0].step, -1.0, "and back");
@@ -306,19 +349,35 @@ mod tests {
         l.time_on = 3;
         l.time_off = 2;
         l.activate();
-        let seq: Vec<bool> = (0..12).map(|_| {
-            l.tick();
-            l.laser_on
-        })
-        .collect();
-        assert_eq!(seq, [true, true, true, false, false, false, true, true, true, true, false, false]);
+        let seq: Vec<bool> = (0..12)
+            .map(|_| {
+                l.tick();
+                l.laser_on
+            })
+            .collect();
+        assert_eq!(
+            seq,
+            [true, true, true, false, false, false, true, true, true, true, false, false]
+        );
     }
 
     #[test]
     fn rays_hit_spheres_in_front_only() {
-        assert_eq!(ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(10.0, 0.0, 0.0), 2.0), Some(8.0));
-        assert_eq!(ray_sphere(Vec3::ZERO, Vec3::X, 5.0, Vec3::new(10.0, 0.0, 0.0), 2.0), None);
-        assert_eq!(ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(-10.0, 0.0, 0.0), 2.0), None);
-        assert_eq!(ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(10.0, 3.0, 0.0), 2.0), None);
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(10.0, 0.0, 0.0), 2.0),
+            Some(8.0)
+        );
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, 5.0, Vec3::new(10.0, 0.0, 0.0), 2.0),
+            None
+        );
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(-10.0, 0.0, 0.0), 2.0),
+            None
+        );
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, 100.0, Vec3::new(10.0, 3.0, 0.0), 2.0),
+            None
+        );
     }
 }

@@ -39,7 +39,8 @@ pub struct Quads {
 }
 
 fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(o..o + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 
 fn f32_at(d: &[u8], o: usize) -> Option<f32> {
@@ -62,7 +63,14 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
     let d = dat.instance_data(akev)?;
     // AKtEnvironment: points, planes, texcoords, quads general / render /
     // collision, debug, texture maps.
-    let (pa, pl, gg, gr, gc, tm) = (array(dat, d, 0)?, array(dat, d, 4)?, array(dat, d, 12)?, array(dat, d, 16)?, array(dat, d, 20)?, array(dat, d, 28)?);
+    let (pa, pl, gg, gr, gc, tm) = (
+        array(dat, d, 0)?,
+        array(dat, d, 4)?,
+        array(dat, d, 12)?,
+        array(dat, d, 16)?,
+        array(dat, d, 20)?,
+        array(dat, d, 28)?,
+    );
     let n_points = u32_at(pa, 52)? as usize;
     let points = (0..n_points)
         .map(|i| {
@@ -74,11 +82,22 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
     let planes = (0..n_planes)
         .map(|i| {
             let o = 24 + i * 16;
-            Some([f32_at(pl, o)?, f32_at(pl, o + 4)?, f32_at(pl, o + 8)?, f32_at(pl, o + 12)?])
+            Some([
+                f32_at(pl, o)?,
+                f32_at(pl, o + 4)?,
+                f32_at(pl, o + 8)?,
+                f32_at(pl, o + 12)?,
+            ])
         })
         .collect::<Option<Vec<_>>>()?;
     let n_tex = u32_at(tm, 20)? as usize;
-    let textures = (0..n_tex).map(|i| u32_at(tm, 24 + i * 4).filter(|r| r & 1 != 0).map(|r| (r >> 8) as usize)).collect();
+    let textures = (0..n_tex)
+        .map(|i| {
+            u32_at(tm, 24 + i * 4)
+                .filter(|r| r & 1 != 0)
+                .map(|r| (r >> 8) as usize)
+        })
+        .collect();
     let n = u32_at(gg, 20)?.min(u32_at(gr, 20)?).min(u32_at(gc, 20)?) as usize;
     // The quads scripts show and hide: parallel index arrays of quads and
     // their references (the first reference of a quad counts).
@@ -103,7 +122,9 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
                 shades: [at(8)?, at(9)?, at(10)?, at(11)?],
                 flags: at(12)?,
                 object_tag: at(13)?,
-                texture: gr.get(24 + q * 4..26 + q * 4).map(|b| u16::from_le_bytes([b[0], b[1]]))?,
+                texture: gr
+                    .get(24 + q * 4..26 + q * 4)
+                    .map(|b| u16::from_le_bytes([b[0], b[1]]))?,
                 plane: u32_at(gc, 24 + q * 28)?,
                 env_ref: refs.get(&(q as u32)).copied(),
                 bbox: {
@@ -113,5 +134,10 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
             })
         })
         .collect::<Option<Vec<_>>>()?;
-    Some(Quads { points, planes, textures, quads })
+    Some(Quads {
+        points,
+        planes,
+        textures,
+        quads,
+    })
 }

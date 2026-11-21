@@ -121,7 +121,11 @@ mod tests {
     /// steer does for a free-turning clip).
     fn slew(f: &mut Facing, cap: f32) {
         let off = f.desired_offset();
-        f.rotate(if off > 0.0 { off.min(cap) } else { off.max(-cap) });
+        f.rotate(if off > 0.0 {
+            off.min(cap)
+        } else {
+            off.max(-cap)
+        });
     }
 
     fn approx(a: f32, b: f32) -> bool {
@@ -159,10 +163,16 @@ mod tests {
     fn modifier_leans_the_body_but_not_the_aim() {
         let mut f = Facing::new(0.0);
         f.set_modifier(PI / 4.0);
-        assert!(approx(f.desired_facing, PI / 4.0), "body asked to lean 45° left");
+        assert!(
+            approx(f.desired_facing, PI / 4.0),
+            "body asked to lean 45° left"
+        );
         assert!(approx(f.aim(), 0.0), "aim unchanged");
         f.set_modifier(0.0);
-        assert!(approx(f.desired_facing, 0.0), "clearing the modifier undoes the lean");
+        assert!(
+            approx(f.desired_facing, 0.0),
+            "clearing the modifier undoes the lean"
+        );
     }
 
     #[test]

@@ -75,7 +75,9 @@ impl SoundObject {
 
 /// Loads a level's sound objects (`levels/NN/sounds.json`).
 pub(super) fn load(level_dir: &Path) -> Vec<SoundObject> {
-    let Some(j) = std::fs::read_to_string(level_dir.join("sounds.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    let Some(j) = std::fs::read_to_string(level_dir.join("sounds.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
     else {
         return Vec::new();
     };
@@ -89,9 +91,15 @@ pub(super) fn load(level_dir: &Path) -> Vec<SoundObject> {
         .filter_map(|(k, o)| {
             let position = v3(&o["position"]);
             let shape = if o["sphere"].is_object() {
-                Shape::Sphere { max: f(&o["sphere"]["max"]), min: f(&o["sphere"]["min"]) }
+                Shape::Sphere {
+                    max: f(&o["sphere"]["max"]),
+                    min: f(&o["sphere"]["min"]),
+                }
             } else if o["box"].is_object() {
-                Shape::Box { min: position + v3(&o["box"]["min"]), max: position + v3(&o["box"]["max"]) }
+                Shape::Box {
+                    min: position + v3(&o["box"]["min"]),
+                    max: position + v3(&o["box"]["max"]),
+                }
             } else {
                 return None;
             };
@@ -149,11 +157,15 @@ impl Audio {
             }
             return;
         }
-        let Some(def) = self.defs.ambients.get_mut(&o.ambient) else { return };
+        let Some(def) = self.defs.ambients.get_mut(&o.ambient) else {
+            return;
+        };
         // (Permanently: sound objects are low priority — as shipped.)
         def.priority = LOW;
         let min_occlusion = def.min_occlusion;
-        let Shape::Sphere { max, min } = o.shape else { return };
+        let Shape::Sphere { max, min } = o.shape else {
+            return;
+        };
         let (at, name, mut cache, play) = (o.position, o.ambient.clone(), o.occlusion, o.play);
         if let Some(id) = play {
             if !self.active(id) {
@@ -165,7 +177,9 @@ impl Audio {
         let o = &mut self.objects[k];
         o.occlusion = cache;
         let Some(target) = heard else { return };
-        o.transition = (o.transition + (target - o.transition).clamp(-VOLUME_ADJUST, VOLUME_ADJUST)).clamp(0.0, 1.0);
+        o.transition = (o.transition
+            + (target - o.transition).clamp(-VOLUME_ADJUST, VOLUME_ADJUST))
+        .clamp(0.0, 1.0);
         o.volume = o.transition * o.object_volume;
         let volume = o.volume;
         match play {
@@ -191,9 +205,12 @@ impl Audio {
             }
             // Another box of the same ambient still playing: take it over.
             let name = o.ambient.clone();
-            if let Some(j) =
-                (0..self.objects.len()).find(|&j| j != k && self.objects[j].is_box() && self.objects[j].play.is_some() && self.objects[j].ambient == name)
-            {
+            if let Some(j) = (0..self.objects.len()).find(|&j| {
+                j != k
+                    && self.objects[j].is_box()
+                    && self.objects[j].play.is_some()
+                    && self.objects[j].ambient == name
+            }) {
                 let (play, volume) = (self.objects[j].play.take(), self.objects[j].volume);
                 self.objects[j].state = State::Off;
                 self.objects[j].volume = 0.0;
@@ -262,7 +279,16 @@ impl Audio {
     pub fn sound_objects(&self) -> Vec<(String, Vec3, bool, State, f32, bool)> {
         self.objects
             .iter()
-            .map(|o| (o.ambient.clone(), o.position, o.is_box(), o.state, o.volume, o.play.is_some_and(|id| self.active(id))))
+            .map(|o| {
+                (
+                    o.ambient.clone(),
+                    o.position,
+                    o.is_box(),
+                    o.state,
+                    o.volume,
+                    o.play.is_some_and(|id| self.active(id)),
+                )
+            })
             .collect()
     }
 }
@@ -275,7 +301,10 @@ mod tests {
     fn the_box_fades() {
         assert_eq!(fade_in(0.0), 0.0);
         assert_eq!(fade_in(120.0), 1.0);
-        assert!((fade_in(60.0) - 0.75).abs() < 1e-6, "an ease-in: three quarters up halfway");
+        assert!(
+            (fade_in(60.0) - 0.75).abs() < 1e-6,
+            "an ease-in: three quarters up halfway"
+        );
         assert!((fade_out(60.0) - 0.75).abs() < 1e-6, "an ease-out");
         assert_eq!(fade_out(120.0), 0.0);
         assert_eq!(fade_in_start(0.75), 60, "a fade at 0.75 began 60 ticks ago");

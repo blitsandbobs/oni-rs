@@ -36,7 +36,8 @@ pub mod flag {
     /// What an AI may shoot through (`_CanShoot_Skip_AI`).
     pub const LOS_SHOOT_AI: u32 = INVISIBLE | BREAKABLE | BROKEN_GLASS;
     /// What sound passes (`AKcGQ_Flag_SoundOcclude_Skip`).
-    pub const SOUND_OCCLUDE_SKIP: u32 = NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS | SOUND_TRANSPARENT;
+    pub const SOUND_OCCLUDE_SKIP: u32 =
+        NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS | SOUND_TRANSPARENT;
     /// What objects (and particles) pass through.
     pub const OBJ_COL_SKIP: u32 = NO_COLLISION | NO_OBJECT_COLLISION | BROKEN_GLASS;
     /// Drawn from both sides (the decal code's two-sided test: without jello).
@@ -133,9 +134,20 @@ impl Grid {
             lo = [lo[0].min(q.min.x), lo[1].min(q.min.z)];
             hi = [hi[0].max(q.max.x), hi[1].max(q.max.z)];
         }
-        let size = [((hi[0] - lo[0]) / CELL) as usize + 1, ((hi[1] - lo[1]) / CELL) as usize + 1];
-        let mut g = Grid { origin: lo, size, cells: vec![Vec::new(); size[0] * size[1]] };
-        for (k, q) in quads.iter().enumerate().filter(|(_, q)| q.flags & flag::PATHFINDING == 0) {
+        let size = [
+            ((hi[0] - lo[0]) / CELL) as usize + 1,
+            ((hi[1] - lo[1]) / CELL) as usize + 1,
+        ];
+        let mut g = Grid {
+            origin: lo,
+            size,
+            cells: vec![Vec::new(); size[0] * size[1]],
+        };
+        for (k, q) in quads
+            .iter()
+            .enumerate()
+            .filter(|(_, q)| q.flags & flag::PATHFINDING == 0)
+        {
             let (x0, z0, x1, z1) = g.span(q.min, q.max);
             for z in z0..=z1 {
                 for x in x0..=x1 {
@@ -148,7 +160,8 @@ impl Grid {
 
     /// The squares a box covers (clamped to the grid).
     fn span(&self, lo: Vec3, hi: Vec3) -> (usize, usize, usize, usize) {
-        let cell = |v: f32, o: f32, n: usize| (((v - o) / CELL).floor().max(0.0) as usize).min(n - 1);
+        let cell =
+            |v: f32, o: f32, n: usize| (((v - o) / CELL).floor().max(0.0) as usize).min(n - 1);
         (
             cell(lo.x, self.origin[0], self.size[0]),
             cell(lo.z, self.origin[1], self.size[1]),
@@ -174,10 +187,29 @@ impl Quads {
             Some(v)
         };
         let (np, npl, nt, nq) = (u()? as usize, u()? as usize, u()? as usize, u()? as usize);
-        let f = |o: usize| -> Option<f32> { Some(f32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?)) };
-        let points = (0..np).map(|i| Some(Vec3::new(f(at + i * 12)?, f(at + i * 12 + 4)?, f(at + i * 12 + 8)?))).collect::<Option<Vec<_>>>()?;
+        let f = |o: usize| -> Option<f32> {
+            Some(f32::from_le_bytes(b.get(o..o + 4)?.try_into().ok()?))
+        };
+        let points = (0..np)
+            .map(|i| {
+                Some(Vec3::new(
+                    f(at + i * 12)?,
+                    f(at + i * 12 + 4)?,
+                    f(at + i * 12 + 8)?,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
         at += np * 12;
-        let planes = (0..npl).map(|i| Some([f(at + i * 16)?, f(at + i * 16 + 4)?, f(at + i * 16 + 8)?, f(at + i * 16 + 12)?])).collect::<Option<Vec<_>>>()?;
+        let planes = (0..npl)
+            .map(|i| {
+                Some([
+                    f(at + i * 16)?,
+                    f(at + i * 16 + 4)?,
+                    f(at + i * 16 + 8)?,
+                    f(at + i * 16 + 12)?,
+                ])
+            })
+            .collect::<Option<Vec<_>>>()?;
         at += npl * 16;
         let mut textures = Vec::with_capacity(nt);
         for _ in 0..nt {
@@ -187,7 +219,8 @@ impl Quads {
         }
         let mut quads = Vec::with_capacity(nq);
         for _ in 0..nq {
-            let w = |k: usize| u32::from_le_bytes(b[at + k * 4..at + k * 4 + 4].try_into().unwrap());
+            let w =
+                |k: usize| u32::from_le_bytes(b[at + k * 4..at + k * 4 + 4].try_into().unwrap());
             if at + 76 > b.len() {
                 return None;
             }
@@ -205,7 +238,13 @@ impl Quads {
             at += 76;
         }
         let grid = Grid::build(&quads);
-        Some(Quads { points, planes, textures, quads, grid })
+        Some(Quads {
+            points,
+            planes,
+            textures,
+            quads,
+            grid,
+        })
     }
 
     /// Rebuilds the lookup grid (after adding quads by hand).
@@ -219,7 +258,9 @@ impl Quads {
     /// order ask: the rest pick by an explicit key).
     fn candidates(&self, lo: Vec3, hi: Vec3, ordered: bool) -> Vec<u32> {
         if self.grid.cells.is_empty() {
-            return (0..self.quads.len() as u32).filter(|&k| self.quads[k as usize].flags & flag::PATHFINDING == 0).collect();
+            return (0..self.quads.len() as u32)
+                .filter(|&k| self.quads[k as usize].flags & flag::PATHFINDING == 0)
+                .collect();
         }
         let (x0, z0, x1, z1) = self.grid.span(lo, hi);
         let mut out: Vec<u32> = Vec::new();
@@ -284,7 +325,11 @@ impl Quads {
                 if hits.len() >= MAX_COLLISIONS {
                     break;
                 }
-                hits.push(Hit { quad: k, point, distance: point.distance(center) });
+                hits.push(Hit {
+                    quad: k,
+                    point,
+                    distance: point.distance(center),
+                });
             }
         }
         hits.sort_by_key(|h| (round_256(h.distance), h.quad));
@@ -298,7 +343,10 @@ impl Quads {
         let end = start + vector;
         // (A quick reject on the boxes, wide enough never to change the
         // answer.)
-        let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
+        let (lo, hi) = (
+            start.min(end) - Vec3::splat(0.25),
+            start.max(end) + Vec3::splat(0.25),
+        );
         self.candidates(lo, hi, false)
             .into_iter()
             .map(|k| (k as usize, &self.quads[k as usize]))
@@ -306,7 +354,11 @@ impl Quads {
             .filter_map(|(k, q)| {
                 let point = self.quad_line(q, start, end)?;
                 let d = point - start;
-                Some(Hit { quad: k as u32, point, distance: d.x.abs() + d.y.abs() + d.z.abs() })
+                Some(Hit {
+                    quad: k as u32,
+                    point,
+                    distance: d.x.abs() + d.y.abs() + d.z.abs(),
+                })
             })
             .min_by_key(|h| (round_256(h.distance), h.quad))
     }
@@ -317,7 +369,10 @@ impl Quads {
     /// [`MAX_COLLISIONS`].
     pub fn ray_all(&self, start: Vec3, vector: Vec3, skip: u32) -> Vec<Hit> {
         let end = start + vector;
-        let (lo, hi) = (start.min(end) - Vec3::splat(0.25), start.max(end) + Vec3::splat(0.25));
+        let (lo, hi) = (
+            start.min(end) - Vec3::splat(0.25),
+            start.max(end) + Vec3::splat(0.25),
+        );
         let mut hits: Vec<Hit> = self
             .candidates(lo, hi, false)
             .into_iter()
@@ -326,7 +381,11 @@ impl Quads {
             .filter_map(|(k, q)| {
                 let point = self.quad_line(q, start, end)?;
                 let d = point - start;
-                Some(Hit { quad: k, point, distance: d.x.abs() + d.y.abs() + d.z.abs() })
+                Some(Hit {
+                    quad: k,
+                    point,
+                    distance: d.x.abs() + d.y.abs() + d.z.abs(),
+                })
             })
             .collect();
         hits.sort_by_key(|h| (round_256(h.distance), h.quad));
@@ -388,7 +447,8 @@ impl Quads {
                 None
             };
             let close = tolerance.is_some_and(|t| last_point.distance_squared(h.point) < t * t);
-            let reversed = q.flags & flag::DRAW_BOTH_SIDES == 0 && line.dot(self.plane(q.plane).0) > 0.0;
+            let reversed =
+                q.flags & flag::DRAW_BOTH_SIDES == 0 && line.dot(self.plane(q.plane).0) > 0.0;
             if last_was_hit && reversed && h.point.distance_squared(last_hit) < 3.0 * 3.0 {
                 n = n.saturating_sub(1);
             }
@@ -420,7 +480,10 @@ impl Quads {
         if (start_d > radius && end_d > radius) || (start_d < -radius && end_d < -radius) {
             return None;
         }
-        let (lo, hi) = (q.min - Vec3::splat(radius + 0.001), q.max + Vec3::splat(radius + 0.001));
+        let (lo, hi) = (
+            q.min - Vec3::splat(radius + 0.001),
+            q.max + Vec3::splat(radius + 0.001),
+        );
         for i in 0..3 {
             if (center[i] < lo[i] && end[i] < lo[i]) || (center[i] > hi[i] && end[i] > hi[i]) {
                 return None;
@@ -467,7 +530,8 @@ impl Quads {
             }
             // The closest approach of the edge and the sweep's axis (with
             // the same parameter on both, as the original has it).
-            let t = -(v_dot_c - center.dot(cd) - vector.dot(c) + cd.dot(c)) / (len2 - 2.0 * vector.dot(cd) + cd.length_squared());
+            let t = -(v_dot_c - center.dot(cd) - vector.dot(c) + cd.dot(c))
+                / (len2 - 2.0 * vector.dot(cd) + cd.length_squared());
             if (0.0..=1.0).contains(&t) {
                 let p = c + cd * t;
                 if (center + vector * t).distance_squared(p) <= r2 {
@@ -496,7 +560,11 @@ impl Quads {
                 let (ui, vi, um, vm) = (a[u], a[v], b[u] - a[u], b[v] - a[v]);
                 let tt = (vt * um - vi * um - ut * vm + ui * vm) / (umt * vm - vmt * um);
                 if (0.0..=1.0).contains(&tt) {
-                    let tn = if um.abs() < EPSILON { (vt + tt * vmt - vi) / vm } else { (ut + tt * umt - ui) / um };
+                    let tn = if um.abs() < EPSILON {
+                        (vt + tt * vmt - vi) / vm
+                    } else {
+                        (ut + tt * umt - ui) / um
+                    };
                     if (0.0..=1.0).contains(&tn) {
                         // (The original places the hit by the edge's
                         // parameter along the segment.)
@@ -511,7 +579,10 @@ impl Quads {
             return None;
         }
         let num = -ds;
-        if num.abs() - denom.abs() > EPSILON || (denom < -EPSILON && num > EPSILON) || (denom > EPSILON && num < -EPSILON) {
+        if num.abs() - denom.abs() > EPSILON
+            || (denom < -EPSILON && num > EPSILON)
+            || (denom > EPSILON && num < -EPSILON)
+        {
             return None;
         }
         let p = start + m * (num / denom);
@@ -562,7 +633,9 @@ pub(crate) mod tests {
         for (corners, flags) in walls {
             let base = q.points.len() as u32;
             q.points.extend_from_slice(corners);
-            let n = (corners[1] - corners[0]).cross(corners[2] - corners[0]).normalize();
+            let n = (corners[1] - corners[0])
+                .cross(corners[2] - corners[0])
+                .normalize();
             q.planes.push([n.x, n.y, n.z, -n.dot(corners[0])]);
             let (mut min, mut max) = (corners[0], corners[0]);
             for c in corners {
@@ -576,7 +649,11 @@ pub(crate) mod tests {
             } else {
                 3
             };
-            let kind = if n.y.abs() > 0.5 { flag::FLOOR_CEILING } else { flag::WALL };
+            let kind = if n.y.abs() > 0.5 {
+                flag::FLOOR_CEILING
+            } else {
+                flag::WALL
+            };
             q.quads.push(Quad {
                 points: [base, base + 1, base + 2, base + 3],
                 flags: flags | kind | (proj << 25),
@@ -595,18 +672,39 @@ pub(crate) mod tests {
 
     /// A 20×20 wall in the plane z = 0, facing +z.
     pub(crate) fn wall() -> [Vec3; 4] {
-        [Vec3::new(-10.0, -10.0, 0.0), Vec3::new(10.0, -10.0, 0.0), Vec3::new(10.0, 10.0, 0.0), Vec3::new(-10.0, 10.0, 0.0)]
+        [
+            Vec3::new(-10.0, -10.0, 0.0),
+            Vec3::new(10.0, -10.0, 0.0),
+            Vec3::new(10.0, 10.0, 0.0),
+            Vec3::new(-10.0, 10.0, 0.0),
+        ]
     }
 
     #[test]
     fn a_ray_hits_the_wall_and_skips_flagged_quads() {
         let q = room(&[(wall(), 0)]);
-        let h = q.ray(Vec3::new(1.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), flag::OBJ_COL_SKIP).unwrap();
+        let h = q
+            .ray(
+                Vec3::new(1.0, 2.0, 5.0),
+                Vec3::new(0.0, 0.0, -10.0),
+                flag::OBJ_COL_SKIP,
+            )
+            .unwrap();
         assert_eq!(h.quad, 0);
         assert!(h.point.distance(Vec3::new(1.0, 2.0, 0.0)) < 1e-4);
-        assert!(q.ray(Vec3::new(11.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), 0).is_none(), "beside it");
+        assert!(
+            q.ray(Vec3::new(11.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), 0)
+                .is_none(),
+            "beside it"
+        );
         let q = room(&[(wall(), flag::NO_COLLISION)]);
-        assert!(q.ray(Vec3::new(1.0, 2.0, 5.0), Vec3::new(0.0, 0.0, -10.0), flag::OBJ_COL_SKIP).is_none());
+        assert!(q
+            .ray(
+                Vec3::new(1.0, 2.0, 5.0),
+                Vec3::new(0.0, 0.0, -10.0),
+                flag::OBJ_COL_SKIP
+            )
+            .is_none());
     }
 
     #[test]
@@ -618,7 +716,10 @@ pub(crate) mod tests {
         let q = room(&[(wall(), flag::TRANSPARENT | flag::BREAKABLE)]);
         assert!(q.shoots(a, b), "breakable glass doesn't stop its shots");
         let q = room(&[(wall(), flag::JELLO)]);
-        assert!(!q.sees(a, b) && q.clear(a, b, flag::LOS_SEE_PLAYER), "jello hides from AIs, not from the player");
+        assert!(
+            !q.sees(a, b) && q.clear(a, b, flag::LOS_SEE_PLAYER),
+            "jello hides from AIs, not from the player"
+        );
     }
 
     #[test]
@@ -626,28 +727,56 @@ pub(crate) mod tests {
         let at = |z: f32| wall().map(|p| p + Vec3::new(0.0, 0.0, z));
         // (Facing +z: the way back toward the sound.)
         let two = room(&[(at(0.0), 0), (at(-5.0), 0)]);
-        assert_eq!(two.occlusions(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, -10.0)), 2);
+        assert_eq!(
+            two.occlusions(Vec3::new(0.0, 0.0, 10.0), Vec3::new(0.0, 0.0, -10.0)),
+            2
+        );
         // A sound on a surface isn't muffled by it.
-        assert_eq!(two.occlusions(Vec3::new(0.0, 0.0, 0.05), Vec3::new(0.0, 0.0, -10.0)), 1);
+        assert_eq!(
+            two.occlusions(Vec3::new(0.0, 0.0, 0.05), Vec3::new(0.0, 0.0, -10.0)),
+            1
+        );
         // Inside a crate (its far side faces away, -z; same object): only
         // the wall beyond counts. A second crate further on does count.
-        let back = [Vec3::new(-10.0, -10.0, -1.0), Vec3::new(-10.0, 10.0, -1.0), Vec3::new(10.0, 10.0, -1.0), Vec3::new(10.0, -10.0, -1.0)];
+        let back = [
+            Vec3::new(-10.0, -10.0, -1.0),
+            Vec3::new(-10.0, 10.0, -1.0),
+            Vec3::new(10.0, 10.0, -1.0),
+            Vec3::new(10.0, -10.0, -1.0),
+        ];
         let mut q = room(&[(back, flag::FURNITURE), (at(-10.0), 0)]);
         q.quads[0].object_tag = 7;
         assert_eq!(q.occlusions(Vec3::ZERO, Vec3::new(0.0, 0.0, -20.0)), 1);
-        let mut q = room(&[(back, flag::FURNITURE), (at(-4.0), flag::FURNITURE), (at(-10.0), 0)]);
+        let mut q = room(&[
+            (back, flag::FURNITURE),
+            (at(-4.0), flag::FURNITURE),
+            (at(-10.0), 0),
+        ]);
         q.quads[0].object_tag = 7;
         q.quads[1].object_tag = 8;
-        assert_eq!(q.occlusions(Vec3::ZERO, Vec3::new(0.0, 0.0, -20.0)), 2, "another crate's face counts");
+        assert_eq!(
+            q.occlusions(Vec3::ZERO, Vec3::new(0.0, 0.0, -20.0)),
+            2,
+            "another crate's face counts"
+        );
     }
 
     #[test]
     fn a_sphere_finds_nearby_quads_nearest_first() {
         let far = wall().map(|p| p + Vec3::new(0.0, 0.0, -3.0));
-        let side = [Vec3::new(10.0, -10.0, 0.0), Vec3::new(10.0, -10.0, 20.0), Vec3::new(10.0, 10.0, 20.0), Vec3::new(10.0, 10.0, 0.0)];
+        let side = [
+            Vec3::new(10.0, -10.0, 0.0),
+            Vec3::new(10.0, -10.0, 20.0),
+            Vec3::new(10.0, 10.0, 20.0),
+            Vec3::new(10.0, 10.0, 0.0),
+        ];
         let q = room(&[(far, 0), (side, 0), (wall(), 0)]);
         let hits = q.sphere(Vec3::new(9.0, 0.0, 0.0), 1.5, Vec3::new(0.0, 0.0, -10.0), 0);
         let order: Vec<u32> = hits.iter().map(|h| h.quad).collect();
-        assert_eq!(order, vec![2, 1, 0], "the wall touched at once, the side 1 away, the far one 3 down");
+        assert_eq!(
+            order,
+            vec![2, 1, 0],
+            "the wall touched at once, the side 1 away, the far one 3 down"
+        );
     }
 }

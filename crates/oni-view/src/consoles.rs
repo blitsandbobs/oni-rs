@@ -94,8 +94,17 @@ pub fn load(level_dir: &Path) -> Vec<Console> {
         .into_iter()
         .flatten()
         .map(|c| {
-            let has = |f: &str| c["flags"].as_array().is_some_and(|a| a.iter().any(|x| x == f));
-            let events = c["events"].as_array().into_iter().flatten().map(event).collect();
+            let has = |f: &str| {
+                c["flags"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|x| x == f))
+            };
+            let events = c["events"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(event)
+                .collect();
             let initial_active = has("initialActive");
             Console {
                 id: c["id"].as_u64().unwrap_or(0) as u16,
@@ -109,9 +118,14 @@ pub fn load(level_dir: &Path) -> Vec<Console> {
                 is_alarm: has("isAlarm"),
                 active: initial_active,
                 triggered: false,
-                rotation: glam::Mat3::from_cols(v3(&c["axes"][0]), v3(&c["axes"][1]), v3(&c["axes"][2])),
+                rotation: glam::Mat3::from_cols(
+                    v3(&c["axes"][0]),
+                    v3(&c["axes"][1]),
+                    v3(&c["axes"][2]),
+                ),
                 screen_model: c["screenModel"].as_str().map(str::to_string),
-                screens: ["inactive", "active", "triggered"].map(|k| c["screens"][k].as_str().unwrap_or("").to_string()),
+                screens: ["inactive", "active", "triggered"]
+                    .map(|k| c["screens"][k].as_str().unwrap_or("").to_string()),
             }
         })
         .collect()
@@ -134,8 +148,14 @@ impl Console {
         let d = Vec3::new(pelvis.x - self.marker.x, 0.0, pelvis.z - self.marker.z);
         let along = d.dot(away);
         let side = (d - away * along).length();
-        let (side_max, facing_max) = if generous { (MARKER_SIDE * 2.0, MARKER_FACING * 1.5) } else { (MARKER_SIDE, MARKER_FACING) };
-        (MARKER_AHEAD..=MARKER_BEHIND).contains(&along) && side <= side_max && wrap(facing - self.facing).abs() <= facing_max
+        let (side_max, facing_max) = if generous {
+            (MARKER_SIDE * 2.0, MARKER_FACING * 1.5)
+        } else {
+            (MARKER_SIDE, MARKER_FACING)
+        };
+        (MARKER_AHEAD..=MARKER_BEHIND).contains(&along)
+            && side <= side_max
+            && wrap(facing - self.facing).abs() <= facing_max
     }
 
     /// Where a user ends up: at the marker, on the console's floor.
@@ -220,7 +240,10 @@ mod tests {
         // Too far behind the marker, too far aside, wrong floor.
         assert!(!c.in_reach(Vec3::new(0.0, 10.0, 15.0), PI, false));
         assert!(!c.in_reach(Vec3::new(9.0, 10.0, 5.0), PI, false));
-        assert!(c.in_reach(Vec3::new(9.0, 10.0, 5.0), PI, true), "the AI's test allows more aside");
+        assert!(
+            c.in_reach(Vec3::new(9.0, 10.0, 5.0), PI, true),
+            "the AI's test allows more aside"
+        );
         assert!(!c.in_reach(Vec3::new(0.0, 25.0, 5.0), PI, false));
     }
 }

@@ -49,32 +49,56 @@ pub struct GammaPass {
 
 impl GammaPass {
     pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> GammaPass {
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor { label: Some("gamma"), source: wgpu::ShaderSource::Wgsl(SHADER.into()) });
+        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("gamma"),
+            source: wgpu::ShaderSource::Wgsl(SHADER.into()),
+        });
         let bgl = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("gamma"),
             entries: &[
                 wgpu::BindGroupLayoutEntry {
                     binding: 0,
                     visibility: wgpu::ShaderStages::FRAGMENT,
-                    ty: wgpu::BindingType::Texture { sample_type: wgpu::TextureSampleType::Float { filterable: true }, view_dimension: wgpu::TextureViewDimension::D2, multisampled: false },
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
                     count: None,
                 },
-                wgpu::BindGroupLayoutEntry { binding: 1, visibility: wgpu::ShaderStages::FRAGMENT, ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering), count: None },
+                wgpu::BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                    count: None,
+                },
             ],
         });
         let layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("gamma"),
             bind_group_layouts: &[&bgl],
-            push_constant_ranges: &[wgpu::PushConstantRange { stages: wgpu::ShaderStages::FRAGMENT, range: 0..16 }],
+            push_constant_ranges: &[wgpu::PushConstantRange {
+                stages: wgpu::ShaderStages::FRAGMENT,
+                range: 0..16,
+            }],
         });
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("gamma"),
             layout: Some(&layout),
-            vertex: wgpu::VertexState { module: &module, entry_point: Some("vs"), buffers: &[], compilation_options: Default::default() },
+            vertex: wgpu::VertexState {
+                module: &module,
+                entry_point: Some("vs"),
+                buffers: &[],
+                compilation_options: Default::default(),
+            },
             fragment: Some(wgpu::FragmentState {
                 module: &module,
                 entry_point: Some("fs"),
-                targets: &[Some(wgpu::ColorTargetState { format, blend: None, write_mask: wgpu::ColorWrites::ALL })],
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
                 compilation_options: Default::default(),
             }),
             primitive: wgpu::PrimitiveState::default(),
@@ -83,8 +107,17 @@ impl GammaPass {
             multiview: None,
             cache: None,
         });
-        let sampler = device.create_sampler(&wgpu::SamplerDescriptor { label: Some("gamma"), ..Default::default() });
-        GammaPass { pipeline, bgl, sampler, format, frame: None }
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("gamma"),
+            ..Default::default()
+        });
+        GammaPass {
+            pipeline,
+            bgl,
+            sampler,
+            format,
+            frame: None,
+        }
     }
 
     /// The texture to draw a `w` × `h` frame into (made to size).
@@ -96,7 +129,11 @@ impl GammaPass {
         }
         let tex = device.create_texture(&wgpu::TextureDescriptor {
             label: Some("gamma frame"),
-            size: wgpu::Extent3d { width: w, height: h, depth_or_array_layers: 1 },
+            size: wgpu::Extent3d {
+                width: w,
+                height: h,
+                depth_or_array_layers: 1,
+            },
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
@@ -108,22 +145,41 @@ impl GammaPass {
         let bg = device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("gamma"),
             layout: &self.bgl,
-            entries: &[wgpu::BindGroupEntry { binding: 0, resource: wgpu::BindingResource::TextureView(&view) }, wgpu::BindGroupEntry { binding: 1, resource: wgpu::BindingResource::Sampler(&self.sampler) }],
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(&view),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+            ],
         });
         self.frame = Some((view.clone(), bg, w, h));
         view
     }
 
     /// The frame copied to `target` through the ramp.
-    pub fn apply(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, power: f32) {
-        let Some((_, bg, _, _)) = &self.frame else { return };
+    pub fn apply(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        power: f32,
+    ) {
+        let Some((_, bg, _, _)) = &self.frame else {
+            return;
+        };
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("gamma"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Clear(wgpu::Color::BLACK), store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -132,7 +188,11 @@ impl GammaPass {
         pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, bg, &[]);
         let srgb = if self.format.is_srgb() { 1.0f32 } else { 0.0 };
-        pass.set_push_constants(wgpu::ShaderStages::FRAGMENT, 0, bytemuck::cast_slice(&[power, srgb, 0.0, 0.0]));
+        pass.set_push_constants(
+            wgpu::ShaderStages::FRAGMENT,
+            0,
+            bytemuck::cast_slice(&[power, srgb, 0.0, 0.0]),
+        );
         pass.draw(0..3, 0..1);
     }
 }

@@ -89,7 +89,8 @@ pub struct Link {
 }
 
 fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4).map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    d.get(o..o + 4)
+        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
 }
 fn i16_at(d: &[u8], o: usize) -> Option<i16> {
     d.get(o..o + 2).map(|b| i16::from_le_bytes([b[0], b[1]]))
@@ -147,13 +148,26 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
             return None;
         }
         let o = POINTS_DATA + i as usize * 12;
-        Some([f32_at(points, o)?, f32_at(points, o + 4)?, f32_at(points, o + 8)?])
+        Some([
+            f32_at(points, o)?,
+            f32_at(points, o + 4)?,
+            f32_at(points, o + 8)?,
+        ])
     };
     // A plane reference: index, with bit 31 meaning "negated".
     let plane = |r: u32| -> Option<[f32; 4]> {
         let o = DATA + (r & 0x7FFF_FFFF) as usize * 16;
-        let p = [f32_at(planes, o)?, f32_at(planes, o + 4)?, f32_at(planes, o + 8)?, f32_at(planes, o + 12)?];
-        Some(if r & 0x8000_0000 != 0 { p.map(|v| -v) } else { p })
+        let p = [
+            f32_at(planes, o)?,
+            f32_at(planes, o + 4)?,
+            f32_at(planes, o + 8)?,
+            f32_at(planes, o + 12)?,
+        ];
+        Some(if r & 0x8000_0000 != 0 {
+            p.map(|v| -v)
+        } else {
+            p
+        })
     };
     let num_bsp = u16_at(bsp, NUM16)? as u32;
     let num_links = u32_at(links, NUM)?;
@@ -176,13 +190,22 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
         }
 
         let vec3 = |at: usize| -> Option<[f32; 3]> {
-            Some([f32_at(rooms, o + at)?, f32_at(rooms, o + at + 4)?, f32_at(rooms, o + at + 8)?])
+            Some([
+                f32_at(rooms, o + at)?,
+                f32_at(rooms, o + at + 4)?,
+                f32_at(rooms, o + at + 8)?,
+            ])
         };
         let (min, max) = (vec3(48)?, vec3(60)?);
         let stair = (flags & room_flag::STAIRS != 0)
             .then(|| -> Option<([f32; 4], f32)> {
                 Some((
-                    [f32_at(rooms, o + 96)?, f32_at(rooms, o + 100)?, f32_at(rooms, o + 104)?, f32_at(rooms, o + 108)?],
+                    [
+                        f32_at(rooms, o + 96)?,
+                        f32_at(rooms, o + 100)?,
+                        f32_at(rooms, o + 104)?,
+                        f32_at(rooms, o + 108)?,
+                    ],
                     f32_at(rooms, o + 112)?,
                 ))
             })
@@ -197,7 +220,10 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
                 Some(Grid {
                     width: gw,
                     height: gh,
-                    origin: [min[0] + f32::from(gox) * SQUARE, min[2] + f32::from(goy) * SQUARE],
+                    origin: [
+                        min[0] + f32::from(gox) * SQUARE,
+                        min[2] + f32::from(goy) * SQUARE,
+                    ],
                     cells: decode_grid(rle, (gw * gh) as usize),
                 })
             })
@@ -218,11 +244,23 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
                 for (k, c) in corners.iter_mut().enumerate() {
                     *c = point(u32_at(quads, qo + k * 4)?)?;
                 }
-                room_links.push(Link { to, quad_flags, quad: corners });
+                room_links.push(Link {
+                    to,
+                    quad_flags,
+                    quad: corners,
+                });
             }
         }
 
-        out.push(Room { flags, planes: hull, min, max, stair, grid, links: room_links });
+        out.push(Room {
+            flags,
+            planes: hull,
+            min,
+            max,
+            stair,
+            grid,
+            links: room_links,
+        });
     }
     Some(out)
 }
@@ -234,6 +272,9 @@ mod tests {
     #[test]
     fn rle_runs_expand() {
         // 3 × clear, then a long run (0 high nibble → next byte) of 20 × danger.
-        assert_eq!(decode_grid(&[0x30, 0x08, 20], 23), [vec![0; 3], vec![8; 20]].concat());
+        assert_eq!(
+            decode_grid(&[0x30, 0x08, 20], 23),
+            [vec![0; 3], vec![8; 20]].concat()
+        );
     }
 }

@@ -34,13 +34,18 @@ pub(super) struct Mouse {
 
 impl Mouse {
     pub fn new(focused: bool) -> Mouse {
-        Mouse { focused, ..Default::default() }
+        Mouse {
+            focused,
+            ..Default::default()
+        }
     }
 }
 
 /// The arrow's texture: its part specification's (`common/part_specs.json`).
 fn arrow_texture(common: &Path) -> Option<PathBuf> {
-    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(common.join("part_specs.json")).ok()?).ok()?;
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(common.join("part_specs.json")).ok()?)
+            .ok()?;
     let name = doc["partSpecs"]["ps_cursor_arrow"]["texture"].as_str()?;
     Some(common.join("textures").join(format!("{name}.png"))).filter(|p| p.exists())
 }
@@ -66,19 +71,36 @@ impl State {
             self.mouse_held.clear();
             if grab {
                 let size = self.window.inner_size();
-                let _ = self.window.set_cursor_position(PhysicalPosition::new(size.width / 2, size.height / 2));
+                let _ = self
+                    .window
+                    .set_cursor_position(PhysicalPosition::new(size.width / 2, size.height / 2));
                 let scale = self.window.scale_factor() as f32;
-                self.cursor = [size.width as f32 / 2.0 / scale, size.height as f32 / 2.0 / scale];
-                let _ = self.window.set_cursor_grab(CursorGrabMode::Locked).or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined));
+                self.cursor = [
+                    size.width as f32 / 2.0 / scale,
+                    size.height as f32 / 2.0 / scale,
+                ];
+                let _ = self
+                    .window
+                    .set_cursor_grab(CursorGrabMode::Locked)
+                    .or_else(|_| self.window.set_cursor_grab(CursorGrabMode::Confined));
             } else {
                 let _ = self.window.set_cursor_grab(CursorGrabMode::None);
             }
         }
         if ui && self.mouse.texture.is_none() {
-            let root = self.front.as_ref().map(|f| f.oni_root.clone()).or_else(|| self.play.as_ref()?.flow.as_ref().map(|f| f.oni_root.clone()));
+            let root = self.front.as_ref().map(|f| f.oni_root.clone()).or_else(|| {
+                self.play
+                    .as_ref()?
+                    .flow
+                    .as_ref()
+                    .map(|f| f.oni_root.clone())
+            });
             self.mouse.texture = Some(root.and_then(|r| arrow_texture(&r.join("common"))));
         }
-        self.mouse.arrow = ui && !grab && self.mouse.inside && self.mouse.texture.as_ref().is_some_and(Option::is_some);
+        self.mouse.arrow = ui
+            && !grab
+            && self.mouse.inside
+            && self.mouse.texture.as_ref().is_some_and(Option::is_some);
         let hidden = grab || self.mouse.arrow;
         if hidden != self.mouse.hidden {
             self.mouse.hidden = hidden;
@@ -91,9 +113,16 @@ impl State {
         if !self.mouse.arrow {
             return;
         }
-        let Some(Some(path)) = self.mouse.texture.clone() else { return };
+        let Some(Some(path)) = self.mouse.texture.clone() else {
+            return;
+        };
         let [x, y] = self.cursor;
         let (l, t) = (x - ARROW_CENTER, y - ARROW_CENTER);
-        self.renderer.overlay.push(crate::render::OverlayDraw { texture: Some(path), tris: super::quad([l, t, l + ARROW, t + ARROW]), color: [1.0; 4], additive: false });
+        self.renderer.overlay.push(crate::render::OverlayDraw {
+            texture: Some(path),
+            tris: super::quad([l, t, l + ARROW, t + ARROW]),
+            color: [1.0; 4],
+            additive: false,
+        });
     }
 }

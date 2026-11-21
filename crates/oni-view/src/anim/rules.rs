@@ -63,8 +63,19 @@ pub fn fighting() -> Vec<Rule> {
     let mut r = Vec::new();
 
     // Special follow-ups that need a held direction.
-    r.push(rule(KICK3_FORWARD).press(k::KICK).hold(k::FORWARD).after(KICK2).late());
-    r.push(rule(GETUP_KICK_BACK).press(k::KICK).hold(k::BACKWARD).late());
+    r.push(
+        rule(KICK3_FORWARD)
+            .press(k::KICK)
+            .hold(k::FORWARD)
+            .after(KICK2)
+            .late(),
+    );
+    r.push(
+        rule(GETUP_KICK_BACK)
+            .press(k::KICK)
+            .hold(k::BACKWARD)
+            .late(),
+    );
 
     // A strike with a direction (or crouch) held picks the directional version.
     for (dir, anim) in [
@@ -337,7 +348,13 @@ pub fn jump(q: Quirks) -> Vec<Rule> {
 /// Touching down, by held direction; `hard` after a damaging fall.
 pub fn land(hard: bool) -> Vec<Rule> {
     let set = if hard {
-        [LAND_FORWARD_HARD, LAND_LEFT_HARD, LAND_RIGHT_HARD, LAND_BACK_HARD, LAND_HARD]
+        [
+            LAND_FORWARD_HARD,
+            LAND_LEFT_HARD,
+            LAND_RIGHT_HARD,
+            LAND_BACK_HARD,
+            LAND_HARD,
+        ]
     } else {
         [LAND_FORWARD, LAND_LEFT, LAND_RIGHT, LAND_BACK, LAND]
     };
@@ -357,10 +374,17 @@ mod tests {
     #[test]
     fn combos_follow_the_directional_strikes() {
         let f = fighting();
-        let first_combo = f.iter().position(|r| r.after != NONE && r.hold == 0).unwrap();
+        let first_combo = f
+            .iter()
+            .position(|r| r.after != NONE && r.hold == 0)
+            .unwrap();
         let last_directional = f.iter().rposition(|r| r.anim == KICK_LOW).unwrap();
         assert!(last_directional < first_combo);
-        assert_eq!(f.last().unwrap().anim, FLIP, "the flip is the final fallback");
+        assert_eq!(
+            f.last().unwrap().anim,
+            FLIP,
+            "the flip is the final fallback"
+        );
     }
 
     #[test]

@@ -76,7 +76,9 @@ fn vec3(d: &[u8], o: usize) -> [f32; 3] {
 }
 
 fn anim_type(t: u16) -> Value {
-    oni_schema::ANIM_TYPES.get(t as usize).map_or(json!(t), |s| json!(s))
+    oni_schema::ANIM_TYPES
+        .get(t as usize)
+        .map_or(json!(t), |s| json!(s))
 }
 
 /// The AI's aiming and shooting parameters for one shooter.
@@ -109,7 +111,12 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<Value> {
         return None;
     }
     let flags = le_u32(d, 204);
-    let names: Vec<&str> = FLAGS.iter().enumerate().filter(|(b, n)| !n.is_empty() && flags & (1 << b) != 0).map(|(_, n)| *n).collect();
+    let names: Vec<&str> = FLAGS
+        .iter()
+        .enumerate()
+        .filter(|(b, n)| !n.is_empty() && flags & (1 << b) != 0)
+        .map(|(_, n)| *n)
+        .collect();
     let count = (le_u16(d, 194) as usize).min(16);
     let attachments: Vec<Value> = (0..count)
         .map(|i| {
@@ -152,10 +159,19 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<Value> {
             "firingReturnSpeed": le_f32(d, 144),
         }),
     );
-    c.insert("sight".into(), json!({ "position": vec3(d, 0), "vector": vec3(d, 12) }));
+    c.insert(
+        "sight".into(),
+        json!({ "position": vec3(d, 0), "vector": vec3(d, 12) }),
+    );
     c.insert("maxSightDistance".into(), json!(le_f32(d, 24)));
-    c.insert("laserColor".into(), json!(format!("#{:08x}", le_u32(d, 28))));
-    c.insert("secondHand".into(), json!({ "position": vec3(d, 172), "vector": vec3(d, 148), "up": vec3(d, 160) }));
+    c.insert(
+        "laserColor".into(),
+        json!(format!("#{:08x}", le_u32(d, 28))),
+    );
+    c.insert(
+        "secondHand".into(),
+        json!({ "position": vec3(d, 172), "vector": vec3(d, 148), "up": vec3(d, 160) }),
+    );
     c.insert("pickupOffset".into(), json!(vec3(d, 1796)));
     c.insert("displayYOffset".into(), json!(le_f32(d, 1808)));
     let empty = cstr(d, 1744, 32);
@@ -174,7 +190,9 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<Value> {
 pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
     let mut out = Map::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_ONWC) {
-        let Some(d) = dat.instance_data(inst) else { continue };
+        let Some(d) = dat.instance_data(inst) else {
+            continue;
+        };
         // The geometry: a named model lives in common/models under its name,
         // an unnamed one under its tag and index (`asset_name`).
         let r = le_u32(d, 88);
@@ -189,7 +207,13 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             .then(|| dat.instances.get((r >> 8) as usize))
             .flatten()
             .and_then(|g| oni_geom::extract_mesh(dat, g))
-            .map(|m| m.positions.iter().flat_map(|p| p.iter().map(|c| c.abs())).fold(0.0f32, f32::max) / 4.0);
+            .map(|m| {
+                m.positions
+                    .iter()
+                    .flat_map(|p| p.iter().map(|c| c.abs()))
+                    .fold(0.0f32, f32::max)
+                    / 4.0
+            });
         if let Some(mut c) = class(d, model) {
             if let Some(r) = radius {
                 c["sphereRadius"] = json!(r);
@@ -199,7 +223,10 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             // how many and how far apart).
             let sprite = |at: usize| {
                 let r = le_u32(d, at);
-                let texture = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten().map(|t| crate::asset_name(dat, t));
+                let texture = (r & 1 != 0)
+                    .then(|| dat.instances.get((r >> 8) as usize))
+                    .flatten()
+                    .map(|t| crate::asset_name(dat, t));
                 texture.map(|t| json!({ "texture": t, "shade": format!("#{:08x}", le_u32(d, at + 4)), "scale": crate::le_f32(d, at + 8) }))
             };
             if let Some(v) = sprite(32) {
@@ -216,7 +243,10 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             // Its HUD textures: the icon, the empty and the full ammo ring.
             for (key, at) in [("icon", 76), ("hudEmpty", 80), ("hudFill", 84)] {
                 let r = le_u32(d, at);
-                if let Some(t) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() {
+                if let Some(t) = (r & 1 != 0)
+                    .then(|| dat.instances.get((r >> 8) as usize))
+                    .flatten()
+                {
                     c[key] = json!(crate::asset_name(dat, t));
                 }
             }
@@ -230,7 +260,10 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
     }
     let count = out.len();
     std::fs::create_dir_all(common)?;
-    std::fs::write(common.join("weapons.json"), serde_json::to_string_pretty(&json!({ "classes": out }))?)?;
+    std::fs::write(
+        common.join("weapons.json"),
+        serde_json::to_string_pretty(&json!({ "classes": out }))?,
+    )?;
     Ok(count)
 }
 
@@ -254,14 +287,20 @@ pub fn write_items(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()
         .iter()
         .map(|o| {
             let code = o.data.get(..4).unwrap_or_default();
-            let kind = POWERUPS.iter().find(|(c, _)| c.as_slice() == code).map_or("ammoBallistic", |(_, n)| n);
+            let kind = POWERUPS
+                .iter()
+                .find(|(c, _)| c.as_slice() == code)
+                .map_or("ammoBallistic", |(_, n)| n);
             json!({ "id": o.id, "type": kind, "position": o.position, "yaw": o.rotation[1] })
         })
         .collect();
     if weapons.is_empty() && powerups.is_empty() {
         return Ok(());
     }
-    std::fs::write(root.join("items.json"), serde_json::to_string_pretty(&json!({ "weapons": weapons, "powerups": powerups }))?)
+    std::fs::write(
+        root.join("items.json"),
+        serde_json::to_string_pretty(&json!({ "weapons": weapons, "powerups": powerups }))?,
+    )
 }
 
 #[cfg(test)]

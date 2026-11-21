@@ -90,7 +90,15 @@ pub struct Difficulty {
 
 impl Default for Difficulty {
     fn default() -> Self {
-        Difficulty { notice: 1.0, dodge: 1.0, block: 1.0, player_hp: 1.0, enemy_hp: 1.0, inaccuracy: 1.0, level: 1 }
+        Difficulty {
+            notice: 1.0,
+            dodge: 1.0,
+            block: 1.0,
+            player_hp: 1.0,
+            enemy_hp: 1.0,
+            inaccuracy: 1.0,
+            level: 1,
+        }
     }
 }
 
@@ -281,7 +289,12 @@ impl Melee {
         self.difficulty = difficulty;
         self.quirks = quirks;
         if self.info.is_empty() {
-            self.info = self.profile.techniques.iter().map(|t| tech_info(t, me.motion)).collect();
+            self.info = self
+                .profile
+                .techniques
+                .iter()
+                .map(|t| tech_info(t, me.motion))
+                .collect();
             self.jumps = Jumps::of(me.motion);
         }
         if !me.alive || me.motion.dying || crate::anim::reaction::is_victim(me.motion.kind) {
@@ -332,7 +345,10 @@ impl Melee {
 
         // Step the current move.
         let busy = !me.motion.current().attacks.is_empty()
-            || me.motion.current().has_flag(crate::anim::types::flag::THROW_SOURCE)
+            || me
+                .motion
+                .current()
+                .has_flag(crate::anim::types::flag::THROW_SOURCE)
             || me.airborne;
         let mut mid_move = false;
         if self.technique.is_some() {
@@ -366,7 +382,10 @@ impl Melee {
                 // Striking first beats reacting — only if it lands before the
                 // incoming hit.
                 let first = self.info[t].first_strike;
-                if try_react && self.info[t].damaging && self.ticks_to_hit.is_some_and(|h| first < h) {
+                if try_react
+                    && self.info[t].damaging
+                    && self.ticks_to_hit.is_some_and(|h| first < h)
+                {
                     try_react = false;
                 }
             } else if !try_react {
@@ -411,8 +430,18 @@ impl Melee {
         self.no_technique = 0;
     }
 
-    fn start_technique(&mut self, t: usize, _me: &View, _target: &View, _slot: bool, fights: &mut Fights) {
-        eprintln!("melee: fighter {} uses {:?}", _me.index, self.profile.techniques[t].name);
+    fn start_technique(
+        &mut self,
+        t: usize,
+        _me: &View,
+        _target: &View,
+        _slot: bool,
+        fights: &mut Fights,
+    ) {
+        eprintln!(
+            "melee: fighter {} uses {:?}",
+            _me.index, self.profile.techniques[t].name
+        );
         self.technique = Some(t);
         self.move_index = 0;
         self.committed = false;
@@ -428,7 +457,11 @@ impl Melee {
 
     pub(super) fn finish_technique(&mut self) {
         for a in &mut self.adjust {
-            *a = if *a >= ADJUST_ABORTED { 0.0 } else { *a * ADJUST_DECAY };
+            *a = if *a >= ADJUST_ABORTED {
+                0.0
+            } else {
+                *a * ADJUST_DECAY
+            };
         }
         self.technique = None;
         self.move_index = 0;
@@ -472,16 +505,28 @@ impl Melee {
             self.seen_attack = None;
             return false;
         };
-        let last = clip.reach.as_ref().and_then(|r| r.strikes.last()).map_or(0, |s| s.tick);
+        let last = clip
+            .reach
+            .as_ref()
+            .and_then(|r| r.strikes.last())
+            .map_or(0, |s| s.tick);
         if target.motion.frame > last {
             return false;
         }
         if self.seen_attack != Some(id) {
             self.seen_attack = Some(id);
             let p = &self.profile;
-            let (notice, base, extra, threshold) =
-                (p.notice_percent, p.dodge_base, p.dodge_additional, p.dodge_damage_threshold);
-            let damage = clip.attacks.iter().map(|a| f32::from(a.damage)).fold(0.0, f32::max);
+            let (notice, base, extra, threshold) = (
+                p.notice_percent,
+                p.dodge_base,
+                p.dodge_additional,
+                p.dodge_damage_threshold,
+            );
+            let damage = clip
+                .attacks
+                .iter()
+                .map(|a| f32::from(a.damage))
+                .fold(0.0, f32::max);
             self.react = self.percent() < notice * self.difficulty.notice;
             let dodge = base + extra * (damage / threshold.max(1.0)).min(1.0);
             self.evade = self.percent() < dodge * self.difficulty.dodge;
@@ -491,7 +536,8 @@ impl Melee {
         }
         // Would it hit us, and when?
         let (rel, _) = relative(target, me);
-        let vel = Quat::from_rotation_y(-target.facing) * me.predicted(self.quirks.colliding_velocity_slip());
+        let vel = Quat::from_rotation_y(-target.facing)
+            * me.predicted(self.quirks.colliding_velocity_slip());
         let attacker = Attacker {
             clip,
             tick: target.motion.frame,
@@ -533,16 +579,27 @@ impl Melee {
                 if self.delay_until[i] > self.now || self.info[i].start != Some(state) {
                     continue;
                 }
-                let Some(Move::Evade(e)) = t.moves.first() else { continue };
+                let Some(Move::Evade(e)) = t.moves.first() else {
+                    continue;
+                };
                 let ev = &tables::EVADES[*e];
-                let Some(clip) = me.motion.coll.lookup(tables::ty(ev.anim), me.motion.state, me.motion.varient | var::FIGHT)
-                else {
+                let Some(clip) = me.motion.coll.lookup(
+                    tables::ty(ev.anim),
+                    me.motion.state,
+                    me.motion.varient | var::FIGHT,
+                ) else {
                     continue;
                 };
                 // Room to land where the evasion ends?
-                let end = me.motion.coll.entries[clip].clip.body.last().map_or(Vec3::ZERO, |b| Vec3::new(b[0], 0.0, b[1]));
+                let end = me.motion.coll.entries[clip]
+                    .clip
+                    .body
+                    .last()
+                    .map_or(Vec3::ZERO, |b| Vec3::new(b[0], 0.0, b[1]));
                 let world = Quat::from_rotation_y(me.facing) * end;
-                let fearless = self.quirks.fearless(t.fearless, self.info[i].start.map_or(0, |s| s as u8));
+                let fearless = self
+                    .quirks
+                    .fearless(t.fearless, self.info[i].start.map_or(0, |s| s as u8));
                 let safe = if fearless || world.length() < 0.5 {
                     1.0
                 } else {
@@ -578,13 +635,28 @@ impl Melee {
         } else {
             0
         };
-        let last = clip.reach.as_ref().and_then(|r| r.strikes.last()).map_or(0, |s| s.tick);
-        self.blocking = attack_id(target).map(|attack| BlockHold { attack, last_strike: last, keys });
+        let last = clip
+            .reach
+            .as_ref()
+            .and_then(|r| r.strikes.last())
+            .map_or(0, |s| s.tick);
+        self.blocking = attack_id(target).map(|attack| BlockHold {
+            attack,
+            last_strike: last,
+            keys,
+        });
         self.drop_technique();
     }
 
     /// Weighs the techniques of the pool we may use and picks one.
-    fn choose(&mut self, me: &View, target: &View, slot: bool, fights: &Fights, positions: &[Vec3]) -> Option<usize> {
+    fn choose(
+        &mut self,
+        me: &View,
+        target: &View,
+        slot: bool,
+        fights: &Fights,
+        positions: &[Vec3],
+    ) -> Option<usize> {
         let kind = if slot { Kind::Action } else { Kind::Spacing };
         let state = me.state();
         self.ahead = Some(self.look_ahead(me, target));
@@ -629,7 +701,10 @@ impl Melee {
             }
         }
         if let Some(name) = self.force.take() {
-            if let Some(&(i, _)) = weights.iter().find(|(i, _)| self.profile.techniques[*i].name == name) {
+            if let Some(&(i, _)) = weights
+                .iter()
+                .find(|(i, _)| self.profile.techniques[*i].name == name)
+            {
                 return Some(i);
             }
             self.force = Some(name); // not usable yet: keep asking
@@ -699,14 +774,20 @@ impl Melee {
         let behind = wrap(target.facing - me.facing).abs() < PI / 2.0;
         // Throws: the right side, the right range.
         if let Some(ti) = info.throw {
-            let Move::Throw(index) = t.moves[ti] else { return 0.0 };
+            let Move::Throw(index) = t.moves[ti] else {
+                return 0.0;
+            };
             let th = &THROWS[index];
             // A disarm wants the target holding that kind of gun and our
             // hand empty. (Q22: as shipped a rifle disarm checks for a
             // pistol too — then gives up, the target having no rifle out.)
             let (pistol, rifle) = held_gun(target);
             let armed = held_gun(me) != (false, false);
-            let rifle_wants = if self.quirks.rifle_disarm_wants_pistol() { pistol } else { rifle };
+            let rifle_wants = if self.quirks.rifle_disarm_wants_pistol() {
+                pistol
+            } else {
+                rifle
+            };
             match th.disarm {
                 tables::Disarm::Pistol if !pistol || armed => return 0.0,
                 tables::Disarm::Rifle if !rifle_wants || armed => return 0.0,
@@ -719,7 +800,9 @@ impl Melee {
             if th.victim_running && target.state() != MeleeState::Running {
                 return 0.0; // the tackle needs a running victim
             }
-            if self.quirks.weigh_unthrowable() && (target.knockdown_resistant || target.motion.invulnerable()) {
+            if self.quirks.weigh_unthrowable()
+                && (target.knockdown_resistant || target.motion.invulnerable())
+            {
                 return 0.0;
             }
             f *= if behind {
@@ -737,7 +820,9 @@ impl Melee {
                 Move::Position { index, run_in: ri } => {
                     let p = &POSITIONS[index];
                     f *= transition_cost(me, p.states);
-                    if p.jump == tables::JumpKind::Vertical && target.feet.y - me.feet.y < STANDING_JUMP_HEIGHT {
+                    if p.jump == tables::JumpKind::Vertical
+                        && target.feet.y - me.feet.y < STANDING_JUMP_HEIGHT
+                    {
                         return 0.0; // a jump straight up only for a target well above
                     }
                     if p.jump != tables::JumpKind::None {
@@ -815,7 +900,8 @@ impl Melee {
             if target_dist < ri.min + ri.tolerance && ri.tolerance > 0.0 {
                 f *= ((test - ri.min) / ri.tolerance).clamp(0.0, 1.0);
             }
-            let delay = target_dist - reach - (self.quirks.run_in_radius_times() - 1.0) * target.planning.0;
+            let delay =
+                target_dist - reach - (self.quirks.run_in_radius_times() - 1.0) * target.planning.0;
             if !(skippable && delay < -SKIP_POSITIONING) {
                 let delay = delay.max(0.0);
                 if delay > ri.max {
@@ -830,7 +916,10 @@ impl Melee {
                 }
                 offset = delay;
             }
-        } else if info.throw.is_some() && info.attack.is_none() && target_dist > reach / THROW_DIST_SAFETY {
+        } else if info.throw.is_some()
+            && info.attack.is_none()
+            && target_dist > reach / THROW_DIST_SAFETY
+        {
             return 0.0;
         } else if let Some((kind, _)) = jump {
             // Too close to jump at.
@@ -852,15 +941,25 @@ impl Melee {
             }
             let c = &me.motion.coll.entries[clip].clip;
             let (rel, _) = relative_turned(me, target, turn);
-            let mut vel = Quat::from_rotation_y(-(me.facing + turn)) * target.predicted(self.quirks.colliding_velocity_slip());
+            let mut vel = Quat::from_rotation_y(-(me.facing + turn))
+                * target.predicted(self.quirks.colliding_velocity_slip());
             let along = dir.map_or(Vec3::Z, |d| Vec3::new(d.sin(), 0.0, d.cos()));
             let air = jump.map(|(kind, jdir)| {
-                if matches!(kind, tables::JumpKind::Standing | tables::JumpKind::Vertical) {
+                if matches!(
+                    kind,
+                    tables::JumpKind::Standing | tables::JumpKind::Vertical
+                ) {
                     vel = Vec3::ZERO; // these don't lead a moving target
                 }
                 jumps.air(me, kind, jdir)
             });
-            let attacker = Attacker { clip: c, tick: 0, air, sphere: 3.0, quirks: self.quirks };
+            let attacker = Attacker {
+                clip: c,
+                tick: 0,
+                air,
+                sphere: 3.0,
+                quirks: self.quirks,
+            };
             let victim = Target {
                 pos: rel - along * offset,
                 velocity: vel,
@@ -873,7 +972,10 @@ impl Melee {
                 return 0.0;
             }
             // The way there (and where the attack carries us) must be clear.
-            if !self.quirks.fearless(t.fearless, info.start.map_or(0, |s| s as u8)) {
+            if !self
+                .quirks
+                .fearless(t.fearless, info.start.map_or(0, |s| s as u8))
+            {
                 let carry = c.body.last().map_or(0.0, |b| b[1].abs().max(b[0].abs()));
                 let dist = match jump {
                     Some((kind, _)) => jumps.vel(kind) * 0.5 * (jumps.min + jumps.max),
@@ -885,7 +987,11 @@ impl Melee {
         if info.throw.is_some() && info.attack.is_none() {
             // A throw that lands its victim over a drop is worth more.
             let beyond = distance(me, target) + 8.0;
-            if self.look_ahead(me, target).ledge.is_some_and(|l| l <= beyond) {
+            if self
+                .look_ahead(me, target)
+                .ledge
+                .is_some_and(|l| l <= beyond)
+            {
                 f *= self.profile.weights.throw_into_danger;
             }
         }
@@ -899,14 +1005,23 @@ impl Melee {
         }
         let toward = target.feet - me.feet;
         let dir = Vec3::new(toward.x, 0.0, toward.z).normalize_or_zero();
-        floor_probe(me, dir, distance(me, target) + DANGER_LOOKAHEAD, fall_danger(me))
+        floor_probe(
+            me,
+            dir,
+            distance(me, target) + DANGER_LOOKAHEAD,
+            fall_danger(me),
+        )
     }
 
     /// A throw move's range for our animation set.
     /// (A disarm: only throws whose victim side is for that gun.)
     pub(super) fn throw_range(&self, index: usize, me: &View) -> f32 {
         let th = &THROWS[index];
-        let state = if th.running { MeleeState::Running } else { MeleeState::Standing };
+        let state = if th.running {
+            MeleeState::Running
+        } else {
+            MeleeState::Standing
+        };
         let needs = match th.disarm {
             tables::Disarm::Pistol => var::RIGHTY_PISTOL | var::LEFTY_PISTOL,
             tables::Disarm::Rifle => var::RIGHTY_RIFLE | var::LEFTY_RIFLE,
@@ -918,7 +1033,10 @@ impl Melee {
             .filter_map(|c| coll.entries[c].clip.throw)
             .filter(|t| {
                 needs == 0
-                    || coll.all(t.target_anim_type, MeleeState::Standing.anim_state()).into_iter().any(|v| coll.entries[v].clip.varient & needs != 0)
+                    || coll
+                        .all(t.target_anim_type, MeleeState::Standing.anim_state())
+                        .into_iter()
+                        .any(|v| coll.entries[v].clip.varient & needs != 0)
             })
             .map(|t| t.range)
             .fold(0.0, f32::max)
@@ -1023,7 +1141,13 @@ impl Jumps {
             motion
                 .coll
                 .lookup(tables::ty(anim), state.anim_state(), var::FIGHT)
-                .and_then(|c| motion.coll.entries[c].clip.root_motion.first().map(|m| m[axis] * sign))
+                .and_then(|c| {
+                    motion.coll.entries[c]
+                        .clip
+                        .root_motion
+                        .first()
+                        .map(|m| m[axis] * sign)
+                })
                 .unwrap_or(0.0)
         };
         let mut vel = [0.0; 7];
@@ -1035,7 +1159,13 @@ impl Jumps {
         for v in &mut vel[2..] {
             *v = v.max(0.5 * t.jump_amount);
         }
-        Jumps { min, max, vel, amount: t.jump_amount, gravity: g }
+        Jumps {
+            min,
+            max,
+            vel,
+            amount: t.jump_amount,
+            gravity: g,
+        }
     }
 
     pub fn vel(&self, kind: tables::JumpKind) -> f32 {
@@ -1097,12 +1227,16 @@ pub(super) fn relative_turned(from: &View, of: &View, turn: f32) -> (Vec3, Vec3)
 fn run_speed(me: &View) -> f32 {
     let coll = &me.motion.coll;
     let running = MeleeState::Running;
-    coll.lookup(tables::ty(running.delay_anim()), running.anim_state(), me.motion.varient | var::FIGHT)
-        .map(|c| {
-            let rm = &coll.entries[c].clip.root_motion;
-            rm.iter().map(|m| m[1]).sum::<f32>() / rm.len().max(1) as f32
-        })
-        .unwrap_or(1.0)
+    coll.lookup(
+        tables::ty(running.delay_anim()),
+        running.anim_state(),
+        me.motion.varient | var::FIGHT,
+    )
+    .map(|c| {
+        let rm = &coll.entries[c].clip.root_motion;
+        rm.iter().map(|m| m[1]).sum::<f32>() / rm.len().max(1) as f32
+    })
+    .unwrap_or(1.0)
 }
 
 /// How well a technique's direction points at the target: full within 45°,
@@ -1111,7 +1245,11 @@ fn direction_weight(t: &Technique, info: &TechInfo, me: &View, target: &View) ->
     let Some(dir) = info.dir else { return 1.0 };
     let Some(off) = dir.offset() else { return 1.0 };
     let delta = wrap(bearing(me, target) - (me.facing + off)).abs();
-    let (lo, hi) = if t.generous_direction { (70.0f32, 110.0f32) } else { (45.0, 60.0) };
+    let (lo, hi) = if t.generous_direction {
+        (70.0f32, 110.0f32)
+    } else {
+        (45.0, 60.0)
+    };
     let (lo, hi) = (lo.to_radians(), hi.to_radians());
     let w = if delta <= lo {
         1.0
@@ -1149,7 +1287,14 @@ fn weigh_spacing(
                 tables::maneuver::ADVANCE => f *= ((dist - a) / b.max(MIN_TOLERANCE)).max(0.0),
                 tables::maneuver::RETREAT => f *= ((a - dist) / b.max(MIN_TOLERANCE)).max(0.0),
                 tables::maneuver::CIRCLE_LEFT | tables::maneuver::CIRCLE_RIGHT => {
-                    f *= crowd(index == tables::maneuver::CIRCLE_LEFT, a, me, target, fights, positions);
+                    f *= crowd(
+                        index == tables::maneuver::CIRCLE_LEFT,
+                        a,
+                        me,
+                        target,
+                        fights,
+                        positions,
+                    );
                 }
                 tables::maneuver::RANDOM_STOP => break,
                 tables::maneuver::BARABBAS_WAVE => return 0.0,
@@ -1168,7 +1313,11 @@ pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::
     match me.nav {
         Some(nav) => nav.look(me.feet + Vec3::Y * 2.0, glam::Vec2::new(dir.x, dir.z), dist),
         None => {
-            let radius = if me.player { crate::chrphys::PLAYER_LEAF } else { crate::chrphys::AI_LEAF };
+            let radius = if me.player {
+                crate::chrphys::PLAYER_LEAF
+            } else {
+                crate::chrphys::AI_LEAF
+            };
             crate::chrphys::probe(me.env, me.feet, radius, dir, dist, drop)
         }
     }
@@ -1195,7 +1344,10 @@ pub(super) fn movement_safety(me: &View, dir: Vec3, dist: f32) -> f32 {
     if dist <= 0.0 || dir == Vec3::ZERO {
         return 1.0;
     }
-    safety(floor_probe(me, dir, dist.max(DANGER_LOOKAHEAD), fall_danger(me)), dist)
+    safety(
+        floor_probe(me, dir, dist.max(DANGER_LOOKAHEAD), fall_danger(me)),
+        dist,
+    )
 }
 
 /// The danger cost of moving `dist` along a probed way.
@@ -1244,9 +1396,11 @@ pub(super) fn path_cost(me: &View, from: MeleeState, goal: MeleeState) -> Option
         }
         let usable = |t: &&tables::Transition| {
             t.from == cur
-                && t.anims
-                    .iter()
-                    .any(|a| mo.coll.lookup(tables::ty(a), cur.anim_state(), mo.varient | var::FIGHT).is_some())
+                && t.anims.iter().any(|a| {
+                    mo.coll
+                        .lookup(tables::ty(a), cur.anim_state(), mo.varient | var::FIGHT)
+                        .is_some()
+                })
         };
         // Straight to the goal, or else via standing.
         let step = tables::TRANSITIONS
@@ -1284,7 +1438,9 @@ fn transition_cost(me: &View, states: &[MeleeState]) -> f32 {
                 t.from == cur
                     && t.to.contains(&goal)
                     && t.anims.iter().any(|a| {
-                        mo.coll.lookup(tables::ty(a), cur.anim_state(), mo.varient | var::FIGHT).is_some()
+                        mo.coll
+                            .lookup(tables::ty(a), cur.anim_state(), mo.varient | var::FIGHT)
+                            .is_some()
                     })
             });
             match step {
@@ -1301,7 +1457,14 @@ fn transition_cost(me: &View, states: &[MeleeState]) -> f32 {
 
 /// Circling around the target: others ahead in the circling direction (at a
 /// similar bearing) count against it, others behind for it.
-fn crowd(left: bool, comfort: f32, me: &View, target: &View, fights: &Fights, positions: &[Vec3]) -> f32 {
+fn crowd(
+    left: bool,
+    comfort: f32,
+    me: &View,
+    target: &View,
+    fights: &Fights,
+    positions: &[Vec3],
+) -> f32 {
     const SAME_DISTANCE: f32 = 10.0;
     let ignore_far = 20.0f32.to_radians();
     let urgent = 30.0f32.to_radians();
@@ -1327,7 +1490,11 @@ fn crowd(left: bool, comfort: f32, me: &View, target: &View, fights: &Fights, po
         if rel.abs() > comfort {
             continue;
         }
-        let ignore = if (their_dist - my_dist).abs() <= SAME_DISTANCE { 0.0 } else { ignore_far };
+        let ignore = if (their_dist - my_dist).abs() <= SAME_DISTANCE {
+            0.0
+        } else {
+            ignore_far
+        };
         let pull = if rel.abs() <= urgent || comfort <= urgent {
             1.0
         } else {
@@ -1364,7 +1531,8 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
                     info.broken = true; // no way to ask for it (as in the original)
                 }
                 if info.attack.is_none() {
-                    let found = coll.lookup(anim, am.from.anim_state(), var::FIGHT | motion.varient);
+                    let found =
+                        coll.lookup(anim, am.from.anim_state(), var::FIGHT | motion.varient);
                     match found {
                         Some(clip) => {
                             let c = &coll.entries[clip].clip;
@@ -1373,8 +1541,12 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
                             info.high = flags & strike::HIGH != 0;
                             info.low = flags & strike::LOW != 0;
                             info.unblockable = flags & strike::UNBLOCKABLE != 0;
-                            info.disables_shield = c.has_flag(crate::anim::types::flag::DISABLE_SHIELD);
-                            info.block_stun = c.attacks.iter().any(|a| a.block_stun > BLOCK_STUN_THRESHOLD);
+                            info.disables_shield =
+                                c.has_flag(crate::anim::types::flag::DISABLE_SHIELD);
+                            info.block_stun = c
+                                .attacks
+                                .iter()
+                                .any(|a| a.block_stun > BLOCK_STUN_THRESHOLD);
                             info.stagger = c.attacks.iter().any(|a| a.stagger > 0);
                             if let Some(r) = &c.reach {
                                 info.ideal_range = r.max_distance - 0.5 * r.farthest.distance;
@@ -1407,7 +1579,11 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
             }
             Move::Throw(i) => {
                 if mi == 0 {
-                    info.start = Some(if THROWS[i].running { MeleeState::Running } else { MeleeState::Standing });
+                    info.start = Some(if THROWS[i].running {
+                        MeleeState::Running
+                    } else {
+                        MeleeState::Standing
+                    });
                 }
                 info.damaging = true;
                 info.needs_slot = true;
@@ -1431,5 +1607,8 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
 pub(super) fn held_gun(v: &View) -> (bool, bool) {
     use crate::anim::types::var;
     let r = v.motion.varient;
-    (r & (var::RIGHTY_PISTOL | var::LEFTY_PISTOL) != 0, r & (var::RIGHTY_RIFLE | var::LEFTY_RIFLE) != 0)
+    (
+        r & (var::RIGHTY_PISTOL | var::LEFTY_PISTOL) != 0,
+        r & (var::RIGHTY_RIFLE | var::LEFTY_RIFLE) != 0,
+    )
 }

@@ -355,7 +355,10 @@ impl Motion {
     /// The (hard, soft) pause the current clip leaves before our clip `to`.
     fn pauses_into(&self, to: usize) -> (u16, u16) {
         if self.playing_own() {
-            (self.coll.hard_pause(self.clip, to), self.coll.soft_pause(self.clip, to))
+            (
+                self.coll.hard_pause(self.clip, to),
+                self.coll.soft_pause(self.clip, to),
+            )
         } else {
             (self.current().hard_pause, self.current().soft_pause)
         }
@@ -377,7 +380,9 @@ impl Motion {
 
     /// The saved pose and its weight while a blend is in progress.
     pub fn blend_pose(&self) -> Option<(&[Quat], f32)> {
-        self.blend.as_ref().map(|b| (b.saved.as_slice(), 1.0 - b.t()))
+        self.blend
+            .as_ref()
+            .map(|b| (b.saved.as_slice(), 1.0 - b.t()))
     }
 
     /// Pelvis height above the feet this tick (blended during a switch).
@@ -476,12 +481,38 @@ impl Motion {
         }
         matches!(
             oni_schema::name(&oni_schema::ANIM_TYPES, self.kind).unwrap_or(""),
-            "stand" | "idle" | "crouch" | "standingTurnLeft" | "standingTurnRight" | "crouchTurnLeft" | "crouchTurnRight"
-                | "runStart" | "run" | "runStop" | "runBackwardsStart" | "runBackwards" | "runSidestepLeft" | "runSidestepRight"
-                | "runSidestepLeftStart" | "runSidestepRightStart" | "walkStart" | "walk" | "walkStop" | "oneStepStop"
-                | "walkBackwardsStart" | "walkBackwards" | "walkSidestepLeft" | "walkSidestepRight" | "crouchRun" | "crouchWalk"
-                | "crouchRunBackwards" | "crouchWalkBackwards" | "crouchRunSidestepLeft" | "crouchRunSidestepRight"
-                | "crouchWalkSidestepLeft" | "crouchWalkSidestepRight"
+            "stand"
+                | "idle"
+                | "crouch"
+                | "standingTurnLeft"
+                | "standingTurnRight"
+                | "crouchTurnLeft"
+                | "crouchTurnRight"
+                | "runStart"
+                | "run"
+                | "runStop"
+                | "runBackwardsStart"
+                | "runBackwards"
+                | "runSidestepLeft"
+                | "runSidestepRight"
+                | "runSidestepLeftStart"
+                | "runSidestepRightStart"
+                | "walkStart"
+                | "walk"
+                | "walkStop"
+                | "oneStepStop"
+                | "walkBackwardsStart"
+                | "walkBackwards"
+                | "walkSidestepLeft"
+                | "walkSidestepRight"
+                | "crouchRun"
+                | "crouchWalk"
+                | "crouchRunBackwards"
+                | "crouchWalkBackwards"
+                | "crouchRunSidestepLeft"
+                | "crouchRunSidestepRight"
+                | "crouchWalkSidestepLeft"
+                | "crouchWalkSidestepRight"
         )
     }
 
@@ -509,7 +540,8 @@ impl Motion {
         let next = self.clip_of(clip);
         let (hard_after, soft_after) = self.pauses_into(clip);
         let hard = self.hard_pause > 0 || hard_after > 0;
-        let soft = self.hit_stun > 0 || self.block_stun > 0 || self.soft_pause > 0 || soft_after > 0;
+        let soft =
+            self.hit_stun > 0 || self.block_stun > 0 || self.soft_pause > 0 || soft_after > 0;
         if (hard && !pause_allows(next, false)) || (!hard && soft && !pause_allows(next, true)) {
             return None;
         }
@@ -544,7 +576,9 @@ impl Motion {
     /// Whether an ordinary request for `clip` should queue or interrupt.
     fn decide_urge(&self, clip: usize) -> Urge {
         let (cur, next) = (self.current(), self.clip_of(clip));
-        if next.anim_type == self.kind && next.varient == cur.varient && next.to_state == cur.to_state
+        if next.anim_type == self.kind
+            && next.varient == cur.varient
+            && next.to_state == cur.to_state
         {
             return Urge::Queue; // same loop: let it run on
         }
@@ -616,7 +650,10 @@ impl Motion {
             if coll.entries[clip].clip.has_flag(flag::NO_INTERP_VELOCITY) {
                 velocity = Vec3::ZERO;
             }
-            let carry = self.blend.as_ref().map_or(self.blend_carry, |b| b.count - b.itr);
+            let carry = self
+                .blend
+                .as_ref()
+                .map_or(self.blend_carry, |b| b.count - b.itr);
             self.blend = Some(Blend {
                 saved,
                 height: self.height(),
@@ -661,8 +698,8 @@ impl Motion {
             self.reroll_idle_delay();
             let restart = self.tuning.idle_restart_delay;
             let jitter = self.random_below(restart / 2 + 1);
-            self.last_active =
-                (self.now + u64::from(restart) + u64::from(jitter)).saturating_sub(u64::from(self.idle_delay));
+            self.last_active = (self.now + u64::from(restart) + u64::from(jitter))
+                .saturating_sub(u64::from(self.idle_delay));
         }
         if st::is_flying(from_state) {
             self.please_jump = true;
@@ -679,7 +716,9 @@ impl Motion {
     /// a teleport-in always goes on to its teleport-out
     /// (`ONrCharacter_ForcedFollowingAnimType`).
     fn next_clip(&mut self, ch: &Character) {
-        let forced = (self.kind == ty::TELEPORT_IN).then(|| self.coll.lookup(ty::TELEPORT_OUT, self.state, self.varient)).flatten();
+        let forced = (self.kind == ty::TELEPORT_IN)
+            .then(|| self.coll.lookup(ty::TELEPORT_OUT, self.state, self.varient))
+            .flatten();
         let next = if let Some(f) = forced {
             f
         } else if self.lock_frames > 0 && self.playing_own() {
@@ -690,7 +729,11 @@ impl Motion {
                 .or_else(|| self.coll.lookup(ty::STAND, st::STANDING, self.varient))
                 .unwrap_or(self.clip)
         };
-        let next = if self.lock_frames > 0 { next } else { self.maybe_throw(next) };
+        let next = if self.lock_frames > 0 {
+            next
+        } else {
+            self.maybe_throw(next)
+        };
         let (hard_after, soft_after) = self.pauses_into(next);
         self.soft_pause = self.soft_pause.max(soft_after);
         self.hard_pause = self.hard_pause.max(hard_after);
@@ -803,8 +846,12 @@ impl Motion {
     /// Whether frame `frame` of the current clip is immune to hits.
     pub fn invulnerable(&self) -> bool {
         let c = self.current();
-        let (start, len) = (u16::from(c.invulnerable_start), u16::from(c.invulnerable_length));
-        c.has_flag(flag::INVULNERABLE) || (len > 0 && self.frame >= start && self.frame < start + len)
+        let (start, len) = (
+            u16::from(c.invulnerable_start),
+            u16::from(c.invulnerable_length),
+        );
+        c.has_flag(flag::INVULNERABLE)
+            || (len > 0 && self.frame >= start && self.frame < start + len)
     }
 
     /// Standing or crouching still, turning in place, blocking, or backing off:
@@ -814,17 +861,19 @@ impl Motion {
         // meant to check its end state too; doing so would stop a character
         // who is already blocking from blocking again (block clips end in a
         // blocking state), so the start-state-only test is kept (Q3).
-        let still = matches!(self.current().from_state, st::CROUCH | st::CROUCH_START | st::STANDING)
-            && matches!(
-                self.kind,
-                ty::CROUCH_TURN_LEFT
-                    | ty::CROUCH_TURN_RIGHT
-                    | ty::STANDING_TURN_LEFT
-                    | ty::STANDING_TURN_RIGHT
-                    | ty::BLOCK
-                    | ty::STAND
-                    | ty::CROUCH
-            );
+        let still = matches!(
+            self.current().from_state,
+            st::CROUCH | st::CROUCH_START | st::STANDING
+        ) && matches!(
+            self.kind,
+            ty::CROUCH_TURN_LEFT
+                | ty::CROUCH_TURN_RIGHT
+                | ty::STANDING_TURN_LEFT
+                | ty::STANDING_TURN_RIGHT
+                | ty::BLOCK
+                | ty::STAND
+                | ty::CROUCH
+        );
         let backing = matches!(
             self.kind,
             ty::RUN_BACKWARDS_START
@@ -839,7 +888,8 @@ impl Motion {
 
     /// The block clip this character would use now, if it has one.
     pub fn block_clip(&self) -> Option<usize> {
-        self.coll.lookup(ty::BLOCK, self.state, self.varient | var::FIGHT)
+        self.coll
+            .lookup(ty::BLOCK, self.state, self.varient | var::FIGHT)
     }
 
     /// Snaps to the standing clip when nothing else fits.
@@ -865,7 +915,11 @@ impl Motion {
         interp: Option<u16>,
         elsewhere: Option<Rc<AnimCollection>>,
     ) -> bool {
-        let find = |c: &AnimCollection| c.entries.iter().position(|e| e.name.eq_ignore_ascii_case(name));
+        let find = |c: &AnimCollection| {
+            c.entries
+                .iter()
+                .position(|e| e.name.eq_ignore_ascii_case(name))
+        };
         let (coll, clip) = match find(&self.coll) {
             Some(i) => (self.coll.clone(), i),
             None => match elsewhere.and_then(|c| find(&c).map(|i| (c, i))) {
@@ -877,7 +931,11 @@ impl Motion {
             if Rc::ptr_eq(&coll, &self.coll) {
                 self.blend_into(clip)
             } else {
-                crate::anim::collection::blend_between(self.current(), &coll.entries[clip].clip, false)
+                crate::anim::collection::blend_between(
+                    self.current(),
+                    &coll.entries[clip].clip,
+                    false,
+                )
             }
         });
         let turn = self.leave_clip(true);
@@ -1038,7 +1096,11 @@ mod tests {
         assert_eq!(m.state, st::STANDING);
         let r = m.request(&ch, Urge::Appropriate, false, ty::RUN_START);
         assert!(r.is_some(), "run start resolves from standing");
-        assert_eq!(m.kind, ty::RUN_START, "a standing clip is not atomic: forced in");
+        assert_eq!(
+            m.kind,
+            ty::RUN_START,
+            "a standing clip is not atomic: forced in"
+        );
         assert!(m.blend_pose().is_some(), "the switch blends");
     }
 

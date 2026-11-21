@@ -39,7 +39,15 @@ impl Orientation {
     }
 
     fn from_enum(e: u32) -> Orientation {
-        [Orientation::Unchanged, Orientation::Reversed, Orientation::Reflected, Orientation::Normal].get(e as usize).copied().unwrap_or(Orientation::Unchanged)
+        [
+            Orientation::Unchanged,
+            Orientation::Reversed,
+            Orientation::Reflected,
+            Orientation::Normal,
+        ]
+        .get(e as usize)
+        .copied()
+        .unwrap_or(Orientation::Unchanged)
     }
 }
 
@@ -53,7 +61,10 @@ pub enum Location {
     FindWall,
     /// A decal laid on the surface struck: kept for good (a level's), and
     /// turned at random.
-    Decal { is_static: bool, random_rotation: bool },
+    Decal {
+        is_static: bool,
+        random_rotation: bool,
+    },
     /// Riding what it struck.
     AttachedToObject,
 }
@@ -173,7 +184,10 @@ impl Decals {
     }
 
     fn find(&mut self, h: Handle) -> Option<&mut Decal> {
-        self.fixed.iter_mut().chain(self.dynamic.iter_mut()).find(|d| d.particle == h)
+        self.fixed
+            .iter_mut()
+            .chain(self.dynamic.iter_mut())
+            .find(|d| d.particle == h)
     }
 
     fn remove(&mut self, h: Handle) {
@@ -195,7 +209,9 @@ impl Decals {
         loop {
             let address = self.newest.map_or(0, |(a, s)| a + s);
             while let Some(b) = self.ring.front() {
-                if !(self.ring.len() >= BLOCKS || (address <= b.address && address + size > b.address)) {
+                if !(self.ring.len() >= BLOCKS
+                    || (address <= b.address && address + size > b.address))
+                {
                     break;
                 }
                 purged.extend(self.ring.pop_front().and_then(|b| b.owner));
@@ -205,12 +221,14 @@ impl Decals {
                 self.newest = None;
                 continue;
             }
-            self.ring.push_back(Block { address, owner: None });
+            self.ring.push_back(Block {
+                address,
+                owner: None,
+            });
             self.newest = Some((address, size));
             return (address, purged);
         }
     }
-
 }
 
 #[cfg(test)]
@@ -220,7 +238,10 @@ impl Decals {
     pub(super) fn allocate_for_test(&mut self, size: u32, owner: u32) -> (u32, Vec<u32>) {
         let (at, purged) = self.allocate(size);
         if let Some(b) = self.ring.back_mut() {
-            b.owner = Some(Handle { slot: owner, generation: 1 });
+            b.owner = Some(Handle {
+                slot: owner,
+                generation: 1,
+            });
         }
         (at, purged.into_iter().map(|h| h.slot).collect())
     }
@@ -229,10 +250,16 @@ impl Decals {
 impl System {
     /// `P3rCreateEffect`: makes `spec`'s particle for `data`. Returns it, or
     /// `None` if none was made (or it died at once).
-    pub fn create_effect(&mut self, spec: &Spec, data: &Data, host: &mut dyn Host) -> Option<Handle> {
+    pub fn create_effect(
+        &mut self,
+        spec: &Spec,
+        data: &Data,
+        host: &mut dyn Host,
+    ) -> Option<Handle> {
         let classes = self.classes.clone();
         let c = &classes.list[spec.class];
-        let by_cutscene = data.cause == Cause::CutsceneKilled || data.parent_flags & pflag::CUTSCENE_KILLED != 0;
+        let by_cutscene =
+            data.cause == Cause::CutsceneKilled || data.parent_flags & pflag::CUTSCENE_KILLED != 0;
         if by_cutscene && (c.has(cflag::EXPIRE_ON_CUTSCENE) || c.has(cflag::DIE_ON_CUTSCENE)) {
             return None;
         }
@@ -255,7 +282,10 @@ impl System {
         // relative to it (its turn stays as worked out above).
         let mut matrix = data.attach.clone();
         let mut relative = false;
-        if spec.location == Location::AttachedToObject && data.cause == Cause::HitPhysics && data.struck.is_some() {
+        if spec.location == Location::AttachedToObject
+            && data.cause == Cause::HitPhysics
+            && data.struck.is_some()
+        {
             matrix = data.struck.clone();
             relative = true;
         }
@@ -267,10 +297,20 @@ impl System {
             p.matrix = matrix;
         }
         p.position = position;
-        let decal = if c.has(cflag::DECAL) { Some(self.lay_decal(&mut p, spec, data, host)?) } else { None };
+        let decal = if c.has(cflag::DECAL) {
+            Some(self.lay_decal(&mut p, spec, data, host)?)
+        } else {
+            None
+        };
         let h = self.created(p, f64::from(data.tick) / HZ, host)?;
         if let Some((mesh, is_static, alpha, tint)) = decal {
-            let d = Decal { particle: h, mesh: Rc::new(mesh), texture: c.instance.as_str().into(), alpha, tint };
+            let d = Decal {
+                particle: h,
+                mesh: Rc::new(mesh),
+                texture: c.instance.as_str().into(),
+                alpha,
+                tint,
+            };
             if is_static {
                 self.decals.fixed.push(d);
             } else {
@@ -285,9 +325,25 @@ impl System {
 
     /// The decal block of `P3rCreateEffect`: builds `p`'s decal. `None` if
     /// it can't be made (the particle is not made either).
-    fn lay_decal(&mut self, p: &mut Particle, spec: &Spec, data: &Data, host: &mut dyn Host) -> Option<(Mesh, bool, u16, u32)> {
-        let (Location::Decal { is_static, random_rotation }, Cause::HitWall(quad)) = (spec.location, data.cause) else {
-            eprintln!("particles: tried to create decal that wasn't location = decal, cause = wall ({})", self.classes.list[spec.class].name);
+    fn lay_decal(
+        &mut self,
+        p: &mut Particle,
+        spec: &Spec,
+        data: &Data,
+        host: &mut dyn Host,
+    ) -> Option<(Mesh, bool, u16, u32)> {
+        let (
+            Location::Decal {
+                is_static,
+                random_rotation,
+            },
+            Cause::HitWall(quad),
+        ) = (spec.location, data.cause)
+        else {
+            eprintln!(
+                "particles: tried to create decal that wasn't location = decal, cause = wall ({})",
+                self.classes.list[spec.class].name
+            );
             return None;
         };
         let classes = self.classes.clone();
@@ -297,11 +353,19 @@ impl System {
             Some(y) => self.eval_f(y, &p.vars).unwrap_or(1.0),
             None => xscale,
         };
-        let wrap = self.eval_f(&c.decal_wrap, &p.vars).unwrap_or(60.0).to_radians();
-        let direction = data.parent_velocity.or(data.parent_orientation.map(|o| o.y_axis));
+        let wrap = self
+            .eval_f(&c.decal_wrap, &p.vars)
+            .unwrap_or(60.0)
+            .to_radians();
+        let direction = data
+            .parent_velocity
+            .or(data.parent_orientation.map(|o| o.y_axis));
         let rotation = random_rotation.then(|| self.random() * std::f32::consts::TAU);
         let (up, right) = decal::frame(data.normal, data.upvector, rotation)?;
-        let alpha = self.eval_f(&c.alpha, &p.vars).unwrap_or(0.0).clamp(0.0, 1.0);
+        let alpha = self
+            .eval_f(&c.alpha, &p.vars)
+            .unwrap_or(0.0)
+            .clamp(0.0, 1.0);
         let tint = match self.eval(&c.tint, &p.vars) {
             Some(Val::U(t)) => t,
             _ => 0xFFFF_FFFF,
@@ -336,8 +400,17 @@ impl System {
                 self.kill(h, host);
             }
         }
-        p.flags |= if is_static { pflag::DECAL_STATIC } else { pflag::DECAL };
-        Some((mesh, is_static, (alpha * 255.0).round_ties_even() as u16, tint))
+        p.flags |= if is_static {
+            pflag::DECAL_STATIC
+        } else {
+            pflag::DECAL
+        };
+        Some((
+            mesh,
+            is_static,
+            (alpha * 255.0).round_ties_even() as u16,
+            tint,
+        ))
     }
 
     /// A dying particle's decal goes with it.
@@ -353,7 +426,8 @@ impl System {
     pub(super) fn update_decals(&mut self, tick: u32, host: &mut dyn Host) {
         let final_t = f64::from(tick) / HZ;
         let classes = self.classes.clone();
-        let mut by_class: std::collections::BTreeMap<ClassId, Vec<(u64, Handle)>> = std::collections::BTreeMap::new();
+        let mut by_class: std::collections::BTreeMap<ClassId, Vec<(u64, Handle)>> =
+            std::collections::BTreeMap::new();
         for (h, p) in self.iter() {
             if classes.list[p.class].has(cflag::DECAL) {
                 by_class.entry(p.class).or_default().push((p.serial, h));
@@ -363,7 +437,11 @@ impl System {
             list.sort_by_key(|(s, _)| *s);
             let c = &classes.list[class];
             let max = c.max_decals as usize;
-            let overflow = if max == 0 || list.len() < max { 0 } else { list.len() - max };
+            let overflow = if max == 0 || list.len() < max {
+                0
+            } else {
+                list.len() - max
+            };
             for (itr, &(_, h)) in list.iter().enumerate() {
                 let Some(mut p) = self.take(h) else { continue };
                 let delta = (final_t - p.time) as f32;
@@ -404,7 +482,9 @@ impl System {
         if p.flags & pflag::FADE_OUT != 0 || c.decal_fade_frames == 0 {
             return true;
         }
-        let Some(alpha) = self.eval_f(&c.alpha, &p.vars) else { return false };
+        let Some(alpha) = self.eval_f(&c.alpha, &p.vars) else {
+            return false;
+        };
         if alpha <= 0.0 {
             return true;
         }
@@ -440,31 +520,56 @@ impl System {
         data.parent_velocity = has_v.then_some(parent.velocity);
         data.parent_orientation = has_o.then(|| self.world_orientation(parent));
         let mut orientation = orient.map_or(Orientation::Normal, Orientation::from_enum);
-        let mut location = if offset != 0.0 { Location::CollisionOffset(offset) } else { Location::Default };
+        let mut location = if offset != 0.0 {
+            Location::CollisionOffset(offset)
+        } else {
+            Location::Default
+        };
         match hit {
             Some(k) => {
                 data.position = k.point;
                 data.normal = k.normal;
-                data.cause = if k.env { Cause::HitWall(quad) } else { Cause::HitPhysics };
+                data.cause = if k.env {
+                    Cause::HitWall(quad)
+                } else {
+                    Cause::HitPhysics
+                };
                 // Riding what it struck (never a wall).
                 if attach && !k.env {
                     location = Location::AttachedToObject;
-                    data.struck = k.part.and_then(|part| host.part_matrix(k.id as usize, part as usize));
+                    data.struck = k
+                        .part
+                        .and_then(|part| host.part_matrix(k.id as usize, part as usize));
                 }
             }
             None => {
-                data.cause = if parent.flags & pflag::CUTSCENE_KILLED != 0 { Cause::CutsceneKilled } else { Cause::None };
+                data.cause = if parent.flags & pflag::CUTSCENE_KILLED != 0 {
+                    Cause::CutsceneKilled
+                } else {
+                    Cause::None
+                };
                 if matches!(orientation, Orientation::Reflected | Orientation::Normal) {
                     orientation = Orientation::Unchanged;
                 }
             }
         }
         if self.classes.list[class].has(cflag::DECAL) {
-            location = Location::Decal { is_static: false, random_rotation: true };
+            location = Location::Decal {
+                is_static: false,
+                random_rotation: true,
+            };
             orientation = Orientation::Normal;
             data.decal_scale = [1.0, 1.0];
         }
-        self.create_effect(&Spec { class, orientation, location }, &data, host);
+        self.create_effect(
+            &Spec {
+                class,
+                orientation,
+                location,
+            },
+            &data,
+            host,
+        );
     }
 }
 

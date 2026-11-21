@@ -13,12 +13,11 @@
 //!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
 //! ```
 
-mod anim_sounds;
-mod impacts;
-mod audio;
 mod ai;
 mod anim;
+mod anim_sounds;
 mod app;
+mod audio;
 mod camera;
 mod chrphys;
 mod classes;
@@ -26,18 +25,18 @@ mod consoles;
 mod control;
 mod decal;
 mod doors;
-mod objphys;
-mod lasers;
-mod p3;
-mod weapons;
 mod fighter;
 mod game;
 mod gamma;
 mod gltf;
 mod hud;
+mod impacts;
+mod lasers;
 mod mission;
 mod nav;
 mod neutrals;
+mod objphys;
+mod p3;
 mod particles;
 mod physics;
 mod quads;
@@ -47,6 +46,7 @@ mod script;
 mod settings;
 mod skel;
 mod texanim;
+mod weapons;
 mod world;
 
 use std::path::PathBuf;
@@ -215,7 +215,8 @@ fn main() {
     // scene (the converter writes it into each level folder beside `environment.glb`).
     // (Playing, or running a scenario, the level's environmental particles
     // run in the particle system instead — `env_particles.json`.)
-    let live = (play || script_path.is_some()) && scene_path.with_file_name("env_particles.json").is_file();
+    let live = (play || script_path.is_some())
+        && scene_path.with_file_name("env_particles.json").is_file();
     let particles_path = particles_path.or_else(|| {
         let p = scene_path.with_file_name("particles.json");
         (p.is_file() && !live).then_some(p)
@@ -368,19 +369,39 @@ fn find_assets() -> Option<PathBuf> {
         return ok(&r).then_some(r);
     }
     let mut starts = vec![std::env::current_dir().ok()?];
-    if let Some(exe) = std::env::current_exe().ok().and_then(|e| e.parent().map(PathBuf::from)) {
+    if let Some(exe) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(PathBuf::from))
+    {
         starts.push(exe);
     }
-    starts.iter().flat_map(|s| s.ancestors().map(|a| a.join("generated/oni")).collect::<Vec<_>>()).find(|p| ok(p))
+    starts
+        .iter()
+        .flat_map(|s| {
+            s.ancestors()
+                .map(|a| a.join("generated/oni"))
+                .collect::<Vec<_>>()
+        })
+        .find(|p| ok(p))
 }
 
 /// The game as the player has it: the main menu, then the levels it
 /// starts (`app::run` with no level, the menus' assets at `root`).
 fn run_game(root: PathBuf) {
     eprintln!("oni-view: assets at {}", root.display());
-    let scene = gltf::Scene { prims: Vec::new(), textures: Vec::new(), min: Vec3::ZERO, max: Vec3::ZERO };
+    let scene = gltf::Scene {
+        prims: Vec::new(),
+        textures: Vec::new(),
+        min: Vec3::ZERO,
+        max: Vec3::ZERO,
+    };
     let classes = None;
-    let cast = Cast { player: "konoko_generic".into(), opponent: None, difficulty: "normal".into(), level_dir: root.join("levels/01") };
+    let cast = Cast {
+        player: "konoko_generic".into(),
+        opponent: None,
+        difficulty: "normal".into(),
+        level_dir: root.join("levels/01"),
+    };
     app::run(
         scene,
         None,
@@ -422,7 +443,6 @@ fn level_from(scene: &std::path::Path) -> u16 {
         .and_then(|n| n.parse().ok())
         .unwrap_or(0)
 }
-
 
 fn parse_vec3(s: String) -> Option<Vec3> {
     let p: Vec<f32> = s.split(',').filter_map(|x| x.trim().parse().ok()).collect();

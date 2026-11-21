@@ -54,7 +54,10 @@ pub fn think(m: &mut Motion, ch: &Character, facing: &mut Facing, c: &Controls) 
         // then settle (lying down) on whatever the body is doing.
         if !reaction::is_victim(m.kind) {
             let none = Buttons::default();
-            let still = Controls { buttons: &none, ..*c };
+            let still = Controls {
+                buttons: &none,
+                ..*c
+            };
             settle(m, ch, &still);
         }
         return;
@@ -168,7 +171,8 @@ fn react(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
 
     if (m.air.lifted || m.air.frames > FLAIL_AFTER)
         && m.air.frames > 0
-        && m.request(ch, Urge::Force, false, ty::FALLING_FLAIL).is_some()
+        && m.request(ch, Urge::Force, false, ty::FALLING_FLAIL)
+            .is_some()
     {
         return true;
     }
@@ -177,8 +181,10 @@ fn react(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
         return true;
     }
 
-    matches!(m.kind, ty::STAGGER | ty::STAGGER_BEHIND | ty::STUN | ty::BLOCK)
-        && play(m, ch, c, &rules::recover(), Urge::Force, false).is_some()
+    matches!(
+        m.kind,
+        ty::STAGGER | ty::STAGGER_BEHIND | ty::STUN | ty::BLOCK
+    ) && play(m, ch, c, &rules::recover(), Urge::Force, false).is_some()
 }
 
 /// Holds the character in its block / stun / stagger while those last.
@@ -251,7 +257,8 @@ fn act(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
         {
             return true;
         }
-        return jump(m, ch, c) || play(m, ch, c, &rules::taunt(), Urge::Appropriate, false).is_some();
+        return jump(m, ch, c)
+            || play(m, ch, c, &rules::taunt(), Urge::Appropriate, false).is_some();
     }
     false
 }
@@ -400,7 +407,11 @@ fn advance(m: &mut Motion, ch: &Character, facing: &mut Facing, c: &Controls) ->
 
     if let Some(clip) = play(m, ch, c, &list, Urge::Appropriate, false) {
         // Forward diagonals lean toward the step key; backward ones away.
-        let lean = if b.holding(key::FORWARD) { FRAC_PI_4 } else { -FRAC_PI_4 };
+        let lean = if b.holding(key::FORWARD) {
+            FRAC_PI_4
+        } else {
+            -FRAC_PI_4
+        };
         if c.player && takes_diagonal(m.clip_of(clip).anim_type) {
             if b.holding(key::STEP_RIGHT) {
                 facing.set_modifier(-lean);
@@ -506,7 +517,9 @@ fn sidestep(m: &mut Motion, ch: &Character, facing: &mut Facing, c: &Controls) -
 fn stance(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
     let crouch = c.buttons.holding(key::CROUCH);
     match m.state {
-        st::STANDING if crouch => play(m, ch, c, &rules::duck(), Urge::Appropriate, false).is_some(),
+        st::STANDING if crouch => {
+            play(m, ch, c, &rules::duck(), Urge::Appropriate, false).is_some()
+        }
         st::CROUCH_START => {
             play(m, ch, c, &rules::duck(), Urge::Appropriate, false).is_some()
                 || play(m, ch, c, &rules::rise(), Urge::Appropriate, false).is_some()
@@ -521,9 +534,20 @@ fn stance(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
 fn turn_in_place(m: &mut Motion, ch: &Character, facing: &Facing, c: &Controls) -> bool {
     // A turn key turns the same way (lying down: rolling up).
     let want = facing.desired_offset();
-    let (key_left, key_right) = (c.buttons.holding(key::TURN_LEFT), c.buttons.holding(key::TURN_RIGHT));
+    let (key_left, key_right) = (
+        c.buttons.holding(key::TURN_LEFT),
+        c.buttons.holding(key::TURN_RIGHT),
+    );
     if key_left || key_right {
-        let found = play(m, ch, c, &rules::turn_in_place(key_left), Urge::Appropriate, false).is_some();
+        let found = play(
+            m,
+            ch,
+            c,
+            &rules::turn_in_place(key_left),
+            Urge::Appropriate,
+            false,
+        )
+        .is_some();
         if key_left {
             m.turn_left = true;
         } else {
@@ -532,11 +556,27 @@ fn turn_in_place(m: &mut Motion, ch: &Character, facing: &Facing, c: &Controls) 
         return found;
     }
     if want > TURN_DEADZONE || m.turn_left {
-        let found = play(m, ch, c, &rules::turn_in_place(true), Urge::Appropriate, false).is_some();
+        let found = play(
+            m,
+            ch,
+            c,
+            &rules::turn_in_place(true),
+            Urge::Appropriate,
+            false,
+        )
+        .is_some();
         m.turn_left = true;
         found
     } else if want < -TURN_DEADZONE || m.turn_right {
-        let found = play(m, ch, c, &rules::turn_in_place(false), Urge::Appropriate, false).is_some();
+        let found = play(
+            m,
+            ch,
+            c,
+            &rules::turn_in_place(false),
+            Urge::Appropriate,
+            false,
+        )
+        .is_some();
         m.turn_right = true;
         found
     } else {
@@ -608,7 +648,8 @@ fn settle(m: &mut Motion, ch: &Character, c: &Controls) -> bool {
     }
     if m.air.frames > 0 {
         if m.request(ch, Urge::Queue, false, ty::FLY).is_some()
-            || m.request(ch, Urge::Queue, false, ty::FALLING_FLAIL).is_some()
+            || m.request(ch, Urge::Queue, false, ty::FALLING_FLAIL)
+                .is_some()
         {
             return true;
         }
@@ -690,7 +731,10 @@ fn steer(m: &mut Motion, facing: &mut Facing, c: &Controls) {
 
     let step_turn = matches!(
         m.kind,
-        ty::CROUCH_TURN_LEFT | ty::CROUCH_TURN_RIGHT | ty::STANDING_TURN_LEFT | ty::STANDING_TURN_RIGHT
+        ty::CROUCH_TURN_LEFT
+            | ty::CROUCH_TURN_RIGHT
+            | ty::STANDING_TURN_LEFT
+            | ty::STANDING_TURN_RIGHT
     );
     let (can_left, can_right) = if step_turn {
         (was_left, was_right)
@@ -716,7 +760,19 @@ mod tests {
     /// draw, the repeated strikes, blown up — but not plain movement.
     #[test]
     fn committed_actions_match_the_original() {
-        for t in [ty::HIT_HEAD, ty::KNOCKDOWN_CROUCH_BEHIND, 96, 132, 157, 162, 172, 191, 227, 229, ty::BLOWNUP_BEHIND] {
+        for t in [
+            ty::HIT_HEAD,
+            ty::KNOCKDOWN_CROUCH_BEHIND,
+            96,
+            132,
+            157,
+            162,
+            172,
+            191,
+            227,
+            229,
+            ty::BLOWNUP_BEHIND,
+        ] {
             assert!(is_committed(t), "{t}");
         }
         for t in [ty::STAND, ty::RUN, ty::RUN_START, ty::IDLE, 102, 192, 230] {

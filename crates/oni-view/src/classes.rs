@@ -39,10 +39,11 @@ impl Classes {
     /// Opens the class list under the converted-asset root `oni_root`.
     pub fn open(oni_root: &Path, level: u16) -> std::io::Result<Classes> {
         let dir = oni_root.join("common/characters");
-        let melee = crate::ai::melee::profile::load(&dir.join("melee_profiles.json")).unwrap_or_default();
+        let melee =
+            crate::ai::melee::profile::load(&dir.join("melee_profiles.json")).unwrap_or_default();
         let text = std::fs::read_to_string(dir.join("classes.json"))?;
-        let doc: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| std::io::Error::other(format!("classes.json: {e}")))?;
+        let doc: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| std::io::Error::other(format!("classes.json: {e}")))?;
         Ok(Classes {
             dir,
             anim_dir: oni_root.join("common/animations"),
@@ -77,7 +78,9 @@ impl Classes {
             .cloned()
             .ok_or_else(|| format!("no character class {name:?}"))?;
 
-        let model = c["model"].as_str().ok_or_else(|| format!("{name}: no model"))?;
+        let model = c["model"]
+            .as_str()
+            .ok_or_else(|| format!("{name}: no model"))?;
         let mut character = skel::load_character(&self.dir.join(model))
             .map_err(|e| format!("{name}: model {model}: {e}"))?;
         // The class's own skin over the shared body.
@@ -101,7 +104,11 @@ impl Classes {
                 if a.is_empty() {
                     return Err(format!("{name}: collection {coll_name} has no clips"));
                 }
-                eprintln!("class {name} → {coll_name}: {} clips (level {})", a.len(), self.level);
+                eprintln!(
+                    "class {name} → {coll_name}: {} clips (level {})",
+                    a.len(),
+                    self.level
+                );
                 let a = Rc::new(a);
                 self.collections.insert(coll_name, a.clone());
                 a
@@ -121,14 +128,20 @@ impl Classes {
             character: Rc::new(character),
             anims,
             tuning: tuning(&c),
-            melee: c["meleeProfile"].as_str().and_then(|n| self.melee.get(n)).cloned(),
+            melee: c["meleeProfile"]
+                .as_str()
+                .and_then(|n| self.melee.get(n))
+                .cloned(),
             daze,
             perception: crate::ai::perception::Tuning::from_json(&c["perception"]),
             class_combat: crate::ai::goals::ClassCombat::from_json(&c["perception"]),
             death_delete: c["stats"]["deathDeleteDelay"].as_u64().unwrap_or(0) as u32,
             aiming: Rc::new(crate::anim::aim::load(&c["aiming"], &self.anim_dir)),
             shooting: Rc::new(
-                c["perception"]["shootingSkill"].as_array().map(|a| a.iter().map(crate::ai::ranged::Skill::from_json).collect()).unwrap_or_default(),
+                c["perception"]["shootingSkill"]
+                    .as_array()
+                    .map(|a| a.iter().map(crate::ai::ranged::Skill::from_json).collect())
+                    .unwrap_or_default(),
             ),
             targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
             sounds: Rc::new(crate::impacts::ClassSounds::from_json(&c)),
@@ -139,7 +152,9 @@ impl Classes {
                     .into_iter()
                     .filter(|p| p.name.len() >= 5 && p.name[..5].eq_ignore_ascii_case("super"))
                     .filter_map(|p| match p.part {
-                        crate::world::anim_particles::ClassPart::Part(k) if k < 19 => Some((p.class, k)),
+                        crate::world::anim_particles::ClassPart::Part(k) if k < 19 => {
+                            Some((p.class, k))
+                        }
                         _ => None,
                     })
                     .collect(),
@@ -157,17 +172,37 @@ impl Classes {
     /// variant — on hard, of the variant it upgrades to — picked by `roll`
     /// (0–1). (Upgraded below hard, it still takes a random one of its own
     /// variant: one test covers both flags.)
-    pub fn costume(&self, class: &str, random: bool, upgrade: bool, hard: bool, roll: f32) -> String {
+    pub fn costume(
+        &self,
+        class: &str,
+        random: bool,
+        upgrade: bool,
+        hard: bool,
+        roll: f32,
+    ) -> String {
         if !random && !upgrade {
             return class.to_string();
         }
-        let Some(c) = self.entries.iter().find(|c| c["name"].as_str() == Some(class)) else { return class.to_string() };
-        let Some(variant) = c["variantName"].as_str() else { return class.to_string() };
+        let Some(c) = self
+            .entries
+            .iter()
+            .find(|c| c["name"].as_str() == Some(class))
+        else {
+            return class.to_string();
+        };
+        let Some(variant) = c["variantName"].as_str() else {
+            return class.to_string();
+        };
         let desired = match c["variantUpgrade"].as_str() {
             Some(u) if upgrade && hard && !u.is_empty() => u,
             _ => variant,
         };
-        let pool: Vec<&str> = self.entries.iter().filter(|e| e["variantName"].as_str() == Some(desired)).filter_map(|e| e["name"].as_str()).collect();
+        let pool: Vec<&str> = self
+            .entries
+            .iter()
+            .filter(|e| e["variantName"].as_str() == Some(desired))
+            .filter_map(|e| e["name"].as_str())
+            .collect();
         if pool.is_empty() {
             eprintln!("classes: {class} (variant {variant}) found no classes of variant {desired}");
             return class.to_string();
@@ -178,7 +213,10 @@ impl Classes {
 
     /// A class's default melee profile's id (`ai2_behavior.default_melee_id`).
     pub fn default_melee_id(&self, class: &str) -> Option<u16> {
-        let c = self.entries.iter().find(|c| c["name"].as_str() == Some(class))?;
+        let c = self
+            .entries
+            .iter()
+            .find(|c| c["name"].as_str() == Some(class))?;
         self.melee.get(c["meleeProfile"].as_str()?).map(|p| p.id)
     }
 
@@ -200,10 +238,10 @@ impl Classes {
     /// The AI's difficulty multipliers for `level` ("easy", "normal", "hard").
     pub fn difficulty(&self, level: &str) -> crate::ai::melee::brain::Difficulty {
         let d = &self.settings["difficulty"];
-        let i = d["levels"].as_array().and_then(|l| l.iter().position(|v| v.as_str() == Some(level)));
-        let pick = |k: &str| {
-            i.and_then(|i| d[k][i].as_f64()).map_or(1.0, |v| v as f32)
-        };
+        let i = d["levels"]
+            .as_array()
+            .and_then(|l| l.iter().position(|v| v.as_str() == Some(level)));
+        let pick = |k: &str| i.and_then(|i| d[k][i].as_f64()).map_or(1.0, |v| v as f32);
         crate::ai::melee::brain::Difficulty {
             notice: pick("noticeMultiplier"),
             dodge: pick("dodgeMultiplier"),
@@ -246,7 +284,18 @@ fn tuning(c: &serde_json::Value) -> ClassTuning {
     if let Some(v) = stats["superShield"].as_bool() {
         t.super_shield = v;
     }
-    for (k, name) in ["normal", "minorStun", "majorStun", "minorKnockdown", "majorKnockdown", "blownUp", "pickUp"].iter().enumerate() {
+    for (k, name) in [
+        "normal",
+        "minorStun",
+        "majorStun",
+        "minorKnockdown",
+        "majorKnockdown",
+        "blownUp",
+        "pickUp",
+    ]
+    .iter()
+    .enumerate()
+    {
         if let Some(v) = f(&stats["damageResistance"][name]) {
             t.damage_resistance[k] = v;
         }

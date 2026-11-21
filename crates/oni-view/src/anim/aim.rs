@@ -33,8 +33,14 @@ impl Screen {
 pub fn load(list: &Value, anim_dir: &Path) -> Vec<Screen> {
     let side = |j: &Value| {
         (
-            [j["negativeDelta"].as_f64().unwrap_or(0.0) as f32, j["positiveDelta"].as_f64().unwrap_or(0.0) as f32],
-            [j["negativeFrames"].as_i64().unwrap_or(0).max(0) as u16, j["positiveFrames"].as_i64().unwrap_or(0).max(0) as u16],
+            [
+                j["negativeDelta"].as_f64().unwrap_or(0.0) as f32,
+                j["positiveDelta"].as_f64().unwrap_or(0.0) as f32,
+            ],
+            [
+                j["negativeFrames"].as_i64().unwrap_or(0).max(0) as u16,
+                j["positiveFrames"].as_i64().unwrap_or(0).max(0) as u16,
+            ],
         )
     };
     list.as_array()
@@ -43,7 +49,11 @@ pub fn load(list: &Value, anim_dir: &Path) -> Vec<Screen> {
         .filter_map(|s| {
             let name = s["clip"].as_str()?;
             let clip = crate::skel::load_clip(&anim_dir.join(format!("{name}.glb"))).ok()?;
-            Some(Screen { clip: Rc::new(clip), yaw: side(&s["yaw"]), pitch: side(&s["pitch"]) })
+            Some(Screen {
+                clip: Rc::new(clip),
+                yaw: side(&s["yaw"]),
+                pitch: side(&s["pitch"]),
+            })
         })
         .collect()
 }
@@ -117,6 +127,13 @@ pub fn layer(ch: &Character, s: &Screen, yaw: f32, pitch: f32) -> Layer {
         let y = if x.dot(y) < 0.0 { -y } else { y };
         x.lerp(y, t).normalize()
     };
-    let rotations = (0..a.len()).map(|i| lerp(lerp(a[i], b[i], yf), lerp(c[i], d[i], yf), pf)).collect();
-    Layer { rotations, used: s.clip.used_parts, replace: 0, weight: 1.0 }
+    let rotations = (0..a.len())
+        .map(|i| lerp(lerp(a[i], b[i], yf), lerp(c[i], d[i], yf), pf))
+        .collect();
+    Layer {
+        rotations,
+        used: s.clip.used_parts,
+        replace: 0,
+        weight: 1.0,
+    }
 }

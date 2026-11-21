@@ -98,12 +98,19 @@ impl Turret {
 
     /// The head's and the barrel's world matrices.
     pub fn head_matrix(&self) -> Mat4 {
-        self.object() * Mat4::from_rotation_translation(Quat::from_rotation_y(self.yaw), self.class.head_pivot)
+        self.object()
+            * Mat4::from_rotation_translation(
+                Quat::from_rotation_y(self.yaw),
+                self.class.head_pivot,
+            )
     }
 
     fn rebuild(&self) {
         // (A positive pitch raises the barrel's +Z toward +Y.)
-        let barrel = Mat4::from_rotation_translation(Quat::from_rotation_x(-self.pitch), self.class.barrel_pivot);
+        let barrel = Mat4::from_rotation_translation(
+            Quat::from_rotation_x(-self.pitch),
+            self.class.barrel_pivot,
+        );
         self.matrix.set(self.head_matrix() * barrel);
     }
 
@@ -121,7 +128,8 @@ impl Turret {
     /// The yaw and pitch that point the barrel at `p` (object space, from
     /// the unturned pivots, as `aim_origin`).
     fn look_at(&self, p: Vec3) -> (f32, f32) {
-        let local = self.rotation.transpose() * (p - self.position) - (self.class.head_pivot + self.class.barrel_pivot);
+        let local = self.rotation.transpose() * (p - self.position)
+            - (self.class.head_pivot + self.class.barrel_pivot);
         let flat = (local.x * local.x + local.z * local.z).sqrt();
         (wrap(local.x.atan2(local.z)), wrap(local.y.atan2(flat)))
     }
@@ -135,15 +143,23 @@ impl Turret {
     /// Turns the head and barrel toward where they head, each at its speed.
     fn slew(&mut self) {
         let c = &self.class;
-        self.desired = (Self::clip(self.desired.0, c.yaw), Self::clip(self.desired.1, c.pitch));
-        let step = |cur: f32, want: f32, speed: f32| wrap(cur + delta(cur, want).clamp(-speed, speed));
+        self.desired = (
+            Self::clip(self.desired.0, c.yaw),
+            Self::clip(self.desired.1, c.pitch),
+        );
+        let step =
+            |cur: f32, want: f32, speed: f32| wrap(cur + delta(cur, want).clamp(-speed, speed));
         self.yaw = step(self.yaw, self.desired.0, c.yaw.2);
         self.pitch = step(self.pitch, self.desired.1, c.pitch.2);
     }
 }
 
 fn v3(j: &Value) -> Vec3 {
-    Vec3::new(j[0].as_f64().unwrap_or(0.0) as f32, j[1].as_f64().unwrap_or(0.0) as f32, j[2].as_f64().unwrap_or(0.0) as f32)
+    Vec3::new(
+        j[0].as_f64().unwrap_or(0.0) as f32,
+        j[1].as_f64().unwrap_or(0.0) as f32,
+        j[2].as_f64().unwrap_or(0.0) as f32,
+    )
 }
 
 fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
@@ -157,7 +173,10 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
         head_pivot: v3(&c["headPivot"]),
         barrel_pivot: v3(&c["barrelPivot"]),
         timeout: c["timeout"].as_u64().unwrap_or(0) as u32,
-        active_sound: c["activeSound"].as_str().filter(|s| !s.is_empty()).map(str::to_string),
+        active_sound: c["activeSound"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(str::to_string),
         pitch: limits(&c["pitch"]),
         yaw: limits(&c["yaw"]),
         attachments: c["attachments"]
@@ -165,7 +184,10 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
             .into_iter()
             .flatten()
             .map(|a| {
-                let m: Vec<f32> = a["matrix"].as_array().map(|m| m.iter().map(f).collect()).unwrap_or_default();
+                let m: Vec<f32> = a["matrix"]
+                    .as_array()
+                    .map(|m| m.iter().map(f).collect())
+                    .unwrap_or_default();
                 let col = |k: usize| {
                     glam::Vec4::new(
                         m.get(k * 3).copied().unwrap_or(0.0),
@@ -190,8 +212,15 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
 
 /// Loads the turret classes and a level's placed turrets.
 pub fn load(level_dir: &Path, common: &Path, particles: &p3::Classes) -> Vec<Turret> {
-    let read = |p: &Path| std::fs::read_to_string(p).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok());
-    let (Some(classes), Some(placed)) = (read(&common.join("turrets.json")), read(&level_dir.join("turrets.json"))) else {
+    let read = |p: &Path| {
+        std::fs::read_to_string(p)
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
+    };
+    let (Some(classes), Some(placed)) = (
+        read(&common.join("turrets.json")),
+        read(&level_dir.join("turrets.json")),
+    ) else {
         return Vec::new();
     };
     let mut by_name: std::collections::HashMap<String, Rc<TurretClass>> = Default::default();
@@ -306,7 +335,11 @@ impl World {
         for k in 0..self.turrets.len() {
             let t = &self.turrets[k];
             let all = id == -1 || id == 0xFFFF;
-            let picked = if all { what != "deactivate" } else { i64::from(t.id) == id };
+            let picked = if all {
+                what != "deactivate"
+            } else {
+                i64::from(t.id) == id
+            };
             if !picked {
                 continue;
             }
@@ -343,7 +376,8 @@ impl World {
     /// Every turret's tick (`docs/TURRETS.md`), before the guns'.
     pub(super) fn turrets_tick(&mut self) {
         for k in 0..self.turrets.len() {
-            if self.turrets[k].particles.is_empty() && !self.turrets[k].class.attachments.is_empty() {
+            if self.turrets[k].particles.is_empty() && !self.turrets[k].class.attachments.is_empty()
+            {
                 self.turret_particles(k);
             }
             // (Always taken as in view: its idle effect comes on once.)
@@ -375,7 +409,9 @@ impl World {
                 t.chamber -= 1;
             } else if t.fire && !self.all_passive {
                 t.fire = false;
-                let Some(a) = t.class.attachments.iter().find(|a| a.shooter == 0) else { continue };
+                let Some(a) = t.class.attachments.iter().find(|a| a.shooter == 0) else {
+                    continue;
+                };
                 let chamber = a.chamber;
                 let start = !t.firing;
                 t.firing = true;
@@ -445,13 +481,18 @@ impl World {
                 .iter()
                 .enumerate()
                 .filter(|(_, f)| f.alive() && teams & (1 << f.team() as u32) != 0)
-                .min_by(|a, b| a.1.feet().distance_squared(from).total_cmp(&b.1.feet().distance_squared(from)))
+                .min_by(|a, b| {
+                    a.1.feet()
+                        .distance_squared(from)
+                        .total_cmp(&b.1.feet().distance_squared(from))
+                })
                 .map(|(i, _)| i);
             los = match target {
                 Some(i) => {
                     let to = self.fighters[i].feet() + Vec3::Y * self.fighters[i].motion.height();
                     let d = to - from;
-                    d.length() < LOS_START || self.quads.shoots(from + d.normalize() * LOS_START, to)
+                    d.length() < LOS_START
+                        || self.quads.shoots(from + d.normalize() * LOS_START, to)
                 }
                 None => false,
             };
@@ -469,9 +510,11 @@ impl World {
         let from = t.aim_origin();
         let m = t.matrix.get();
         let c = t.class.clone();
-        let targeting = t
-            .targeting
-            .get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(c.params, c.gun, c.skill, false, at, from)));
+        let targeting = t.targeting.get_or_insert_with(|| {
+            Box::new(crate::ai::ranged::Targeting::new(
+                c.params, c.gun, c.skill, false, at, from,
+            ))
+        });
         targeting.predict(at, from);
         let dir = targeting.aim(from, m, los);
         let length = targeting.target_distance.max(1.0);
@@ -484,7 +527,10 @@ impl World {
     /// The turrets' shot spread (degrees): the difficulty's multiplier on
     /// their classes' (all 1).
     pub(super) fn turret_spread(&self) -> f32 {
-        self.turrets.first().map_or(1.0, |t| t.class.skill.gun_inaccuracy) * self.difficulty.inaccuracy
+        self.turrets
+            .first()
+            .map_or(1.0, |t| t.class.skill.gun_inaccuracy)
+            * self.difficulty.inaccuracy
     }
 
     /// What to draw of the turrets: each head and barrel model and matrix.
@@ -492,7 +538,10 @@ impl World {
         self.turrets
             .iter()
             .flat_map(|t| {
-                [t.class.head.clone().map(|p| (p, t.head_matrix())), t.class.barrel.clone().map(|p| (p, t.barrel_matrix()))]
+                [
+                    t.class.head.clone().map(|p| (p, t.head_matrix())),
+                    t.class.barrel.clone().map(|p| (p, t.barrel_matrix())),
+                ]
             })
             .flatten()
             .collect()

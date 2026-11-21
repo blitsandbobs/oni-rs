@@ -153,9 +153,18 @@ mod tests {
         assert!(fixed.fearless(true, 1) && !fixed.fearless(false, 4));
         assert!(faithful.fearless(false, 4) && !faithful.fearless(true, 1));
         assert!(fixed.weigh_unthrowable() && !faithful.weigh_unthrowable());
-        assert_eq!((fixed.run_in_radius_times(), faithful.run_in_radius_times()), (1.0, 2.0));
+        assert_eq!(
+            (fixed.run_in_radius_times(), faithful.run_in_radius_times()),
+            (1.0, 2.0)
+        );
         assert!(!fixed.contact_head_twice() && faithful.contact_head_twice());
-        assert_eq!((fixed.investigate_check_every(), faithful.investigate_check_every()), (15, 0));
+        assert_eq!(
+            (
+                fixed.investigate_check_every(),
+                faithful.investigate_check_every()
+            ),
+            (15, 0)
+        );
         assert!(!fixed.no_new_target() && faithful.no_new_target());
     }
 }

@@ -50,7 +50,14 @@ pub struct Obstacle {
 
 impl Body {
     pub fn new(position: Vec3, radius: f32, static_friction: f32, dynamic_friction: f32) -> Body {
-        Body { position, velocity: Vec3::ZERO, acceleration: Vec3::ZERO, radius, static_friction, dynamic_friction }
+        Body {
+            position,
+            velocity: Vec3::ZERO,
+            acceleration: Vec3::ZERO,
+            radius,
+            static_friction,
+            dynamic_friction,
+        }
     }
 
     /// What the sphere meets moving along `v` (`PHrPhysics_Callback_FindEnvCollisions`,
@@ -62,9 +69,19 @@ impl Body {
         for h in quads.sphere(self.position, self.radius, v, flag::CHR_COL_SKIP) {
             let q = &quads.quads[h.quad as usize];
             let (n, _) = quads.plane(q.plane);
-            out.push(Contact { quad: h.quad, point: h.point, normal: n, body: None });
+            out.push(Contact {
+                quad: h.quad,
+                point: h.point,
+                normal: n,
+                body: None,
+            });
             if q.flags & flag::AK_2SIDED != 0 {
-                out.push(Contact { quad: h.quad, point: h.point, normal: -n, body: None });
+                out.push(Contact {
+                    quad: h.quad,
+                    point: h.point,
+                    normal: -n,
+                    body: None,
+                });
             }
         }
         // Other bodies its sphere, swept along `v`, meets: the plane half way
@@ -72,7 +89,11 @@ impl Body {
         // when the centres coincide).
         for o in others {
             let swept = |(c, r): &(Vec3, f32)| {
-                let t = if v.length_squared() > 0.0 { ((*c - self.position).dot(v) / v.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+                let t = if v.length_squared() > 0.0 {
+                    ((*c - self.position).dot(v) / v.length_squared()).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 (self.position + v * t).distance(*c) <= r + self.radius
             };
             if !o.spheres.iter().any(swept) {
@@ -83,7 +104,12 @@ impl Body {
                 Some(n) => (((c + n * r) + (self.position - n * self.radius)) * 0.5, n),
                 None => (self.position, Vec3::Y),
             };
-            out.push(Contact { quad: u32::MAX, point, normal, body: Some(o.character) });
+            out.push(Contact {
+                quad: u32::MAX,
+                point,
+                normal,
+                body: Some(o.character),
+            });
         }
         out.retain(|c| !(v.dot(c.normal) > 0.0 || (c.point - self.position).dot(c.normal) > 0.0));
         out
@@ -94,14 +120,23 @@ impl Body {
     /// plane it pushes into takes that push off) — `on_pass` sees what it
     /// met — and a halt if it reflected, the move, and friction if it
     /// touched anything. Returns whether it touched anything.
-    pub fn tick(&mut self, quads: &Quads, others: &[Obstacle], mut on_pass: impl FnMut(&Body, &[Contact])) -> bool {
+    pub fn tick(
+        &mut self,
+        quads: &Quads,
+        others: &[Obstacle],
+        mut on_pass: impl FnMut(&Body, &[Contact]),
+    ) -> bool {
         self.velocity.y -= GRAVITY;
         self.velocity += self.acceleration;
         self.acceleration = Vec3::ZERO;
         let mut v = self.velocity;
         // The reflecting pass (`OBrPhysics_Update_Reflect`).
         let mut met = self.gather(quads, others, v);
-        met.sort_by(|a, b| a.point.distance_squared(self.position).total_cmp(&b.point.distance_squared(self.position)));
+        met.sort_by(|a, b| {
+            a.point
+                .distance_squared(self.position)
+                .total_cmp(&b.point.distance_squared(self.position))
+        });
         let mut reflected = false;
         for c in &met {
             let d = v.dot(c.normal);
@@ -114,7 +149,12 @@ impl Body {
         on_pass(self, &met);
         // The halt (`OBrPhysics_Update_ReflectHalt`): still pushing into
         // something, it stops.
-        if reflected && self.gather(quads, others, v).iter().any(|c| v.dot(c.normal) < 0.0) {
+        if reflected
+            && self
+                .gather(quads, others, v)
+                .iter()
+                .any(|c| v.dot(c.normal) < 0.0)
+        {
             v = Vec3::ZERO;
         }
         self.position += v;
@@ -126,7 +166,9 @@ impl Body {
             if len < 1e-6 {
                 self.velocity = Vec3::ZERO;
             } else {
-                let to = (len - self.static_friction).max(0.0).min(len * self.dynamic_friction);
+                let to = (len - self.static_friction)
+                    .max(0.0)
+                    .min(len * self.dynamic_friction);
                 self.velocity *= to / len;
             }
         }
@@ -140,7 +182,12 @@ mod tests {
     use crate::quads::tests::room;
 
     fn floor() -> [Vec3; 4] {
-        [Vec3::new(-50.0, 0.0, -50.0), Vec3::new(-50.0, 0.0, 50.0), Vec3::new(50.0, 0.0, 50.0), Vec3::new(50.0, 0.0, -50.0)]
+        [
+            Vec3::new(-50.0, 0.0, -50.0),
+            Vec3::new(-50.0, 0.0, 50.0),
+            Vec3::new(50.0, 0.0, 50.0),
+            Vec3::new(50.0, 0.0, -50.0),
+        ]
     }
 
     #[test]
@@ -157,8 +204,16 @@ mod tests {
             }
         }
         assert!(landed.is_some_and(|t| t < 15), "falls fast: {landed:?}");
-        assert!((b.position.y - 1.0).abs() < 0.5, "resting on the floor: {}", b.position);
+        assert!(
+            (b.position.y - 1.0).abs() < 0.5,
+            "resting on the floor: {}",
+            b.position
+        );
         assert!(b.velocity.length() < 1e-3, "and stopped: {}", b.velocity);
-        assert!(b.position.x > 1.0 && b.position.x < 20.0, "having slid a little: {}", b.position);
+        assert!(
+            b.position.x > 1.0 && b.position.x < 20.0,
+            "having slid a little: {}",
+            b.position
+        );
     }
 }

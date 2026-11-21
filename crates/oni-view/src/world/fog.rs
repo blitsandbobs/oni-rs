@@ -79,11 +79,16 @@ mod tests {
         assert_eq!((f.fog.start, f.fog.end), (0.975, 1.0));
         // Eased over 4 ticks to 0.995: 0.98, 0.985, 0.99, then there.
         f.start_to(0.995, 4);
-        let seen: Vec<f32> = (0..5).map(|_| {
-            f.tick();
-            f.fog.start
-        }).collect();
-        assert!((seen[0] - 0.98).abs() < 1e-6 && (seen[2] - 0.99).abs() < 1e-6, "{seen:?}");
+        let seen: Vec<f32> = (0..5)
+            .map(|_| {
+                f.tick();
+                f.fog.start
+            })
+            .collect();
+        assert!(
+            (seen[0] - 0.98).abs() < 1e-6 && (seen[2] - 0.99).abs() < 1e-6,
+            "{seen:?}"
+        );
         assert_eq!(seen[3], 0.995);
         assert_eq!(seen[4], 0.995);
         // At once with no frames.

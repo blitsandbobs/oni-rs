@@ -24,7 +24,13 @@ pub enum Tab {
     Help,
 }
 
-const TABS: [(Tab, i64); 5] = [(Tab::Objective, 101), (Tab::Items, 102), (Tab::Weapons, 103), (Tab::Diary, 104), (Tab::Help, 105)];
+const TABS: [(Tab, i64); 5] = [
+    (Tab::Objective, 101),
+    (Tab::Items, 102),
+    (Tab::Weapons, 103),
+    (Tab::Diary, 104),
+    (Tab::Help, 105),
+];
 /// `WPcPowerup_LSI`: read about only while carried.
 const LSI: u32 = 5;
 const GREEN: u32 = 0xFF00_FF00;
@@ -66,14 +72,23 @@ pub struct Data {
 }
 
 fn read(path: &Path) -> serde_json::Value {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default()
 }
 
 impl Data {
     pub fn load(common: &Path, level_dir: &Path) -> Data {
         let c = read(&common.join("pause_screen.json"));
         let l = read(&level_dir.join("pause_pages.json"));
-        let pages = |v: &serde_json::Value| v.as_array().into_iter().flatten().map(console::page).collect::<Vec<_>>();
+        let pages = |v: &serde_json::Value| {
+            v.as_array()
+                .into_iter()
+                .flatten()
+                .map(console::page)
+                .collect::<Vec<_>>()
+        };
         let items = c["dialog"]["items"]
             .as_array()
             .into_iter()
@@ -82,11 +97,28 @@ impl Data {
                 id: i["id"].as_i64().unwrap_or(-1),
                 title: i["title"].as_str().unwrap_or("").to_string(),
                 rect: std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32),
-                font: (i["font"]["size"].as_u64().unwrap_or(10) as u16, i["font"]["style"].as_u64().unwrap_or(1) as u8),
-                shade: i["font"]["shade"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0xFFFF_7F00),
+                font: (
+                    i["font"]["size"].as_u64().unwrap_or(10) as u16,
+                    i["font"]["style"].as_u64().unwrap_or(1) as u8,
+                ),
+                shade: i["font"]["shade"]
+                    .as_str()
+                    .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+                    .unwrap_or(0xFFFF_7F00),
             })
             .collect();
-        let item_pages = c["items"].as_array().into_iter().flatten().chain(l["items"].as_array().into_iter().flatten()).map(|i| (i["type"].as_u64().unwrap_or(0) as u32, console::page(&i["page"]))).collect();
+        let item_pages = c["items"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .chain(l["items"].as_array().into_iter().flatten())
+            .map(|i| {
+                (
+                    i["type"].as_u64().unwrap_or(0) as u32,
+                    console::page(&i["page"]),
+                )
+            })
+            .collect();
         let mut diary: Vec<Diary> = c["diary"]
             .as_array()
             .into_iter()
@@ -100,11 +132,24 @@ impl Data {
             .collect();
         diary.sort_by_key(|d| (d.level, d.page));
         Data {
-            size: [c["dialog"]["size"][0].as_f64().unwrap_or(640.0) as f32, c["dialog"]["size"][1].as_f64().unwrap_or(480.0) as f32],
+            size: [
+                c["dialog"]["size"][0].as_f64().unwrap_or(640.0) as f32,
+                c["dialog"]["size"][1].as_f64().unwrap_or(480.0) as f32,
+            ],
             items,
             help: pages(&c["help"]),
             item_pages,
-            weapons: c["weapons"].as_array().into_iter().flatten().map(|w| (w["class"].as_str().unwrap_or("").to_string(), console::page(&w["page"]))).collect(),
+            weapons: c["weapons"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|w| {
+                    (
+                        w["class"].as_str().unwrap_or("").to_string(),
+                        console::page(&w["page"]),
+                    )
+                })
+                .collect(),
             diary,
             objectives: pages(&l["objectives"]),
         }
@@ -185,7 +230,11 @@ impl Pause {
             if kinds & bit != 0 {
                 continue;
             }
-            let enabled = if *kind == LSI { p.has_lsi } else { p.items_seen & bit != 0 };
+            let enabled = if *kind == LSI {
+                p.has_lsi
+            } else {
+                p.items_seen & bit != 0
+            };
             if enabled {
                 if p.new_item == Some(*kind) {
                     item_page = items.len();
@@ -195,18 +244,37 @@ impl Pause {
             }
         }
         // Weapons: those met; on the new one, else the one in hand.
-        let weapons: Vec<usize> = (0..data.weapons.len()).filter(|&k| p.weapons_seen.iter().any(|w| w.eq_ignore_ascii_case(&data.weapons[k].0))).collect();
+        let weapons: Vec<usize> = (0..data.weapons.len())
+            .filter(|&k| {
+                p.weapons_seen
+                    .iter()
+                    .any(|w| w.eq_ignore_ascii_case(&data.weapons[k].0))
+            })
+            .collect();
         let want = p.new_weapon.or(p.weapon);
-        let weapon_page = want.and_then(|w| weapons.iter().position(|&k| data.weapons[k].0.eq_ignore_ascii_case(w))).unwrap_or(0);
+        let weapon_page = want
+            .and_then(|w| {
+                weapons
+                    .iter()
+                    .position(|&k| data.weapons[k].0.eq_ignore_ascii_case(w))
+            })
+            .unwrap_or(0);
         // Diary: earlier levels' pages and this level's; on its first page.
-        let diary: Vec<usize> = (0..data.diary.len()).filter(|&k| data.diary[k].level <= p.level).collect();
+        let diary: Vec<usize> = (0..data.diary.len())
+            .filter(|&k| data.diary[k].level <= p.level)
+            .collect();
         let diary_page = diary
             .iter()
             .position(|&k| data.diary[k].level == p.level && data.diary[k].page == 1)
             .or_else(|| diary.iter().position(|&k| data.diary[k].level >= p.level))
             .unwrap_or(0);
         let mut highlighted = 0;
-        for (on, tab) in [(p.new_objective, Tab::Objective), (p.new_weapon.is_some(), Tab::Weapons), (p.new_item.is_some(), Tab::Items), (p.new_move, Tab::Diary)] {
+        for (on, tab) in [
+            (p.new_objective, Tab::Objective),
+            (p.new_weapon.is_some(), Tab::Weapons),
+            (p.new_item.is_some(), Tab::Items),
+            (p.new_move, Tab::Diary),
+        ] {
             if on {
                 highlighted |= 1 << tab as u32;
             }
@@ -235,13 +303,18 @@ impl Pause {
     }
 
     fn max_objective(&self, data: &Data) -> i64 {
-        (data.objectives.len() as i64).min(self.objective_number).max(0)
+        (data.objectives.len() as i64)
+            .min(self.objective_number)
+            .max(0)
     }
 
     /// The section's pages and the one showing.
     pub fn pages(&self, data: &Data) -> (usize, usize) {
         match self.tab {
-            Tab::Objective => (self.max_objective(data) as usize, self.objective_page as usize),
+            Tab::Objective => (
+                self.max_objective(data) as usize,
+                self.objective_page as usize,
+            ),
             Tab::Items => (self.items.len(), self.item_page),
             Tab::Weapons => (self.weapons.len(), self.weapon_page),
             Tab::Diary => (self.diary.len(), self.diary_page),
@@ -254,7 +327,9 @@ impl Pause {
     pub fn buttons(&self, data: &Data) -> (bool, bool) {
         let (n, k) = self.pages(data);
         match self.tab {
-            Tab::Objective if data.objectives.is_empty() || self.objective_number == 0 => (false, false),
+            Tab::Objective if data.objectives.is_empty() || self.objective_number == 0 => {
+                (false, false)
+            }
             Tab::Objective => (k + 1 < n, k > 0),
             Tab::Help => (false, false),
             _ if n == 0 => (false, false),
@@ -273,9 +348,18 @@ impl Pause {
                 let shade = if self.objective_page == 0 { GREEN } else { RED };
                 data.objectives.get(k).map(|p| (p, shade))
             }
-            Tab::Items => self.items.get(self.item_page).map(|&k| (&data.item_pages[k].1, ORANGE)),
-            Tab::Weapons => self.weapons.get(self.weapon_page).map(|&k| (&data.weapons[k].1, ORANGE)),
-            Tab::Diary => self.diary.get(self.diary_page).map(|&k| (&data.diary[k].content, ORANGE)),
+            Tab::Items => self
+                .items
+                .get(self.item_page)
+                .map(|&k| (&data.item_pages[k].1, ORANGE)),
+            Tab::Weapons => self
+                .weapons
+                .get(self.weapon_page)
+                .map(|&k| (&data.weapons[k].1, ORANGE)),
+            Tab::Diary => self
+                .diary
+                .get(self.diary_page)
+                .map(|&k| (&data.diary[k].content, ORANGE)),
             Tab::Help => data.help.get(self.help_page).map(|p| (p, ORANGE)),
         }
     }
@@ -298,10 +382,14 @@ impl Pause {
     }
 
     fn step(&mut self, data: &Data, d: i64) {
-        let clamp = |k: usize, n: usize| (k as i64 + d).clamp(0, n.saturating_sub(1) as i64) as usize;
+        let clamp =
+            |k: usize, n: usize| (k as i64 + d).clamp(0, n.saturating_sub(1) as i64) as usize;
         match self.tab {
             // (Objectives: Previous is one older.)
-            Tab::Objective => self.objective_page = (self.objective_page - d).clamp(0, (self.max_objective(data) - 1).max(0)),
+            Tab::Objective => {
+                self.objective_page =
+                    (self.objective_page - d).clamp(0, (self.max_objective(data) - 1).max(0))
+            }
             Tab::Items => self.item_page = clamp(self.item_page, self.items.len()),
             Tab::Weapons => self.weapon_page = clamp(self.weapon_page, self.weapons.len()),
             Tab::Diary => self.diary_page = clamp(self.diary_page, self.diary.len()),
@@ -316,33 +404,56 @@ impl Pause {
 
     /// Where the dialog sits on a `w` × `h` screen.
     fn at(data: &Data, w: f32, h: f32) -> [f32; 2] {
-        [((w - data.size[0]) * 0.5).floor().max(0.0), ((h - data.size[1]) * 0.5).floor().max(0.0)]
+        [
+            ((w - data.size[0]) * 0.5).floor().max(0.0),
+            ((h - data.size[1]) * 0.5).floor().max(0.0),
+        ]
     }
 
     /// The button under screen point `x`, `y`, if one is showing there.
     pub fn hit(&self, data: &Data, w: f32, h: f32, x: f32, y: f32) -> Option<i64> {
         let at = Pause::at(data, w, h);
         let help = self.tab == Tab::Help;
-        data.items.iter().filter(|i| matches!(i.id, 101..=105 | 2) || (matches!(i.id, 106 | 107) && !help)).find_map(|i| {
-            let [rx, ry, rw, rh] = i.rect;
-            let (l, t) = (at[0] + rx, at[1] + ry);
-            (x >= l && x < l + rw && y >= t && y < t + rh).then_some(i.id)
-        })
+        data.items
+            .iter()
+            .filter(|i| matches!(i.id, 101..=105 | 2) || (matches!(i.id, 106 | 107) && !help))
+            .find_map(|i| {
+                let [rx, ry, rw, rh] = i.rect;
+                let (l, t) = (at[0] + rx, at[1] + ry);
+                (x >= l && x < l + rw && y >= t && y < t + rh).then_some(i.id)
+            })
     }
 
     /// The screen (`ONiPauseScreen_Paint`, `_DrawItem`).
     #[allow(clippy::too_many_arguments)]
-    pub fn draw(&self, data: &Data, fonts: &Fonts, part: &dyn Fn(&str) -> Option<PartSpec>, textures: &Path, texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>, w: f32, h: f32) -> Vec<OverlayDraw> {
+    pub fn draw(
+        &self,
+        data: &Data,
+        fonts: &Fonts,
+        part: &dyn Fn(&str) -> Option<PartSpec>,
+        textures: &Path,
+        texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>,
+        w: f32,
+        h: f32,
+    ) -> Vec<OverlayDraw> {
         let mut out = Vec::new();
         let at = Pause::at(data, w, h);
         let place = |r: [f32; 4]| [at[0] + r[0], at[1] + r[1], r[2], r[3]];
         match part("ps_oniUI_background") {
             Some(p) => out.extend(p.draw(at, data.size[0], data.size[1])),
-            None => out.push(rect(None, [at[0], at[1], at[0] + data.size[0], at[1] + data.size[1]], [0.0, 0.0, 0.0, 0.85])),
+            None => out.push(rect(
+                None,
+                [at[0], at[1], at[0] + data.size[0], at[1] + data.size[1]],
+                [0.0, 0.0, 0.0, 0.85],
+            )),
         }
         let help = self.tab == Tab::Help;
         // The outlines (the hint area's hidden on the help page).
-        for i in data.items.iter().filter(|i| (i.id == 0) || (i.id == 120 && !help)) {
+        for i in data
+            .items
+            .iter()
+            .filter(|i| (i.id == 0) || (i.id == 120 && !help))
+        {
             if let Some(p) = part("ps_oniUI_outline") {
                 let [x, y, rw, rh] = place(i.rect);
                 out.extend(p.draw([x, y], rw, rh));
@@ -351,7 +462,11 @@ impl Pause {
         // The buttons: the section's white, a new one flashing yellow, the
         // rest orange; Previous / Next grey when they can't go.
         let t = (self.opened.elapsed().as_secs_f32() * 60.0 + 180.0) % 90.0;
-        let flash = if t < 60.0 { mix(ORANGE, YELLOW, (std::f32::consts::PI * t / 60.0).sin()) } else { ORANGE };
+        let flash = if t < 60.0 {
+            mix(ORANGE, YELLOW, (std::f32::consts::PI * t / 60.0).sin())
+        } else {
+            ORANGE
+        };
         let (prev, next) = self.buttons(data);
         for i in &data.items {
             let shade = match i.id {
@@ -365,16 +480,47 @@ impl Pause {
                         ORANGE
                     }
                 }
-                106 if !help => if prev { ORANGE } else { GREY },
-                107 if !help => if next { ORANGE } else { GREY },
+                106 if !help => {
+                    if prev {
+                        ORANGE
+                    } else {
+                        GREY
+                    }
+                }
+                107 if !help => {
+                    if next {
+                        ORANGE
+                    } else {
+                        GREY
+                    }
+                }
                 2 => ORANGE,
                 _ => continue,
             };
-            button_draws(&mut out, part, place(i.rect), &i.title, fonts, i.font, shade, matches!(i.id, 101..=105) && TABS.iter().any(|&(t, id)| id == i.id && t == self.tab));
+            button_draws(
+                &mut out,
+                part,
+                place(i.rect),
+                &i.title,
+                fonts,
+                i.font,
+                shade,
+                matches!(i.id, 101..=105)
+                    && TABS.iter().any(|&(t, id)| id == i.id && t == self.tab),
+            );
         }
         // The page in the main area, its hint below.
         if let (Some((page, shade)), Some(main)) = (self.page(data), data.item(110)) {
-            out.extend(page_draws(page, place(main.rect), fonts, part, textures, texture_size, shade, self.tab == Tab::Diary));
+            out.extend(page_draws(
+                page,
+                place(main.rect),
+                fonts,
+                part,
+                textures,
+                texture_size,
+                shade,
+                self.tab == Tab::Diary,
+            ));
             if let (false, Some(sub), None) = (help, data.item(111), self.message) {
                 lines_draws(&mut out, &page.hint, place(sub.rect), 0.0, fonts, shade);
             }
@@ -382,7 +528,12 @@ impl Pause {
         // A cheat's message there instead, in the area's own font (on any
         // page).
         if let (Some(m), Some(sub)) = (self.message, data.item(111)) {
-            let line = console::Line { text: m.to_string(), size: sub.font.0, style: sub.font.1, shade: Some(sub.shade) };
+            let line = console::Line {
+                text: m.to_string(),
+                size: sub.font.0,
+                style: sub.font.1,
+                shade: Some(sub.shade),
+            };
             lines_draws(&mut out, &[line], place(sub.rect), 0.0, fonts, sub.shade);
         }
         out
@@ -391,6 +542,7 @@ impl Pause {
 
 /// Shade `a` toward `b` by `t` (0–1), ARGB.
 fn mix(a: u32, b: u32, t: f32) -> u32 {
-    let ch = |s: u32| -> f32 { ((a >> s) & 0xFF) as f32 * (1.0 - t) + ((b >> s) & 0xFF) as f32 * t };
+    let ch =
+        |s: u32| -> f32 { ((a >> s) & 0xFF) as f32 * (1.0 - t) + ((b >> s) & 0xFF) as f32 * t };
     0xFF00_0000 | ((ch(16) as u32) << 16) | ((ch(8) as u32) << 8) | ch(0) as u32
 }

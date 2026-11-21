@@ -29,7 +29,11 @@ pub(super) struct Front {
     /// The player's options (`settings.json`).
     pub user: crate::settings::Settings,
     /// The menus' sound with no level: its engine, output, real time banked.
-    audio: Option<(crate::audio::Audio, Option<crate::audio::output::Output>, f32)>,
+    audio: Option<(
+        crate::audio::Audio,
+        Option<crate::audio::output::Output>,
+        f32,
+    )>,
     /// What to do once the music has faded (`ONiOGU_MainMenu_FadeMusic`).
     pending: Option<(Action, Instant)>,
     /// The left button down (for drags).
@@ -40,7 +44,16 @@ pub(super) struct Front {
 
 impl Front {
     pub fn new(oni_root: PathBuf, user: crate::settings::Settings, started_here: bool) -> Front {
-        Front { data: Data::load(&oni_root.join("common")), menu: None, oni_root, user, audio: None, pending: None, left: false, started_here }
+        Front {
+            data: Data::load(&oni_root.join("common")),
+            menu: None,
+            oni_root,
+            user,
+            audio: None,
+            pending: None,
+            left: false,
+            started_here,
+        }
     }
 }
 
@@ -79,8 +92,14 @@ impl State {
     /// sounds playing paused, music only, the menu's music fading in.
     pub(super) fn open_menu(&mut self) {
         let in_game = self.play.is_some();
-        let quirks = if self.settings.faithful { crate::quirks::Quirks::FAITHFUL } else { crate::quirks::Quirks::FIXED };
-        let Some(front) = self.front.as_mut() else { return };
+        let quirks = if self.settings.faithful {
+            crate::quirks::Quirks::FAITHFUL
+        } else {
+            crate::quirks::Quirks::FIXED
+        };
+        let Some(front) = self.front.as_mut() else {
+            return;
+        };
         if !front.data.has("mainmenu") {
             eprintln!("menu: no menus (common/menus.json); reconvert the assets");
             return;
@@ -132,9 +151,13 @@ impl State {
                     a.impulse_play("button_click", None, None, None);
                 }
             }
-            let Some(front) = self.front.as_mut() else { return };
+            let Some(front) = self.front.as_mut() else {
+                return;
+            };
             let rows = || crate::game::load_rows(&front.data.levels, &front.oni_root);
-            let Some(menu) = front.menu.as_mut() else { return };
+            let Some(menu) = front.menu.as_mut() else {
+                return;
+            };
             let action = menu.command(&front.data, cmd, &rows);
             if let Some(a) = action {
                 self.menu_action(a);
@@ -182,7 +205,13 @@ impl State {
         }
         if pressed {
             if let Some(k) = dialog_key(code) {
-                let cmds = self.front.as_mut().and_then(|f| f.menu.as_mut()).and_then(|m| m.top_mut()).map(|w| w.key(k)).unwrap_or_default();
+                let cmds = self
+                    .front
+                    .as_mut()
+                    .and_then(|f| f.menu.as_mut())
+                    .and_then(|m| m.top_mut())
+                    .map(|w| w.key(k))
+                    .unwrap_or_default();
                 self.menu_commands(cmds);
             }
         }
@@ -192,7 +221,10 @@ impl State {
 
     fn screen(&self) -> (f32, f32) {
         let scale = self.window.scale_factor() as f32;
-        (self.config.width as f32 / scale, self.config.height as f32 / scale)
+        (
+            self.config.width as f32 / scale,
+            self.config.height as f32 / scale,
+        )
     }
 
     /// The left button while the menu is up. True if the menu took it.
@@ -202,7 +234,9 @@ impl State {
         }
         let ((w, h), [x, y]) = (self.screen(), self.cursor);
         let cmds = {
-            let Some(front) = self.front.as_mut() else { return true };
+            let Some(front) = self.front.as_mut() else {
+                return true;
+            };
             front.left = pressed;
             let look = &front.data.look;
             match front.menu.as_mut().and_then(|m| m.stack.last_mut()) {
@@ -221,16 +255,28 @@ impl State {
         }
         let ((w, h), [x, y]) = (self.screen(), self.cursor);
         let cmds = {
-            let Some(front) = self.front.as_mut() else { return };
+            let Some(front) = self.front.as_mut() else {
+                return;
+            };
             let (look, held) = (&front.data.look, front.left);
-            front.menu.as_mut().and_then(|m| m.stack.last_mut()).map(|win| win.mouse_move(look, w, h, x, y, held)).unwrap_or_default()
+            front
+                .menu
+                .as_mut()
+                .and_then(|m| m.stack.last_mut())
+                .map(|win| win.mouse_move(look, w, h, x, y, held))
+                .unwrap_or_default()
         };
         self.menu_commands(cmds);
     }
 
     pub(super) fn menu_wheel(&mut self, lines: i32) {
         let ((w, h), [x, y]) = (self.screen(), self.cursor);
-        if let Some(win) = self.front.as_mut().and_then(|f| f.menu.as_mut()).and_then(|m| m.stack.last_mut()) {
+        if let Some(win) = self
+            .front
+            .as_mut()
+            .and_then(|f| f.menu.as_mut())
+            .and_then(|m| m.stack.last_mut())
+        {
             win.wheel(w, h, x, y, lines);
         }
     }
@@ -242,12 +288,21 @@ impl State {
         // (The window manager's timers: a slider held pages on.)
         let ((w, h), [x, y]) = (self.screen(), self.cursor);
         let cmds = {
-            let Some(front) = self.front.as_mut() else { return };
+            let Some(front) = self.front.as_mut() else {
+                return;
+            };
             let look = &front.data.look;
-            front.menu.as_mut().and_then(|m| m.stack.last_mut()).map(|win| win.tick(look, w, h, x, y, Instant::now())).unwrap_or_default()
+            front
+                .menu
+                .as_mut()
+                .and_then(|m| m.stack.last_mut())
+                .map(|win| win.tick(look, w, h, x, y, Instant::now()))
+                .unwrap_or_default()
         };
         self.menu_commands(cmds);
-        let Some(front) = self.front.as_mut() else { return };
+        let Some(front) = self.front.as_mut() else {
+            return;
+        };
         if let Some((audio, _, banked)) = front.audio.as_mut().filter(|_| no_level) {
             *banked += dt;
             while *banked >= TICK {
@@ -255,11 +310,16 @@ impl State {
                 audio.tick(None);
             }
         }
-        let due = front.pending.as_ref().is_some_and(|(_, at)| Instant::now() >= *at);
+        let due = front
+            .pending
+            .as_ref()
+            .is_some_and(|(_, at)| Instant::now() >= *at);
         if !due {
             return;
         }
-        let Some((action, _)) = front.pending.take() else { return };
+        let Some((action, _)) = front.pending.take() else {
+            return;
+        };
         match action {
             Action::Quit => self.quit = true,
             Action::NewGame { faithful } => {
@@ -267,7 +327,9 @@ impl State {
                 self.start_level(1, 0, None, faithful);
             }
             Action::Load { level, save_point } => {
-                let saved = (save_point > 0).then(|| crate::game::load_continue(level, save_point)).flatten();
+                let saved = (save_point > 0)
+                    .then(|| crate::game::load_continue(level, save_point))
+                    .flatten();
                 self.start_level(level, save_point, saved, crate::game::game_faithful());
             }
             _ => {}
@@ -276,8 +338,16 @@ impl State {
 
     /// A level started from the menu (`OWrLevelLoad_StartLevel`): the menu
     /// and its sound gone, any level playing unloaded.
-    fn start_level(&mut self, level: u16, save_point: i64, saved: Option<crate::game::Continue>, faithful: bool) {
-        let Some(front) = self.front.as_mut() else { return };
+    fn start_level(
+        &mut self,
+        level: u16,
+        save_point: i64,
+        saved: Option<crate::game::Continue>,
+        faithful: bool,
+    ) {
+        let Some(front) = self.front.as_mut() else {
+            return;
+        };
         front.menu = None;
         front.audio = None;
         let root = front.oni_root.clone();
@@ -286,7 +356,10 @@ impl State {
         match self.load_level(&root, level, save_point, saved) {
             Ok(()) => {
                 self.captured = true;
-                eprintln!("game: level {level}, save point {save_point}{}", if faithful { " (faithful)" } else { "" });
+                eprintln!(
+                    "game: level {level}, save point {save_point}{}",
+                    if faithful { " (faithful)" } else { "" }
+                );
             }
             Err(e) => {
                 eprintln!("game: can't load level {level}: {e}");
@@ -298,25 +371,66 @@ impl State {
     /// A level loaded in place of what plays (`ONrLevel_Load` with its
     /// progress bar): the level-load dialog over black, drawn again at
     /// each step (`ONrLevel_LevelLoadDialog_Update`), gone once it is in.
-    pub(super) fn load_level(&mut self, root: &Path, level: u16, save_point: i64, saved: Option<crate::game::Continue>) -> Result<(), String> {
+    pub(super) fn load_level(
+        &mut self,
+        root: &Path,
+        level: u16,
+        save_point: i64,
+        saved: Option<crate::game::Continue>,
+    ) -> Result<(), String> {
         let format = self.config.format;
         let scale = self.window.scale_factor() as f32;
-        let mut dialog = self.front.as_ref().filter(|f| f.data.has(PROGRESS)).map(|f| Window::new(&f.data, PROGRESS));
+        let mut dialog = self
+            .front
+            .as_ref()
+            .filter(|f| f.data.has(PROGRESS))
+            .map(|f| Window::new(&f.data, PROGRESS));
         let look = self.front.as_ref().map(|f| &f.data.look);
-        let (surface, config, gpu, renderer) = (&self.surface, &self.config, &self.gpu, &mut self.renderer);
+        let (surface, config, gpu, renderer) =
+            (&self.surface, &self.config, &self.gpu, &mut self.renderer);
         let mut progress = |percent: u32| {
-            let (Some(d), Some(look)) = (dialog.as_mut(), look) else { return };
+            let (Some(d), Some(look)) = (dialog.as_mut(), look) else {
+                return;
+            };
             d.set_progress(PROGRESS_BAR, percent);
             let (w, h) = (config.width as f32 / scale, config.height as f32 / scale);
-            let mut overlay = vec![crate::render::OverlayDraw { texture: None, tris: super::quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, 1.0], additive: false }];
+            let mut overlay = vec![crate::render::OverlayDraw {
+                texture: None,
+                tris: super::quad([0.0, 0.0, w, h]),
+                color: [0.0, 0.0, 0.0, 1.0],
+                additive: false,
+            }];
             overlay.extend(d.draw(look, w, h));
-            let Ok(frame) = surface.get_current_texture() else { return };
-            let view = frame.texture.create_view(&wgpu::TextureViewDescriptor::default());
+            let Ok(frame) = surface.get_current_texture() else {
+                return;
+            };
+            let view = frame
+                .texture
+                .create_view(&wgpu::TextureViewDescriptor::default());
             (renderer.overlay, renderer.overlay_size) = (overlay, [w, h]);
-            renderer.render(gpu, &view, config.width, config.height, glam::Mat4::IDENTITY, &[], glam::Vec3::X, glam::Vec3::Y);
+            renderer.render(
+                gpu,
+                &view,
+                config.width,
+                config.height,
+                glam::Mat4::IDENTITY,
+                &[],
+                glam::Vec3::X,
+                glam::Vec3::Y,
+            );
             frame.present();
         };
-        let (r, pw) = mission_level(gpu, format, root, level, None, &self.settings, save_point, saved, &mut progress)?;
+        let (r, pw) = mission_level(
+            gpu,
+            format,
+            root,
+            level,
+            None,
+            &self.settings,
+            save_point,
+            saved,
+            &mut progress,
+        )?;
         self.renderer = r;
         self.play = Some(pw);
         Ok(())

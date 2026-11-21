@@ -57,7 +57,13 @@ fn anim(v: &serde_json::Value) -> u16 {
 }
 
 fn behavior(v: &serde_json::Value) -> Behavior {
-    let flags = |v: &serde_json::Value| -> Vec<String> { v.as_array().into_iter().flatten().filter_map(|f| f.as_str().map(str::to_string)).collect() };
+    let flags = |v: &serde_json::Value| -> Vec<String> {
+        v.as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|f| f.as_str().map(str::to_string))
+            .collect()
+    };
     let s = |k: &str| v[k].as_str().unwrap_or("").to_string();
     let f = |k: &str| v[k].as_f64().unwrap_or(0.0) as f32;
     let fl = flags(&v["flags"]);
@@ -108,9 +114,17 @@ fn behavior(v: &serde_json::Value) -> Behavior {
 
 /// The level's behaviours, by id (none without the file).
 pub fn load(level_dir: &Path) -> HashMap<u16, Rc<Behavior>> {
-    let Ok(text) = std::fs::read_to_string(level_dir.join("neutrals.json")) else { return HashMap::new() };
+    let Ok(text) = std::fs::read_to_string(level_dir.join("neutrals.json")) else {
+        return HashMap::new();
+    };
     let doc: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    doc["neutrals"].as_array().into_iter().flatten().map(behavior).map(|b| (b.id, Rc::new(b))).collect()
+    doc["neutrals"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(behavior)
+        .map(|b| (b.id, Rc::new(b)))
+        .collect()
 }
 
 #[cfg(test)]
@@ -128,7 +142,15 @@ mod tests {
         });
         let b = behavior(&v);
         assert!(b.no_resume_after_items && !b.no_resume);
-        assert_eq!((b.give_energy, b.give_shield, b.give_weapon.as_str()), (2, true, "w6_vdg"));
-        assert!(b.lines[0].player && b.lines[0].anim_once && b.lines[0].anim != 0 && b.lines[0].other_anim == 0);
+        assert_eq!(
+            (b.give_energy, b.give_shield, b.give_weapon.as_str()),
+            (2, true, "w6_vdg")
+        );
+        assert!(
+            b.lines[0].player
+                && b.lines[0].anim_once
+                && b.lines[0].anim != 0
+                && b.lines[0].other_anim == 0
+        );
     }
 }

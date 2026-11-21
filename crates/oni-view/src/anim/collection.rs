@@ -72,9 +72,14 @@ impl AnimCollection {
     /// A collection of just one clip (`anim_dir/<name>.glb`) — a clip a
     /// script plays by name that no collection lists.
     pub fn single(anim_dir: &Path, name: &str) -> std::io::Result<Self> {
-        let clip = skel::load_clip(&anim_dir.join(format!("{name}.glb"))).map_err(std::io::Error::other)?;
+        let clip = skel::load_clip(&anim_dir.join(format!("{name}.glb")))
+            .map_err(std::io::Error::other)?;
         Ok(AnimCollection {
-            entries: vec![Entry { name: name.to_string(), clip, direct: Vec::new() }],
+            entries: vec![Entry {
+                name: name.to_string(),
+                clip,
+                direct: Vec::new(),
+            }],
             links: Vec::new(),
             level: u16::MAX,
             rng: Cell::new(0x1234_5678),
@@ -99,7 +104,10 @@ impl AnimCollection {
                 .map(|a| {
                     a.iter()
                         .filter_map(|e| {
-                            Some((e["anim"].as_str()?.to_string(), e["weight"].as_u64()? as u32))
+                            Some((
+                                e["anim"].as_str()?.to_string(),
+                                e["weight"].as_u64()? as u32,
+                            ))
                         })
                         .collect()
                 })
@@ -165,9 +173,15 @@ impl AnimCollection {
                     })
                 })
                 .collect();
-            links.push(Link { parts: own, next: None });
+            links.push(Link {
+                parts: own,
+                next: None,
+            });
             if !shortcuts.is_empty() {
-                links.push(Link { parts: shortcuts, next: None });
+                links.push(Link {
+                    parts: shortcuts,
+                    next: None,
+                });
             }
         }
         let n = links.len();
@@ -268,7 +282,13 @@ impl AnimCollection {
     }
 
     /// Lookup starting at chain link `l`: the requested state, then `Anything`.
-    fn lookup_from(&self, l: usize, anim_type: u16, from_state: u16, varient: u16) -> Option<usize> {
+    fn lookup_from(
+        &self,
+        l: usize,
+        anim_type: u16,
+        from_state: u16,
+        varient: u16,
+    ) -> Option<usize> {
         self.scan(l, anim_type, from_state, varient)
             .or_else(|| self.scan(l, anim_type, st::ANYTHING, varient))
     }
@@ -285,9 +305,10 @@ impl AnimCollection {
                     && c.varient & !varient == 0
                     && c.first_level <= self.level
             });
-            return any
-                .map(|p| p.clip)
-                .or_else(|| link.next.and_then(|n| self.lookup_from(n, anim_type, from_state, varient)));
+            return any.map(|p| p.clip).or_else(|| {
+                link.next
+                    .and_then(|n| self.lookup_from(n, anim_type, from_state, varient))
+            });
         }
         let key = (u32::from(anim_type) << 16) | u32::from(from_state);
         let start = link.parts.partition_point(|p| self.key(p) < key);
@@ -360,7 +381,11 @@ impl AnimCollection {
     /// Frames to blend from `from` into `to` when `from` ends naturally
     /// (`TRrAnimation_GetEndInterpolation`).
     pub fn end_interpolation(&self, from: usize, to: usize) -> u16 {
-        blend_between(&self.entries[from].clip, &self.entries[to].clip, self.is_direct(from, to))
+        blend_between(
+            &self.entries[from].clip,
+            &self.entries[to].clip,
+            self.is_direct(from, to),
+        )
     }
 
     /// Hard / soft pause frames between two clips (0 when `to` is direct).
@@ -379,7 +404,6 @@ impl AnimCollection {
             self.entries[from].clip.soft_pause
         }
     }
-
 }
 
 /// The blend length when clip `a` runs out into clip `b` (`direct`: `b` is
@@ -412,7 +436,9 @@ pub(crate) mod tests {
     pub(crate) fn konoko() -> Option<Rc<AnimCollection>> {
         let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../../../generated/oni/common/animations");
-        AnimCollection::load(&dir, "konoko_animations", 1).ok().map(Rc::new)
+        AnimCollection::load(&dir, "konoko_animations", 1)
+            .ok()
+            .map(Rc::new)
     }
 
     #[test]
@@ -421,9 +447,13 @@ pub(crate) mod tests {
             eprintln!("SKIP: generated animations not found");
             return;
         };
-        let stand = c.lookup(ty::STAND, st::STANDING, 0).expect("stand from standing");
+        let stand = c
+            .lookup(ty::STAND, st::STANDING, 0)
+            .expect("stand from standing");
         assert_eq!(c.entries[stand].clip.anim_type, ty::STAND);
-        let run = c.lookup(ty::RUN_START, st::STANDING, 0).expect("run start from standing");
+        let run = c
+            .lookup(ty::RUN_START, st::STANDING, 0)
+            .expect("run start from standing");
         assert_eq!(c.entries[run].clip.from_state, st::STANDING);
         // A combat clip needs the Fight bit: plain varient can't see it.
         assert!(c.lookup(ty::PUNCH, st::STANDING, var::FIGHT).is_some());
@@ -441,10 +471,17 @@ pub(crate) mod tests {
             .lookup(ty::PUNCH, st::FALLING, var::FIGHT)
             .expect("punch from the airborne state");
         let name = &c.entries[p].name;
-        assert!(name.contains("jump"), "airborne punch is a jump attack, got {name}");
-        let k = c.lookup(ty::KICK, st::FALLING, var::FIGHT).expect("kick in the air");
+        assert!(
+            name.contains("jump"),
+            "airborne punch is a jump attack, got {name}"
+        );
+        let k = c
+            .lookup(ty::KICK, st::FALLING, var::FIGHT)
+            .expect("kick in the air");
         assert!(c.entries[k].name.contains("jump"));
-        let f = c.lookup(ty::FLIP, st::FALLING, var::FIGHT).expect("flip in the air");
+        let f = c
+            .lookup(ty::FLIP, st::FALLING, var::FIGHT)
+            .expect("flip in the air");
         assert_eq!(c.entries[f].clip.anim_type, ty::FLIP);
     }
 

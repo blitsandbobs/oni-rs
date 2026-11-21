@@ -79,7 +79,10 @@ impl Defs {
             return Some(name.to_string());
         }
         let h = original_hash(name);
-        self.ambients.keys().find(|k| k.eq_ignore_ascii_case(name) && original_hash(k) == h).cloned()
+        self.ambients
+            .keys()
+            .find(|k| k.eq_ignore_ascii_case(name) && original_hash(k) == h)
+            .cloned()
     }
 }
 
@@ -112,7 +115,9 @@ fn name(v: &Value) -> Option<String> {
 impl Defs {
     pub fn load(common: &Path) -> Defs {
         let mut d = Defs::default();
-        let Some(j) = std::fs::read_to_string(common.join("sounds.json")).ok().and_then(|t| serde_json::from_str::<Value>(&t).ok())
+        let Some(j) = std::fs::read_to_string(common.join("sounds.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
         else {
             return d;
         };
@@ -168,7 +173,9 @@ impl Defs {
             );
         }
         for (k, i) in j["impulses"].as_object().into_iter().flatten() {
-            let Some(group) = name(&i["group"]) else { continue };
+            let Some(group) = name(&i["group"]) else {
+                continue;
+            };
             d.impulses.insert(
                 k.clone(),
                 ImpulseDef {
@@ -176,7 +183,8 @@ impl Defs {
                     priority: i["priority"].as_u64().unwrap_or(1).min(3) as u8,
                     max_distance: f(&i["maxVolumeDistance"]),
                     min_distance: f(&i["minVolumeDistance"]),
-                    alt: name(&i["alt"]).map(|a| (i["altThreshold"].as_u64().unwrap_or(0) as usize, a)),
+                    alt: name(&i["alt"])
+                        .map(|a| (i["altThreshold"].as_u64().unwrap_or(0) as usize, a)),
                     impact_velocity: f(&i["impactVelocity"]),
                     min_occlusion: f(&i["minOcclusion"]),
                 },
@@ -194,17 +202,31 @@ mod tests {
     fn names_are_found_as_the_original_finds_them() {
         // The shipped hash keeps little of a long name's start: the case of
         // an early letter doesn't change it.
-        assert_eq!(original_hash("c00_01_106Shinatama"), original_hash("c00_01_106shinatama"));
+        assert_eq!(
+            original_hash("c00_01_106Shinatama"),
+            original_hash("c00_01_106shinatama")
+        );
         assert_eq!(original_hash("c00_01_106shinatama"), 0x0068_a831);
         // A late letter's case does.
         assert_ne!(original_hash("abc"), original_hash("abC"));
         let mut defs = Defs::default();
         for name in ["c00_01_106shinatama", "abc"] {
-            defs.ambients.insert(name.to_string(), AmbientDef::default());
+            defs.ambients
+                .insert(name.to_string(), AmbientDef::default());
         }
-        assert_eq!(defs.ambient_name("c00_01_106shinatama").as_deref(), Some("c00_01_106shinatama"));
-        assert_eq!(defs.ambient_name("c00_01_106Shinatama").as_deref(), Some("c00_01_106shinatama"));
-        assert_eq!(defs.ambient_name("abC"), None, "another bucket: not found, as shipped");
+        assert_eq!(
+            defs.ambient_name("c00_01_106shinatama").as_deref(),
+            Some("c00_01_106shinatama")
+        );
+        assert_eq!(
+            defs.ambient_name("c00_01_106Shinatama").as_deref(),
+            Some("c00_01_106shinatama")
+        );
+        assert_eq!(
+            defs.ambient_name("abC"),
+            None,
+            "another bucket: not found, as shipped"
+        );
         assert_eq!(defs.ambient_name("nothing"), None);
     }
 }

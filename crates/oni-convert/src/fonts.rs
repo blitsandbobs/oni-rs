@@ -35,7 +35,11 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
     let mut glyphs = Vec::new();
     for hi in 0..256usize {
         let r = le_u32(d, 20 + hi * 4);
-        let Some(arr) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten().and_then(|i| dat.instance_data(i)) else {
+        let Some(arr) = (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+            .and_then(|i| dat.instance_data(i))
+        else {
             continue;
         };
         for lo in 0..256usize {
@@ -43,12 +47,25 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
             if g + 20 > arr.len() {
                 break;
             }
-            let (code, kerning, width, height) = (le_u16(arr, g), le_u16(arr, g + 2), le_i16(arr, g + 4), le_i16(arr, g + 6));
+            let (code, kerning, width, height) = (
+                le_u16(arr, g),
+                le_u16(arr, g + 2),
+                le_i16(arr, g + 4),
+                le_i16(arr, g + 6),
+            );
             // (An unused slot: no code, nothing to draw, no advance.)
             if code == 0 && kerning == 0 && width == 0 {
                 continue;
             }
-            glyphs.push((code, kerning, width.max(0) as usize, height.max(0) as usize, le_i16(arr, g + 8), le_i16(arr, g + 10), le_u32(arr, g + 12) as usize));
+            glyphs.push((
+                code,
+                kerning,
+                width.max(0) as usize,
+                height.max(0) as usize,
+                le_i16(arr, g + 8),
+                le_i16(arr, g + 10),
+                le_u32(arr, g + 12) as usize,
+            ));
         }
     }
     if glyphs.is_empty() {
@@ -77,7 +94,10 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
         let src = longs + offset * 4;
         for gy in 0..h {
             for gx in 0..w {
-                let (tx, ty) = (gx as i32 - i32::from(ox), gy as i32 + asc as i32 - i32::from(oy));
+                let (tx, ty) = (
+                    gx as i32 - i32::from(ox),
+                    gy as i32 + asc as i32 - i32::from(oy),
+                );
                 if tx < 0 || ty < 0 || tx as usize >= w || ty as usize >= cell_h {
                     continue;
                 }
@@ -90,8 +110,16 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
         table.insert(code.to_string(), json!([cx, cy, w, kerning]));
     }
     std::fs::create_dir_all(out.join("fonts"))?;
-    crate::write_png(&out.join("fonts").join(format!("{file}.png")), ATLAS_WIDTH as u32, atlas_h as u32, &rgba)?;
-    let style = ["plain", "bold", "italic"].get(style as usize).copied().unwrap_or("plain");
+    crate::write_png(
+        &out.join("fonts").join(format!("{file}.png")),
+        ATLAS_WIDTH as u32,
+        atlas_h as u32,
+        &rgba,
+    )?;
+    let style = ["plain", "bold", "italic"]
+        .get(style as usize)
+        .copied()
+        .unwrap_or("plain");
     Ok(Some(json!({
         "size": size,
         "style": style,
@@ -111,17 +139,30 @@ pub fn convert(dat: &Dat<'_>, out: &Path) -> std::io::Result<usize> {
     let mut families = serde_json::Map::new();
     let mut count = 0;
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_TSFF) {
-        let (Some(d), Some(name)) = (dat.instance_data(inst), inst.name.as_deref()) else { continue };
+        let (Some(d), Some(name)) = (dat.instance_data(inst), inst.name.as_deref()) else {
+            continue;
+        };
         // TStFontFamily: pad[16], font language@16, num_fonts@20, fonts@24.
         let n = le_u32(d, 20) as usize;
         let mut fonts = Vec::new();
         for k in 0..n {
             let r = le_u32(d, 24 + k * 4);
-            let Some(f) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten().filter(|f| f.tag == TAG_TSFT) else {
+            let Some(f) = (r & 1 != 0)
+                .then(|| dat.instances.get((r >> 8) as usize))
+                .flatten()
+                .filter(|f| f.tag == TAG_TSFT)
+            else {
                 continue;
             };
-            let Some(fd) = dat.instance_data(f) else { continue };
-            let file = format!("{}_{}_{}", crate::sanitize(name), le_u16(fd, 6), le_u32(fd, 8));
+            let Some(fd) = dat.instance_data(f) else {
+                continue;
+            };
+            let file = format!(
+                "{}_{}_{}",
+                crate::sanitize(name),
+                le_u16(fd, 6),
+                le_u32(fd, 8)
+            );
             if let Some(v) = font(dat, fd, &file, out)? {
                 fonts.push(v);
                 count += 1;
@@ -136,12 +177,18 @@ pub fn convert(dat: &Dat<'_>, out: &Path) -> std::io::Result<usize> {
             .and_then(|l| dat.instance_data(l))
             .map(|l| crate::cstr(l, 64, 64))
             .unwrap_or_default();
-        families.insert(name.to_string(), json!({ "fonts": fonts, "breaking": breaking }));
+        families.insert(
+            name.to_string(),
+            json!({ "fonts": fonts, "breaking": breaking }),
+        );
     }
     if families.is_empty() {
         return Ok(0);
     }
     std::fs::create_dir_all(out)?;
-    std::fs::write(out.join("fonts.json"), serde_json::to_string_pretty(&json!({ "families": families }))?)?;
+    std::fs::write(
+        out.join("fonts.json"),
+        serde_json::to_string_pretty(&json!({ "families": families }))?,
+    )?;
     Ok(count)
 }

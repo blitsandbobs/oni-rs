@@ -35,7 +35,12 @@ fn breaks(m: &str, parents: &HashMap<String, Option<String>>) -> bool {
 
 /// The breakable material names among `dat`'s materials.
 pub fn breakable(dat: &Dat<'_>) -> BTreeSet<String> {
-    let name_of = |k: usize| dat.instances.get(k).and_then(|i| i.name.as_deref()).map(|n| n.trim_start_matches("Mtrl").to_string());
+    let name_of = |k: usize| {
+        dat.instances
+            .get(k)
+            .and_then(|i| i.name.as_deref())
+            .map(|n| n.trim_start_matches("Mtrl").to_string())
+    };
     let parents: HashMap<String, Option<String>> = dat
         .instances
         .iter()
@@ -44,21 +49,36 @@ pub fn breakable(dat: &Dat<'_>) -> BTreeSet<String> {
             let d = dat.instance_data(i)?;
             let name = i.name.as_deref()?.trim_start_matches("Mtrl").to_string();
             let r = le_u32(d, 8);
-            Some((name, (r & 1 != 0).then(|| name_of((r >> 8) as usize)).flatten()))
+            Some((
+                name,
+                (r & 1 != 0).then(|| name_of((r >> 8) as usize)).flatten(),
+            ))
         })
         .collect();
-    parents.keys().filter(|m| breaks(m, &parents)).cloned().collect()
+    parents
+        .keys()
+        .filter(|m| breaks(m, &parents))
+        .cloned()
+        .collect()
 }
 
 /// The texture → material table (texture name, material name).
 pub fn texture_materials(dat: &Dat<'_>, raw: &[u8]) -> Vec<(String, String)> {
-    let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_BINA && i.name.as_deref().is_some_and(|n| n.starts_with("DBMT"))) else {
+    let Some(inst) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_BINA && i.name.as_deref().is_some_and(|n| n.starts_with("DBMT")))
+    else {
         return Vec::new();
     };
-    let Some(bd) = dat.instance_data(inst) else { return Vec::new() };
+    let Some(bd) = dat.instance_data(inst) else {
+        return Vec::new();
+    };
     // The binary data's payload, after its 8-byte header (class, size).
     let start = le_u32(bd, 4) as usize + 8;
-    let Some(p) = raw.get(start..) else { return Vec::new() };
+    let Some(p) = raw.get(start..) else {
+        return Vec::new();
+    };
     if p.len() < 8 {
         return Vec::new();
     }
@@ -77,8 +97,18 @@ mod tests {
 
     #[test]
     fn glass_breaks_below_it_unbreakable_glass_does_not() {
-        let tree = [("Base", None), ("Glass", Some("Base")), ("Pane", Some("Glass")), ("Unbreak_Glass", Some("Glass")), ("Thick", Some("Unbreak_Glass")), ("Wood", Some("Base"))];
-        let parents: HashMap<String, Option<String>> = tree.iter().map(|(n, p)| (n.to_string(), p.map(String::from))).collect();
+        let tree = [
+            ("Base", None),
+            ("Glass", Some("Base")),
+            ("Pane", Some("Glass")),
+            ("Unbreak_Glass", Some("Glass")),
+            ("Thick", Some("Unbreak_Glass")),
+            ("Wood", Some("Base")),
+        ];
+        let parents: HashMap<String, Option<String>> = tree
+            .iter()
+            .map(|(n, p)| (n.to_string(), p.map(String::from)))
+            .collect();
         let got: Vec<bool> = tree.iter().map(|(n, _)| breaks(n, &parents)).collect();
         assert_eq!(got, [false, true, true, false, false, false]);
     }

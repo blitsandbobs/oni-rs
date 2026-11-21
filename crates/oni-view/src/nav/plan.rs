@@ -64,7 +64,14 @@ impl PartialOrd for Node {
 /// portal passes it and how much a door there stretches everything beyond
 /// (a muffled door: each later step counts that many times over). None:
 /// no way.
-pub fn sound_route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: Vec3, gate: &dyn Fn(usize, usize) -> Option<f32>) -> Option<f32> {
+pub fn sound_route(
+    nav: &Navigation,
+    start: usize,
+    from: Vec3,
+    goal: usize,
+    to: Vec3,
+    gate: &dyn Fn(usize, usize) -> Option<f32>,
+) -> Option<f32> {
     if start == goal {
         return Some(from.distance(to));
     }
@@ -74,7 +81,10 @@ pub fn sound_route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: 
     let mut index: HashMap<(usize, usize), usize> = HashMap::new();
     let mut cost = vec![0.0f32];
     let mut open = BinaryHeap::new();
-    open.push(Node { f: from.distance(to), id: 0 });
+    open.push(Node {
+        f: from.distance(to),
+        id: 0,
+    });
     let mut best: Option<f32> = None;
     while let Some(Node { f, id }) = open.pop() {
         if best.is_some_and(|b| f >= b) {
@@ -101,7 +111,10 @@ pub fn sound_route(nav: &Navigation, start: usize, from: Vec3, goal: usize, to: 
             if g < cost[sid] {
                 cost[sid] = g;
                 states[sid].3 = stretch * more;
-                open.push(Node { f: g + stretch * more * p.mid.distance(to), id: sid });
+                open.push(Node {
+                    f: g + stretch * more * p.mid.distance(to),
+                    id: sid,
+                });
             }
         }
     }
@@ -129,7 +142,10 @@ pub fn route(
     let mut cost = vec![0.0f32];
     let mut came: Vec<Option<usize>> = vec![None];
     let mut open = BinaryHeap::new();
-    open.push(Node { f: from.distance(to), id: 0 });
+    open.push(Node {
+        f: from.distance(to),
+        id: 0,
+    });
     while let Some(Node { id, .. }) = open.pop() {
         let (room, via, at) = states[id];
         if room == goal {
@@ -159,7 +175,10 @@ pub fn route(
             if g < cost[sid] {
                 cost[sid] = g;
                 came[sid] = Some(id);
-                open.push(Node { f: g + p.mid.distance(to), id: sid });
+                open.push(Node {
+                    f: g + p.mid.distance(to),
+                    id: sid,
+                });
             }
         }
     }
@@ -178,7 +197,13 @@ fn clamp_on(p: &Portal, want: f32) -> f32 {
     for &(b0, b1) in &p.blocked {
         if t > b0 && t < b1 {
             let (down, up) = (b0, b1);
-            t = if (down >= lo) && (t - down <= up - t || up > hi) { down } else if up <= hi { up } else { p.width * 0.5 };
+            t = if (down >= lo) && (t - down <= up - t || up > hi) {
+                down
+            } else if up <= hi {
+                up
+            } else {
+                p.width * 0.5
+            };
         }
     }
     t
@@ -186,7 +211,11 @@ fn clamp_on(p: &Portal, want: f32) -> f32 {
 
 fn along(p: &Portal, t: f32) -> Vec3 {
     let d = Vec2::new(p.b.x - p.a.x, p.b.z - p.a.z).normalize_or_zero();
-    Vec3::new(p.a.x + d.x * t, p.a.y + (p.b.y - p.a.y) * (t / p.width.max(1e-3)), p.a.z + d.y * t)
+    Vec3::new(
+        p.a.x + d.x * t,
+        p.a.y + (p.b.y - p.a.y) * (t / p.width.max(1e-3)),
+        p.a.z + d.y * t,
+    )
 }
 
 /// Where to cross the `i`th portal of `portals`, coming from `at`: look up
@@ -204,7 +233,9 @@ fn crossing(nav: &Navigation, portals: &[(usize, usize)], i: usize, at: Vec3, to
             p.width * 0.5
         } else {
             let d = Vec2::new(p.b.x - p.a.x, p.b.z - p.a.z).normalize_or_zero();
-            Vec2::new(at.x - p.a.x, at.z - p.a.z).dot(d).clamp(COMFORT, p.width - COMFORT)
+            Vec2::new(at.x - p.a.x, at.z - p.a.z)
+                .dot(d)
+                .clamp(COMFORT, p.width - COMFORT)
         };
         along(p, t)
     };
@@ -212,7 +243,10 @@ fn crossing(nav: &Navigation, portals: &[(usize, usize)], i: usize, at: Vec3, to
     for m in (i..=last).rev() {
         let p = portal(m);
         // Where the line at → target crosses the portal's line.
-        let (e, d) = (Vec2::new(p.b.x - p.a.x, p.b.z - p.a.z), Vec2::new(target.x - at.x, target.z - at.z));
+        let (e, d) = (
+            Vec2::new(p.b.x - p.a.x, p.b.z - p.a.z),
+            Vec2::new(target.x - at.x, target.z - at.z),
+        );
         let denom = e.perp_dot(d);
         let t = if denom.abs() < 1e-4 || p.width < 1e-3 {
             p.width * 0.5
@@ -237,16 +271,28 @@ pub fn plan(
     shut: &HashSet<(usize, usize)>,
 ) -> Result<Path, Error> {
     let start = nav.room_at(from).ok_or(Error::StartOutside)?;
-    let goal = nav.room_at(to + Vec3::Y * 0.5).ok_or(Error::DestinationOutside)?;
+    let goal = nav
+        .room_at(to + Vec3::Y * 0.5)
+        .ok_or(Error::DestinationOutside)?;
     let portals = route(nav, start, from, goal, to, shut).ok_or(Error::Unreachable)?;
 
-    let mut path = Path { points: Vec::new(), rooms: vec![start] };
+    let mut path = Path {
+        points: Vec::new(),
+        rooms: vec![start],
+    };
     let mut at = from;
     for i in 0..=portals.len() {
-        let room = if i == 0 { start } else { nav.rooms[portals[i - 1].0].portals[portals[i - 1].1].to };
+        let room = if i == 0 {
+            start
+        } else {
+            nav.rooms[portals[i - 1].0].portals[portals[i - 1].1].to
+        };
         let (end, next_stairs) = if i < portals.len() {
             let p = &nav.rooms[portals[i].0].portals[portals[i].1];
-            (crossing(nav, &portals, i, at, to), nav.rooms[p.to].is_stairs())
+            (
+                crossing(nav, &portals, i, at, to),
+                nav.rooms[p.to].is_stairs(),
+            )
         } else {
             (to, false)
         };
@@ -258,11 +304,17 @@ pub fn plan(
             None => path.points.push((end, Square::Clear.arrive())),
             Some(g) => {
                 let blocked = obstructed(room);
-                let rules = Rules { stairs: next_stairs || r.is_stairs(), obstructed: Some(&blocked) };
+                let rules = Rules {
+                    stairs: next_stairs || r.is_stairs(),
+                    obstructed: Some(&blocked),
+                };
                 let (a, b) = (Vec2::new(at.x, at.z), Vec2::new(end.x, end.z));
                 let cells = grid::search(g, a, b, rules).ok_or(Error::GridBlocked)?;
-                for Waypoint { at: w, arrive } in grid::waypoints(g, &cells, b, r.is_stairs(), careful) {
-                    path.points.push((Vec3::new(w.x, end.y.max(r.min.y), w.y), arrive));
+                for Waypoint { at: w, arrive } in
+                    grid::waypoints(g, &cells, b, r.is_stairs(), careful)
+                {
+                    path.points
+                        .push((Vec3::new(w.x, end.y.max(r.min.y), w.y), arrive));
                 }
             }
         }
@@ -277,7 +329,8 @@ mod tests {
     use std::path::PathBuf;
 
     fn level1() -> Option<Navigation> {
-        let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni/levels/01");
+        let dir =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni/levels/01");
         Navigation::load(&dir).ok()
     }
 
@@ -308,7 +361,11 @@ mod tests {
                 for (w, _) in &p.points {
                     let room = nav.room_at(*w + Vec3::Y);
                     if let Some(room) = room {
-                        assert_ne!(nav.rooms[room].square_at(w.x, w.z), Square::Impassable, "waypoint in a wall");
+                        assert_ne!(
+                            nav.rooms[room].square_at(w.x, w.z),
+                            Square::Impassable,
+                            "waypoint in a wall"
+                        );
                     }
                 }
             }
@@ -318,4 +375,3 @@ mod tests {
         assert!(found * 10 >= tried * 8, "most rooms are reachable");
     }
 }
-

@@ -74,8 +74,14 @@ pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<Value> {
     c.insert("headPivot".into(), json!(vec3(d, 116)));
     c.insert("barrelPivot".into(), json!(vec3(d, 128)));
     c.insert("timeout".into(), json!(le_u32(d, 1536)));
-    c.insert("pitch".into(), json!({ "min": le_f32(d, 1540), "max": le_f32(d, 1544), "speed": le_f32(d, 1556) }));
-    c.insert("yaw".into(), json!({ "min": le_f32(d, 1548), "max": le_f32(d, 1552), "speed": le_f32(d, 1560) }));
+    c.insert(
+        "pitch".into(),
+        json!({ "min": le_f32(d, 1540), "max": le_f32(d, 1544), "speed": le_f32(d, 1556) }),
+    );
+    c.insert(
+        "yaw".into(),
+        json!({ "min": le_f32(d, 1548), "max": le_f32(d, 1552), "speed": le_f32(d, 1560) }),
+    );
     c.insert("activeSound".into(), json!(cstr(d, 1564, 32)));
     c.insert("ai".into(), crate::weapons::ai_params(d, 1356));
     c.insert(
@@ -117,13 +123,18 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
     };
     let mut out = Map::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_TURR) {
-        let Some(c) = dat.instance_data(inst).and_then(|d| class(d, &model)) else { continue };
+        let Some(c) = dat.instance_data(inst).and_then(|d| class(d, &model)) else {
+            continue;
+        };
         out.insert(c["name"].as_str().unwrap_or_default().to_string(), c);
     }
     let count = out.len();
     if count > 0 {
         std::fs::create_dir_all(common)?;
-        std::fs::write(common.join("turrets.json"), serde_json::to_string_pretty(&json!({ "classes": out }))?)?;
+        std::fs::write(
+            common.join("turrets.json"),
+            serde_json::to_string_pretty(&json!({ "classes": out }))?,
+        )?;
     }
     Ok(count)
 }
@@ -159,7 +170,10 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("turrets.json"), serde_json::to_string_pretty(&json!({ "turrets": t }))?)
+    std::fs::write(
+        root.join("turrets.json"),
+        serde_json::to_string_pretty(&json!({ "turrets": t }))?,
+    )
 }
 
 #[cfg(test)]
@@ -184,6 +198,9 @@ mod tests {
         assert_eq!(c["attachments"][0]["chamber"], json!(5));
         assert_eq!(c["attachments"][0]["shooter"], json!(0));
         assert_eq!(c["attachments"][1]["shooter"], json!(-1));
-        assert!(c["attachments"][1].get("chamber").is_none(), "junk chamber of a follower dropped");
+        assert!(
+            c["attachments"][1].get("chamber").is_none(),
+            "junk chamber of a follower dropped"
+        );
     }
 }

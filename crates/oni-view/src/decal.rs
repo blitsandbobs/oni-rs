@@ -82,24 +82,43 @@ impl Shadow {
     /// (`floor`), else on whatever a sphere swept down from the feet meets
     /// — smaller and fainter the higher, gone above the top height. `None`:
     /// no shadow.
-    pub fn place(&self, quads: &Quads, pelvis: Vec3, feet_y: f32, floor: Option<u32>) -> Option<(Vec3, u32, f32, u16)> {
+    pub fn place(
+        &self,
+        quads: &Quads,
+        pelvis: Vec3,
+        feet_y: f32,
+        floor: Option<u32>,
+    ) -> Option<(Vec3, u32, f32, u16)> {
         let at = Vec3::new(pelvis.x, feet_y, pelvis.z);
         if let Some(q) = floor {
             return Some((at, q, self.size_max, self.alpha_max));
         }
         let r = self.size_max;
-        let hit = *quads.sphere(at - Vec3::Y * r, r, Vec3::Y * -(self.height_max + r), flag::OBJ_COL_SKIP | flag::INVISIBLE).first()?;
+        let hit = *quads
+            .sphere(
+                at - Vec3::Y * r,
+                r,
+                Vec3::Y * -(self.height_max + r),
+                flag::OBJ_COL_SKIP | flag::INVISIBLE,
+            )
+            .first()?;
         let height = (at.y - hit.point.y).max(0.0);
         let round = |a: f32| a.max(0.0).round_ties_even() as u16;
         if height < self.height_fade {
             let t = height / self.height_fade;
             let size = self.size_max + (self.size_fade - self.size_max) * t;
-            let alpha = f32::from(self.alpha_max) + (f32::from(self.alpha_fade) - f32::from(self.alpha_max)) * t;
+            let alpha = f32::from(self.alpha_max)
+                + (f32::from(self.alpha_fade) - f32::from(self.alpha_max)) * t;
             Some((hit.point, hit.quad, size, round(alpha)))
         } else if height < self.height_max {
             let t = (self.height_max - height) / (self.height_max - self.height_fade);
             let size = self.size_min + (self.size_fade - self.size_min) * t;
-            Some((hit.point, hit.quad, size, round(f32::from(self.alpha_fade) * t)))
+            Some((
+                hit.point,
+                hit.quad,
+                size,
+                round(f32::from(self.alpha_fade) * t),
+            ))
         } else {
             None
         }
@@ -180,7 +199,9 @@ pub fn shade_lerp(a: u32, b: u32, t: f32) -> u32 {
 
 /// `IMrShade_IsEqual`: every channel within 2.
 fn shade_eq(a: u32, b: u32) -> bool {
-    [24, 16, 8, 0].iter().all(|s| (((a >> s) & 0xFF) as i32 - ((b >> s) & 0xFF) as i32).abs() <= 2)
+    [24, 16, 8, 0]
+        .iter()
+        .all(|s| (((a >> s) & 0xFF) as i32 - ((b >> s) & 0xFF) as i32).abs() <= 2)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -194,7 +215,10 @@ struct Buf {
 
 impl Buf {
     fn new(max: usize) -> Buf {
-        Buf { max, ..Buf::default() }
+        Buf {
+            max,
+            ..Buf::default()
+        }
     }
     fn len(&self) -> usize {
         self.points.len()
@@ -221,7 +245,16 @@ impl Buf {
 /// `out`; new points take `code` (with what both ends share) and a shade
 /// along the edge. Returns how many were added.
 #[allow(clippy::too_many_arguments)]
-fn clip_to_plane(code: u8, p0: Vec3, p1: Vec3, s0: u32, s1: u32, side: Vec3, input: &Buf, out: &mut Buf) -> usize {
+fn clip_to_plane(
+    code: u8,
+    p0: Vec3,
+    p1: Vec3,
+    s0: u32,
+    s1: u32,
+    side: Vec3,
+    input: &Buf,
+    out: &mut Buf,
+) -> usize {
     let start = out.len();
     if out.full() || input.len() == 0 {
         return 0;
@@ -231,7 +264,12 @@ fn clip_to_plane(code: u8, p0: Vec3, p1: Vec3, s0: u32, s1: u32, side: Vec3, inp
     if normal.length_squared() < 1e-20 {
         // A degenerate edge: copy across.
         for j in 0..input.len() {
-            out.push(input.points[j], input.uvs[j], input.codes[j], input.shades[j]);
+            out.push(
+                input.points[j],
+                input.uvs[j],
+                input.codes[j],
+                input.shades[j],
+            );
             if out.full() {
                 break;
             }
@@ -246,12 +284,21 @@ fn clip_to_plane(code: u8, p0: Vec3, p1: Vec3, s0: u32, s1: u32, side: Vec3, inp
         let (a_p, b_p) = (input.points[a], input.points[b]);
         let m = b_p - a_p;
         let denom = normal.dot(m);
-        let t = if denom.abs() < PLANE_DENOM { 0.5 } else { (-(normal.dot(a_p) + d) / denom).clamp(0.0, 1.0) };
+        let t = if denom.abs() < PLANE_DENOM {
+            0.5
+        } else {
+            (-(normal.dot(a_p) + d) / denom).clamp(0.0, 1.0)
+        };
         let p = a_p + m * t;
         let (ua, ub) = (input.uvs[a], input.uvs[b]);
         let uv = [ub[0] * t + ua[0] * (1.0 - t), ub[1] * t + ua[1] * (1.0 - t)];
         let interp = ((p - p0).dot(line) / line_dot).clamp(0.0, 1.0);
-        out.push(p, uv, (input.codes[a] & input.codes[b]) | code, shade_lerp(s0, s1, interp));
+        out.push(
+            p,
+            uv,
+            (input.codes[a] & input.codes[b]) | code,
+            shade_lerp(s0, s1, interp),
+        );
     };
     let n = input.len();
     let mut i0 = n - 1;
@@ -260,7 +307,12 @@ fn clip_to_plane(code: u8, p0: Vec3, p1: Vec3, s0: u32, s1: u32, side: Vec3, inp
         let in1 = behind(input.points[j]);
         if in0 {
             if in1 {
-                out.push(input.points[j], input.uvs[j], input.codes[j], input.shades[j]);
+                out.push(
+                    input.points[j],
+                    input.uvs[j],
+                    input.codes[j],
+                    input.shades[j],
+                );
             } else {
                 cross(i0, j, out);
             }
@@ -269,7 +321,12 @@ fn clip_to_plane(code: u8, p0: Vec3, p1: Vec3, s0: u32, s1: u32, side: Vec3, inp
             if out.full() {
                 break;
             }
-            out.push(input.points[j], input.uvs[j], input.codes[j], input.shades[j]);
+            out.push(
+                input.points[j],
+                input.uvs[j],
+                input.codes[j],
+                input.shades[j],
+            );
         }
         if out.full() {
             break;
@@ -292,10 +349,28 @@ fn clip_to_polygon(pts: &[Vec3], shades: &[u32], source: &Buf, dest: &mut Buf) -
     let mut edge = n - 2;
     for i in 0..n {
         if i == n - 1 {
-            clip_to_plane(1 << edge, pts[c0], pts[c1], shades[c0], shades[c1], pts[i], &input, dest);
+            clip_to_plane(
+                1 << edge,
+                pts[c0],
+                pts[c1],
+                shades[c0],
+                shades[c1],
+                pts[i],
+                &input,
+                dest,
+            );
         } else {
             let mut out = Buf::new(CLIP_BUFFER);
-            clip_to_plane(1 << edge, pts[c0], pts[c1], shades[c0], shades[c1], pts[i], &input, &mut out);
+            clip_to_plane(
+                1 << edge,
+                pts[c0],
+                pts[c1],
+                shades[c0],
+                shades[c1],
+                pts[i],
+                &input,
+                &mut out,
+            );
             input = out;
         }
         c0 = c1;
@@ -318,7 +393,11 @@ fn barycentric(p: [Vec3; 3], e: [Vec3; 3], s: [u32; 3], normal: Vec3, at: Vec3) 
     for shift in [16, 8, 0] {
         let ch = |x: u32| ((x >> shift) & 0xFF) as f32;
         let v = b0 * ch(s[0]) + b1 * ch(s[1]) + b2 * ch(s[2]);
-        let c = if v < 0.0 { 0 } else { ((v / sum).round_ties_even() as u32).min(255) };
+        let c = if v < 0.0 {
+            0
+        } else {
+            ((v / sum).round_ties_even() as u32).min(255)
+        };
         out |= c << shift;
     }
     out
@@ -327,13 +406,31 @@ fn barycentric(p: [Vec3; 3], e: [Vec3; 3], s: [u32; 3], normal: Vec3, at: Vec3) 
 /// A quad's shade at a point inside it (the corner triangle it falls in).
 fn shade_at(pts: &[Vec3], edges: &[Vec3], shades: &[u32], cross: Vec3, at: Vec3) -> u32 {
     if pts.len() <= 3 {
-        return barycentric([pts[0], pts[1], pts[2]], [edges[0], edges[1], edges[2]], [shades[0], shades[1], shades[2]], cross, at);
+        return barycentric(
+            [pts[0], pts[1], pts[2]],
+            [edges[0], edges[1], edges[2]],
+            [shades[0], shades[1], shades[2]],
+            cross,
+            at,
+        );
     }
     let mid = pts[2] - pts[0];
     if (at - pts[0]).cross(mid).dot(cross) > 0.0 {
-        barycentric([pts[0], pts[1], pts[2]], [edges[0], edges[1], -mid], [shades[0], shades[1], shades[2]], cross, at)
+        barycentric(
+            [pts[0], pts[1], pts[2]],
+            [edges[0], edges[1], -mid],
+            [shades[0], shades[1], shades[2]],
+            cross,
+            at,
+        )
     } else {
-        barycentric([pts[0], pts[2], pts[3]], [mid, edges[2], edges[3]], [shades[0], shades[2], shades[3]], cross, at)
+        barycentric(
+            [pts[0], pts[2], pts[3]],
+            [mid, edges[2], edges[3]],
+            [shades[0], shades[2], shades[3]],
+            cross,
+            at,
+        )
     }
 }
 
@@ -371,14 +468,24 @@ struct Edges {
 
 impl Edges {
     fn new() -> Edges {
-        Edges { pool: vec![None; MAX_EDGES], order: Vec::new() }
+        Edges {
+            pool: vec![None; MAX_EDGES],
+            order: Vec::new(),
+        }
     }
     /// A new edge at `depth` (after every edge no deeper), if one is free.
     fn make(&mut self, depth: u32) -> Option<usize> {
         let k = self.pool.iter().position(Option::is_none)?;
-        let at = self.order.iter().position(|&e| self.pool[e].as_ref().unwrap().depth > depth).unwrap_or(self.order.len());
+        let at = self
+            .order
+            .iter()
+            .position(|&e| self.pool[e].as_ref().unwrap().depth > depth)
+            .unwrap_or(self.order.len());
         self.order.insert(at, k);
-        self.pool[k] = Some(Edge { depth, ..Edge::default() });
+        self.pool[k] = Some(Edge {
+            depth,
+            ..Edge::default()
+        });
         Some(k)
     }
     fn remove(&mut self, k: usize) {
@@ -435,7 +542,11 @@ impl Build<'_> {
         let (mut normal, mut d) = self.quads.plane(q.plane);
         let mut negate = false;
         if q.flags & flag::TWO_SIDED != 0 {
-            let reference = if from_quad == NONE { self.p.fwd } else { self.edges.get(e).parent_normal };
+            let reference = if from_quad == NONE {
+                self.p.fwd
+            } else {
+                self.edges.get(e).parent_normal
+            };
             negate = normal.dot(reference) < -REVERSE_2_SIDED;
             if negate {
                 normal = -normal;
@@ -450,7 +561,12 @@ impl Build<'_> {
             let edge = self.edges.get(e).clone();
             let u = (edge.pts[1] - edge.pts[0]).normalize();
             let r = u.cross(normal).normalize();
-            (edge.pts[0] + u * edge.pos_u + r * edge.pos_r, normal, u * edge.up_u + r * edge.up_r, u * edge.right_u + r * edge.right_r)
+            (
+                edge.pts[0] + u * edge.pos_u + r * edge.pos_r,
+                normal,
+                u * edge.up_u + r * edge.up_r,
+                u * edge.right_u + r * edge.right_r,
+            )
         };
         let quad_cross = quad_edges[0].cross(quad_edges[1]);
 
@@ -485,7 +601,9 @@ impl Build<'_> {
                                 qt.swap(0, 1);
                                 qp.swap(0, 1);
                             }
-                            if qt[1] < COLLINEAR_EDGE_OVERLAP || qt[0] > t_length - COLLINEAR_EDGE_OVERLAP {
+                            if qt[1] < COLLINEAR_EDGE_OVERLAP
+                                || qt[0] > t_length - COLLINEAR_EDGE_OVERLAP
+                            {
                                 continue;
                             }
                             code |= 1 << k;
@@ -494,7 +612,11 @@ impl Build<'_> {
                                 found.push(if qt[0] < 0.0 { adj_pts[j] } else { qp[0] });
                             }
                             if found.len() < 2 {
-                                found.push(if qt[1] < t_length { adj_pts[(j + 1) % na] } else { qp[1] });
+                                found.push(if qt[1] < t_length {
+                                    adj_pts[(j + 1) % na]
+                                } else {
+                                    qp[1]
+                                });
                             }
                         } else {
                             // Crossing?
@@ -504,9 +626,12 @@ impl Build<'_> {
                                 continue;
                             }
                             let (t0, t1) = (c1.dot(quad_cross), c2.dot(quad_cross));
-                            let at = pts[k] * (t1 / (t1 - t0)) + pts[(k + 1) % n] * (-t0 / (t1 - t0));
+                            let at =
+                                pts[k] * (t1 / (t1 - t0)) + pts[(k + 1) % n] * (-t0 / (t1 - t0));
                             let adj_t = (at - adj_pts[j]).dot(adj_edge) / adj_edge.length_squared();
-                            if !(COPLANAR_ADJ_EDGE_LINEAR..=1.0 - COPLANAR_ADJ_EDGE_LINEAR).contains(&adj_t) {
+                            if !(COPLANAR_ADJ_EDGE_LINEAR..=1.0 - COPLANAR_ADJ_EDGE_LINEAR)
+                                .contains(&adj_t)
+                            {
                                 continue;
                             }
                             code |= 1 << k;
@@ -585,33 +710,39 @@ impl Build<'_> {
                 }
                 // Facing the way the decal came closely enough?
                 let facing = self.direction.dot(an);
-                if (self.p.flags & dflag::CULL_BACK_FACING != 0 && facing < -1e-3) || facing < self.wrap_dot {
+                if (self.p.flags & dflag::CULL_BACK_FACING != 0 && facing < -1e-3)
+                    || facing < self.wrap_dot
+                {
                     continue;
                 }
-                let overlap = |pts: &[Vec3], ds: &[f32; 4], edge: u32, code: &mut u32| -> Vec<Vec3> {
-                    let n = pts.len();
-                    let mut found = Vec::new();
-                    let mut prev_edge = true;
-                    let mut prev = 0;
-                    for j in 0..=n {
-                        if edge & (1 << j) != 0 {
-                            if edge & (1 << ((j + 1) % n)) != 0 {
-                                *code |= 1 << j;
+                let overlap =
+                    |pts: &[Vec3], ds: &[f32; 4], edge: u32, code: &mut u32| -> Vec<Vec3> {
+                        let n = pts.len();
+                        let mut found = Vec::new();
+                        let mut prev_edge = true;
+                        let mut prev = 0;
+                        for j in 0..=n {
+                            if edge & (1 << j) != 0 {
+                                if edge & (1 << ((j + 1) % n)) != 0 {
+                                    *code |= 1 << j;
+                                }
+                                found.push(pts[j]);
+                                prev_edge = true;
+                            } else {
+                                let this = j % n;
+                                if !prev_edge && ds[prev] * ds[this] < 0.0 {
+                                    *code |= 1 << prev;
+                                    found.push(
+                                        pts[prev] * (ds[this] / (ds[this] - ds[prev]))
+                                            + pts[this] * (-ds[prev] / (ds[this] - ds[prev])),
+                                    );
+                                }
+                                prev_edge = false;
+                                prev = this;
                             }
-                            found.push(pts[j]);
-                            prev_edge = true;
-                        } else {
-                            let this = j % n;
-                            if !prev_edge && ds[prev] * ds[this] < 0.0 {
-                                *code |= 1 << prev;
-                                found.push(pts[prev] * (ds[this] / (ds[this] - ds[prev])) + pts[this] * (-ds[prev] / (ds[this] - ds[prev])));
-                            }
-                            prev_edge = false;
-                            prev = this;
                         }
-                    }
-                    found
-                };
+                        found
+                    };
                 let qp = overlap(&pts, &quad_d, q_edge, &mut code);
                 if qp.len() < 2 {
                     continue;
@@ -629,7 +760,10 @@ impl Build<'_> {
                 }
                 let line = normal.cross(an);
                 let (mut qp, mut ap) = ([qp[0], qp[1]], [ap[0], ap[1]]);
-                let (mut qt, mut at) = ([qp[0].dot(line), qp[1].dot(line)], [ap[0].dot(line), ap[1].dot(line)]);
+                let (mut qt, mut at) = (
+                    [qp[0].dot(line), qp[1].dot(line)],
+                    [ap[0].dot(line), ap[1].dot(line)],
+                );
                 if at[0] > at[1] {
                     at.swap(0, 1);
                     ap.swap(0, 1);
@@ -643,12 +777,18 @@ impl Build<'_> {
                 }
                 from_clip = q_pos > 0 && q_neg > 0;
                 to_clip = a_pos > 0 && a_neg > 0;
-                edge_pts = [if qt[0] > at[0] { qp[0] } else { ap[0] }, if qt[1] < at[1] { qp[1] } else { ap[1] }];
+                edge_pts = [
+                    if qt[0] > at[0] { qp[0] } else { ap[0] },
+                    if qt[1] < at[1] { qp[1] } else { ap[1] },
+                ];
             }
 
-            let Some(k) = self.edges.make(depth) else { break };
+            let Some(k) = self.edges.make(depth) else {
+                break;
+            };
             // Where the edge crosses the decal's rectangle (in its frame).
-            let loc: [[f32; 2]; 2] = edge_pts.map(|p| [(p - position).dot(right), (p - position).dot(up)]);
+            let loc: [[f32; 2]; 2] =
+                edge_pts.map(|p| [(p - position).dot(right), (p - position).dot(up)]);
             let delta = [loc[1][0] - loc[0][0], loc[1][1] - loc[0][1]];
             let scale = [self.p.xscale, self.p.yscale];
             let mut entry = [0.0f32; 2];
@@ -710,7 +850,21 @@ impl Build<'_> {
             }
         }
 
-        let success = self.lay(e, &q, &pts, &quad_edges, quad_cross, normal, d, negate, position, fwd, up, right, &mut adjacencies);
+        let success = self.lay(
+            e,
+            &q,
+            &pts,
+            &quad_edges,
+            quad_cross,
+            normal,
+            d,
+            negate,
+            position,
+            fwd,
+            up,
+            right,
+            &mut adjacencies,
+        );
         // Done with the edges out: all of them on failure, else those over
         // edges the decal didn't reach.
         let (ok, quad_code) = success.map_or((false, 0), |c| (true, c));
@@ -747,7 +901,12 @@ impl Build<'_> {
         adjacencies: &mut [usize],
     ) -> Option<u32> {
         let (x, y) = (self.p.xscale, self.p.yscale);
-        let corners = [(-x, y, [1.0, 0.0]), (x, y, [0.0, 0.0]), (x, -y, [0.0, 1.0]), (-x, -y, [1.0, 1.0])];
+        let corners = [
+            (-x, y, [1.0, 0.0]),
+            (x, y, [0.0, 0.0]),
+            (x, -y, [0.0, 1.0]),
+            (-x, -y, [1.0, 1.0]),
+        ];
         let fwd_dot = fwd.dot(normal);
         if fwd_dot.abs() < 1e-3 {
             return None;
@@ -772,7 +931,11 @@ impl Build<'_> {
         }
         let (from_index, child_code, entered) = {
             let edge = self.edges.get(e);
-            let entered = if edge.from_index == NONE { self.p.position } else { edge.decal_mid };
+            let entered = if edge.from_index == NONE {
+                self.p.position
+            } else {
+                edge.decal_mid
+            };
             (edge.from_index, edge.child_code, entered)
         };
         let base = self.buf.len();
@@ -803,12 +966,26 @@ impl Build<'_> {
             let edge = self.edges.get(adjacencies[itr]).clone();
             // The way in keeps the side its parent was on; a way out, the
             // side the decal came in from.
-            let side = if edge.to_index == NONE { edge.parent_normal + edge.decal_mid } else { entered };
+            let side = if edge.to_index == NONE {
+                edge.parent_normal + edge.decal_mid
+            } else {
+                entered
+            };
             if clipped + 1 >= clip_edges {
-                remaining = clip_to_plane(0, edge.pts[0], edge.pts[1], 0, 0, side, &input, &mut self.buf);
+                remaining = clip_to_plane(
+                    0,
+                    edge.pts[0],
+                    edge.pts[1],
+                    0,
+                    0,
+                    side,
+                    &input,
+                    &mut self.buf,
+                );
             } else {
                 let mut out = Buf::new(CLIP_BUFFER);
-                remaining = clip_to_plane(0, edge.pts[0], edge.pts[1], 0, 0, side, &input, &mut out);
+                remaining =
+                    clip_to_plane(0, edge.pts[0], edge.pts[1], 0, 0, side, &input, &mut out);
                 current = Some(out);
             }
             itr += 1;
@@ -818,18 +995,27 @@ impl Build<'_> {
         if count == 0 {
             return None;
         }
-        let plane = if negate { q.plane ^ 0x8000_0000 } else { q.plane };
+        let plane = if negate {
+            q.plane ^ 0x8000_0000
+        } else {
+            q.plane
+        };
         for j in base..self.buf.len() {
             self.planes.push(plane);
             if self.lighting && self.buf.shades[j] == 0 {
-                self.buf.shades[j] = shade_at(pts, quad_edges, shades, quad_cross, self.buf.points[j]);
+                self.buf.shades[j] =
+                    shade_at(pts, quad_edges, shades, quad_cross, self.buf.points[j]);
             }
         }
         for j in 0..count.saturating_sub(2) {
             if self.indices.len() + 3 > MAX_TRI_INDICES {
                 break;
             }
-            self.indices.extend_from_slice(&[base as u16, (base + j + 1) as u16, (base + j + 2) as u16]);
+            self.indices.extend_from_slice(&[
+                base as u16,
+                (base + j + 1) as u16,
+                (base + j + 2) as u16,
+            ]);
         }
         Some(quad_code)
     }
@@ -870,7 +1056,10 @@ pub fn build(quads: &Quads, quad: Option<u32>, p: &Params) -> Option<Mesh> {
         p,
         lighting,
         direction,
-        wrap_dot: p.wrap.clamp(0.5f32.to_radians(), std::f32::consts::PI).cos(),
+        wrap_dot: p
+            .wrap
+            .clamp(0.5f32.to_radians(), std::f32::consts::PI)
+            .cos(),
         buf: Buf::new(BUILD_BUFFER),
         planes: Vec::new(),
         indices: Vec::new(),
@@ -884,8 +1073,15 @@ pub fn build(quads: &Quads, quad: Option<u32>, p: &Params) -> Option<Mesh> {
         let start = slots.iter().position(|&s| s == quad).unwrap_or(0);
         let mut processed = vec![false; slots.len()];
         if let Some(k) = b.edges.make(0) {
-            *b.edges.get(k) =
-                Edge { depth: 0, from_index: NONE, from_quad: NONE, to_index: start, to_quad: slots[start] as usize, parent_normal: p.fwd, ..Edge::default() };
+            *b.edges.get(k) = Edge {
+                depth: 0,
+                from_index: NONE,
+                from_quad: NONE,
+                to_index: start,
+                to_quad: slots[start] as usize,
+                parent_normal: p.fwd,
+                ..Edge::default()
+            };
         }
         while let Some(&k) = b.edges.order.first() {
             let slot = b.edges.get(k).to_index;
@@ -905,7 +1101,12 @@ pub fn build(quads: &Quads, quad: Option<u32>, p: &Params) -> Option<Mesh> {
 /// wrapping.
 fn ignore_adjacency(b: &mut Build<'_>, position: Vec3) {
     let p = *b.p;
-    let corners = [(-p.xscale, p.yscale, [1.0, 0.0]), (p.xscale, p.yscale, [0.0, 0.0]), (p.xscale, -p.yscale, [0.0, 1.0]), (-p.xscale, -p.yscale, [1.0, 1.0])];
+    let corners = [
+        (-p.xscale, p.yscale, [1.0, 0.0]),
+        (p.xscale, p.yscale, [0.0, 0.0]),
+        (p.xscale, -p.yscale, [0.0, 1.0]),
+        (-p.xscale, -p.yscale, [1.0, 1.0]),
+    ];
     for slot in 0..b.slots.len() {
         let q = b.quad(slot).clone();
         let (mut n, mut d) = b.quads.plane(q.plane);
@@ -933,7 +1134,9 @@ fn ignore_adjacency(b: &mut Build<'_>, position: Vec3) {
         if count == 0 {
             continue;
         }
-        let edges: Vec<Vec3> = (0..pts.len()).map(|j| pts[(j + 1) % pts.len()] - pts[j]).collect();
+        let edges: Vec<Vec3> = (0..pts.len())
+            .map(|j| pts[(j + 1) % pts.len()] - pts[j])
+            .collect();
         let cross = edges[0].cross(edges[1]);
         for j in base..b.buf.len() {
             b.buf.points[j] += p.fwd * POINT_FUDGE;
@@ -943,9 +1146,21 @@ fn ignore_adjacency(b: &mut Build<'_>, position: Vec3) {
                 let s = if pts.len() > 3 {
                     let mid = pts[2] - pts[0];
                     if (b.buf.points[j] - pts[0]).cross(mid).dot(n) > 0.0 {
-                        barycentric([pts[0], pts[1], pts[2]], [edges[0], edges[1], -mid], [shades[0], shades[1], shades[2]], cross, b.buf.points[j])
+                        barycentric(
+                            [pts[0], pts[1], pts[2]],
+                            [edges[0], edges[1], -mid],
+                            [shades[0], shades[1], shades[2]],
+                            cross,
+                            b.buf.points[j],
+                        )
                     } else {
-                        barycentric([pts[0], pts[2], pts[3]], [mid, edges[2], edges[3]], [shades[0], shades[2], shades[3]], cross, b.buf.points[j])
+                        barycentric(
+                            [pts[0], pts[2], pts[3]],
+                            [mid, edges[2], edges[3]],
+                            [shades[0], shades[2], shades[3]],
+                            cross,
+                            b.buf.points[j],
+                        )
                     }
                 } else {
                     shade_at(&pts, &edges, shades, cross, b.buf.points[j])
@@ -957,7 +1172,11 @@ fn ignore_adjacency(b: &mut Build<'_>, position: Vec3) {
             if b.indices.len() + 3 > MAX_TRI_INDICES {
                 break;
             }
-            b.indices.extend_from_slice(&[base as u16, (base + j + 1) as u16, (base + j + 2) as u16]);
+            b.indices.extend_from_slice(&[
+                base as u16,
+                (base + j + 1) as u16,
+                (base + j + 2) as u16,
+            ]);
         }
     }
 }
@@ -1045,9 +1264,17 @@ fn weld(b: &Build<'_>, quad: u32) -> Mesh {
         }
         mesh.positions[k] = points[i];
         mesh.uvs[k] = buf.uvs[i];
-        mesh.shades[k] = if b.lighting { buf.shades[i] } else { 0xFFFF_FFFF };
+        mesh.shades[k] = if b.lighting {
+            buf.shades[i]
+        } else {
+            0xFFFF_FFFF
+        };
     }
-    mesh.indices = b.indices.iter().map(|&t| (index[t as usize] & 0xFFFF) as u16).collect();
+    mesh.indices = b
+        .indices
+        .iter()
+        .map(|&t| (index[t as usize] & 0xFFFF) as u16)
+        .collect();
     mesh
 }
 
@@ -1056,7 +1283,10 @@ fn weld(b: &Build<'_>, quad: u32) -> Mesh {
 /// up = right × normal, optionally turned by `rotation` radians. `None` if
 /// the normal is zero.
 pub fn frame(normal: Vec3, upvector: Vec3, rotation: Option<f32>) -> Option<(Vec3, Vec3)> {
-    let mut right = normal.cross(upvector).try_normalize().or_else(|| Vec3::new(-normal.z, 0.0, normal.x).try_normalize());
+    let mut right = normal
+        .cross(upvector)
+        .try_normalize()
+        .or_else(|| Vec3::new(-normal.z, 0.0, normal.x).try_normalize());
     if right.is_none() {
         if normal.y == 0.0 {
             return None;
@@ -1081,7 +1311,17 @@ mod tests {
 
     fn params(position: Vec3, fwd: Vec3, half: f32, wrap_deg: f32) -> Params {
         let (up, right) = frame(fwd, Vec3::ZERO, None).unwrap();
-        Params { flags: dflag::FULL_BRIGHT, wrap: wrap_deg.to_radians(), direction: None, position, fwd, up, right, xscale: half, yscale: half }
+        Params {
+            flags: dflag::FULL_BRIGHT,
+            wrap: wrap_deg.to_radians(),
+            direction: None,
+            position,
+            fwd,
+            up,
+            right,
+            xscale: half,
+            yscale: half,
+        }
     }
 
     #[test]
@@ -1091,30 +1331,62 @@ mod tests {
         let m = build(&q, Some(0), &p).unwrap();
         assert_eq!(m.positions.len(), 4);
         assert_eq!(m.indices.len(), 6);
-        for (k, (cx, cy, uv)) in [(-1.0, 1.0, [1.0, 0.0]), (1.0, 1.0, [0.0, 0.0]), (1.0, -1.0, [0.0, 1.0]), (-1.0, -1.0, [1.0, 1.0])].into_iter().enumerate() {
+        for (k, (cx, cy, uv)) in [
+            (-1.0, 1.0, [1.0, 0.0]),
+            (1.0, 1.0, [0.0, 0.0]),
+            (1.0, -1.0, [0.0, 1.0]),
+            (-1.0, -1.0, [1.0, 1.0]),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let want = p.position + p.right * cx + p.up * cy + Vec3::Z * POINT_FUDGE;
-            let got = m.positions.iter().position(|v| v.distance(want) < 1e-4).unwrap_or_else(|| panic!("corner {k} missing: {:?}", m.positions));
+            let got = m
+                .positions
+                .iter()
+                .position(|v| v.distance(want) < 1e-4)
+                .unwrap_or_else(|| panic!("corner {k} missing: {:?}", m.positions));
             assert_eq!(m.uvs[got], uv);
         }
     }
 
     #[test]
     fn a_decal_over_a_coplanar_seam_shares_the_seam() {
-        let left = [Vec3::new(-10.0, -10.0, 0.0), Vec3::new(0.0, -10.0, 0.0), Vec3::new(0.0, 10.0, 0.0), Vec3::new(-10.0, 10.0, 0.0)];
+        let left = [
+            Vec3::new(-10.0, -10.0, 0.0),
+            Vec3::new(0.0, -10.0, 0.0),
+            Vec3::new(0.0, 10.0, 0.0),
+            Vec3::new(-10.0, 10.0, 0.0),
+        ];
         let right = left.map(|v| v + Vec3::new(10.0, 0.0, 0.0));
         let mut q = room(&[(left, 0), (right, 0)]);
         // The same plane, as the level's coplanar quads share one.
         q.quads[1].plane = 0;
-        let m = build(&q, Some(0), &params(Vec3::new(0.0, 0.0, 0.0), Vec3::Z, 1.0, 60.0)).unwrap();
+        let m = build(
+            &q,
+            Some(0),
+            &params(Vec3::new(0.0, 0.0, 0.0), Vec3::Z, 1.0, 60.0),
+        )
+        .unwrap();
         assert_eq!(m.indices.len(), 12, "two quads' pieces");
-        assert_eq!(m.positions.len(), 6, "the seam's points shared: {:?}", m.positions);
+        assert_eq!(
+            m.positions.len(),
+            6,
+            "the seam's points shared: {:?}",
+            m.positions
+        );
         assert!(m.positions.iter().all(|p| (p.z - POINT_FUDGE).abs() < 1e-4));
     }
 
     /// A wall z = 0 (x < 10) and a side wall x = 10 going back toward +z,
     /// meeting at an inside corner; a decal by the corner.
     fn corner_room() -> Quads {
-        let side = [Vec3::new(10.0, -10.0, 0.0), Vec3::new(10.0, -10.0, 20.0), Vec3::new(10.0, 10.0, 20.0), Vec3::new(10.0, 10.0, 0.0)];
+        let side = [
+            Vec3::new(10.0, -10.0, 0.0),
+            Vec3::new(10.0, -10.0, 20.0),
+            Vec3::new(10.0, 10.0, 20.0),
+            Vec3::new(10.0, 10.0, 0.0),
+        ];
         room(&[(wall(), 0), (side, 0)])
     }
 
@@ -1125,13 +1397,26 @@ mod tests {
         let p = params(Vec3::new(9.5, 0.0, 0.0), Vec3::Z, 1.0, 120.0);
         let m = build(&q, Some(0), &p).unwrap();
         let on_side: Vec<&Vec3> = m.positions.iter().filter(|v| v.z > 0.1).collect();
-        assert!(!on_side.is_empty(), "wraps onto the side wall: {:?}", m.positions);
+        assert!(
+            !on_side.is_empty(),
+            "wraps onto the side wall: {:?}",
+            m.positions
+        );
         // Folded: the 0.5 beyond the corner runs up the side wall.
         let far = on_side.iter().map(|v| v.z).fold(0.0, f32::max);
         assert!((far - 0.5).abs() < 0.06, "{far}");
         // With a 60° wrap it stops at the corner.
-        let m = build(&q, Some(0), &params(Vec3::new(9.5, 0.0, 0.0), Vec3::Z, 1.0, 60.0)).unwrap();
-        assert!(m.positions.iter().all(|v| v.x <= 10.0 + 1e-3 && v.z < 0.1), "{:?}", m.positions);
+        let m = build(
+            &q,
+            Some(0),
+            &params(Vec3::new(9.5, 0.0, 0.0), Vec3::Z, 1.0, 60.0),
+        )
+        .unwrap();
+        assert!(
+            m.positions.iter().all(|v| v.x <= 10.0 + 1e-3 && v.z < 0.1),
+            "{:?}",
+            m.positions
+        );
     }
 
     #[test]
@@ -1155,7 +1440,12 @@ mod tests {
         let q = room(&[(wall(), flag::NO_DECAL)]);
         assert!(build(&q, Some(0), &params(Vec3::ZERO, Vec3::Z, 1.0, 60.0)).is_none());
         let q = room(&[(wall(), flag::INVISIBLE)]);
-        assert!(build(&q, None, &params(Vec3::new(0.0, 0.0, 5.0), Vec3::Z, 1.0, 60.0)).is_none());
+        assert!(build(
+            &q,
+            None,
+            &params(Vec3::new(0.0, 0.0, 5.0), Vec3::Z, 1.0, 60.0)
+        )
+        .is_none());
     }
 
     #[test]
@@ -1171,6 +1461,10 @@ mod tests {
             let r = (s >> 16) & 0xFF;
             assert!(r > 100 && r < 160, "{v:?} {s:08x}");
         }
-        assert_eq!(shade_lerp(0xFF00_0000, 0xFFFF_FFFF, 0.5), 0xFF7F_7F7F, "256ths, truncated");
+        assert_eq!(
+            shade_lerp(0xFF00_0000, 0xFFFF_FFFF, 0.5),
+            0xFF7F_7F7F,
+            "256ths, truncated"
+        );
     }
 }

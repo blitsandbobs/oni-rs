@@ -29,7 +29,11 @@ pub struct Profile {
 /// The melee profiles stored in this file (empty unless it's level 0).
 pub fn collect(dat: &Dat<'_>, raw: Option<&[u8]>) -> Vec<Profile> {
     let Some(raw) = raw else { return Vec::new() };
-    crate::objects::read(dat, raw, "Melee Profile").1.into_iter().filter_map(|o| profile(o.data)).collect()
+    crate::objects::read(dat, raw, "Melee Profile")
+        .1
+        .into_iter()
+        .filter_map(|o| profile(o.data))
+        .collect()
 }
 
 /// One profile from its object chunk.
@@ -39,7 +43,12 @@ fn profile(d: &[u8]) -> Option<Profile> {
     }
     let u = |o: usize| le_u32(d, o);
     let f = |o: usize| le_f32(d, o);
-    let (actions, reactions, spacing, moves) = (u(188) as usize, u(192) as usize, u(196) as usize, u(200) as usize);
+    let (actions, reactions, spacing, moves) = (
+        u(188) as usize,
+        u(192) as usize,
+        u(196) as usize,
+        u(200) as usize,
+    );
     let techniques = actions + reactions + spacing;
     let moves_at = 204 + techniques * TECHNIQUE_SIZE;
     if d.len() < moves_at + moves * MOVE_SIZE {

@@ -23,18 +23,18 @@ use crate::skel::Character;
 /// The head's bone (the listener's ear height).
 const HEAD_BONE: usize = 10;
 
-mod env_particles;
+pub mod anim_particles;
 pub mod camera;
+pub mod cheats;
+pub mod corpses;
+mod env_particles;
 mod flow;
 pub mod fog;
-mod hypo;
 mod hud;
+mod hypo;
 mod lens;
-pub mod neutral;
-pub mod corpses;
 pub mod magic;
-pub mod cheats;
-pub mod anim_particles;
+pub mod neutral;
 pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
@@ -75,7 +75,12 @@ pub struct Sound {
 /// (straight within a room; through portal midpoints across rooms).
 /// How far a sound travels from `from` to `to` through the rooms, past the
 /// portals `gate` lets it through (`crate::nav::plan::sound_route`).
-fn sound_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3, gate: &dyn Fn(usize, usize) -> Option<f32>) -> Option<f32> {
+fn sound_length(
+    nav: &crate::nav::Navigation,
+    from: Vec3,
+    to: Vec3,
+    gate: &dyn Fn(usize, usize) -> Option<f32>,
+) -> Option<f32> {
     crate::nav::plan::sound_route(nav, nav.room_at(from)?, from, nav.room_at(to)?, to, gate)
 }
 
@@ -442,13 +447,20 @@ impl World {
     /// Makes fighter `id` fight fighter `target` with its class's melee AI.
     /// Returns false when its class has no melee profile.
     pub fn fight(&mut self, id: usize, target: usize) -> bool {
-        let Some(f) = self.fighters.get_mut(id) else { return false };
-        let Some(profile) = f.melee_profile.clone() else { return false };
+        let Some(f) = self.fighters.get_mut(id) else {
+            return false;
+        };
+        let Some(profile) = f.melee_profile.clone() else {
+            return false;
+        };
         let m = crate::ai::melee::brain::Melee::new(profile, target, f.daze, id as u32 * 7919 + 1);
         f.brain = Some(crate::ai::Brain::Melee(Box::new(m)));
         // It knows exactly where its target is (the original's "magic
         // awareness" of an ordered attack).
-        let (team, now) = (self.fighters.get(target).map(|t| (t.team(), t.feet())), self.now as u64);
+        let (team, now) = (
+            self.fighters.get(target).map(|t| (t.team(), t.feet())),
+            self.now as u64,
+        );
         if let (Some((team, feet)), Some(p)) = (team, self.fighters[id].perception.as_mut()) {
             p.force_target(target, team, feet, now);
         }
@@ -493,7 +505,13 @@ impl World {
     pub fn env_shade(&mut self, a: u32, b: u32, rgb: [f32; 3]) {
         let (lo, hi) = (a.min(b), a.max(b));
         let shade = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0);
-        let refs: std::collections::BTreeSet<u32> = self.quads.quads.iter().filter_map(|q| q.env_ref).filter(|r| (lo..=hi).contains(r)).collect();
+        let refs: std::collections::BTreeSet<u32> = self
+            .quads
+            .quads
+            .iter()
+            .filter_map(|q| q.env_ref)
+            .filter(|r| (lo..=hi).contains(r))
+            .collect();
         for r in refs {
             self.env_shades.insert(r, shade);
         }
@@ -529,18 +547,35 @@ impl World {
 
     /// A noise someone made: who hears it is worked out at the next
     /// perception pass.
-    pub fn sound(&mut self, stimulus: crate::ai::perception::Stimulus, at: Vec3, volume: f32, maker: Option<usize>, other: Option<usize>) {
-        self.sounds.push(Sound { stimulus, at, volume, maker, other });
+    pub fn sound(
+        &mut self,
+        stimulus: crate::ai::perception::Stimulus,
+        at: Vec3,
+        volume: f32,
+        maker: Option<usize>,
+        other: Option<usize>,
+    ) {
+        self.sounds.push(Sound {
+            stimulus,
+            at,
+            volume,
+            maker,
+            other,
+        });
     }
 
     /// Perception (behaviour per `docs/PERCEPTION.md`): noises, sight, memory
     /// fading and alert easing for every perceiving character; then each
     /// acts on what it noticed.
     fn perceive(&mut self) {
-        use crate::ai::perception::{forward, Notice, Strength, Stimulus};
+        use crate::ai::perception::{forward, Notice, Stimulus, Strength};
         let now = self.now as u64;
         let n = self.fighters.len();
-        let alive: Vec<bool> = self.fighters.iter().map(|f| f.alive() && !f.motion.dying).collect();
+        let alive: Vec<bool> = self
+            .fighters
+            .iter()
+            .map(|f| f.alive() && !f.motion.dying)
+            .collect();
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
         let points: Vec<[Vec3; 3]> = self.fighters.iter().map(|f| f.sight_points()).collect();
@@ -561,20 +596,33 @@ impl World {
 
         // Noises. (Through the rooms, doors that aren't open pass only what
         // their class lets through, muffled.)
-        let portal_doors: std::collections::HashMap<(usize, usize), usize> = match self.nav.clone() {
-            Some(nav) => self.door_portals(&nav).iter().enumerate().flat_map(|(d, ps)| ps.iter().map(move |&rk| (rk, d))).collect(),
+        let portal_doors: std::collections::HashMap<(usize, usize), usize> = match self.nav.clone()
+        {
+            Some(nav) => self
+                .door_portals(&nav)
+                .iter()
+                .enumerate()
+                .flat_map(|(d, ps)| ps.iter().map(move |&rk| (rk, d)))
+                .collect(),
             None => Default::default(),
         };
         let sounds = std::mem::take(&mut self.sounds);
         for s in &sounds {
             for i in 0..n {
-                if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.as_ref().is_some_and(|p| p.deaf) {
+                if !alive[i]
+                    || self.fighters[i].passive
+                    || self.fighters[i].perception.as_ref().is_some_and(|p| p.deaf)
+                {
                     continue;
                 }
-                let Some(p) = self.fighters[i].perception.as_ref() else { continue };
+                let Some(p) = self.fighters[i].perception.as_ref() else {
+                    continue;
+                };
                 let combat = s.stimulus.combat_sound();
                 let ignored = |w: Option<usize>| {
-                    w.is_some_and(|w| !alive[w] || p.ignores(i, w, teams[w], self.fighters[w].player, combat))
+                    w.is_some_and(|w| {
+                        !alive[w] || p.ignores(i, w, teams[w], self.fighters[w].player, combat)
+                    })
                 };
                 let (ig1, ig2) = (ignored(s.maker), s.other.is_none() || ignored(s.other));
                 if s.maker.is_some() && ig1 && ig2 {
@@ -585,34 +633,65 @@ impl World {
                     continue;
                 }
                 let eye = points[i][1];
-                let gate = |r: usize, k: usize| portal_doors.get(&(r, k)).map_or(Some(1.0), |&d| self.doors[d].sound_through(s.stimulus));
+                let gate = |r: usize, k: usize| {
+                    portal_doors
+                        .get(&(r, k))
+                        .map_or(Some(1.0), |&d| self.doors[d].sound_through(s.stimulus))
+                };
                 let heard = self.quads.sees(s.at, eye)
-                    || self.nav.as_ref().is_some_and(|nav| sound_length(nav, s.at, feet[i], &gate).is_some_and(|d| d <= range));
+                    || self.nav.as_ref().is_some_and(|nav| {
+                        sound_length(nav, s.at, feet[i], &gate).is_some_and(|d| d <= range)
+                    });
                 if !heard {
                     continue;
                 }
                 let p = self.fighters[i].perception.as_mut().expect("perceiving");
                 match s.maker {
                     Some(m) if !ig1 => {
-                        let strength = if s.stimulus as u8 >= Stimulus::SoundMelee as u8 && s.at.distance(eye) <= 40.0 {
+                        let strength = if s.stimulus as u8 >= Stimulus::SoundMelee as u8
+                            && s.at.distance(eye) <= 40.0
+                        {
                             Strength::Definite
                         } else {
                             Strength::Strong
                         };
-                        p.perceive(Some(m), Some(teams[m]), s.stimulus, strength, feet[m], 0, now);
+                        p.perceive(
+                            Some(m),
+                            Some(teams[m]),
+                            s.stimulus,
+                            strength,
+                            feet[m],
+                            0,
+                            now,
+                        );
                     }
                     None => p.perceive(None, None, s.stimulus, Strength::Strong, s.at, 0, now),
                     _ => {}
                 }
                 if let Some(o) = s.other.filter(|_| !ig2) {
                     let p = self.fighters[i].perception.as_mut().expect("perceiving");
-                    p.perceive(Some(o), Some(teams[o]), s.stimulus, Strength::Strong, feet[o], 0, now);
+                    p.perceive(
+                        Some(o),
+                        Some(teams[o]),
+                        s.stimulus,
+                        Strength::Strong,
+                        feet[o],
+                        0,
+                        now,
+                    );
                 }
             }
         }
 
         // In a boss battle, who the bosses are (the player always is).
-        let bosses = self.boss_battle.then(|| Rc::new(self.fighters.iter().map(|f| f.boss || f.player).collect::<Vec<bool>>()));
+        let bosses = self.boss_battle.then(|| {
+            Rc::new(
+                self.fighters
+                    .iter()
+                    .map(|f| f.boss || f.player)
+                    .collect::<Vec<bool>>(),
+            )
+        });
         for f in &mut self.fighters {
             if let Some(p) = f.perception.as_mut() {
                 p.boss_battle = bosses.clone();
@@ -621,10 +700,16 @@ impl World {
         // Sight (none of one invisible long enough).
         let seeable: Vec<bool> = (0..n).map(|j| self.can_be_seen(j)).collect();
         for i in 0..n {
-            if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.as_ref().is_none_or(|p| p.blind) {
+            if !alive[i]
+                || self.fighters[i].passive
+                || self.fighters[i].perception.as_ref().is_none_or(|p| p.blind)
+            {
                 continue;
             }
-            let every = self.fighters[i].perception.as_ref().map_or(59, |p| p.look_every(now));
+            let every = self.fighters[i]
+                .perception
+                .as_ref()
+                .map_or(59, |p| p.look_every(now));
             if (i as u64 * 13) % every != now % every {
                 continue;
             }
@@ -645,10 +730,16 @@ impl World {
                 }
                 let known = p.about(j).is_some_and(|c| c.strength == Strength::Definite);
                 let aim = feet[j] + Vec3::Y * self.fighters[j].motion.height();
-                let Some(stimulus) = p.tuning.sees(aim - eye, look, known, faithful) else { continue };
+                let Some(stimulus) = p.tuning.sees(aim - eye, look, known, faithful) else {
+                    continue;
+                };
                 let seen = points[j].iter().find(|&&pt| self.quads.sees(eye, pt));
                 let Some(&at) = seen else { continue };
-                let strength = if stimulus == Stimulus::SightDefinite { Strength::Definite } else { Strength::Weak };
+                let strength = if stimulus == Stimulus::SightDefinite {
+                    Strength::Definite
+                } else {
+                    Strength::Weak
+                };
                 let p = self.fighters[i].perception.as_mut().expect("perceiving");
                 p.perceive(Some(j), Some(teams[j]), stimulus, strength, at, 0, now);
             }
@@ -696,14 +787,20 @@ impl World {
                 match notice {
                     Notice::Combat(who) => {
                         // (A fighter without goals keeps its fight.)
-                        let fighting = self.fighters[i].brain.as_ref().and_then(|b| b.melee()).is_some();
+                        let fighting = self.fighters[i]
+                            .brain
+                            .as_ref()
+                            .and_then(|b| b.melee())
+                            .is_some();
                         if !fighting && !self.fighters[i].passive && alive[who] {
                             eprintln!("perception: fighter {i} engages {who}");
                             self.fight(i, who);
                         }
                     }
                     Notice::Startle(at) => self.fighters[i].startle(at),
-                    Notice::Glance(at, ticks) => self.fighters[i].glance = Some((at, now + u64::from(ticks))),
+                    Notice::Glance(at, ticks) => {
+                        self.fighters[i].glance = Some((at, now + u64::from(ticks)))
+                    }
                     // Without goals, a threat it would pursue it glances at.
                     Notice::Pursue(id) => {
                         let p = self.fighters[i].perception.as_ref().expect("perceiving");
@@ -722,7 +819,11 @@ impl World {
 
     /// Runs `run` on fighter `i`'s goals (if it has them) with a view of the
     /// world.
-    fn with_agent(&mut self, i: usize, run: impl FnOnce(&mut crate::ai::goals::Agent, &mut crate::ai::goals::Ctx)) {
+    fn with_agent(
+        &mut self,
+        i: usize,
+        run: impl FnOnce(&mut crate::ai::goals::Agent, &mut crate::ai::goals::Ctx),
+    ) {
         use crate::ai::goals::{Ctx, Other};
         use crate::anim::types::st;
         let me_team = self.fighters[i].team();
@@ -745,7 +846,9 @@ impl World {
         let gun = self.gun_view(i);
         let guns = self.free_guns(i);
         let (spreads, projectiles) = (self.spreads(), self.projectiles());
-        let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else { return };
+        let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else {
+            return;
+        };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
         let quads = &self.quads;
@@ -754,7 +857,9 @@ impl World {
             Some(n) => route_length(n, a, b),
             None => Some(a.distance(b)),
         };
-        let probe_fn = |from: Vec3, dir: glam::Vec2, dist: f32, stop: crate::nav::Square| nav.as_deref().map(|n| n.probe(from, dir, dist, stop));
+        let probe_fn = |from: Vec3, dir: glam::Vec2, dist: f32, stop: crate::nav::Square| {
+            nav.as_deref().map(|n| n.probe(from, dir, dist, stop))
+        };
         let now = self.now as u64;
         let quirks = self.quirks;
         let f = &mut self.fighters[i];
@@ -769,31 +874,60 @@ impl World {
             max_hp: f.max_hp,
             unkillable: f.unkillable,
             inactive_upright: f.motion.inactive_upright(),
-            powering_up: f.motion.kind == powerup_type && f.motion.current().from_state == powerup_state,
+            powering_up: f.motion.kind == powerup_type
+                && f.motion.current().from_state == powerup_state,
             powerup_type,
             anim_type: f.motion.kind,
             started: f.motion.started,
-            action_frame: f.motion.current().action_frame.is_some_and(|a| f.motion.frame == a),
-            standing_still: f.motion.kind == crate::anim::types::ty::STAND && f.motion.state == st::STANDING && f.motion.entered_from == st::STANDING,
+            action_frame: f
+                .motion
+                .current()
+                .action_frame
+                .is_some_and(|a| f.motion.frame == a),
+            standing_still: f.motion.kind == crate::anim::types::ty::STAND
+                && f.motion.state == st::STANDING
+                && f.motion.entered_from == st::STANDING,
             fallen,
             victim: crate::anim::reaction::is_victim(f.motion.kind),
             invisibility: f.inventory.invisibility,
             queued: f.motion.queued,
-            disables_shield: f.motion.current().has_flag(crate::anim::types::flag::DISABLE_SHIELD),
-            has_thunderbolt: f.motion.coll.lookup(crate::anim::types::ty::MURO_THUNDERBOLT, f.motion.state, f.motion.varient | crate::anim::types::var::FIGHT).is_some(),
+            disables_shield: f
+                .motion
+                .current()
+                .has_flag(crate::anim::types::flag::DISABLE_SHIELD),
+            has_thunderbolt: f
+                .motion
+                .coll
+                .lookup(
+                    crate::anim::types::ty::MURO_THUNDERBOLT,
+                    f.motion.state,
+                    f.motion.varient | crate::anim::types::var::FIGHT,
+                )
+                .is_some(),
             can_pickup: picks_up(f.motion.current()),
             picking_up: matches!(f.motion.kind, 157..=159 | 227..=229),
             escapes: {
                 use crate::anim::types::ty;
-                [ty::CROUCH_FORWARD, ty::CROUCH_BACK, ty::CROUCH_LEFT, ty::CROUCH_RIGHT].map(|kind| {
+                [
+                    ty::CROUCH_FORWARD,
+                    ty::CROUCH_BACK,
+                    ty::CROUCH_LEFT,
+                    ty::CROUCH_RIGHT,
+                ]
+                .map(|kind| {
                     // (The roll that way, else the slide: one that can pick up.)
                     [kind, ty::SLIDE].into_iter().find_map(|k| {
                         let c = f.motion.coll.lookup(k, f.motion.state, f.motion.varient)?;
                         let clip = &f.motion.coll.entries[c].clip;
                         picks_up(clip).then(|| {
                             let n = clip.root_motion.len().saturating_sub(1);
-                            let [x, z] = clip.root_motion[..n].iter().fold([0.0, 0.0], |a, m| [a[0] + m[0], a[1] + m[1]]);
-                            (k, glam::Quat::from_rotation_y(f.facing.facing) * Vec3::new(x, 0.0, z))
+                            let [x, z] = clip.root_motion[..n]
+                                .iter()
+                                .fold([0.0, 0.0], |a, m| [a[0] + m[0], a[1] + m[1]]);
+                            (
+                                k,
+                                glam::Quat::from_rotation_y(f.facing.facing) * Vec3::new(x, 0.0, z),
+                            )
                         })
                     })
                 })
@@ -840,7 +974,11 @@ impl World {
     fn run_agents(&mut self) {
         for i in 0..self.fighters.len() {
             let f = &self.fighters[i];
-            if !matches!(f.brain, Some(crate::ai::Brain::Agent(_))) || !f.alive() || f.motion.dying || f.passive {
+            if !matches!(f.brain, Some(crate::ai::Brain::Agent(_)))
+                || !f.alive()
+                || f.motion.dying
+                || f.passive
+            {
                 continue;
             }
             if f.startling.is_some() || f.film.is_some() || f.console.is_some() {
@@ -849,12 +987,23 @@ impl World {
             self.with_agent(i, |a, cx| a.update(cx));
             // What it asks of its body: an animation, health, the stance.
             let asked = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => Some((a.anim_request.take(), std::mem::take(&mut a.heal), std::mem::take(&mut a.fight_mode))),
+                Some(crate::ai::Brain::Agent(a)) => Some((
+                    a.anim_request.take(),
+                    std::mem::take(&mut a.heal),
+                    std::mem::take(&mut a.fight_mode),
+                )),
                 _ => None,
             };
             // A super ninja's powers: invisibility, teleports, hanging on.
             let powers = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => Some((std::mem::take(&mut a.give_invisibility), a.teleport_to.take(), a.teleport_now.take(), a.hold_height.take(), a.set_super.take(), a.clear_stun)),
+                Some(crate::ai::Brain::Agent(a)) => Some((
+                    std::mem::take(&mut a.give_invisibility),
+                    a.teleport_to.take(),
+                    a.teleport_now.take(),
+                    a.hold_height.take(),
+                    a.set_super.take(),
+                    a.clear_stun,
+                )),
                 _ => None,
             };
             if let Some((invis, to, now, hold, set_super, clear_stun)) = powers {
@@ -864,7 +1013,13 @@ impl World {
                 }
                 if clear_stun {
                     let m = &mut f.motion;
-                    (m.hit_stun, m.block_stun, m.stagger_stun, m.soft_pause, m.hard_pause) = (0, 0, 0, 0, 0);
+                    (
+                        m.hit_stun,
+                        m.block_stun,
+                        m.stagger_stun,
+                        m.soft_pause,
+                        m.hard_pause,
+                    ) = (0, 0, 0, 0, 0);
                 }
                 if invis > 0 {
                     self.give_powerup(i, "invis", Some(invis), true);
@@ -884,7 +1039,12 @@ impl World {
                     f.inventory.invisibility = 0;
                     let ch = f.character.clone();
                     f.motion.force_stand(&ch);
-                    f.motion.request(&ch, crate::anim::motion::Urge::Force, false, crate::anim::types::ty::TELEPORT_OUT);
+                    f.motion.request(
+                        &ch,
+                        crate::anim::motion::Urge::Force,
+                        false,
+                        crate::anim::types::ty::TELEPORT_OUT,
+                    );
                 }
             }
             if let Some((anim, heal, fight)) = asked {
@@ -895,7 +1055,11 @@ impl World {
                 }
                 if let Some((kind, force)) = anim {
                     let ch = f.character.clone();
-                    let urge = if force { crate::anim::motion::Urge::Force } else { crate::anim::motion::Urge::Appropriate };
+                    let urge = if force {
+                        crate::anim::motion::Urge::Force
+                    } else {
+                        crate::anim::motion::Urge::Appropriate
+                    };
                     f.motion.request(&ch, urge, false, kind);
                 }
                 if heal > 0 && f.alive() {
@@ -904,7 +1068,9 @@ impl World {
             }
             // A gun it bends for: its own (useless) one goes to the floor.
             let (want, drop) = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => (a.want_pickup.take(), std::mem::take(&mut a.drop_gun)),
+                Some(crate::ai::Brain::Agent(a)) => {
+                    (a.want_pickup.take(), std::mem::take(&mut a.drop_gun))
+                }
                 _ => (None, false),
             };
             if drop {
@@ -913,7 +1079,10 @@ impl World {
             if let Some(w) = want.filter(|_| self.fighters[i].pickup.is_none()) {
                 self.drop_weapon(i, false);
                 if self.start_pickup(i, Item::Weapon(w)) {
-                    eprintln!("ai: fighter {i} bends for {}", self.armory.weapons[w].class.name);
+                    eprintln!(
+                        "ai: fighter {i} bends for {}",
+                        self.armory.weapons[w].class.name
+                    );
                 }
             }
             // A console it wants to use.
@@ -936,12 +1105,22 @@ impl World {
     /// Gives fighter `id` goals: a placed character's job (idle, or its
     /// patrol path), alerts, pursuit settings and combat / melee profiles —
     /// or, unplaced, the defaults (idle, its class's combat profile).
-    pub fn give_goals(&mut self, id: usize, placed: Option<&crate::ai::level::Placed>, melee: Option<Rc<crate::ai::melee::profile::Profile>>) {
+    pub fn give_goals(
+        &mut self,
+        id: usize,
+        placed: Option<&crate::ai::level::Placed>,
+        melee: Option<Rc<crate::ai::melee::profile::Profile>>,
+    ) {
         use crate::ai::goals::{Agent, Job, Patrol};
         let level = self.level_ai.clone();
-        let player_team = self.fighters.first().map_or(crate::ai::perception::Team::Konoko, |p| p.team());
+        let player_team = self
+            .fighters
+            .first()
+            .map_or(crate::ai::perception::Team::Konoko, |p| p.team());
         let enemy_hp = self.difficulty.enemy_hp;
-        let Some(f) = self.fighters.get_mut(id) else { return };
+        let Some(f) = self.fighters.get_mut(id) else {
+            return;
+        };
         let class = f.class_combat;
         let profile_of = |cid: u16| level.combat.get(&cid).cloned().unwrap_or_default();
         let mut agent = match placed {
@@ -956,13 +1135,25 @@ impl World {
                     },
                     _ => Job::Idle,
                 };
-                let mut a = Agent::new(p.name.clone(), job, profile_of(p.combat_id), class, id as u32 * 7919 + 3);
+                let mut a = Agent::new(
+                    p.name.clone(),
+                    job,
+                    profile_of(p.combat_id),
+                    class,
+                    id as u32 * 7919 + 3,
+                );
                 a.job_alert = p.alert[2];
                 a.investigate_alert = p.alert[3];
                 a.pursue = p.pursue.clone();
                 a
             }
-            None => Agent::new(format!("fighter {id}"), Job::Idle, profile_of(class.default_profile), class, id as u32 * 7919 + 3),
+            None => Agent::new(
+                format!("fighter {id}"),
+                Job::Idle,
+                profile_of(class.default_profile),
+                class,
+                id as u32 * 7919 + 3,
+            ),
         };
         if placed.is_some() {
             f.melee_profile = melee.or_else(|| f.melee_profile.clone());
@@ -1031,7 +1222,10 @@ impl World {
         self.level_dir = level_dir.to_path_buf();
         // (Each level starts from the draw engine's fog.)
         self.fog = Default::default();
-        self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
+        self.level_ai = Rc::new(crate::ai::level::LevelAi::load(
+            level_dir,
+            &level_dir.join("../../common"),
+        ));
         self.consoles = crate::consoles::load(level_dir);
         // (Cheats: once the game is won — or the developers' switch.)
         self.cheats.allowed = crate::game::won_game() || std::env::var_os("ONI_CHEATS").is_some();
@@ -1045,7 +1239,11 @@ impl World {
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);
         self.objects.clear();
-        let level = level_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(0);
+        let level = level_dir
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|n| n.parse().ok())
+            .unwrap_or(0);
         self.hud = crate::hud::Hud::load(&level_dir.join("../../common"), level);
     }
 
@@ -1066,17 +1264,25 @@ impl World {
                 let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
                 let reach = self.lasers[k].reach(frame, || {
                     let len = crate::lasers::BEAM_LENGTH;
-                    crate::chrphys::level_ray(&env, from, dir * len).map_or(len, |h| h.fraction * len)
+                    crate::chrphys::level_ray(&env, from, dir * len)
+                        .map_or(len, |h| h.fraction * len)
                 });
-                let hit = self.fighters.first().filter(|p| p.player && !p.gone).and_then(|p| {
-                    p.body_spheres()
-                        .iter()
-                        .filter_map(|&(_, c, r)| crate::lasers::ray_sphere(from, dir, reach, c, r))
-                        .min_by(f32::total_cmp)
-                });
+                let hit = self
+                    .fighters
+                    .first()
+                    .filter(|p| p.player && !p.gone)
+                    .and_then(|p| {
+                        p.body_spheres()
+                            .iter()
+                            .filter_map(|&(_, c, r)| {
+                                crate::lasers::ray_sphere(from, dir, reach, c, r)
+                            })
+                            .min_by(f32::total_cmp)
+                    });
                 let len = hit.unwrap_or(reach);
                 let l = &mut self.lasers[k];
-                self.beams.push((from, from + dir * crate::lasers::drawn(len), l.color));
+                self.beams
+                    .push((from, from + dir * crate::lasers::drawn(len), l.color));
                 if hit.is_some() {
                     if !l.triggered {
                         l.triggered = true;
@@ -1107,7 +1313,11 @@ impl World {
     /// "deactivate", "reset", "hide", "show", "speed" (by `factor`).
     pub fn laser_set(&mut self, id: i64, what: &str, factor: f32) {
         let every = id == crate::lasers::ALL && !matches!(what, "activate" | "deactivate");
-        for l in self.lasers.iter_mut().filter(|l| every || i64::from(l.id) == id) {
+        for l in self
+            .lasers
+            .iter_mut()
+            .filter(|l| every || i64::from(l.id) == id)
+        {
             match what {
                 "activate" => l.activate(),
                 "deactivate" => l.active = false,
@@ -1124,8 +1334,15 @@ impl World {
     /// geometry): while a door is closed they are its level quads; while it
     /// moves or stands open each leaf is a box in its own frame (`OBrInit`'s
     /// bounds: the geometry's), moving with it.
-    pub fn attach_doors(&mut self, mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>) {
-        self.door_meshes = self.doors.iter().map(|d| meshes.remove(&d.object_id).unwrap_or_default()).collect();
+    pub fn attach_doors(
+        &mut self,
+        mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>,
+    ) {
+        self.door_meshes = self
+            .doors
+            .iter()
+            .map(|d| meshes.remove(&d.object_id).unwrap_or_default())
+            .collect();
         self.door_leaf_boxes.clear();
         for (k, (d, (v, idx))) in self.doors.iter().zip(&self.door_meshes).enumerate() {
             for l in 0..d.leaves.len() {
@@ -1141,8 +1358,16 @@ impl World {
                 if pts.is_empty() {
                     continue;
                 }
-                let (lo, hi) = pts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), p| (lo.min(*p), hi.max(*p)));
-                self.door_leaf_boxes.push(DoorLeaf { door: k, leaf: l, lo, hi });
+                let (lo, hi) = pts.iter().fold(
+                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                    |(lo, hi), p| (lo.min(*p), hi.max(*p)),
+                );
+                self.door_leaf_boxes.push(DoorLeaf {
+                    door: k,
+                    leaf: l,
+                    lo,
+                    hi,
+                });
             }
         }
         self.place_door_boxes();
@@ -1156,13 +1381,22 @@ impl World {
     pub(super) fn door_shade(&self, object_id: u32) -> [f32; 3] {
         const MIN: u32 = 0x3F;
         let tag = (3 << 24) | (object_id & 0x00FF_FFFF);
-        let quads: Vec<_> = self.quads.quads.iter().filter(|q| q.object_tag == tag).collect();
+        let quads: Vec<_> = self
+            .quads
+            .quads
+            .iter()
+            .filter(|q| q.object_tag == tag)
+            .collect();
         if quads.is_empty() {
             return [1.0; 3];
         }
         let (mut sum, mut n) = ([0u32; 3], 0u32);
         for q in quads {
-            let corners = if q.flags & crate::quads::flag::TRIANGLE != 0 { 3 } else { 4 };
+            let corners = if q.flags & crate::quads::flag::TRIANGLE != 0 {
+                3
+            } else {
+                4
+            };
             for &c in &q.shades[..corners] {
                 let rgb = [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
                 if rgb.iter().any(|&v| v > MIN) {
@@ -1173,7 +1407,11 @@ impl World {
                 }
             }
         }
-        let avg = if n > 0 { sum.map(|v| (v + n / 2) / n) } else { [MIN; 3] };
+        let avg = if n > 0 {
+            sum.map(|v| (v + n / 2) / n)
+        } else {
+            [MIN; 3]
+        };
         avg.map(|v| v as f32 / 255.0)
     }
 
@@ -1186,7 +1424,11 @@ impl World {
             .map(|b| {
                 let d = &self.doors[b.door];
                 let m = d.leaf_matrix(b.leaf, d.frame());
-                let axes = [m.x_axis.truncate(), m.y_axis.truncate(), m.z_axis.truncate()];
+                let axes = [
+                    m.x_axis.truncate(),
+                    m.y_axis.truncate(),
+                    m.z_axis.truncate(),
+                ];
                 let len = Vec3::new(axes[0].length(), axes[1].length(), axes[2].length());
                 crate::chrphys::DoorBox {
                     center: m.transform_point3((b.lo + b.hi) * 0.5),
@@ -1201,15 +1443,32 @@ impl World {
     /// An object animation by name (exactly, else ignoring case, as the
     /// original's template names go).
     pub fn object_anim(&self, name: &str) -> Option<Rc<oni_geom::objanim::ObjectAnimation>> {
-        self.object_anims.get(name).or_else(|| self.object_anims.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, a)| a)).cloned()
+        self.object_anims
+            .get(name)
+            .or_else(|| {
+                self.object_anims
+                    .iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(name))
+                    .map(|(_, a)| a)
+            })
+            .cloned()
     }
 
     /// Whether the segment from `a` to `b` meets an animating object
     /// (`AMrRayToObject`): a placed object's sphere, or the leaf of a door
     /// that isn't closed (its leaves are objects then, met by their boxes).
     pub fn segment_meets_object(&self, a: Vec3, b: Vec3) -> bool {
-        self.door_boxes.iter().any(|d| d.solid && d.meets_segment(a, b))
-            || (0..self.objects.len()).any(|k| camera::segment_meets_sphere(a, b, self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius))
+        self.door_boxes
+            .iter()
+            .any(|d| d.solid && d.meets_segment(a, b))
+            || (0..self.objects.len()).any(|k| {
+                camera::segment_meets_sphere(
+                    a,
+                    b,
+                    self.object_matrix(k).w_axis.truncate(),
+                    self.object_setups[self.objects[k].setup].radius,
+                )
+            })
     }
 
     /// The nearest placed object along a ray (`AMrRayToObject`, unit `dir`,
@@ -1253,7 +1512,14 @@ impl World {
             .iter()
             .zip(&self.door_boxes)
             .filter(|(b, _)| self.doors[b.door].id == id)
-            .map(|(b, w)| (w.center, w.half, w.solid, self.doors[b.door].paused[b.leaf.min(1)]))
+            .map(|(b, w)| {
+                (
+                    w.center,
+                    w.half,
+                    w.solid,
+                    self.doors[b.door].paused[b.leaf.min(1)],
+                )
+            })
             .collect()
     }
 
@@ -1263,7 +1529,9 @@ impl World {
         self.doors
             .iter()
             .filter(|d| d.state != crate::doors::State::Closed)
-            .flat_map(|d| (0..d.leaves.len()).map(move |l| ((d.object_id, l as u8), d.leaf_motion(l))))
+            .flat_map(|d| {
+                (0..d.leaves.len()).map(move |l| ((d.object_id, l as u8), d.leaf_motion(l)))
+            })
             .collect()
     }
 
@@ -1271,7 +1539,9 @@ impl World {
     /// a leaf moving into one in front of it pauses.
     fn doors_touched(&mut self, touches: &[(usize, crate::chrphys::Touch)]) {
         for &(who, t) in touches {
-            let Some(b) = t.door.and_then(|k| self.door_leaf_boxes.get(k)) else { continue };
+            let Some(b) = t.door.and_then(|k| self.door_leaf_boxes.get(k)) else {
+                continue;
+            };
             let at = self.fighters[who].feet();
             let d = &mut self.doors[b.door];
             let was = d.paused[b.leaf.min(1)];
@@ -1288,14 +1558,22 @@ impl World {
     /// until it has shut. (Exported without collision, so the pathfinding grid
     /// ignores them; a door's reset shows them.)
     pub(crate) fn mark_door_quads(&mut self) {
-        let shown: std::collections::HashMap<u32, bool> = self.doors.iter().map(|d| (d.object_id, d.solid())).collect();
+        let shown: std::collections::HashMap<u32, bool> = self
+            .doors
+            .iter()
+            .map(|d| (d.object_id, d.solid()))
+            .collect();
         let hide = crate::quads::flag::NO_COLLISION | crate::quads::flag::INVISIBLE;
         for q in &mut self.quads.quads {
             if q.object_tag >> 24 != 3 {
                 continue;
             }
             if let Some(&show) = shown.get(&(q.object_tag & 0x00FF_FFFF)) {
-                q.flags = if show { q.flags & !hide } else { q.flags | hide };
+                q.flags = if show {
+                    q.flags & !hide
+                } else {
+                    q.flags | hide
+                };
             }
         }
         self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
@@ -1304,10 +1582,10 @@ impl World {
     /// A level quad's material (its texture's).
     pub(crate) fn quad_material(&self, q: u32) -> Option<u16> {
         let quad = self.quads.quads.get(q as usize)?;
-        self.impacts.as_ref()?.texture_material(self.quads.textures.get(quad.texture as usize)?)
+        self.impacts
+            .as_ref()?
+            .texture_material(self.quads.textures.get(quad.texture as usize)?)
     }
-
-
 
     /// The level's glass panes (`crate::glass_parts`): solid until broken.
     pub fn attach_glass(&mut self, panes: Vec<(u32, Option<u32>, crate::Mesh)>) {
@@ -1316,17 +1594,28 @@ impl World {
             .map(|(quad, env_ref, mesh)| {
                 let n = mesh.0.len().max(1) as f32;
                 let centre = mesh.0.iter().fold(Vec3::ZERO, |a, v| a + Vec3::from(*v)) / n;
-                let radius = mesh.0.iter().map(|v| Vec3::from(*v).distance(centre)).fold(0.0, f32::max);
-                Pane { quad, env_ref, broken: false, centre, radius }
+                let radius = mesh
+                    .0
+                    .iter()
+                    .map(|v| Vec3::from(*v).distance(centre))
+                    .fold(0.0, f32::max);
+                Pane {
+                    quad,
+                    env_ref,
+                    broken: false,
+                    centre,
+                    radius,
+                }
             })
             .collect();
     }
 
-
     /// Breaks (or, `broken` false, mends) glass pane `k`: not drawn, not
     /// solid.
     fn set_glass(&mut self, k: usize, broken: bool) {
-        let Some(p) = self.glass.get_mut(k) else { return };
+        let Some(p) = self.glass.get_mut(k) else {
+            return;
+        };
         if p.broken == broken {
             return;
         }
@@ -1337,24 +1626,41 @@ impl World {
             self.broken_glass.remove(&p.quad);
         }
         if let Some(q) = self.quads.quads.get_mut(p.quad as usize) {
-            q.flags = if broken { q.flags | crate::quads::flag::BROKEN_GLASS } else { q.flags & !crate::quads::flag::BROKEN_GLASS };
+            q.flags = if broken {
+                q.flags | crate::quads::flag::BROKEN_GLASS
+            } else {
+                q.flags & !crate::quads::flag::BROKEN_GLASS
+            };
         }
     }
 
     /// Pane `k` struck hard enough: broken, and burst into shards
     /// (`p3::glass`) — at the original's highest detail (graphics quality
     /// isn't applied yet, #37).
-    pub(crate) fn shatter(&mut self, k: usize, damage: f32, blast: Option<crate::p3::glass::Blast>) {
+    pub(crate) fn shatter(
+        &mut self,
+        k: usize,
+        damage: f32,
+        blast: Option<crate::p3::glass::Blast>,
+    ) {
         let Some(p) = self.glass.get(k) else { return };
         if p.broken {
             return;
         }
         let quad = p.quad;
         self.set_glass(k, true);
-        let Some(class) = self.armory.particles.classes.get("glass_shard") else { return };
-        let Some(q) = self.quads.quads.get(quad as usize) else { return };
+        let Some(class) = self.armory.particles.classes.get("glass_shard") else {
+            return;
+        };
+        let Some(q) = self.quads.quads.get(quad as usize) else {
+            return;
+        };
         let (normal, d) = self.quads.plane(q.plane);
-        let pane = crate::p3::glass::Pane { corners: std::array::from_fn(|i| self.quads.corner(q, i)), normal, d };
+        let pane = crate::p3::glass::Pane {
+            corners: std::array::from_fn(|i| self.quads.corner(q, i)),
+            normal,
+            d,
+        };
         let now = self.now as u64;
         let weapons::Armory { particles, .. } = &mut self.armory;
         let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
@@ -1365,8 +1671,13 @@ impl World {
     /// How many of the script references `from..=to` have no unbroken
     /// pane left (`env_broken`; a reference with no glass counts as broken).
     pub fn env_broken(&self, from: u32, to: u32) -> u32 {
-        let intact: std::collections::HashSet<u32> =
-            self.glass.iter().filter(|p| !p.broken).filter_map(|p| p.env_ref).filter(|r| (from..=to).contains(r)).collect();
+        let intact: std::collections::HashSet<u32> = self
+            .glass
+            .iter()
+            .filter(|p| !p.broken)
+            .filter_map(|p| p.env_ref)
+            .filter(|r| (from..=to).contains(r))
+            .collect();
         (to.saturating_sub(from) + 1).saturating_sub(intact.len() as u32)
     }
 
@@ -1412,7 +1723,13 @@ impl World {
             let d = &mut self.doors[k];
             let (tick, mut opener) = if closed_manual && opener.is_some() {
                 d.open();
-                (crate::doors::Tick { started: true, reopen: false }, opener)
+                (
+                    crate::doors::Tick {
+                        started: true,
+                        reopen: false,
+                    },
+                    opener,
+                )
             } else {
                 (d.tick(opener.is_some(), leaf0_only), opener)
             };
@@ -1511,14 +1828,17 @@ impl World {
     /// autoprompt's `OBJrDoor_TryDoorAction`): a closed one in reach it
     /// faces, that it may open.
     fn door_prompt(&self, i: usize) -> bool {
-        let Some(f) = self.fighters.get(i) else { return false };
+        let Some(f) = self.fighters.get(i) else {
+            return false;
+        };
         let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
         self.doors.iter().any(|d| {
             let to = d.position - pelvis;
             d.manual
                 && d.state == crate::doors::State::Closed
                 && feet.distance(d.position) < d.radius
-                && crate::ai::relative(to.x.atan2(to.z) - facing).abs() <= crate::doors::MANUAL_FACING
+                && crate::ai::relative(to.x.atan2(to.z) - facing).abs()
+                    <= crate::doors::MANUAL_FACING
                 && d.may_open(feet, false)
         })
     }
@@ -1526,20 +1846,28 @@ impl World {
     /// The player's Action at a manual door: the closed one in reach it
     /// faces most (preferring one it may open). True if there was one.
     fn door_action(&mut self, i: usize) -> bool {
-        let Some(f) = self.fighters.get(i) else { return false };
+        let Some(f) = self.fighters.get(i) else {
+            return false;
+        };
         let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
         let pick = self
             .doors
             .iter()
             .enumerate()
-            .filter(|(_, d)| d.manual && d.state == crate::doors::State::Closed && feet.distance(d.position) < d.radius)
+            .filter(|(_, d)| {
+                d.manual
+                    && d.state == crate::doors::State::Closed
+                    && feet.distance(d.position) < d.radius
+            })
             .filter_map(|(k, d)| {
                 let to = d.position - pelvis;
                 let off = crate::ai::relative(to.x.atan2(to.z) - facing).abs();
                 (off <= crate::doors::MANUAL_FACING).then_some((k, off, d.may_open(feet, false)))
             })
             .min_by(|a, b| b.2.cmp(&a.2).then(a.1.total_cmp(&b.1)));
-        let Some((k, _, may)) = pick else { return false };
+        let Some((k, _, may)) = pick else {
+            return false;
+        };
         if may {
             self.doors[k].open();
             eprintln!("door {}: opened (Action)", self.doors[k].id);
@@ -1556,7 +1884,11 @@ impl World {
     /// Locks / unlocks / jams / unjams door `id` (`ALL` / -1: every door).
     pub fn door_set(&mut self, id: i64, lock: Option<bool>, jam: Option<bool>) {
         let mut sounds = Vec::new();
-        for d in self.doors.iter_mut().filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id) {
+        for d in self
+            .doors
+            .iter_mut()
+            .filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id)
+        {
             if let Some(l) = lock {
                 // (Locking or unlocking sounds only if it changes.)
                 if d.locked != l {
@@ -1585,10 +1917,20 @@ impl World {
     /// Fighter `user` uses console `c` (its action frame came): if it is
     /// active and not yet used, it fires its events.
     pub fn activate_console(&mut self, c: usize, user: Option<usize>) {
-        let Some(k) = self.consoles.get_mut(c) else { return };
+        let Some(k) = self.consoles.get_mut(c) else {
+            return;
+        };
         if !k.active || k.triggered {
-            eprintln!("console {}: {}", k.id, if k.active { "already used" } else { "locked" });
-            let what = if k.active { "console_already_used" } else { "console_locked" };
+            eprintln!(
+                "console {}: {}",
+                k.id,
+                if k.active { "already used" } else { "locked" }
+            );
+            let what = if k.active {
+                "console_already_used"
+            } else {
+                "console_locked"
+            };
             self.console_sound(c, user, what);
             return;
         }
@@ -1610,7 +1952,11 @@ impl World {
                 Event::Script(s) => self.script_events.push((s.clone(), vec![who.clone()])),
                 Event::ActivateConsole(id) | Event::DeactivateConsole(id) => {
                     let on = matches!(e, Event::ActivateConsole(_));
-                    for k in self.consoles.iter_mut().filter(|k| *id == ALL || k.id == *id) {
+                    for k in self
+                        .consoles
+                        .iter_mut()
+                        .filter(|k| *id == ALL || k.id == *id)
+                    {
                         k.active = on;
                     }
                 }
@@ -1634,17 +1980,34 @@ impl World {
         if group >= 32 {
             return;
         }
-        let Some(c) = self.fighters.get(cause) else { return };
+        let Some(c) = self.fighters.get(cause) else {
+            return;
+        };
         let (team, at, player, now) = (c.team(), c.feet(), c.player, self.now as u64);
         for (i, f) in self.fighters.iter_mut().enumerate() {
-            if i == cause || f.player || f.passive || !f.alive() || f.alarm_groups & (1 << group) == 0 {
+            if i == cause
+                || f.player
+                || f.passive
+                || !f.alive()
+                || f.alarm_groups & (1 << group) == 0
+            {
                 continue;
             }
-            let Some(p) = f.perception.as_mut() else { continue };
+            let Some(p) = f.perception.as_mut() else {
+                continue;
+            };
             if p.ignores(i, cause, team, player, false) {
                 continue;
             }
-            p.perceive(Some(cause), Some(team), crate::ai::perception::Stimulus::Alarm, crate::ai::perception::Strength::Strong, at, 0, now);
+            p.perceive(
+                Some(cause),
+                Some(team),
+                crate::ai::perception::Stimulus::Alarm,
+                crate::ai::perception::Strength::Strong,
+                at,
+                0,
+                now,
+            );
             f.alarmed = true;
         }
         eprintln!("alarm {group} tripped");
@@ -1655,11 +2018,11 @@ impl World {
     fn console_in_reach(&self, i: usize, generous: bool) -> Option<usize> {
         let f = self.fighters.get(i)?;
         let pelvis = f.sight_points()[0];
-        let (c, k) = self
-            .consoles
-            .iter()
-            .enumerate()
-            .min_by(|a, b| a.1.marker.distance_squared(pelvis).total_cmp(&b.1.marker.distance_squared(pelvis)))?;
+        let (c, k) = self.consoles.iter().enumerate().min_by(|a, b| {
+            a.1.marker
+                .distance_squared(pelvis)
+                .total_cmp(&b.1.marker.distance_squared(pelvis))
+        })?;
         k.in_reach(pelvis, f.facing.facing, generous).then_some(c)
     }
 
@@ -1670,7 +2033,9 @@ impl World {
         use crate::anim::motion::Urge;
         use crate::anim::types::st;
         use crate::consoles::Use;
-        let Some(u) = self.fighters[i].console else { return };
+        let Some(u) = self.fighters[i].console else {
+            return;
+        };
         let now = self.now as u64;
         let ty = |n: &str| oni_schema::value(&oni_schema::ANIM_TYPES, n).unwrap_or(0);
         let Some(k) = self.consoles.get(u.console()).cloned() else {
@@ -1702,7 +2067,11 @@ impl World {
                     f.facing.desired_facing = k.facing;
                     f.teleport(k.stand());
                     f.motion.force_stand(&ch);
-                    let anim = if k.punch { ty("consolePunch") } else { ty("console") };
+                    let anim = if k.punch {
+                        ty("consolePunch")
+                    } else {
+                        ty("console")
+                    };
                     if f.motion.request(&ch, Urge::Force, false, anim).is_none() {
                         f.motion.request(&ch, Urge::Force, false, ty("console"));
                     }
@@ -1740,7 +2109,11 @@ impl World {
         let f = self.fighters.get_mut(id)?;
         // (A film ends any environment animation.)
         f.env_anim = None;
-        let mut play = crate::fighter::FilmPlay { film: film.clone(), frame: 0, interp: None };
+        let mut play = crate::fighter::FilmPlay {
+            film: film.clone(),
+            frame: 0,
+            interp: None,
+        };
         // (Its facing, the facing it wants and its aim snap to the film's,
         // `ONrFilm_Start`.)
         f.facing.facing = film.facing;
@@ -1787,7 +2160,13 @@ impl World {
 
     /// Orders fighter `id` along the level's patrol path named `path`.
     pub fn order_path(&mut self, id: usize, path: &str) {
-        let Some(p) = self.level_ai.patrols.values().find(|p| p.name.eq_ignore_ascii_case(path)).cloned() else {
+        let Some(p) = self
+            .level_ai
+            .patrols
+            .values()
+            .find(|p| p.name.eq_ignore_ascii_case(path))
+            .cloned()
+        else {
             eprintln!("ai: no patrol path {path:?}");
             return;
         };
@@ -1796,7 +2175,9 @@ impl World {
 
     /// What fighter `id` is doing becomes its job.
     pub fn make_job(&mut self, id: usize) {
-        if let Some(crate::ai::Brain::Agent(a)) = self.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+        if let Some(crate::ai::Brain::Agent(a)) =
+            self.fighters.get_mut(id).and_then(|f| f.brain.as_mut())
+        {
             a.make_job();
         }
     }
@@ -1809,7 +2190,12 @@ impl World {
             }
             f.passive = on;
         }
-        if on && matches!(self.fighters.get(id).and_then(|f| f.brain.as_ref()), Some(crate::ai::Brain::Agent(_))) {
+        if on
+            && matches!(
+                self.fighters.get(id).and_then(|f| f.brain.as_ref()),
+                Some(crate::ai::Brain::Agent(_))
+            )
+        {
             self.with_agent(id, |a, cx| a.stop(cx));
         }
     }
@@ -1822,7 +2208,11 @@ impl World {
             return;
         }
         let pick = match console_id.filter(|&c| c != 0) {
-            Some(cid) => match self.consoles.iter().position(|k| k.id == cid && k.active && !k.triggered) {
+            Some(cid) => match self
+                .consoles
+                .iter()
+                .position(|k| k.id == cid && k.active && !k.triggered)
+            {
                 Some(c) => Some(c),
                 None => return,
             },
@@ -1845,18 +2235,37 @@ impl World {
     /// are).
     /// (`force`: a forced target, else just a definite sighting.)
     pub fn order_attack(&mut self, id: usize, target: usize, force: bool) {
-        let Some(t) = self.fighters.get(target) else { return };
+        let Some(t) = self.fighters.get(target) else {
+            return;
+        };
         let (team, feet, now) = (t.team(), t.feet(), self.now as u64);
-        if let Some(p) = self.fighters.get_mut(id).and_then(|f| f.perception.as_mut()) {
+        if let Some(p) = self
+            .fighters
+            .get_mut(id)
+            .and_then(|f| f.perception.as_mut())
+        {
             if force {
                 p.force_target(target, team, feet, now);
             } else {
-                p.perceive(Some(target), Some(team), crate::ai::perception::Stimulus::SightDefinite, crate::ai::perception::Strength::Definite, feet, 0, now);
+                p.perceive(
+                    Some(target),
+                    Some(team),
+                    crate::ai::perception::Stimulus::SightDefinite,
+                    crate::ai::perception::Strength::Definite,
+                    feet,
+                    0,
+                    now,
+                );
                 p.notices.clear();
             }
         }
-        if matches!(self.fighters.get(id).and_then(|f| f.brain.as_ref()), Some(crate::ai::Brain::Agent(_))) {
-            self.with_agent(id, |a, cx| a.notice(crate::ai::perception::Notice::Combat(target), cx));
+        if matches!(
+            self.fighters.get(id).and_then(|f| f.brain.as_ref()),
+            Some(crate::ai::Brain::Agent(_))
+        ) {
+            self.with_agent(id, |a, cx| {
+                a.notice(crate::ai::perception::Notice::Combat(target), cx)
+            });
         } else {
             self.fight(id, target);
         }
@@ -1869,15 +2278,28 @@ impl World {
         let now = self.now as u64;
         let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
         for i in 0..self.fighters.len() {
-            let Some(n) = self.fighters[i].brain.as_mut().and_then(|b| b.navigator_mut()) else { continue };
+            let Some(n) = self.fighters[i]
+                .brain
+                .as_mut()
+                .and_then(|b| b.navigator_mut())
+            else {
+                continue;
+            };
             if !n.wants_plan(now) {
                 continue;
             }
             let (from, careful, goal) = (feet[i], n.careful, n.goal);
-            let others: Vec<Vec3> = feet.iter().enumerate().filter(|&(j, _)| j != i).map(|(_, p)| *p).collect();
+            let others: Vec<Vec3> = feet
+                .iter()
+                .enumerate()
+                .filter(|&(j, _)| j != i)
+                .map(|(_, p)| *p)
+                .collect();
             let obstructed = |room: usize| {
                 let mut set = std::collections::HashSet::new();
-                let Some(g) = nav.rooms[room].grid.as_ref() else { return set };
+                let Some(g) = nav.rooms[room].grid.as_ref() else {
+                    return set;
+                };
                 for p in &others {
                     if nav.room_at(*p) != Some(room) {
                         continue;
@@ -1907,7 +2329,11 @@ impl World {
             if let Err(e) = &plan {
                 eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
             }
-            if let Some(n) = self.fighters[i].brain.as_mut().and_then(|b| b.navigator_mut()) {
+            if let Some(n) = self.fighters[i]
+                .brain
+                .as_mut()
+                .and_then(|b| b.navigator_mut())
+            {
                 n.take_plan(plan, now);
             }
         }
@@ -1928,13 +2354,23 @@ impl World {
                 *out = Some(Default::default()); // startled: just the turn
                 continue;
             }
-            let Some(mut brain) = self.fighters[i].brain.take() else { continue };
+            let Some(mut brain) = self.fighters[i].brain.take() else {
+                continue;
+            };
             let nav = self.nav.as_deref();
             let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
             let me = view(&self.fighters, nav, &env, i, target);
             let them = view(&self.fighters, nav, &env, target, i);
             if let Some(m) = brain.melee_mut() {
-                *out = Some(m.think(&me, &them, &mut self.fights, self.now, &positions, self.difficulty, self.quirks));
+                *out = Some(m.think(
+                    &me,
+                    &them,
+                    &mut self.fights,
+                    self.now,
+                    &positions,
+                    self.difficulty,
+                    self.quirks,
+                ));
             }
             self.fighters[i].brain = Some(brain);
         }
@@ -1966,22 +2402,35 @@ impl World {
         self.fog.tick();
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.
-        let controls = if self.input_enabled { controls & self.key_mask } else { 0 };
+        let controls = if self.input_enabled {
+            controls & self.key_mask
+        } else {
+            0
+        };
         // (Talking to a neutral character: what would end it, and what
         // would act, held back.)
         let controls = self.neutral_keys(controls);
-        let action = controls & crate::anim::input::key::ACTION != 0 && self.last_controls & crate::anim::input::key::ACTION == 0;
+        let action = controls & crate::anim::input::key::ACTION != 0
+            && self.last_controls & crate::anim::input::key::ACTION == 0;
         self.last_controls = controls;
         let mut controls = controls;
         if let Some(p) = self.fighters.first_mut() {
             p.look_tick(controls & crate::anim::input::key::LOOK != 0);
         }
         // Tab pressed: a hypo (`LIc_BitMask_Hypo`).
-        if controls & crate::anim::input::key::HYPO != 0 && self.last_hypo_key == 0 && self.fighters.first().is_some_and(|p| p.alive()) {
+        if controls & crate::anim::input::key::HYPO != 0
+            && self.last_hypo_key == 0
+            && self.fighters.first().is_some_and(|p| p.alive())
+        {
             self.use_hypo(0);
         }
         self.last_hypo_key = controls & crate::anim::input::key::HYPO;
-        if action && self.fighters.first().is_some_and(|p| p.console.is_none() && p.alive()) {
+        if action
+            && self
+                .fighters
+                .first()
+                .is_some_and(|p| p.console.is_none() && p.alive())
+        {
             if let Some(c) = self.console_in_reach(0, false) {
                 self.fighters[0].console = Some(crate::consoles::Use::Stopping(c));
                 controls &= !crate::anim::input::key::ACTION;
@@ -2004,10 +2453,14 @@ impl World {
         self.plan_paths();
         // Someone lifted by a weapon is pulled toward the lifter (its
         // place: the pelvis over the feet, `actual_position`).
-        let places: Vec<Vec3> = self.fighters.iter().map(|f| {
-            let p = f.sight_points()[0];
-            Vec3::new(p.x, f.feet().y, p.z)
-        }).collect();
+        let places: Vec<Vec3> = self
+            .fighters
+            .iter()
+            .map(|f| {
+                let p = f.sight_points()[0];
+                Vec3::new(p.x, f.feet().y, p.z)
+            })
+            .collect();
         for f in &mut self.fighters {
             f.lift.owner_at = f.lift.owner.and_then(|o| places.get(o).copied());
         }
@@ -2015,7 +2468,12 @@ impl World {
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
             let order = d.and_then(|d| d.throw.map(|t| (t, d.throw_victim)));
-            let Some(target) = self.fighters[i].brain.as_ref().and_then(|b| b.melee()).map(|m| m.target) else {
+            let Some(target) = self.fighters[i]
+                .brain
+                .as_ref()
+                .and_then(|b| b.melee())
+                .map(|m| m.target)
+            else {
                 continue;
             };
             let sense = order.and_then(|(kind, needs)| {
@@ -2043,7 +2501,11 @@ impl World {
         // With a gun, the fire buttons shoot instead of striking.
         self.check_empty(0, controls);
         let armed = self.armed(0);
-        let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| self.armory.weapons[w].class.has(crate::weapons::flag::HAS_ALTERNATE));
+        let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| {
+            self.armory.weapons[w]
+                .class
+                .has(crate::weapons::flag::HAS_ALTERNATE)
+        });
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         let ai_control = self.ai_control;
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
@@ -2053,7 +2515,10 @@ impl World {
             let others: Vec<crate::fighter::Opponent> = feet
                 .iter()
                 .filter(|(j, _)| *j != i && teams[*j].regards(teams[i]) != Relation::Friend)
-                .map(|&(j, p)| crate::fighter::Opponent { feet: p, hostile: teams[i].regards(teams[j]) == Relation::Hostile })
+                .map(|&(j, p)| crate::fighter::Opponent {
+                    feet: p,
+                    hostile: teams[i].regards(teams[j]) == Relation::Hostile,
+                })
                 .collect();
             let target = f
                 .brain
@@ -2081,7 +2546,11 @@ impl World {
                 match frame {
                     Some((keys, turn)) => {
                         f.facing.adjust_desired(-turn / 64.0);
-                        moves.push(f.plan(crate::anim::input::fire_as_melee(keys, false, false), 0, &others));
+                        moves.push(f.plan(
+                            crate::anim::input::fire_as_melee(keys, false, false),
+                            0,
+                            &others,
+                        ));
                         continue;
                     }
                     None => f.film = None,
@@ -2090,7 +2559,10 @@ impl World {
             let (held, pressed) = if i == 0 && ai_control {
                 (f.npc_controls(target), 0)
             } else if i == 0 {
-                (crate::anim::input::fire_as_melee(controls, armed, alternate), 0)
+                (
+                    crate::anim::input::fire_as_melee(controls, armed, alternate),
+                    0,
+                )
             } else if let Some(d) = decisions[i] {
                 f.follow(&d);
                 (d.held | d.pressed, d.pressed)
@@ -2106,8 +2578,21 @@ impl World {
         // walks over guns, `ONrCharacter_Callback_FindPhyCollisions`.)
         let spheres = self.object_spheres();
         let n_objects = spheres.len();
-        let loose: Vec<usize> = (0..self.armory.weapons.len()).filter(|&w| self.armory.weapons[w].owner.is_none() && self.armory.weapons[w].body.is_some()).collect();
-        let with_guns: Vec<(Vec3, f32)> = spheres.iter().copied().chain(loose.iter().map(|&w| (self.armory.weapons[w].position, self.armory.weapons[w].class.sphere_radius))).collect();
+        let loose: Vec<usize> = (0..self.armory.weapons.len())
+            .filter(|&w| {
+                self.armory.weapons[w].owner.is_none() && self.armory.weapons[w].body.is_some()
+            })
+            .collect();
+        let with_guns: Vec<(Vec3, f32)> = spheres
+            .iter()
+            .copied()
+            .chain(loose.iter().map(|&w| {
+                (
+                    self.armory.weapons[w].position,
+                    self.armory.weapons[w].class.sphere_radius,
+                )
+            }))
+            .collect();
         let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         env.touched = Some(&touched);
         let mut ai_env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
@@ -2122,7 +2607,14 @@ impl World {
                 f.collisions.0 = c.walls;
                 f.collisions.1 = c.objects;
                 // (The AI's own movement is told what it met.)
-                if matches!(f.brain, Some(crate::ai::Brain::Agent(_) | crate::ai::Brain::GoTo(_) | crate::ai::Brain::Route(_))) {
+                if matches!(
+                    f.brain,
+                    Some(
+                        crate::ai::Brain::Agent(_)
+                            | crate::ai::Brain::GoTo(_)
+                            | crate::ai::Brain::Route(_)
+                    )
+                ) {
                     let feet = f.feet();
                     for t in &c.touches {
                         let with = match (t.wall, t.door, t.object) {
@@ -2134,8 +2626,18 @@ impl World {
                         f.avoid.notify(with, t.point, t.normal, t.d, feet);
                     }
                 }
-                touches.extend(c.touches.into_iter().filter(|t| t.door.is_some()).map(|t| (i, t)));
-                gun_pushes.extend(c.pushed.iter().filter(|(k, _)| *k >= n_objects).map(|&(k, p)| (i, loose[k - n_objects], p)));
+                touches.extend(
+                    c.touches
+                        .into_iter()
+                        .filter(|t| t.door.is_some())
+                        .map(|t| (i, t)),
+                );
+                gun_pushes.extend(
+                    c.pushed
+                        .iter()
+                        .filter(|(k, _)| *k >= n_objects)
+                        .map(|&(k, p)| (i, loose[k - n_objects], p)),
+                );
             }
         }
         self.doors_touched(&touches);
@@ -2210,7 +2712,11 @@ impl World {
         for i in 0..self.fighters.len() {
             if let Some((kind, at)) = self.fighters[i].step.take() {
                 let f = &self.fighters[i];
-                let impact = f.sounds.anim.get(kind).and_then(|n| self.impacts.as_ref()?.impact(n));
+                let impact = f
+                    .sounds
+                    .anim
+                    .get(kind)
+                    .and_then(|n| self.impacts.as_ref()?.impact(n));
                 let material = f.last_floor.and_then(|q| self.quad_material(q));
                 if let (Some(impact), Some(material)) = (impact, material) {
                     let modifier = f.sounds.modifier;
@@ -2233,11 +2739,19 @@ impl World {
         match self.fighters.first() {
             Some(p) if following => {
                 let feet = p.feet();
-                let head = p.bones().get(HEAD_BONE).map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
+                let head = p
+                    .bones()
+                    .get(HEAD_BONE)
+                    .map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
                 let f = p.facing.facing;
-                self.audio.listen(Vec3::new(feet.x, head, feet.z), Vec3::new(f.sin(), 0.0, f.cos()));
+                self.audio.listen(
+                    Vec3::new(feet.x, head, feet.z),
+                    Vec3::new(f.sin(), 0.0, f.cos()),
+                );
             }
-            _ if !following => self.audio.listen(self.camera.view.location, self.camera.view.view),
+            _ if !following => self
+                .audio
+                .listen(self.camera.view.location, self.camera.view.view),
             _ => {}
         }
         self.particle_sounds();
@@ -2269,16 +2783,34 @@ impl World {
         let mut play: Vec<String> = self
             .anim_sounds
             .as_ref()
-            .and_then(|s| s.sound(f.sounds.variant.as_deref(), f.motion.coll.entries.get(clip).map_or("", |e| e.name.as_str()), kind, damage, frame))
+            .and_then(|s| {
+                s.sound(
+                    f.sounds.variant.as_deref(),
+                    f.motion
+                        .coll
+                        .entries
+                        .get(clip)
+                        .map_or("", |e| e.name.as_str()),
+                    kind,
+                    damage,
+                    frame,
+                )
+            })
             .map(str::to_string)
             .into_iter()
             .collect();
         if main {
-            play.extend(c.sounds.iter().filter(|(_, at)| *at == frame).map(|(n, _)| n.clone()));
+            play.extend(
+                c.sounds
+                    .iter()
+                    .filter(|(_, at)| *at == frame)
+                    .map(|(n, _)| n.clone()),
+            );
         }
         let at = f.feet();
         for name in play {
-            self.audio.impulse_play(&name, Some(at), None, Some(&self.quads));
+            self.audio
+                .impulse_play(&name, Some(at), None, Some(&self.quads));
         }
     }
 
@@ -2300,30 +2832,51 @@ impl World {
         ai1: Option<usize>,
         ai2: Option<usize>,
     ) {
-        let Some(impacts) = self.impacts.clone() else { return };
+        let Some(impacts) = self.impacts.clone() else {
+            return;
+        };
         let at = data.position;
-        for k in impacts.lookup(impact, material, modifier).into_iter().flatten() {
+        for k in impacts
+            .lookup(impact, material, modifier)
+            .into_iter()
+            .flatten()
+        {
             let entry = impacts.entry(k);
             if let Some(sound) = &entry.sound {
                 if !sound.impulse.is_empty() {
                     let full = self.audio.impact_velocity(&sound.impulse);
-                    let volume = data.parent_velocity.map(Vec3::length).filter(|&s| full > 0.0 && s < full).map(|s| 0.3 + 0.7 * s * s / (full * full));
-                    self.audio.impulse_play(&sound.impulse, Some(at), volume, Some(&self.quads));
+                    let volume = data
+                        .parent_velocity
+                        .map(Vec3::length)
+                        .filter(|&s| full > 0.0 && s < full)
+                        .map(|s| 0.3 + 0.7 * s * s / (full * full));
+                    self.audio
+                        .impulse_play(&sound.impulse, Some(at), volume, Some(&self.quads));
                 }
                 if let Some((stimulus, radius)) = sound.ai {
                     self.sound(stimulus, at, radius * ai_scale, ai1, ai2);
                 }
             }
             for p in &entry.particles {
-                let Some(class) = self.armory.particles.classes.get(&p.class) else { continue };
-                let spec = crate::p3::effect::Spec { class, orientation: p.orientation, location: p.location };
+                let Some(class) = self.armory.particles.classes.get(&p.class) else {
+                    continue;
+                };
+                let spec = crate::p3::effect::Spec {
+                    class,
+                    orientation: p.orientation,
+                    location: p.location,
+                };
                 self.create_effect(&spec, &data);
             }
         }
     }
 
     /// Makes an effect's particle (`docs/PARTICLES.md`, *Effects*).
-    pub(crate) fn create_effect(&mut self, spec: &crate::p3::effect::Spec, data: &crate::p3::effect::Data) -> Option<crate::p3::Handle> {
+    pub(crate) fn create_effect(
+        &mut self,
+        spec: &crate::p3::effect::Spec,
+        data: &crate::p3::effect::Data,
+    ) -> Option<crate::p3::Handle> {
         let now = self.now as u64;
         let weapons::Armory { particles, .. } = &mut self.armory;
         let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
@@ -2335,7 +2888,9 @@ impl World {
     /// along the game's ramp.
     pub(crate) fn health_shade(&self, hp: i32, max: i32) -> u32 {
         let ramp = &self.health_color;
-        let (Some(first), Some(last)) = (ramp.first(), ramp.last()) else { return 0xFFFF_FFFF };
+        let (Some(first), Some(last)) = (ramp.first(), ramp.last()) else {
+            return 0xFFFF_FFFF;
+        };
         let v = hp as f32 / max.max(1) as f32;
         if v <= first.0 {
             return first.1;
@@ -2343,7 +2898,9 @@ impl World {
         if v >= last.0 {
             return last.1;
         }
-        let k = (1..ramp.len()).find(|&k| v < ramp[k].0).unwrap_or(ramp.len() - 1);
+        let k = (1..ramp.len())
+            .find(|&k| v < ramp[k].0)
+            .unwrap_or(ramp.len() - 1);
         let t = ((v - ramp[k - 1].0) / (ramp[k].0 - ramp[k - 1].0)).clamp(0.0, 1.0);
         crate::decal::shade_lerp(ramp[k - 1].1, ramp[k].1, t)
     }
@@ -2367,12 +2924,22 @@ impl World {
     /// blocked, 2 killed — by the parts that met: the attack's own impact
     /// (hit or kill), else the striking part's; on the struck part's
     /// material (`docs/AUDIO.md`, *Impact effects*).
-    fn blow_effect(&mut self, a: usize, b: usize, result: usize, attack_parts: u32, struck_parts: u32, damage: u16) {
+    fn blow_effect(
+        &mut self,
+        a: usize,
+        b: usize,
+        result: usize,
+        attack_parts: u32,
+        struck_parts: u32,
+        damage: u16,
+    ) {
         // Hit or killed: the particles on the striking parts are pulsed.
         if result != 1 {
             self.anim_particles_pulse(a, attack_parts);
         }
-        let Some(impacts) = self.impacts.clone() else { return };
+        let Some(impacts) = self.impacts.clone() else {
+            return;
+        };
         let (fa, fb) = (&self.fighters[a], &self.fighters[b]);
         let struck = crate::impacts::primary_part(struck_parts);
         let material = fb
@@ -2394,7 +2961,12 @@ impl World {
                 Some(i)
             }
             None => (attack_parts != 0)
-                .then(|| fa.sounds.part_impacts[result].get(crate::impacts::primary_part(attack_parts)).cloned().flatten())
+                .then(|| {
+                    fa.sounds.part_impacts[result]
+                        .get(crate::impacts::primary_part(attack_parts))
+                        .cloned()
+                        .flatten()
+                })
                 .flatten()
                 .and_then(|n| impacts.impact(&n))
                 .or_else(|| impacts.impact("Melee")),
@@ -2402,7 +2974,10 @@ impl World {
         if modifier == crate::impacts::ANY {
             modifier = crate::impacts::damage_modifier(damage);
         }
-        let at = fb.bones().get(struck).map_or(fb.feet(), |m| m.w_axis.truncate());
+        let at = fb
+            .bones()
+            .get(struck)
+            .map_or(fb.feet(), |m| m.w_axis.truncate());
         let (hp, max_hp) = (fb.hp, fb.max_hp);
         let ai_scale = match modifier {
             crate::impacts::HEAVY => 2.0,
@@ -2471,7 +3046,8 @@ impl World {
             let c = fa.motion.current();
             let Some(info) = c.throw else { continue };
             let fight = c.varient & var::FIGHT != 0;
-            let dest = fa.feet() + glam::Quat::from_rotation_y(fa.facing.facing) * info.target_offset;
+            let dest =
+                fa.feet() + glam::Quat::from_rotation_y(fa.facing.facing) * info.target_offset;
             let facing = fa.facing.facing + info.target_facing;
             let coll = fa.motion.coll.clone();
             let clip = coll.entries[t.target_clip].name.clone();
@@ -2485,7 +3061,13 @@ impl World {
                 // (Both seen for a moment, if invisible.)
                 self.reveal(a, t.target);
                 let at = self.fighters[a].feet();
-                self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0, Some(a), Some(t.target));
+                self.sound(
+                    crate::ai::perception::Stimulus::SoundMelee,
+                    at,
+                    150.0,
+                    Some(a),
+                    Some(t.target),
+                );
             } else {
                 self.fighters[a].throwing = None;
             }
@@ -2566,7 +3148,13 @@ impl World {
                     if ai {
                         let point = f.sight_points()[0] - away * 0.5;
                         let feet = f.feet();
-                        f.avoid.notify(crate::ai::avoid::With::Character(other), point, away, -point.dot(away), feet);
+                        f.avoid.notify(
+                            crate::ai::avoid::With::Character(other),
+                            point,
+                            away,
+                            -point.dot(away),
+                            feet,
+                        );
                     }
                 }
 
@@ -2579,7 +3167,9 @@ impl World {
                     let hits: Vec<_> = f
                         .active_attacks()
                         .into_iter()
-                        .filter(|(k, atk)| atk.damage_bits & touching != 0 && !f.already_hit(*k, vic))
+                        .filter(|(k, atk)| {
+                            atk.damage_bits & touching != 0 && !f.already_hit(*k, vic)
+                        })
                         .collect();
                     let top = hits.iter().map(|(_, a)| a.precedence).max().unwrap_or(0);
                     (hits, top)
@@ -2587,17 +3177,31 @@ impl World {
                 let (from_i, prec_i) = landed(i, j, touch_i);
                 let (from_j, prec_j) = landed(j, i, touch_j);
                 if !from_i.is_empty() && prec_i >= prec_j {
-                    blows.extend(from_i.into_iter().map(|(k, atk)| (i, j, k, atk, atk.damage_bits & touch_i, touch_j)));
+                    blows.extend(
+                        from_i
+                            .into_iter()
+                            .map(|(k, atk)| (i, j, k, atk, atk.damage_bits & touch_i, touch_j)),
+                    );
                 }
                 if !from_j.is_empty() && prec_j >= prec_i {
-                    blows.extend(from_j.into_iter().map(|(k, atk)| (j, i, k, atk, atk.damage_bits & touch_j, touch_i)));
+                    blows.extend(
+                        from_j
+                            .into_iter()
+                            .map(|(k, atk)| (j, i, k, atk, atk.damage_bits & touch_j, touch_i)),
+                    );
                 }
             }
         }
         for (a, b, k, attack, attack_parts, struck_parts) in blows {
             // Friends' blows pass through each other (not a thrown body's).
-            let friends = self.fighters[a].team().regards(self.fighters[b].team()) == crate::ai::perception::Relation::Friend;
-            if friends && !self.fighters[a].motion.current().has_flag(flag::THROW_TARGET) {
+            let friends = self.fighters[a].team().regards(self.fighters[b].team())
+                == crate::ai::perception::Relation::Friend;
+            if friends
+                && !self.fighters[a]
+                    .motion
+                    .current()
+                    .has_flag(flag::THROW_TARGET)
+            {
                 continue;
             }
             self.fighters[a].mark_hit(k, b);
@@ -2747,7 +3351,11 @@ impl World {
                 }
                 fb.pending_reaction = chosen;
                 if !matches!(chosen, ty::STUN | ty::HIT_FALLEN) {
-                    let face = if reaction::is_behind(chosen) { to_attacker + PI } else { to_attacker };
+                    let face = if reaction::is_behind(chosen) {
+                        to_attacker + PI
+                    } else {
+                        to_attacker
+                    };
                     fb.facing.facing = face.rem_euclid(TAU);
                 }
             }
@@ -2756,9 +3364,19 @@ impl World {
         // The victim knows who hit it.
         let now = self.now as u64;
         if let Some(p) = fb.perception.as_mut() {
-            if p.team.regards(attacker_team) != crate::ai::perception::Relation::Friend || p.about(a).is_some() {
+            if p.team.regards(attacker_team) != crate::ai::perception::Relation::Friend
+                || p.about(a).is_some()
+            {
                 use crate::ai::perception::{Stimulus, Strength};
-                p.perceive(Some(a), Some(attacker_team), Stimulus::HitMelee, Strength::Definite, attacker_feet, damage, now);
+                p.perceive(
+                    Some(a),
+                    Some(attacker_team),
+                    Stimulus::HitMelee,
+                    Strength::Definite,
+                    attacker_feet,
+                    damage,
+                    now,
+                );
             }
         }
         self.fights.damage(a, damage, true);

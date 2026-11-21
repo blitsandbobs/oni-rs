@@ -76,7 +76,11 @@ pub struct Fog {
 impl Default for Fog {
     /// The draw engine's (`FOG_COLOR_GL`, `ONI_FOG_START`, `ONI_FOG_END`).
     fn default() -> Fog {
-        Fog { color: [0.25; 3], start: 0.975, end: 1.0 }
+        Fog {
+            color: [0.25; 3],
+            start: 0.975,
+            end: 1.0,
+        }
     }
 }
 
@@ -443,7 +447,12 @@ impl Renderer {
             ],
         };
 
-        let make_pipeline_cull = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction, cull: Option<wgpu::Face>| {
+        let make_pipeline_cull = |label: &str,
+                                  blend: Option<wgpu::BlendState>,
+                                  depth_write: bool,
+                                  fragment: &str,
+                                  depth_compare: wgpu::CompareFunction,
+                                  cull: Option<wgpu::Face>| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pipeline_layout),
@@ -491,59 +500,117 @@ impl Renderer {
             },
             alpha: wgpu::BlendComponent::OVER,
         };
-        let make_pipeline_full = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str, depth_compare: wgpu::CompareFunction| {
-            make_pipeline_cull(label, blend, depth_write, fragment, depth_compare, None)
-        };
-        let make_pipeline_with = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| make_pipeline_full(label, blend, depth_write, fragment, wgpu::CompareFunction::Less);
+        let make_pipeline_full =
+            |label: &str,
+             blend: Option<wgpu::BlendState>,
+             depth_write: bool,
+             fragment: &str,
+             depth_compare: wgpu::CompareFunction| {
+                make_pipeline_cull(label, blend, depth_write, fragment, depth_compare, None)
+            };
+        let make_pipeline_with =
+            |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
+                make_pipeline_full(
+                    label,
+                    blend,
+                    depth_write,
+                    fragment,
+                    wgpu::CompareFunction::Less,
+                )
+            };
         // The one-sided level quads' twins: backs culled.
-        let culled = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
-            make_pipeline_cull(label, blend, depth_write, fragment, wgpu::CompareFunction::Less, Some(wgpu::Face::Back))
+        let culled =
+            |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool, fragment: &str| {
+                make_pipeline_cull(
+                    label,
+                    blend,
+                    depth_write,
+                    fragment,
+                    wgpu::CompareFunction::Less,
+                    Some(wgpu::Face::Back),
+                )
+            };
+        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| {
+            make_pipeline_with(label, blend, depth_write, "fs_main")
         };
-        let make_pipeline = |label: &str, blend: Option<wgpu::BlendState>, depth_write: bool| make_pipeline_with(label, blend, depth_write, "fs_main");
         let opaque_pipeline = make_pipeline("opaque", None, true);
         // See-through walls (the camera's jello): faint, see-through.
-        let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
-        let object_jello_pipeline = make_pipeline_with("object jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello_object");
+        let jello_pipeline = make_pipeline_with(
+            "jello",
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+            "fs_jello",
+        );
+        let object_jello_pipeline = make_pipeline_with(
+            "object jello",
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+            "fs_jello_object",
+        );
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
         // (Additive textures draw with the fog forced off, as the original's
         // GL engine does — `gl_utility.c`, "force fog off!")
         let additive_pipeline = make_pipeline_with("additive", Some(additive), false, "fs_nofog");
         let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
-        let blend_cull_pipeline = culled("alpha culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_main");
+        let blend_cull_pipeline = culled(
+            "alpha culled",
+            Some(wgpu::BlendState::ALPHA_BLENDING),
+            false,
+            "fs_main",
+        );
         let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_nofog");
-        let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_nofog", wgpu::CompareFunction::Always);
+        let flare_pipeline = make_pipeline_full(
+            "flare",
+            Some(additive),
+            false,
+            "fs_nofog",
+            wgpu::CompareFunction::Always,
+        );
         // A faded body (blended at its alpha, no depth written) and magic
         // effects (added on, no depth written): their own vertex stages.
-        let effect_pipeline = |label: &str, blend: wgpu::BlendState, vertex: &str, fragment: &str| {
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(label),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some(vertex),
-                    buffers: std::slice::from_ref(&vbl),
-                    compilation_options: Default::default(),
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(fragment),
-                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
-                    compilation_options: Default::default(),
-                }),
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
-                depth_stencil: Some(wgpu::DepthStencilState {
-                    format: DEPTH_FORMAT,
-                    depth_write_enabled: false,
-                    depth_compare: wgpu::CompareFunction::Less,
-                    stencil: Default::default(),
-                    bias: Default::default(),
-                }),
-                multisample: Default::default(),
-                multiview: None,
-                cache: None,
-            })
-        };
-        let faded_pipeline = effect_pipeline("faded", wgpu::BlendState::ALPHA_BLENDING, "vs_faded", "fs_faded");
+        let effect_pipeline =
+            |label: &str, blend: wgpu::BlendState, vertex: &str, fragment: &str| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some(label),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some(vertex),
+                        buffers: std::slice::from_ref(&vbl),
+                        compilation_options: Default::default(),
+                    },
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(fragment),
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format,
+                            blend: Some(blend),
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                        compilation_options: Default::default(),
+                    }),
+                    primitive: wgpu::PrimitiveState {
+                        topology: wgpu::PrimitiveTopology::TriangleList,
+                        ..Default::default()
+                    },
+                    depth_stencil: Some(wgpu::DepthStencilState {
+                        format: DEPTH_FORMAT,
+                        depth_write_enabled: false,
+                        depth_compare: wgpu::CompareFunction::Less,
+                        stencil: Default::default(),
+                        bias: Default::default(),
+                    }),
+                    multisample: Default::default(),
+                    multiview: None,
+                    cache: None,
+                })
+            };
+        let faded_pipeline = effect_pipeline(
+            "faded",
+            wgpu::BlendState::ALPHA_BLENDING,
+            "vs_faded",
+            "fs_faded",
+        );
         let magic_pipeline = effect_pipeline("magic", additive, "vs_magic", "fs_magic");
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
@@ -622,10 +689,18 @@ impl Renderer {
                 fragment: Some(wgpu::FragmentState {
                     module: &decal_shader,
                     entry_point: Some("fs_main"),
-                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
                     compilation_options: Default::default(),
                 }),
-                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
                 depth_stencil: Some(wgpu::DepthStencilState {
                     format: DEPTH_FORMAT,
                     depth_write_enabled: false,
@@ -653,27 +728,37 @@ impl Renderer {
             step_mode: wgpu::VertexStepMode::Vertex,
             attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32x4],
         };
-        let make_overlay = |blend: wgpu::BlendState| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("overlay"),
-            layout: Some(&overlay_layout),
-            vertex: wgpu::VertexState {
-                module: &overlay_shader,
-                entry_point: Some("vs_main"),
-                buffers: std::slice::from_ref(&overlay_vbl),
-                compilation_options: Default::default(),
-            },
-            fragment: Some(wgpu::FragmentState {
-                module: &overlay_shader,
-                entry_point: Some("fs_main"),
-                targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
-                compilation_options: Default::default(),
-            }),
-            primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, cull_mode: None, ..Default::default() },
-            depth_stencil: None,
-            multisample: Default::default(),
-            multiview: None,
-            cache: None,
-        });
+        let make_overlay = |blend: wgpu::BlendState| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("overlay"),
+                layout: Some(&overlay_layout),
+                vertex: wgpu::VertexState {
+                    module: &overlay_shader,
+                    entry_point: Some("vs_main"),
+                    buffers: std::slice::from_ref(&overlay_vbl),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &overlay_shader,
+                    entry_point: Some("fs_main"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(blend),
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    cull_mode: None,
+                    ..Default::default()
+                },
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
         let overlay_pipeline = make_overlay(wgpu::BlendState::ALPHA_BLENDING);
         let overlay_additive_pipeline = make_overlay(additive);
         let decal_pipeline = make_decal_pipeline("decal", wgpu::BlendState::ALPHA_BLENDING);
@@ -723,7 +808,12 @@ impl Renderer {
         });
         let overlay_white = make_texture_bg(gpu, &tex_bgl, &nearest, 1, 1, &[255, 255, 255, 255]);
 
-        let prims: Vec<GpuPrim> = scene.prims.iter().filter(|p| p.visible).map(|p| upload_prim(device, p)).collect();
+        let prims: Vec<GpuPrim> = scene
+            .prims
+            .iter()
+            .filter(|p| p.visible)
+            .map(|p| upload_prim(device, p))
+            .collect();
 
         // Billboard particles, batched by texture. Each particle contributes a
         // quad (4 verts / 6 indices); the quad is oriented in the vertex shader.
@@ -842,12 +932,21 @@ impl Renderer {
     /// rides the first bone — loaded once per file; None if it won't load.
     /// A model with every part's texture replaced by `texture` (a console's
     /// screen in its state), loaded once per pair.
-    pub fn model_textured(&mut self, gpu: &Gpu, path: &std::path::Path, texture: &std::path::Path) -> Option<usize> {
+    pub fn model_textured(
+        &mut self,
+        gpu: &Gpu,
+        path: &std::path::Path,
+        texture: &std::path::Path,
+    ) -> Option<usize> {
         let key = std::path::PathBuf::from(format!("{}#{}", path.display(), texture.display()));
         if let Some(m) = self.models_by_path.get(&key) {
             return *m;
         }
-        let texture = if texture.is_file() { texture.to_path_buf() } else { texture.with_file_name("NONE.png") };
+        let texture = if texture.is_file() {
+            texture.to_path_buf()
+        } else {
+            texture.with_file_name("NONE.png")
+        };
         let m = crate::skel::load_character(path).ok().map(|mut ch| {
             for p in &mut ch.parts {
                 p.bone = 0;
@@ -887,8 +986,14 @@ impl Renderer {
                 *char_tex.entry(path.clone()).or_insert_with(|| {
                     let (w, h, rgba) =
                         load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
-                    self.tex_bgs
-                        .push(make_texture_bg(gpu, &self.tex_bgl, &self.sampler, w, h, &rgba));
+                    self.tex_bgs.push(make_texture_bg(
+                        gpu,
+                        &self.tex_bgl,
+                        &self.sampler,
+                        w,
+                        h,
+                        &rgba,
+                    ));
                     let i = self.tex_bgs.len() - 1;
                     self.tex_paths.insert(i, path.clone());
                     i
@@ -1041,28 +1146,60 @@ impl Renderer {
             // (A level part shaded by its script reference.)
             // (A door's quads, flat in its shade.)
             let env_shade = |p: &GpuPrim| {
-                shade_extra(p.env_ref.and_then(|r| self.env_shades.get(&r)).or_else(|| p.door.and_then(|(d, _)| self.door_shades.get(&d))).copied())
+                shade_extra(
+                    p.env_ref
+                        .and_then(|r| self.env_shades.get(&r))
+                        .or_else(|| p.door.and_then(|(d, _)| self.door_shades.get(&d)))
+                        .copied(),
+                )
             };
-            let draw_shaded = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4]| {
-                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, extra)));
-                let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);
-                pass.set_bind_group(1, bg, &[]);
-                pass.set_vertex_buffer(0, p.vbuf.slice(..));
-                pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
-                pass.draw_indexed(0..p.count, 0, 0..1);
-            };
+            let draw_shaded =
+                |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4]| {
+                    pass.set_push_constants(
+                        wgpu::ShaderStages::VERTEX,
+                        0,
+                        bytemuck::cast_slice(&push_block(model, extra)),
+                    );
+                    let bg = self
+                        .tex_bgs
+                        .get(self.shown(p.texture))
+                        .unwrap_or(&self.default_tex);
+                    pass.set_bind_group(1, bg, &[]);
+                    pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                    pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..p.count, 0, 0..1);
+                };
             let draw_prim = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4| {
-                pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
-                let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);
+                pass.set_push_constants(
+                    wgpu::ShaderStages::VERTEX,
+                    0,
+                    bytemuck::cast_slice(&push_block(model, env_shade(p))),
+                );
+                let bg = self
+                    .tex_bgs
+                    .get(self.shown(p.texture))
+                    .unwrap_or(&self.default_tex);
                 pass.set_bind_group(1, bg, &[]);
                 pass.set_vertex_buffer(0, p.vbuf.slice(..));
                 pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                 pass.draw_indexed(0..p.count, 0, 0..1);
             };
             for (bucket, pipeline, cull_pipeline) in [
-                (Bucket::Opaque, &self.opaque_pipeline, &self.opaque_cull_pipeline),
-                (Bucket::Alpha, &self.blend_pipeline, &self.blend_cull_pipeline),
-                (Bucket::Additive, &self.additive_pipeline, &self.additive_cull_pipeline),
+                (
+                    Bucket::Opaque,
+                    &self.opaque_pipeline,
+                    &self.opaque_cull_pipeline,
+                ),
+                (
+                    Bucket::Alpha,
+                    &self.blend_pipeline,
+                    &self.blend_cull_pipeline,
+                ),
+                (
+                    Bucket::Additive,
+                    &self.additive_pipeline,
+                    &self.additive_cull_pipeline,
+                ),
                 (Bucket::Flare, &self.flare_pipeline, &self.flare_pipeline),
             ] {
                 let shown = |p: &&GpuPrim| {
@@ -1070,23 +1207,45 @@ impl Renderer {
                         && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
                 };
                 // (Its solid and see-through parts; what glows on it glows on.)
-                let door_seen_through = |p: &GpuPrim| matches!(p.bucket, Bucket::Opaque | Bucket::Alpha) && p.door.is_some_and(|d| self.jello_doors.contains(&d));
+                let door_seen_through = |p: &GpuPrim| {
+                    matches!(p.bucket, Bucket::Opaque | Bucket::Alpha)
+                        && p.door.is_some_and(|d| self.jello_doors.contains(&d))
+                };
                 // (Each bucket starts on its pipeline: what follows the level's
                 // prims — beams, sprites, characters, objects — draws with it,
                 // unculled.)
                 pass.set_pipeline(pipeline);
                 let mut culling = false;
-                for (k, p) in self.prims.iter().enumerate().filter(|(_, p)| p.bucket == bucket && shown(p) && !door_seen_through(p)) {
+                for (k, p) in self
+                    .prims
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.bucket == bucket && shown(p) && !door_seen_through(p))
+                {
                     if culling != p.cull {
                         pass.set_pipeline(if p.cull { cull_pipeline } else { pipeline });
                         culling = p.cull;
                     }
-                    let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
+                    let model = p
+                        .door
+                        .and_then(|d| self.door_motion.get(&d))
+                        .copied()
+                        .unwrap_or(Mat4::IDENTITY);
                     match self.jello_cache.1.get(&k) {
                         // (Partly see-through: the solid rest only, here.)
                         Some((solid, n, _, _)) => {
-                            pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
-                            pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
+                            pass.set_push_constants(
+                                wgpu::ShaderStages::VERTEX,
+                                0,
+                                bytemuck::cast_slice(&push_block(model, env_shade(p))),
+                            );
+                            pass.set_bind_group(
+                                1,
+                                self.tex_bgs
+                                    .get(self.shown(p.texture))
+                                    .unwrap_or(&self.default_tex),
+                                &[],
+                            );
                             pass.set_vertex_buffer(0, p.vbuf.slice(..));
                             pass.set_index_buffer(solid.slice(..), wgpu::IndexFormat::Uint32);
                             pass.draw_indexed(0..*n, 0, 0..1);
@@ -1110,9 +1269,23 @@ impl Renderer {
                         pass.set_pipeline(&self.jello_pipeline);
                         // (A door's leaf where it stands: a closed door's
                         // quads go see-through as any wall's.)
-                        let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
-                        pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, env_shade(p))));
-                        pass.set_bind_group(1, self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex), &[]);
+                        let model = p
+                            .door
+                            .and_then(|d| self.door_motion.get(&d))
+                            .copied()
+                            .unwrap_or(Mat4::IDENTITY);
+                        pass.set_push_constants(
+                            wgpu::ShaderStages::VERTEX,
+                            0,
+                            bytemuck::cast_slice(&push_block(model, env_shade(p))),
+                        );
+                        pass.set_bind_group(
+                            1,
+                            self.tex_bgs
+                                .get(self.shown(p.texture))
+                                .unwrap_or(&self.default_tex),
+                            &[],
+                        );
                         pass.set_vertex_buffer(0, p.vbuf.slice(..));
                         pass.set_index_buffer(seen.slice(..), wgpu::IndexFormat::Uint32);
                         pass.draw_indexed(0..*n, 0, 0..1);
@@ -1124,8 +1297,16 @@ impl Renderer {
                 // through.
                 if bucket == Bucket::Alpha && !self.jello_doors.is_empty() {
                     pass.set_pipeline(&self.object_jello_pipeline);
-                    for p in self.prims.iter().filter(|p| door_seen_through(p) && shown(p)) {
-                        let model = p.door.and_then(|d| self.door_motion.get(&d)).copied().unwrap_or(Mat4::IDENTITY);
+                    for p in self
+                        .prims
+                        .iter()
+                        .filter(|p| door_seen_through(p) && shown(p))
+                    {
+                        let model = p
+                            .door
+                            .and_then(|d| self.door_motion.get(&d))
+                            .copied()
+                            .unwrap_or(Mat4::IDENTITY);
                         draw_prim(&mut pass, p, model);
                     }
                     pass.set_pipeline(pipeline);
@@ -1133,9 +1314,14 @@ impl Renderer {
                 if bucket == Bucket::Alpha && characters.iter().any(|d| d.see_through) {
                     pass.set_pipeline(&self.object_jello_pipeline);
                     for d in characters.iter().filter(|d| d.see_through) {
-                        let Some(cm) = self.char_models.get(d.model) else { continue };
+                        let Some(cm) = self.char_models.get(d.model) else {
+                            continue;
+                        };
                         for p in &cm.prims {
-                            let model = p.bone.and_then(|i| d.bones.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+                            let model = p
+                                .bone
+                                .and_then(|i| d.bones.get(i).copied())
+                                .unwrap_or(Mat4::IDENTITY);
                             draw_shaded(&mut pass, p, model, shade_extra(d.shade));
                         }
                     }
@@ -1147,7 +1333,10 @@ impl Renderer {
                 for p in sprites.iter().filter(|p| p.bucket == bucket) {
                     draw_prim(&mut pass, p, Mat4::IDENTITY);
                 }
-                for d in characters.iter().filter(|d| !d.see_through && d.alpha >= 1.0) {
+                for d in characters
+                    .iter()
+                    .filter(|d| !d.see_through && d.alpha >= 1.0)
+                {
                     let Some(cm) = self.char_models.get(d.model) else {
                         continue;
                     };
@@ -1160,22 +1349,50 @@ impl Renderer {
                     }
                 }
                 // (A part drawn with the push constants' extra vec4.)
-                let draw_with = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4], texture: usize| {
-                    pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, extra)));
-                    pass.set_bind_group(1, self.tex_bgs.get(texture).unwrap_or(&self.default_tex), &[]);
+                let draw_with = |pass: &mut wgpu::RenderPass,
+                                 p: &GpuPrim,
+                                 model: Mat4,
+                                 extra: [f32; 4],
+                                 texture: usize| {
+                    pass.set_push_constants(
+                        wgpu::ShaderStages::VERTEX,
+                        0,
+                        bytemuck::cast_slice(&push_block(model, extra)),
+                    );
+                    pass.set_bind_group(
+                        1,
+                        self.tex_bgs.get(texture).unwrap_or(&self.default_tex),
+                        &[],
+                    );
                     pass.set_vertex_buffer(0, p.vbuf.slice(..));
                     pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
                     pass.draw_indexed(0..p.count, 0, 0..1);
                 };
                 // Bodies fading (invisibility): every part blended at the
                 // body's alpha, depth unwritten (`ONrCharacter_Draw`).
-                if bucket == Bucket::Alpha && characters.iter().any(|d| d.alpha < 1.0 && d.alpha > 0.0) {
+                if bucket == Bucket::Alpha
+                    && characters.iter().any(|d| d.alpha < 1.0 && d.alpha > 0.0)
+                {
                     pass.set_pipeline(&self.faded_pipeline);
-                    for d in characters.iter().filter(|d| !d.see_through && d.alpha < 1.0 && d.alpha > 0.0) {
-                        let Some(cm) = self.char_models.get(d.model) else { continue };
+                    for d in characters
+                        .iter()
+                        .filter(|d| !d.see_through && d.alpha < 1.0 && d.alpha > 0.0)
+                    {
+                        let Some(cm) = self.char_models.get(d.model) else {
+                            continue;
+                        };
                         for p in &cm.prims {
-                            let model = p.bone.and_then(|i| d.bones.get(i).copied()).unwrap_or(Mat4::IDENTITY);
-                            draw_with(&mut pass, p, model, [d.alpha, 0.0, 0.0, 0.0], self.shown(p.texture));
+                            let model = p
+                                .bone
+                                .and_then(|i| d.bones.get(i).copied())
+                                .unwrap_or(Mat4::IDENTITY);
+                            draw_with(
+                                &mut pass,
+                                p,
+                                model,
+                                [d.alpha, 0.0, 0.0, 0.0],
+                                self.shown(p.texture),
+                            );
                         }
                     }
                     pass.set_pipeline(pipeline);
@@ -1184,7 +1401,9 @@ impl Renderer {
                 if bucket == Bucket::Additive && !magic.is_empty() {
                     pass.set_pipeline(&self.magic_pipeline);
                     for (m, texture) in &magic {
-                        let Some(cm) = self.char_models.get(m.model) else { continue };
+                        let Some(cm) = self.char_models.get(m.model) else {
+                            continue;
+                        };
                         let kind = match m.kind {
                             MagicKind::Shield => 0.0,
                             MagicKind::Daodan => 1.0,
@@ -1197,7 +1416,13 @@ impl Renderer {
                                 continue;
                             }
                             let model = m.bones.get(bone).copied().unwrap_or(Mat4::IDENTITY);
-                            draw_with(&mut pass, p, model, [alpha, m.time as f32, kind, 0.0], *texture);
+                            draw_with(
+                                &mut pass,
+                                p,
+                                model,
+                                [alpha, m.time as f32, kind, 0.0],
+                                *texture,
+                            );
                         }
                     }
                     pass.set_pipeline(pipeline);
@@ -1207,7 +1432,11 @@ impl Renderer {
                 // oldest first).
                 if bucket == Bucket::Opaque {
                     for (vbuf, ibuf, count, texture, additive) in &decals {
-                        pass.set_pipeline(if *additive { &self.decal_additive_pipeline } else { &self.decal_pipeline });
+                        pass.set_pipeline(if *additive {
+                            &self.decal_additive_pipeline
+                        } else {
+                            &self.decal_pipeline
+                        });
                         let bg = self.tex_bgs.get(*texture).unwrap_or(&self.default_tex);
                         pass.set_bind_group(1, bg, &[]);
                         pass.set_vertex_buffer(0, vbuf.slice(..));
@@ -1284,8 +1513,20 @@ impl Renderer {
             .filter(|p| p.visible)
             .map(|p| {
                 let at = |i: u32| p.vertices[i as usize].pos;
-                let tris: Vec<u32> = p.indices.chunks_exact(3).map(|t| by_tri.get(&key(at(t[0]), at(t[1]), at(t[2]))).copied().unwrap_or(u32::MAX)).collect();
-                tris.iter().any(|&q| q != u32::MAX).then(|| TriQuads { indices: p.indices.clone(), quads: tris })
+                let tris: Vec<u32> = p
+                    .indices
+                    .chunks_exact(3)
+                    .map(|t| {
+                        by_tri
+                            .get(&key(at(t[0]), at(t[1]), at(t[2])))
+                            .copied()
+                            .unwrap_or(u32::MAX)
+                    })
+                    .collect();
+                tris.iter().any(|&q| q != u32::MAX).then(|| TriQuads {
+                    indices: p.indices.clone(),
+                    quads: tris,
+                })
             })
             .collect();
     }
@@ -1297,7 +1538,12 @@ impl Renderer {
 
     /// How many of those were doors' (a closed door's own quads).
     pub fn jello_door_triangles(&self) -> u32 {
-        self.jello_cache.1.iter().filter(|(&k, _)| self.prims.get(k).is_some_and(|p| p.door.is_some())).map(|(_, (_, _, _, n))| n / 3).sum()
+        self.jello_cache
+            .1
+            .iter()
+            .filter(|(&k, _)| self.prims.get(k).is_some_and(|p| p.door.is_some()))
+            .map(|(_, (_, _, _, n))| n / 3)
+            .sum()
     }
 
     /// Rebuilds the see-through split of the prims the jello touches, when
@@ -1317,22 +1563,45 @@ impl Renderer {
             }
             let (mut solid, mut seen) = (Vec::new(), Vec::new());
             for (t, q) in tq.indices.chunks_exact(3).zip(&tq.quads) {
-                if set.contains(q) { &mut seen } else { &mut solid }.extend_from_slice(t);
+                if set.contains(q) {
+                    &mut seen
+                } else {
+                    &mut solid
+                }
+                .extend_from_slice(t);
             }
             let buf = |v: &[u32]| {
-                gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("jello ibuf"),
-                    contents: bytemuck::cast_slice(if v.is_empty() { &[0u32, 0, 0][..] } else { v }),
-                    usage: wgpu::BufferUsages::INDEX,
-                })
+                gpu.device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("jello ibuf"),
+                        contents: bytemuck::cast_slice(if v.is_empty() {
+                            &[0u32, 0, 0][..]
+                        } else {
+                            v
+                        }),
+                        usage: wgpu::BufferUsages::INDEX,
+                    })
             };
-            split.insert(k, (buf(&solid), solid.len() as u32, buf(&seen), seen.len() as u32));
+            split.insert(
+                k,
+                (
+                    buf(&solid),
+                    solid.len() as u32,
+                    buf(&seen),
+                    seen.len() as u32,
+                ),
+            );
         }
         self.jello_cache = (want, split);
     }
 
     /// Draws this frame's overlay over the target, in order.
-    fn overlay_pass(&mut self, gpu: &Gpu, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    fn overlay_pass(
+        &mut self,
+        gpu: &Gpu,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+    ) {
         let draws = std::mem::take(&mut self.overlay);
         if draws.is_empty() {
             return;
@@ -1346,14 +1615,25 @@ impl Renderer {
                     return i;
                 }
                 let (tw, th, rgba) = load_png(p).unwrap_or_else(|_| (1, 1, vec![255, 0, 255, 255]));
-                self.tex_bgs.push(make_texture_bg(gpu, &self.tex_bgl, &self.nearest, tw, th, &rgba));
+                self.tex_bgs.push(make_texture_bg(
+                    gpu,
+                    &self.tex_bgl,
+                    &self.nearest,
+                    tw,
+                    th,
+                    &rgba,
+                ));
                 let i = self.tex_bgs.len() - 1;
                 self.overlay_textures.insert(p.clone(), i);
                 i
             });
             let start = verts.len() as u32;
             for v in &d.tris {
-                verts.push(OverlayVertex { pos: [v[0] / w * 2.0 - 1.0, 1.0 - v[1] / h * 2.0], uv: [v[2], v[3]], color: d.color });
+                verts.push(OverlayVertex {
+                    pos: [v[0] / w * 2.0 - 1.0, 1.0 - v[1] / h * 2.0],
+                    uv: [v[2], v[3]],
+                    color: d.color,
+                });
             }
             let end = verts.len() as u32;
             match batches.last_mut() {
@@ -1364,18 +1644,23 @@ impl Renderer {
         if verts.is_empty() {
             return;
         }
-        let vbuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-            label: Some("overlay vbuf"),
-            contents: bytemuck::cast_slice(&verts),
-            usage: wgpu::BufferUsages::VERTEX,
-        });
+        let vbuf = gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("overlay vbuf"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
         let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
             label: Some("overlay"),
             color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                 view: target,
                 depth_slice: None,
                 resolve_target: None,
-                ops: wgpu::Operations { load: wgpu::LoadOp::Load, store: wgpu::StoreOp::Store },
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Load,
+                    store: wgpu::StoreOp::Store,
+                },
             })],
             depth_stencil_attachment: None,
             timestamp_writes: None,
@@ -1383,8 +1668,14 @@ impl Renderer {
         });
         pass.set_vertex_buffer(0, vbuf.slice(..));
         for (tex, additive, range) in batches {
-            pass.set_pipeline(if additive { &self.overlay_additive_pipeline } else { &self.overlay_pipeline });
-            let bg = tex.and_then(|t| self.tex_bgs.get(t)).unwrap_or(&self.overlay_white);
+            pass.set_pipeline(if additive {
+                &self.overlay_additive_pipeline
+            } else {
+                &self.overlay_pipeline
+            });
+            let bg = tex
+                .and_then(|t| self.tex_bgs.get(t))
+                .unwrap_or(&self.overlay_white);
             pass.set_bind_group(0, bg, &[]);
             pass.draw(range, 0..1);
         }
@@ -1393,7 +1684,11 @@ impl Renderer {
     /// Takes the animated textures (`common/texture_animations.json`) and
     /// loads the frames of those among the scene's and models' textures;
     /// models added later get theirs as they load.
-    pub fn attach_texture_anims(&mut self, gpu: &Gpu, anims: &std::collections::HashMap<String, crate::texanim::TexAnim>) {
+    pub fn attach_texture_anims(
+        &mut self,
+        gpu: &Gpu,
+        anims: &std::collections::HashMap<String, crate::texanim::TexAnim>,
+    ) {
         self.tex_anims = anims.clone();
         let loaded: Vec<usize> = self.tex_paths.keys().copied().collect();
         for i in loaded {
@@ -1408,7 +1703,12 @@ impl Renderer {
             .animated
             .iter()
             .filter_map(|(i, (anim, _))| {
-                let stem = self.tex_paths.get(i)?.file_stem()?.to_string_lossy().into_owned();
+                let stem = self
+                    .tex_paths
+                    .get(i)?
+                    .file_stem()?
+                    .to_string_lossy()
+                    .into_owned();
                 Some((stem, anim.frame(self.anim_time, 0)))
             })
             .collect();
@@ -1422,8 +1722,17 @@ impl Renderer {
         if self.animated.contains_key(&i) {
             return;
         }
-        let Some(stem) = self.tex_paths.get(&i).and_then(|p| p.file_stem()).map(|s| s.to_string_lossy().into_owned()) else { return };
-        let Some(anim) = self.tex_anims.get(&stem).cloned() else { return };
+        let Some(stem) = self
+            .tex_paths
+            .get(&i)
+            .and_then(|p| p.file_stem())
+            .map(|s| s.to_string_lossy().into_owned())
+        else {
+            return;
+        };
+        let Some(anim) = self.tex_anims.get(&stem).cloned() else {
+            return;
+        };
         let mut frames = vec![i];
         for f in anim.frames.iter().skip(1) {
             frames.push(self.texture_index(gpu, f));
@@ -1447,7 +1756,14 @@ impl Renderer {
             return i;
         }
         let (w, h, rgba) = load_png(path).unwrap_or_else(|_| (1, 1, vec![255, 255, 255, 255]));
-        self.tex_bgs.push(make_texture_bg(gpu, &self.tex_bgl, &self.sampler, w, h, &rgba));
+        self.tex_bgs.push(make_texture_bg(
+            gpu,
+            &self.tex_bgl,
+            &self.sampler,
+            w,
+            h,
+            &rgba,
+        ));
         let i = self.tex_bgs.len() - 1;
         self.textures_by_path.insert(path.to_path_buf(), i);
         i
@@ -1457,7 +1773,8 @@ impl Renderer {
     /// per texture.
     fn sprite_prims(&mut self, gpu: &Gpu, right: glam::Vec3, up: glam::Vec3) -> Vec<GpuPrim> {
         let sprites = std::mem::take(&mut self.sprites);
-        let mut by_texture: std::collections::BTreeMap<(usize, bool), (Vec<Vertex>, Vec<u32>)> = Default::default();
+        let mut by_texture: std::collections::BTreeMap<(usize, bool), (Vec<Vertex>, Vec<u32>)> =
+            Default::default();
         for s in &sprites {
             let t = self.texture_index(gpu, &s.texture);
             let (mut x, mut y) = match s.mode {
@@ -1466,7 +1783,11 @@ impl Renderer {
                 SpriteMode::Rotated(d) => {
                     let (ox, oy) = (right.dot(d), up.dot(d));
                     let l = (ox * ox + oy * oy).sqrt();
-                    let (ox, oy) = if l * l < 1e-8 { (1.0, 0.0) } else { (ox / l, oy / l) };
+                    let (ox, oy) = if l * l < 1e-8 {
+                        (1.0, 0.0)
+                    } else {
+                        (ox / l, oy / l)
+                    };
                     (ox * right + oy * up, oy * right - ox * up)
                 }
                 // Along its direction; across it, square to the line of
@@ -1486,9 +1807,19 @@ impl Renderer {
             let base = verts.len() as u32;
             // (The texture's top row — v 0 — on the sprite's −Y side, as the
             // original's sprite drawing has it.)
-            for (p, uv) in [(s.at - x - y, [0.0, 0.0]), (s.at + x - y, [1.0, 0.0]), (s.at + x + y, [1.0, 1.0]), (s.at - x + y, [0.0, 1.0])] {
+            for (p, uv) in [
+                (s.at - x - y, [0.0, 0.0]),
+                (s.at + x - y, [1.0, 0.0]),
+                (s.at + x + y, [1.0, 1.0]),
+                (s.at - x + y, [0.0, 1.0]),
+            ] {
                 let uv = if s.contrail { [uv[1], uv[0]] } else { uv };
-                verts.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv, color: s.color });
+                verts.push(Vertex {
+                    pos: p.into(),
+                    normal: [0.0, 1.0, 0.0],
+                    uv,
+                    color: s.color,
+                });
             }
             idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }
@@ -1526,7 +1857,10 @@ impl Renderer {
         let mut batches: Vec<(usize, bool, Vec<DecalVertex>, Vec<u32>)> = Vec::new();
         for d in &decals {
             let t = self.texture_index(gpu, &d.texture);
-            if !batches.last().is_some_and(|b| b.0 == t && b.1 == d.additive) {
+            if !batches
+                .last()
+                .is_some_and(|b| b.0 == t && b.1 == d.additive)
+            {
                 batches.push((t, d.additive, Vec::new(), Vec::new()));
             }
             let b = batches.last_mut().unwrap();
@@ -1536,7 +1870,11 @@ impl Renderer {
                 // Lit as the level is (its baked shades, a little brighter).
                 let s = m.shades[k];
                 let ch = |shift: u32| (((s >> shift) & 0xFF) as f32 / 255.0).max(0.12) * 1.25;
-                b.2.push(DecalVertex { pos: m.positions[k].into(), uv: m.uvs[k], color: [ch(16), ch(8), ch(0), d.alpha] });
+                b.2.push(DecalVertex {
+                    pos: m.positions[k].into(),
+                    uv: m.uvs[k],
+                    color: [ch(16), ch(8), ch(0), d.alpha],
+                });
             }
             b.3.extend(m.indices.iter().map(|&i| base + u32::from(i)));
         }
@@ -1544,23 +1882,32 @@ impl Renderer {
             .into_iter()
             .filter(|b| !b.3.is_empty())
             .map(|(t, additive, v, i)| {
-                let vbuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("decal vbuf"),
-                    contents: bytemuck::cast_slice(&v),
-                    usage: wgpu::BufferUsages::VERTEX,
-                });
-                let ibuf = gpu.device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                    label: Some("decal ibuf"),
-                    contents: bytemuck::cast_slice(&i),
-                    usage: wgpu::BufferUsages::INDEX,
-                });
+                let vbuf = gpu
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("decal vbuf"),
+                        contents: bytemuck::cast_slice(&v),
+                        usage: wgpu::BufferUsages::VERTEX,
+                    });
+                let ibuf = gpu
+                    .device
+                    .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                        label: Some("decal ibuf"),
+                        contents: bytemuck::cast_slice(&i),
+                        usage: wgpu::BufferUsages::INDEX,
+                    });
                 (vbuf, ibuf, i.len() as u32, t, additive)
             })
             .collect()
     }
 
     /// This frame's laser beams as one additive strip mesh.
-    fn beam_prim(&self, device: &wgpu::Device, right: glam::Vec3, up: glam::Vec3) -> Option<GpuPrim> {
+    fn beam_prim(
+        &self,
+        device: &wgpu::Device,
+        right: glam::Vec3,
+        up: glam::Vec3,
+    ) -> Option<GpuPrim> {
         if self.beams.is_empty() {
             return None;
         }
@@ -1571,7 +1918,12 @@ impl Renderer {
             let side = (b - a).cross(forward).try_normalize().unwrap_or(up) * BEAM_WIDTH;
             let base = vertices.len() as u32;
             for p in [a - side, a + side, b + side, b - side] {
-                vertices.push(Vertex { pos: p.into(), normal: [0.0, 1.0, 0.0], uv: [0.0, 0.0], color });
+                vertices.push(Vertex {
+                    pos: p.into(),
+                    normal: [0.0, 1.0, 0.0],
+                    uv: [0.0, 0.0],
+                    color,
+                });
             }
             indices.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
         }

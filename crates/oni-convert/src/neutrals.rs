@@ -29,7 +29,12 @@ const GIVE_FLAGS: [&str; 3] = ["shield", "invisibility", "lsi"];
 const LINE_FLAGS: [&str; 4] = ["playerLine", "giveItem", "animOnce", "otherAnimOnce"];
 
 fn flag_names(bits: u32, names: &[&'static str]) -> Vec<&'static str> {
-    names.iter().enumerate().filter(|(k, _)| bits & (1 << k) != 0).map(|(_, n)| *n).collect()
+    names
+        .iter()
+        .enumerate()
+        .filter(|(k, _)| bits & (1 << k) != 0)
+        .map(|(_, n)| *n)
+        .collect()
 }
 
 fn anim(t: u16) -> Value {
@@ -52,11 +57,20 @@ fn behavior(d: &[u8], version: u32) -> Option<Value> {
     let id = le_u16(d, at);
     let num_lines = (le_u16(d, at + 2) as usize).min(MAX_LINES);
     let flags = le_u32(d, at + 4);
-    let ranges = [le_f32(d, at + 8), le_f32(d, at + 12), le_f32(d, at + 16), le_f32(d, at + 20)];
+    let ranges = [
+        le_f32(d, at + 8),
+        le_f32(d, at + 12),
+        le_f32(d, at + 16),
+        le_f32(d, at + 20),
+    ];
     at += 24;
     let trigger = string(&mut at)?;
     let abort = string(&mut at)?;
-    let enemy = if version >= V_ENEMY_SOUND { string(&mut at)? } else { "what_the".to_string() };
+    let enemy = if version >= V_ENEMY_SOUND {
+        string(&mut at)?
+    } else {
+        "what_the".to_string()
+    };
     let end_script = string(&mut at)?;
     let give_weapon = string(&mut at)?;
     let give = d.get(at..at + 4)?;
@@ -107,7 +121,10 @@ fn behavior(d: &[u8], version: u32) -> Option<Value> {
 /// The level's neutral behaviours.
 pub fn neutrals(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
     let (version, objects) = crate::objects::read(dat, raw, "Neutral");
-    objects.iter().filter_map(|o| behavior(o.data, version)).collect()
+    objects
+        .iter()
+        .filter_map(|o| behavior(o.data, version))
+        .collect()
 }
 
 pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
@@ -116,7 +133,10 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("neutrals.json"), serde_json::to_string_pretty(&json!({ "neutrals": n }))?)
+    std::fs::write(
+        root.join("neutrals.json"),
+        serde_json::to_string_pretty(&json!({ "neutrals": n }))?,
+    )
 }
 
 #[cfg(test)]

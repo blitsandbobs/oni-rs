@@ -29,31 +29,45 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<Str
     };
     let instance = |r: Option<i64>| {
         let v = r? as u32;
-        (v & 1 != 0).then(|| dat.instances.get((v >> 8) as usize)).flatten()
+        (v & 1 != 0)
+            .then(|| dat.instances.get((v >> 8) as usize))
+            .flatten()
     };
     dat.instances
         .iter()
         .filter(|i| i.tag == TAG_TRIG)
         .filter_map(|inst| {
             let name = inst.name.as_deref()?.trim_start_matches("TRIG").to_string();
-            let rec = oni_template::decode(trig, dat.instance_data(inst)?, dat.header.endian).ok()?;
+            let rec =
+                oni_template::decode(trig, dat.instance_data(inst)?, dat.header.endian).ok()?;
             let em_inst = instance(rec.int("emitter"))?;
-            let em = oni_template::decode(trge, dat.instance_data(em_inst)?, dat.header.endian).ok()?;
+            let em =
+                oni_template::decode(trge, dat.instance_data(em_inst)?, dat.header.endian).ok()?;
             let f = |k: &str| match em.get(k).map(|e| &e.value) {
                 Some(oni_template::Value::Float(v)) => *v,
                 _ => 0.0,
             };
-            let at = [f("emit_position.x"), f("emit_position.y"), f("emit_position.z")];
+            let at = [
+                f("emit_position.x"),
+                f("emit_position.y"),
+                f("emit_position.z"),
+            ];
             let v = [f("emit_vector.x"), f("emit_vector.y"), f("emit_vector.z")];
             let len = (v[0] * v[0] + v[1] * v[1] + v[2] * v[2]).sqrt().max(1e-6);
             let v = v.map(|c| c / len);
-            let anim = instance(rec.int("animation")).and_then(|i| oni_geom::objanim::decode_object_animation(dat, i));
+            let anim = instance(rec.int("animation"))
+                .and_then(|i| oni_geom::objanim::decode_object_animation(dat, i));
             let frames = anim.as_ref().map_or(1, |a| a.num_frames.max(1) as i32);
             let track = (0..frames)
                 .map(|fr| {
-                    let m = anim.as_ref().map_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0], |a| a.matrix(fr));
+                    let m = anim.as_ref().map_or(
+                        [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+                        |a| a.matrix(fr),
+                    );
                     let apply = |p: [f32; 3], w: f32| -> [f32; 3] {
-                        std::array::from_fn(|i| m[i] * p[0] + m[3 + i] * p[1] + m[6 + i] * p[2] + m[9 + i] * w)
+                        std::array::from_fn(|i| {
+                            m[i] * p[0] + m[3 + i] * p[1] + m[6 + i] * p[2] + m[9 + i] * w
+                        })
                     };
                     let o = apply(at, 1.0);
                     let d = apply(v, 0.0);
@@ -76,7 +90,14 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
         .filter_map(|i| {
             let d = dat.instance_data(i)?;
             (d.len() >= 100).then(|| {
-                (i.name.as_deref().unwrap_or("").trim_start_matches("TRIG").to_string(), json!({ "active": cstr(d, 36, 32), "trigger": cstr(d, 68, 32) }))
+                (
+                    i.name
+                        .as_deref()
+                        .unwrap_or("")
+                        .trim_start_matches("TRIG")
+                        .to_string(),
+                    json!({ "active": cstr(d, 36, 32), "trigger": cstr(d, 68, 32) }),
+                )
             })
         })
         .collect()
@@ -118,13 +139,23 @@ pub fn lasers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
 
 /// Writes `lasers.json` into a level folder: its lasers, and the tracks of
 /// the classes they use.
-pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path, classes: &BTreeMap<String, Track>) -> std::io::Result<()> {
+pub fn write(
+    dat: &Dat<'_>,
+    raw: &[u8],
+    root: &Path,
+    classes: &BTreeMap<String, Track>,
+) -> std::io::Result<()> {
     let l = lasers(dat, raw);
     if l.is_empty() {
         return Ok(());
     }
-    let used: BTreeMap<&String, &Track> =
-        classes.iter().filter(|(n, _)| l.iter().any(|x| x["class"].as_str() == Some(n.as_str()))).collect();
+    let used: BTreeMap<&String, &Track> = classes
+        .iter()
+        .filter(|(n, _)| l.iter().any(|x| x["class"].as_str() == Some(n.as_str())))
+        .collect();
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("lasers.json"), serde_json::to_string_pretty(&json!({ "lasers": l, "classes": used }))?)
+    std::fs::write(
+        root.join("lasers.json"),
+        serde_json::to_string_pretty(&json!({ "lasers": l, "classes": used }))?,
+    )
 }

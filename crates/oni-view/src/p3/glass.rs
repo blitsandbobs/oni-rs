@@ -44,7 +44,15 @@ impl System {
     /// `P3iDamageQuad`'s shattering: bursts `pane` into `class`'s shards
     /// (`damage`: how hard it was hit; `blast`: what blew it out, none for a
     /// shot). `quality`: the graphics quality, 0–2.
-    pub fn break_glass(&mut self, class: ClassId, pane: &Pane, damage: f32, blast: Option<Blast>, quality: usize, host: &mut dyn Host) {
+    pub fn break_glass(
+        &mut self,
+        class: ClassId,
+        pane: &Pane,
+        damage: f32,
+        blast: Option<Blast>,
+        quality: usize,
+        host: &mut dyn Host,
+    ) {
         // The normal faces the blast (two-sided glass would otherwise throw
         // its shards back at it); a blast in the pane's plane blows along
         // the way it came.
@@ -61,20 +69,44 @@ impl System {
                 dir = b.dir;
             }
         }
-        self.emit_glass(class, pane, damage, blast.map(|b| (b.centre, b.radius)), normal, dir, quality.min(2), host);
+        self.emit_glass(
+            class,
+            pane,
+            damage,
+            blast.map(|b| (b.centre, b.radius)),
+            normal,
+            dir,
+            quality.min(2),
+            host,
+        );
     }
 
     /// `ONrParticle3_EmitGlassPieces`.
     #[allow(clippy::too_many_arguments)]
-    fn emit_glass(&mut self, class: ClassId, pane: &Pane, damage: f32, blast: Option<(Vec3, f32)>, normal: Vec3, dir: Option<Vec3>, quality: usize, host: &mut dyn Host) {
+    fn emit_glass(
+        &mut self,
+        class: ClassId,
+        pane: &Pane,
+        damage: f32,
+        blast: Option<(Vec3, f32)>,
+        normal: Vec3,
+        dir: Option<Vec3>,
+        quality: usize,
+        host: &mut dyn Host,
+    ) {
         // (Not thrown absurdly fast; no direction: straight through.)
-        let damage = if blast.is_some() { damage.max(25.0) } else { damage };
+        let damage = if blast.is_some() {
+            damage.max(25.0)
+        } else {
+            damage
+        };
         let dir = dir.unwrap_or(-normal);
         let p = pane.corners;
         let side_x0 = p[1] - p[0];
         let side_x1 = p[2] - p[3];
         let side_z = p[3] - p[0];
-        let (length_x0, length_x1, length_z) = (side_x0.length(), side_x1.length(), side_z.length());
+        let (length_x0, length_x1, length_z) =
+            (side_x0.length(), side_x1.length(), side_z.length());
         // (Degenerate or almost collinear: nothing.)
         if length_x0 < 1e-3 {
             return;
@@ -94,8 +126,16 @@ impl System {
         let cell = CELL_SIZE[quality];
         let cells_x = ((length_x0 / cell) as u32 + 1).min(MAX_CELLS);
         let cells_z = ((length_z / cell) as u32 + 1).min(MAX_CELLS);
-        let (step_x0, step_x1, step_z) = (side_x0 / cells_x as f32, side_x1 / cells_x as f32, side_z / cells_z as f32);
-        let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Default };
+        let (step_x0, step_x1, step_z) = (
+            side_x0 / cells_x as f32,
+            side_x1 / cells_x as f32,
+            side_z / cells_z as f32,
+        );
+        let spec = Spec {
+            class,
+            orientation: Orientation::Unchanged,
+            location: Location::Default,
+        };
         for z in 0..cells_z {
             // A trapezoid's rows get as many shards as their width holds.
             let mut density = SHARDS_PER_CELL[quality];
@@ -112,7 +152,10 @@ impl System {
                     let pos_x = x as f32 + self.random();
                     let pos_z = z as f32 + self.random();
                     let exact = pos_z / cells_z as f32;
-                    let at = p[0] + step_z * pos_z + step_x0 * (pos_x * (1.0 - exact)) + step_x1 * (pos_x * exact);
+                    let at = p[0]
+                        + step_z * pos_z
+                        + step_x0 * (pos_x * (1.0 - exact))
+                        + step_x1 * (pos_x * exact);
                     self.glass_piece(&spec, orientation, at, damage, blast, normal, dir, host);
                 }
             }
@@ -123,7 +166,17 @@ impl System {
     /// speed, and blown out by a blast — near its centre along the blast,
     /// toward its edge out along the pane's normal.
     #[allow(clippy::too_many_arguments)]
-    fn glass_piece(&mut self, spec: &Spec, orientation: Mat3, at: Vec3, damage: f32, blast: Option<(Vec3, f32)>, normal: Vec3, dir: Vec3, host: &mut dyn Host) {
+    fn glass_piece(
+        &mut self,
+        spec: &Spec,
+        orientation: Mat3,
+        at: Vec3,
+        damage: f32,
+        blast: Option<(Vec3, f32)>,
+        normal: Vec3,
+        dir: Vec3,
+        host: &mut dyn Host,
+    ) {
         let mut data = Data::new(self.tick, at);
         data.parent_orientation = Some(orientation);
         let speed = RANDOM_VELOCITY * self.random();
@@ -133,11 +186,15 @@ impl System {
             let distance = away.length();
             let direction = (away + dir * (BLAST_OFFSET * radius)).normalize_or_zero();
             let outwards = (distance / (radius * INTERP_RADIUS_SCALE)).min(1.0);
-            let speed = BLAST_NORMAL_VELOCITY * outwards + BLAST_DIRECTED_VELOCITY * (damage / BLAST_DIRECTED_VEL_DAMAGE) * (1.0 - outwards);
+            let speed = BLAST_NORMAL_VELOCITY * outwards
+                + BLAST_DIRECTED_VELOCITY * (damage / BLAST_DIRECTED_VEL_DAMAGE) * (1.0 - outwards);
             data.velocity += (direction * (1.0 - outwards) - normal * outwards) * speed;
         }
         if self.create_effect(spec, &data, host).is_none() {
-            eprintln!("### glass emitting {}: unable to spawn particle", self.classes.list[spec.class].name);
+            eprintln!(
+                "### glass emitting {}: unable to spawn particle",
+                self.classes.list[spec.class].name
+            );
         }
     }
 }

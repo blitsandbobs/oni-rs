@@ -72,8 +72,16 @@ impl ObjectAnimation {
     /// the usual one). Localized clips (from Max space) are rotated a
     /// quarter-turn about X.
     pub fn matrix(&self, frame: i32) -> [f32; 12] {
-        let k = self.keys.iter().rposition(|k| k.frame <= frame).unwrap_or(0);
-        let a = self.keys.get(k).copied().unwrap_or(ObjAnimKey { frame: 0, translation: [0.0; 3], rotation: [0.0, 0.0, 0.0, 1.0] });
+        let k = self
+            .keys
+            .iter()
+            .rposition(|k| k.frame <= frame)
+            .unwrap_or(0);
+        let a = self.keys.get(k).copied().unwrap_or(ObjAnimKey {
+            frame: 0,
+            translation: [0.0; 3],
+            rotation: [0.0, 0.0, 0.0, 1.0],
+        });
         let (t, q) = match self.keys.get(k + 1) {
             Some(b) if a.frame != frame && b.frame > a.frame => {
                 let u = (frame - a.frame) as f32 / (b.frame - a.frame) as f32;
@@ -94,12 +102,26 @@ impl ObjectAnimation {
         let s = 2.0 / (x * x + y * y + z * z + w * w).max(1e-12);
         // Columns (m[col][row]) as Oni writes them.
         let r = [
-            [1.0 - s * (y * y + z * z), s * (x * y) - s * (w * z), s * (x * z) + s * (w * y)],
-            [s * (x * y) + s * (w * z), 1.0 - s * (x * x + z * z), s * (y * z) - s * (w * x)],
-            [s * (x * z) - s * (w * y), s * (y * z) + s * (w * x), 1.0 - s * (x * x + y * y)],
+            [
+                1.0 - s * (y * y + z * z),
+                s * (x * y) - s * (w * z),
+                s * (x * z) + s * (w * y),
+            ],
+            [
+                s * (x * y) + s * (w * z),
+                1.0 - s * (x * x + z * z),
+                s * (y * z) - s * (w * x),
+            ],
+            [
+                s * (x * z) - s * (w * y),
+                s * (y * z) + s * (w * x),
+                1.0 - s * (x * x + y * y),
+            ],
         ];
         let col = |m: &[f32; 12], c: usize| [m[c * 3], m[c * 3 + 1], m[c * 3 + 2]];
-        let rot = |v: [f32; 3]| -> [f32; 3] { std::array::from_fn(|i| r[0][i] * v[0] + r[1][i] * v[1] + r[2][i] * v[2]) };
+        let rot = |v: [f32; 3]| -> [f32; 3] {
+            std::array::from_fn(|i| r[0][i] * v[0] + r[1][i] * v[1] + r[2][i] * v[2])
+        };
         // (T·R)·S: S's axes rotated; its translation rotated and moved.
         let mut out = [0.0; 12];
         for c in 0..3 {
@@ -189,14 +211,21 @@ mod tests {
     #[test]
     fn keys_turn_the_short_way() {
         let h = std::f32::consts::FRAC_PI_4; // half of a quarter-turn
-        let key = |frame, q: [f32; 4]| ObjAnimKey { frame, translation: [0.0; 3], rotation: q };
+        let key = |frame, q: [f32; 4]| ObjAnimKey {
+            frame,
+            translation: [0.0; 3],
+            rotation: q,
+        };
         let anim = ObjectAnimation {
             name: None,
             flags: 0,
             ticks_per_frame: 1,
             num_frames: 11,
             door_open_frames: 0,
-            keys: vec![key(0, [0.0, 0.0, 0.0, 1.0]), key(10, [0.0, -h.sin(), 0.0, -h.cos()])],
+            keys: vec![
+                key(0, [0.0, 0.0, 0.0, 1.0]),
+                key(10, [0.0, -h.sin(), 0.0, -h.cos()]),
+            ],
             scale: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
         };
         // The X axis's turn at each frame: steps of about 9° (a lerp, not a
@@ -206,7 +235,11 @@ mod tests {
             m[2].atan2(m[0]).to_degrees().abs()
         };
         for f in 0..=10 {
-            assert!((angle(f) - 9.0 * f as f32).abs() < 1.0, "frame {f}: {}°", angle(f));
+            assert!(
+                (angle(f) - 9.0 * f as f32).abs() < 1.0,
+                "frame {f}: {}°",
+                angle(f)
+            );
         }
     }
 }

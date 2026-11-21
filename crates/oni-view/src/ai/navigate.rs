@@ -84,7 +84,11 @@ impl Navigator {
     pub fn waypoints(&self) -> (Vec<(Vec3, f32)>, usize) {
         match &self.route {
             Some(r) => (
-                r.points.iter().enumerate().map(|(i, p)| (*p, r.radii.get(i).copied().unwrap_or(r.arrive))).collect(),
+                r.points
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| (*p, r.radii.get(i).copied().unwrap_or(r.arrive)))
+                    .collect(),
                 r.next,
             ),
             None => (Vec::new(), 0),
@@ -130,7 +134,11 @@ impl Navigator {
         self.last_error = now;
         self.careful = true;
         self.route = None;
-        self.state = if self.errors >= GIVE_UP { State::Failed(why.to_string()) } else { State::Planning };
+        self.state = if self.errors >= GIVE_UP {
+            State::Failed(why.to_string())
+        } else {
+            State::Planning
+        };
     }
 
     /// Wedged against something its movement keeps meeting
@@ -160,7 +168,11 @@ impl Navigator {
         if next > 0 {
             let (a, b) = (flat(route.points[next - 1]), flat(route.points[next]));
             let ab = b - a;
-            let t = if ab.length_squared() > 1e-6 { ((flat(feet) - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+            let t = if ab.length_squared() > 1e-6 {
+                ((flat(feet) - a).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+            } else {
+                0.0
+            };
             if (flat(feet) - (a + ab * t)).length() > OFF_PATH {
                 self.error(now, "off the path");
                 return Orders::default();

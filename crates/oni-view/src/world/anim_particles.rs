@@ -100,10 +100,15 @@ impl World {
             let starting = now_active & bit != 0 && was & bit == 0;
             // A hit flash starting on a thrown character who is dead: its
             // "killed" flash instead, once for that character.
-            if starting && self.fighters[who].class_particles[def].part == ClassPart::HitFlash && self.killed_flash(who, k, p) {
+            if starting
+                && self.fighters[who].class_particles[def].part == ClassPart::HitFlash
+                && self.killed_flash(who, k, p)
+            {
                 continue;
             }
-            let Some(h) = p.handle.filter(|&h| self.armory.particles.alive(h)) else { continue };
+            let Some(h) = p.handle.filter(|&h| self.armory.particles.alive(h)) else {
+                continue;
+            };
             self.armory.particles.set_tint(h, tint);
             if starting {
                 self.send_particle(h, event::START, t);
@@ -138,13 +143,30 @@ impl World {
             let part = usize::from(ap.part);
             let mut handle = None;
             match def {
-                None => eprintln!("anim particles: fighter {who}: no particle '{}' for {}", ap.name, f.motion.name()),
+                None => eprintln!(
+                    "anim particles: fighter {who}: no particle '{}' for {}",
+                    ap.name,
+                    f.motion.name()
+                ),
                 Some(d) => {
                     let class_name = f.class_particles[d].class.clone();
-                    let centre = f.character.parts.iter().find(|p| p.bone == part).map(|p| (p.bound_box.0 + p.bound_box.1) / 2.0);
-                    if let (Some(class), Some(attach)) = (self.armory.particles.classes.get(&class_name), self.fighters[who].part_matrix(part)) {
-                        let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Default };
-                        let mut data = Data::new(self.armory.particles.tick, centre.unwrap_or(Vec3::ZERO));
+                    let centre = f
+                        .character
+                        .parts
+                        .iter()
+                        .find(|p| p.bone == part)
+                        .map(|p| (p.bound_box.0 + p.bound_box.1) / 2.0);
+                    if let (Some(class), Some(attach)) = (
+                        self.armory.particles.classes.get(&class_name),
+                        self.fighters[who].part_matrix(part),
+                    ) {
+                        let spec = Spec {
+                            class,
+                            orientation: Orientation::Unchanged,
+                            location: Location::Default,
+                        };
+                        let mut data =
+                            Data::new(self.armory.particles.tick, centre.unwrap_or(Vec3::ZERO));
                         data.owner = owner::CHARACTER_MELEE | who as u32;
                         data.parent_orientation = Some(Mat3::IDENTITY);
                         data.attach = Some(attach);
@@ -165,7 +187,9 @@ impl World {
         let ap = std::mem::take(&mut self.fighters[who].anim_particles);
         let t = f64::from(self.armory.particles.tick) / 60.0;
         for (k, p) in ap.list.iter().enumerate() {
-            let Some(h) = p.handle.filter(|&h| self.armory.particles.alive(h)) else { continue };
+            let Some(h) = p.handle.filter(|&h| self.armory.particles.alive(h)) else {
+                continue;
+            };
             if ap.active & (1 << k) != 0 {
                 self.send_particle(h, event::STOP, t);
             }
@@ -179,10 +203,20 @@ impl World {
         let f = &self.fighters[who];
         let (thrown, other) = match (f.throwing, f.thrown_by) {
             (Some(t), _) => (t, who),
-            (None, Some(by)) if f.motion.current().has_flag(crate::anim::types::flag::THROW_TARGET) => (who, by),
+            (None, Some(by))
+                if f.motion
+                    .current()
+                    .has_flag(crate::anim::types::flag::THROW_TARGET) =>
+            {
+                (who, by)
+            }
             _ => return false,
         };
-        if self.fighters.get(thrown).is_none_or(|t| t.alive() && !t.motion.dying) {
+        if self
+            .fighters
+            .get(thrown)
+            .is_none_or(|t| t.alive() && !t.motion.dying)
+        {
             return false;
         }
         if let Some(h) = p.handle {
@@ -192,18 +226,41 @@ impl World {
         if self.fighters[thrown].final_flash {
             return true;
         }
-        let Some(impacts) = self.impacts.clone() else { return true };
+        let Some(impacts) = self.impacts.clone() else {
+            return true;
+        };
         let f = &self.fighters[who];
-        let material = f.sounds.part_materials.get(p.part).cloned().flatten().and_then(|m| impacts.material(&m)).or_else(|| impacts.material("Character"));
-        let (Some(impact), Some(material)) = (impacts.impact("Self_Damage_Killed"), material) else { return true };
-        let at = f.bones().get(p.part).map_or(f.feet(), |m| m.w_axis.truncate());
+        let material = f
+            .sounds
+            .part_materials
+            .get(p.part)
+            .cloned()
+            .flatten()
+            .and_then(|m| impacts.material(&m))
+            .or_else(|| impacts.material("Character"));
+        let (Some(impact), Some(material)) = (impacts.impact("Self_Damage_Killed"), material)
+        else {
+            return true;
+        };
+        let at = f
+            .bones()
+            .get(p.part)
+            .map_or(f.feet(), |m| m.w_axis.truncate());
         let facing = Vec3::new(f.facing.facing.sin(), 0.0, f.facing.facing.cos());
         let mut data = effect::Data::new(self.armory.particles.tick, at);
         data.cause = effect::Cause::MeleeHit;
         data.owner = owner::CHARACTER_MELEE | who as u32;
         data.normal = facing;
         data.parent_velocity = Some(facing);
-        self.impact_effect(impact, material, crate::impacts::MEDIUM, data, 1.0, Some(thrown), Some(other));
+        self.impact_effect(
+            impact,
+            material,
+            crate::impacts::MEDIUM,
+            data,
+            1.0,
+            Some(thrown),
+            Some(other),
+        );
         self.fighters[thrown].final_flash = true;
         true
     }
@@ -253,7 +310,11 @@ pub fn class_particles(c: &serde_json::Value) -> Vec<ClassParticle> {
                 serde_json::Value::Number(n) => ClassPart::Part(n.as_u64()? as usize),
                 _ => ClassPart::Animation,
             };
-            Some(ClassParticle { name: p["name"].as_str()?.to_string(), class: p["class"].as_str()?.to_string(), part })
+            Some(ClassParticle {
+                name: p["name"].as_str()?.to_string(),
+                class: p["class"].as_str()?.to_string(),
+                part,
+            })
         })
         .collect()
 }

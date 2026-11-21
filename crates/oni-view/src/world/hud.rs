@@ -62,7 +62,10 @@ impl World {
             timer_on: self.timer.is_some(),
             feet: p.feet(),
             facing: p.facing.aim(),
-            gun: p.hand.map(|w| gun(w, true)).or_else(|| p.holster.map(|w| gun(w, false))),
+            gun: p
+                .hand
+                .map(|w| gun(w, true))
+                .or_else(|| p.holster.map(|w| gun(w, false))),
         })
     }
 
@@ -93,8 +96,13 @@ impl World {
     /// low on health.
     fn autoprompt_events(&self) -> Vec<&'static str> {
         let mut out = Vec::new();
-        let Some(p) = self.fighters.first().filter(|p| p.player && p.alive()) else { return out };
-        if self.weapon_in_reach(0).is_some_and(|w| self.armory.weapons[w].ammo > 0) {
+        let Some(p) = self.fighters.first().filter(|p| p.player && p.alive()) else {
+            return out;
+        };
+        if self
+            .weapon_in_reach(0)
+            .is_some_and(|w| self.armory.weapons[w].ammo > 0)
+        {
             out.push("weapon");
         }
         if let Some(k) = self.powerup_in_reach(0) {
@@ -107,9 +115,17 @@ impl World {
         if self.door_prompt(0) {
             out.push("usedoor");
         }
-        let big = p.hand.is_some_and(|w| self.armory.weapons[w].class.has(crate::weapons::flag::UNSTORABLE));
+        let big = p.hand.is_some_and(|w| {
+            self.armory.weapons[w]
+                .class
+                .has(crate::weapons::flag::UNSTORABLE)
+        });
         if !big {
-            if let Some(c) = self.console_in_reach(0, false).map(|c| &self.consoles[c]).filter(|c| c.active && !c.triggered) {
+            if let Some(c) = self
+                .console_in_reach(0, false)
+                .map(|c| &self.consoles[c])
+                .filter(|c| c.active && !c.triggered)
+            {
                 out.push(if c.is_alarm { "usealarm" } else { "useconsole" });
             }
         }
@@ -129,7 +145,12 @@ impl World {
             return;
         }
         let (lsi, weapon) = match self.fighters.first() {
-            Some(p) => (p.inventory.lsi, p.hand.or(p.holster).map(|w| self.armory.weapons[w].class.name.clone())),
+            Some(p) => (
+                p.inventory.lsi,
+                p.hand
+                    .or(p.holster)
+                    .map(|w| self.armory.weapons[w].class.name.clone()),
+            ),
             None => (false, None),
         };
         self.hud.pause_toggle(lsi, weapon.as_deref());
@@ -161,13 +182,15 @@ impl World {
     fn pause_sounds(&mut self, was: bool) {
         match (was, self.hud.pause.is_some()) {
             (false, true) => {
-                self.audio.impulse_play("pause_screen_open", None, None, None);
+                self.audio
+                    .impulse_play("pause_screen_open", None, None, None);
                 self.pause_volume = self.audio.volume();
                 self.audio.set_volume(self.pause_volume * PAUSE_VOLUME_CUT);
             }
             (true, false) => {
                 self.audio.set_volume(self.pause_volume);
-                self.audio.impulse_play("pause_screen_close", None, None, None);
+                self.audio
+                    .impulse_play("pause_screen_close", None, None, None);
             }
             _ => {}
         }

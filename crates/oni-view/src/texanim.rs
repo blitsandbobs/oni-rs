@@ -62,15 +62,26 @@ impl TexAnim {
 /// The animated textures by file stem, their frames under `oni` (the
 /// converted tree's root).
 pub fn load(oni: &Path) -> HashMap<String, TexAnim> {
-    let doc: serde_json::Value = std::fs::read_to_string(oni.join("common/texture_animations.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let Some(map) = doc.as_object() else { return HashMap::new() };
+    let doc: serde_json::Value =
+        std::fs::read_to_string(oni.join("common/texture_animations.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+    let Some(map) = doc.as_object() else {
+        return HashMap::new();
+    };
     map.iter()
         .filter_map(|(name, a)| {
-            let frames: Vec<PathBuf> = a["frames"].as_array()?.iter().filter_map(|f| Some(oni.join(f.as_str()?))).collect();
-            let has = |flag: &str| a["flags"].as_array().is_some_and(|f| f.iter().any(|x| x == flag));
+            let frames: Vec<PathBuf> = a["frames"]
+                .as_array()?
+                .iter()
+                .filter_map(|f| Some(oni.join(f.as_str()?)))
+                .collect();
+            let has = |flag: &str| {
+                a["flags"]
+                    .as_array()
+                    .is_some_and(|f| f.iter().any(|x| x == flag))
+            };
             let anim = TexAnim {
                 frames,
                 time_per_frame: a["timePerFrame"].as_u64().unwrap_or(1) as u32,
@@ -89,7 +100,11 @@ mod tests {
     use super::*;
 
     fn anim(n: usize, tpf: u32) -> TexAnim {
-        TexAnim { frames: (0..n).map(|k| PathBuf::from(format!("f{k}"))).collect(), time_per_frame: tpf, ..TexAnim::default() }
+        TexAnim {
+            frames: (0..n).map(|k| PathBuf::from(format!("f{k}"))).collect(),
+            time_per_frame: tpf,
+            ..TexAnim::default()
+        }
     }
 
     #[test]
@@ -99,17 +114,36 @@ mod tests {
         let seen: Vec<usize> = (0..15).map(|t| a.frame(t, 0)).collect();
         assert_eq!(seen, [0, 0, 0, 1, 1, 1, 2, 2, 2, 3, 3, 3, 0, 0, 0]);
         // Ping-pong: back and forth without repeating the ends.
-        let p = TexAnim { ping_pong: true, ..anim(3, 1) };
-        assert_eq!((0..8).map(|t| p.frame(t, 0)).collect::<Vec<_>>(), [0, 1, 2, 1, 0, 1, 2, 1]);
+        let p = TexAnim {
+            ping_pong: true,
+            ..anim(3, 1)
+        };
+        assert_eq!(
+            (0..8).map(|t| p.frame(t, 0)).collect::<Vec<_>>(),
+            [0, 1, 2, 1, 0, 1, 2, 1]
+        );
         // A random start shifts the time; held still, it picks one frame.
-        let r = TexAnim { random_start: true, dont_animate: true, ..anim(5, 1) };
+        let r = TexAnim {
+            random_start: true,
+            dont_animate: true,
+            ..anim(5, 1)
+        };
         assert_eq!(r.frame(0, 7), 2);
         assert_eq!(r.frame(1000, 7), 2);
         // Random frames: the same step, the same frame; always in range.
-        let q = TexAnim { random_frame: true, ..anim(5, 2) };
+        let q = TexAnim {
+            random_frame: true,
+            ..anim(5, 2)
+        };
         assert_eq!(q.frame(10, 0), q.frame(11, 0));
         assert!((0..500).all(|t| q.frame(t, 0) < 5));
-        assert!((0..500).map(|t| q.frame(t, 0)).collect::<std::collections::HashSet<_>>().len() > 1);
+        assert!(
+            (0..500)
+                .map(|t| q.frame(t, 0))
+                .collect::<std::collections::HashSet<_>>()
+                .len()
+                > 1
+        );
         // One frame: always it.
         assert_eq!(anim(1, 1).frame(99, 3), 0);
     }

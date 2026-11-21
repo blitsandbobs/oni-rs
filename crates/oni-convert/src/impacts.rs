@@ -41,15 +41,27 @@ pub const AI_SOUNDS: [&str; 5] = ["ignore", "interesting", "danger", "melee", "g
 /// A tree of named templates of `tag`: name → parent name.
 fn tree(dat: &Dat<'_>, tag: FourCc) -> BTreeMap<String, Option<String>> {
     let prefix = tag.to_string();
-    let name_of = |k: usize| dat.instances.get(k).and_then(|i| i.name.as_deref()).map(|n| n.trim_start_matches(prefix.as_str()).to_string());
+    let name_of = |k: usize| {
+        dat.instances
+            .get(k)
+            .and_then(|i| i.name.as_deref())
+            .map(|n| n.trim_start_matches(prefix.as_str()).to_string())
+    };
     dat.instances
         .iter()
         .filter(|i| i.tag == tag)
         .filter_map(|i| {
             let d = dat.instance_data(i)?;
-            let name = i.name.as_deref()?.trim_start_matches(prefix.as_str()).to_string();
+            let name = i
+                .name
+                .as_deref()?
+                .trim_start_matches(prefix.as_str())
+                .to_string();
             let r = le_u32(d, 8);
-            Some((name, (r & 1 != 0).then(|| name_of((r >> 8) as usize)).flatten()))
+            Some((
+                name,
+                (r & 1 != 0).then(|| name_of((r >> 8) as usize)).flatten(),
+            ))
         })
         .collect()
 }
@@ -87,12 +99,19 @@ fn table(b: &[u8]) -> Option<Vec<Value>> {
         let o = particle_at + k * 84;
         // Its orientation (`P3tEnumCollisionOrientation`), where it goes
         // (`P3tEffectLocationType`) and that place's parameters.
-        let orientation = ["unchanged", "reversed", "reflected", "normal"].get(le_u32(b, o + 68) as usize).copied().unwrap_or("unchanged");
+        let orientation = ["unchanged", "reversed", "reflected", "normal"]
+            .get(le_u32(b, o + 68) as usize)
+            .copied()
+            .unwrap_or("unchanged");
         let mut p = json!({ "class": cstr(b, o, 64), "orientation": orientation });
         match le_u32(b, o + 72) {
             1 => p["location"] = json!({ "type": "collisionOffset", "offset": le_f32(b, o + 76) }),
-            3 => p["location"] = json!({ "type": "findWall", "radius": le_f32(b, o + 76), "lookAlong": b[o + 80] != 0 }),
-            4 => p["location"] = json!({ "type": "decal", "static": b[o + 76] != 0, "randomRotation": b[o + 77] != 0 }),
+            3 => {
+                p["location"] = json!({ "type": "findWall", "radius": le_f32(b, o + 76), "lookAlong": b[o + 80] != 0 })
+            }
+            4 => {
+                p["location"] = json!({ "type": "decal", "static": b[o + 76] != 0, "randomRotation": b[o + 77] != 0 })
+            }
             5 => p["location"] = json!({ "type": "attachedToObject" }),
             _ => p["location"] = json!({ "type": "default" }),
         }
@@ -139,12 +158,21 @@ fn table(b: &[u8]) -> Option<Vec<Value>> {
 /// impact a blow with that part makes on a hit, a block, a kill (`CBPM`,
 /// `CBPI`).
 pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
-    let at = |r: u32| (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten();
-    let name_of = |r: u32, prefix: &str| at(r).and_then(|i| i.name.as_deref()).map(|n| n.trim_start_matches(prefix).to_string());
+    let at = |r: u32| {
+        (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+    };
+    let name_of = |r: u32, prefix: &str| {
+        at(r)
+            .and_then(|i| i.name.as_deref())
+            .map(|n| n.trim_start_matches(prefix).to_string())
+    };
     let mut out = json!({});
     if d.len() >= 1100 + 15 * 130 {
         let names: Vec<String> = (0..15).map(|k| cstr(d, 1100 + k * 130, 128)).collect();
-        out["animImpacts"] = json!({ "modifier": cstr(d, 1084, 16).to_lowercase(), "impacts": names });
+        out["animImpacts"] =
+            json!({ "modifier": cstr(d, 1084, 16).to_lowercase(), "impacts": names });
     }
     // How it cries out (`painConstants` @116): eleven u16 tunings, the
     // quietest grunt's volume, the four impulse names.
@@ -161,7 +189,18 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
     // What its AI says (`ai2_behavior.vocalizations`): a chance (%) and an
     // ambient per kind.
     if d.len() >= 692 + 10 * 32 {
-        const KINDS: [&str; 10] = ["taunt", "alert", "startle", "checkBody", "pursue", "cower", "superPunch", "superKick", "super3", "super4"];
+        const KINDS: [&str; 10] = [
+            "taunt",
+            "alert",
+            "startle",
+            "checkBody",
+            "pursue",
+            "cower",
+            "superPunch",
+            "superKick",
+            "super3",
+            "super4",
+        ];
         out["vocalizations"] = json!(KINDS
             .iter()
             .enumerate()
@@ -178,10 +217,16 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
             .collect::<Vec<_>>());
     }
     if let Some(m) = at(le_u32(d, 3132)).and_then(|i| dat.instance_data(i)) {
-        out["partMaterials"] = json!((0..19).map(|k| name_of(le_u32(m, k * 4), "Mtrl")).collect::<Vec<_>>());
+        out["partMaterials"] = json!((0..19)
+            .map(|k| name_of(le_u32(m, k * 4), "Mtrl"))
+            .collect::<Vec<_>>());
     }
     if let Some(m) = at(le_u32(d, 3136)).and_then(|i| dat.instance_data(i)) {
-        let list = |s: usize| (0..19).map(|k| name_of(le_u32(m, (s * 19 + k) * 4), "Impt")).collect::<Vec<_>>();
+        let list = |s: usize| {
+            (0..19)
+                .map(|k| name_of(le_u32(m, (s * 19 + k) * 4), "Impt"))
+                .collect::<Vec<_>>()
+        };
         out["partImpacts"] = json!({ "hit": list(0), "blocked": list(1), "killed": list(2) });
     }
     out
@@ -189,14 +234,24 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
 
 /// Writes `impacts.json` into `common` (from level 0).
 pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize> {
-    let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_BINA && i.name.as_deref() == Some("EINOimpact_effects")) else {
+    let Some(inst) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_BINA && i.name.as_deref() == Some("EINOimpact_effects"))
+    else {
         return Ok(0);
     };
-    let Some(bd) = dat.instance_data(inst) else { return Ok(0) };
+    let Some(bd) = dat.instance_data(inst) else {
+        return Ok(0);
+    };
     let start = le_u32(bd, 4) as usize + 8;
-    let Some(entries) = raw.get(start..).and_then(table) else { return Ok(0) };
-    let textures: BTreeMap<String, String> =
-        crate::materials::texture_materials(dat, raw).into_iter().map(|(t, m)| (crate::sanitize(&t), m)).collect();
+    let Some(entries) = raw.get(start..).and_then(table) else {
+        return Ok(0);
+    };
+    let textures: BTreeMap<String, String> = crate::materials::texture_materials(dat, raw)
+        .into_iter()
+        .map(|(t, m)| (crate::sanitize(&t), m))
+        .collect();
     let n = entries.len();
     std::fs::create_dir_all(common)?;
     std::fs::write(
@@ -235,8 +290,14 @@ mod tests {
         let t = table(&b).unwrap();
         assert_eq!(t[0]["impact"], json!("Kick"));
         assert_eq!(t[0]["material"], json!("Flesh"));
-        assert_eq!((t[0]["component"].as_str(), t[0]["modifier"].as_str()), (Some("projectile"), Some("medium")));
+        assert_eq!(
+            (t[0]["component"].as_str(), t[0]["modifier"].as_str()),
+            (Some("projectile"), Some("medium"))
+        );
         assert_eq!(t[0]["sound"]["impulse"], json!("bdy_med"));
-        assert_eq!(t[0]["sound"]["ai"], json!({ "type": "melee", "radius": 150.0 }));
+        assert_eq!(
+            t[0]["sound"]["ai"],
+            json!({ "type": "melee", "radius": 150.0 })
+        );
     }
 }

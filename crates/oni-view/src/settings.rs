@@ -41,7 +41,9 @@ impl Default for Settings {
 
 /// Where the player's files live: `$ONI_SAVE_DIR`, else `~/.oni-rs`.
 pub fn save_dir() -> Option<PathBuf> {
-    std::env::var_os("ONI_SAVE_DIR").map(PathBuf::from).or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".oni-rs")))
+    std::env::var_os("ONI_SAVE_DIR")
+        .map(PathBuf::from)
+        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".oni-rs")))
 }
 
 impl Settings {
@@ -58,7 +60,10 @@ impl Settings {
         let d = Settings::default();
         let f = |k: &str, x: f32| v[k].as_f64().map_or(x, |y| (y as f32).clamp(0.0, 1.0));
         let b = |k: &str, x: bool| v[k].as_bool().unwrap_or(x);
-        let difficulty = v["difficulty"].as_str().filter(|s| ["easy", "normal", "hard"].contains(s)).map_or(d.difficulty.clone(), str::to_string);
+        let difficulty = v["difficulty"]
+            .as_str()
+            .filter(|s| ["easy", "normal", "hard"].contains(s))
+            .map_or(d.difficulty.clone(), str::to_string);
         let r = &v["resolution"];
         Settings {
             overall_volume: f("overallVolume", d.overall_volume),
@@ -86,7 +91,10 @@ impl Settings {
     pub fn store(&self) {
         let Some(dir) = save_dir() else { return };
         let _ = std::fs::create_dir_all(&dir);
-        if let Err(e) = std::fs::write(dir.join("settings.json"), serde_json::to_string_pretty(&self.to_json()).unwrap_or_default()) {
+        if let Err(e) = std::fs::write(
+            dir.join("settings.json"),
+            serde_json::to_string_pretty(&self.to_json()).unwrap_or_default(),
+        ) {
             eprintln!("settings: can't keep them ({e})");
         }
     }
@@ -98,11 +106,21 @@ mod tests {
 
     #[test]
     fn options_survive_their_file_and_bad_values_fall_back() {
-        let s = Settings { overall_volume: 0.25, subtitles: true, invert_mouse: false, difficulty: "hard".into(), ..Settings::default() };
+        let s = Settings {
+            overall_volume: 0.25,
+            subtitles: true,
+            invert_mouse: false,
+            difficulty: "hard".into(),
+            ..Settings::default()
+        };
         assert_eq!(Settings::from_json(&s.to_json()), s);
-        let bad = serde_json::json!({ "overallVolume": 7.0, "difficulty": "nightmare", "quality": 9 });
+        let bad =
+            serde_json::json!({ "overallVolume": 7.0, "difficulty": "nightmare", "quality": 9 });
         let b = Settings::from_json(&bad);
-        assert_eq!((b.overall_volume, b.difficulty.as_str(), b.quality), (1.0, "normal", 2));
+        assert_eq!(
+            (b.overall_volume, b.difficulty.as_str(), b.quality),
+            (1.0, "normal", 2)
+        );
         assert!(b.invert_mouse, "inverted by default, as shipped");
     }
 }

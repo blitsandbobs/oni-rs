@@ -18,9 +18,14 @@ fn main() -> ExitCode {
     };
 
     let rest: Vec<String> = args.collect();
-    let scripts = rest.iter().position(|a| a == "--scripts").and_then(|i| rest.get(i + 1));
+    let scripts = rest
+        .iter()
+        .position(|a| a == "--scripts")
+        .and_then(|i| rest.get(i + 1));
     let result = match scripts {
-        Some(dir) => oni_convert::convert_with(Path::new(&input), Path::new(&output), Some(Path::new(dir))),
+        Some(dir) => {
+            oni_convert::convert_with(Path::new(&input), Path::new(&output), Some(Path::new(dir)))
+        }
         None => oni_convert::convert(Path::new(&input), Path::new(&output)),
     };
     match result {

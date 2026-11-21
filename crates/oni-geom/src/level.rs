@@ -182,7 +182,11 @@ pub fn extract_level(dat: &Dat<'_>, akev: &Instance) -> Option<Level> {
 
 /// [`extract_level`], told which textures (by `TXMP` instance index) break
 /// like glass: their quads come out one group each.
-pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usize) -> bool) -> Option<Level> {
+pub fn extract_level_with(
+    dat: &Dat<'_>,
+    akev: &Instance,
+    breakable: &dyn Fn(usize) -> bool,
+) -> Option<Level> {
     if akev.tag != TAG_AKEV {
         return None;
     }
@@ -197,7 +201,11 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
         let g = gq.as_ref()?;
         let p = g.quads.get(q)?.plane;
         let [a, b, c, _] = *g.planes.get((p & 0x7FFF_FFFF) as usize)?;
-        Some(if p & 0x8000_0000 != 0 { [-a, -b, -c] } else { [a, b, c] })
+        Some(if p & 0x8000_0000 != 0 {
+            [-a, -b, -c]
+        } else {
+            [a, b, c]
+        })
     };
     let gr = resolve(dat, read_u32(d, OFF_GQ_RENDER)?)?;
     let tm = resolve(dat, read_u32(d, OFF_TEXMAP_ARRAY)?)?;
@@ -236,9 +244,14 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
         read_u32(d, OFF_REMAP_INDICES).and_then(|v| resolve(dat, v)),
         read_u32(d, OFF_REMAPS).and_then(|v| resolve(dat, v)),
     ) {
-        let n = read_u32(ri, IDXA_NUM).unwrap_or(0).min(read_u32(rr, IDXA_NUM).unwrap_or(0)) as usize;
+        let n = read_u32(ri, IDXA_NUM)
+            .unwrap_or(0)
+            .min(read_u32(rr, IDXA_NUM).unwrap_or(0)) as usize;
         for i in 0..n {
-            if let (Some(q), Some(r)) = (read_u32(ri, IDXA_DATA + i * 4), read_u32(rr, IDXA_DATA + i * 4)) {
+            if let (Some(q), Some(r)) = (
+                read_u32(ri, IDXA_DATA + i * 4),
+                read_u32(rr, IDXA_DATA + i * 4),
+            ) {
                 remap.entry(q as usize).or_insert(r);
             }
         }
@@ -284,11 +297,22 @@ pub fn extract_level_with(dat: &Dat<'_>, akev: &Instance, breakable: &dyn Fn(usi
         let is_triangle = flags & GQ_FLAG_TRIANGLE != 0;
         let two_sided = flags & GQ_FLAG_TWO_SIDED != 0;
 
-        let glass = tex_lookup(tex_index as usize).0.filter(|&i| breakable(i)).map(|_| q as u32);
+        let glass = tex_lookup(tex_index as usize)
+            .0
+            .filter(|&i| breakable(i))
+            .map(|_| q as u32);
         let grp = buckets
             .entry(object_tag)
             .or_default()
-            .entry((tex_index, blend, visible, collide, remap.get(&q).copied(), glass, two_sided))
+            .entry((
+                tex_index,
+                blend,
+                visible,
+                collide,
+                remap.get(&q).copied(),
+                glass,
+                two_sided,
+            ))
             .or_default();
         if grp.tex_instance.is_none() {
             grp.glass = glass;

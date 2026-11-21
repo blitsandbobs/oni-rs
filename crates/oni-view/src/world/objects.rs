@@ -68,7 +68,10 @@ pub struct Object {
 
 /// Loads a level's object setups (`objects.json`).
 pub fn load(level_dir: &Path) -> Vec<Setup> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("objects.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("objects.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
     let common = level_dir.join("../../common");
     let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
     doc["objects"]
@@ -80,22 +83,48 @@ pub fn load(level_dir: &Path) -> Vec<Setup> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .filter_map(|n| oni_schema::OBJECT_FLAGS.iter().position(|k| !k.is_empty() && Some(*k) == n.as_str()))
+                .filter_map(|n| {
+                    oni_schema::OBJECT_FLAGS
+                        .iter()
+                        .position(|k| !k.is_empty() && Some(*k) == n.as_str())
+                })
                 .fold(0, |acc, b| acc | (1 << b));
             let q = &o["orientation"];
-            let m: Vec<f32> = o["origin"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default();
-            let col = |c: usize| glam::Vec4::new(m.get(c * 3).copied().unwrap_or(0.0), m.get(c * 3 + 1).copied().unwrap_or(0.0), m.get(c * 3 + 2).copied().unwrap_or(0.0), if c == 3 { 1.0 } else { 0.0 });
+            let m: Vec<f32> = o["origin"]
+                .as_array()
+                .map(|a| a.iter().map(f).collect())
+                .unwrap_or_default();
+            let col = |c: usize| {
+                glam::Vec4::new(
+                    m.get(c * 3).copied().unwrap_or(0.0),
+                    m.get(c * 3 + 1).copied().unwrap_or(0.0),
+                    m.get(c * 3 + 2).copied().unwrap_or(0.0),
+                    if c == 3 { 1.0 } else { 0.0 },
+                )
+            };
             Setup {
                 name: o["name"].as_str().unwrap_or("").to_string(),
                 script_id: o["scriptId"].as_u64().unwrap_or(0) as u32,
                 flags,
-                position: Vec3::new(f(&o["position"][0]), f(&o["position"][1]), f(&o["position"][2])),
+                position: Vec3::new(
+                    f(&o["position"][0]),
+                    f(&o["position"][1]),
+                    f(&o["position"][2]),
+                ),
                 // (Oni's quaternion-to-matrix is the transpose of the usual.)
-                rotation: Quat::from_xyzw(f(&q[0]), f(&q[1]), f(&q[2]), f(&q[3])).normalize().conjugate(),
+                rotation: Quat::from_xyzw(f(&q[0]), f(&q[1]), f(&q[2]), f(&q[3]))
+                    .normalize()
+                    .conjugate(),
                 scale: f(&o["scale"]),
                 origin: Mat4::from_cols(col(0), col(1), col(2), col(3)),
                 animation: o["animation"].as_str().map(str::to_string),
-                models: o["geometry"].as_array().into_iter().flatten().filter_map(|g| g.as_str()).map(|g| common.join(g)).collect(),
+                models: o["geometry"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|g| g.as_str())
+                    .map(|g| common.join(g))
+                    .collect(),
                 radius: f(&o["radius"]["shipped"]).max(1.0),
                 particles: o["particles"].as_array().cloned().unwrap_or_default(),
             }
@@ -155,7 +184,11 @@ impl Object {
     /// Whether its clip is running and not yet at its last frame (what the
     /// `_block` commands wait for).
     fn playing(&self) -> bool {
-        self.animating && self.anim.as_ref().is_some_and(|a| self.frame + 1 < i32::from(a.num_frames))
+        self.animating
+            && self
+                .anim
+                .as_ref()
+                .is_some_and(|a| self.frame + 1 < i32::from(a.num_frames))
     }
 }
 
@@ -168,7 +201,14 @@ impl World {
         match &o.anim {
             Some(a) => {
                 let m = a.matrix(o.frame);
-                let col = |c: usize| glam::Vec4::new(m[c * 3], m[c * 3 + 1], m[c * 3 + 2], if c == 3 { 1.0 } else { 0.0 });
+                let col = |c: usize| {
+                    glam::Vec4::new(
+                        m[c * 3],
+                        m[c * 3 + 1],
+                        m[c * 3 + 2],
+                        if c == 3 { 1.0 } else { 0.0 },
+                    )
+                };
                 let m = Mat4::from_cols(col(0), col(1), col(2), col(3));
                 if a.flags & aflag::LOCALIZED != 0 {
                     s.origin * m
@@ -176,14 +216,18 @@ impl World {
                     m
                 }
             }
-            None => Mat4::from_scale_rotation_translation(Vec3::splat(s.scale), s.rotation, s.position),
+            None => {
+                Mat4::from_scale_rotation_translation(Vec3::splat(s.scale), s.rotation, s.position)
+            }
         }
     }
 
     /// The live objects with script ids in `lo..=hi` (`AIiObjectsFromScript`).
     fn objects_by_id(&self, a: u32, b: u32) -> Vec<usize> {
         let (lo, hi) = (a.min(b), a.max(b));
-        (0..self.objects.len()).filter(|&k| (lo..=hi).contains(&self.object_setups[self.objects[k].setup].script_id)).collect()
+        (0..self.objects.len())
+            .filter(|&k| (lo..=hi).contains(&self.object_setups[self.objects[k].setup].script_id))
+            .collect()
     }
 
     /// `obj_create a b`: a new object for each setup in use with a script id
@@ -198,7 +242,17 @@ impl World {
             let flags = s.flags;
             let anim = s.animation.clone().and_then(|n| self.object_anim(&n));
             let cell = std::rc::Rc::new(std::cell::Cell::new(Mat4::IDENTITY));
-            self.objects.push(Object { setup: i, anim, frame: 0, step: 1, stop: 0, animating: false, flags, shade: None, cell: cell.clone() });
+            self.objects.push(Object {
+                setup: i,
+                anim,
+                frame: 0,
+                step: 1,
+                stop: 0,
+                animating: false,
+                flags,
+                shade: None,
+                cell: cell.clone(),
+            });
             let k = self.objects.len() - 1;
             cell.set(self.object_matrix(k));
             // Its particles (`OBrSetParticles`), unless hidden.
@@ -266,7 +320,9 @@ impl World {
         if block && found.iter().any(|&k| self.objects[k].playing()) {
             return true;
         }
-        let Some(anim) = self.object_anim(clip) else { return false };
+        let Some(anim) = self.object_anim(clip) else {
+            return false;
+        };
         for k in found {
             let o = &mut self.objects[k];
             o.anim = Some(anim.clone());
@@ -291,7 +347,12 @@ impl World {
     pub fn object_spheres(&self) -> Vec<(Vec3, f32)> {
         (0..self.objects.len())
             .filter(|&k| self.objects[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
-            .map(|k| (self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius))
+            .map(|k| {
+                (
+                    self.object_matrix(k).w_axis.truncate(),
+                    self.object_setups[self.objects[k].setup].radius,
+                )
+            })
             .collect()
     }
 
@@ -301,11 +362,16 @@ impl World {
     /// it is lit by, if any (`obj_shade`, `OBcFlags_FlatLighting`).
     pub fn object_draws(&self) -> Vec<(PathBuf, Mat4, Option<[f32; 3]>)> {
         (0..self.objects.len())
-            .filter(|&k| self.objects[k].flags & oflag::INVISIBLE == 0 && !self.jello_objects.contains(&k))
+            .filter(|&k| {
+                self.objects[k].flags & oflag::INVISIBLE == 0 && !self.jello_objects.contains(&k)
+            })
             .flat_map(|k| {
                 let m = self.object_matrix(k);
                 let shade = self.objects[k].shade;
-                self.object_setups[self.objects[k].setup].models.iter().map(move |p| (p.clone(), m, shade))
+                self.object_setups[self.objects[k].setup]
+                    .models
+                    .iter()
+                    .map(move |p| (p.clone(), m, shade))
             })
             .collect()
     }
@@ -336,10 +402,16 @@ impl World {
 
     fn object_models(&self, see_through: bool) -> Vec<(PathBuf, Mat4)> {
         (0..self.objects.len())
-            .filter(|&k| self.objects[k].flags & oflag::INVISIBLE == 0 && self.jello_objects.contains(&k) == see_through)
+            .filter(|&k| {
+                self.objects[k].flags & oflag::INVISIBLE == 0
+                    && self.jello_objects.contains(&k) == see_through
+            })
             .flat_map(|k| {
                 let m = self.object_matrix(k);
-                self.object_setups[self.objects[k].setup].models.iter().map(move |p| (p.clone(), m))
+                self.object_setups[self.objects[k].setup]
+                    .models
+                    .iter()
+                    .map(move |p| (p.clone(), m))
             })
             .collect()
     }
@@ -349,7 +421,12 @@ impl World {
         (0..self.objects.len())
             .map(|k| {
                 let o = &self.objects[k];
-                (self.object_setups[o.setup].name.clone(), self.object_matrix(k).w_axis.truncate(), o.frame, o.animating)
+                (
+                    self.object_setups[o.setup].name.clone(),
+                    self.object_matrix(k).w_axis.truncate(),
+                    o.frame,
+                    o.animating,
+                )
             })
             .collect()
     }

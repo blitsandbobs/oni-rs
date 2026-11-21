@@ -74,7 +74,8 @@ impl Open {
 }
 
 fn shade(v: &serde_json::Value) -> Option<u32> {
-    v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+    v.as_str()
+        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
 }
 
 fn line(v: &serde_json::Value) -> Line {
@@ -95,19 +96,39 @@ pub fn page(p: &serde_json::Value) -> Page {
             (_, serde_json::Value::String(s)) => Some(Picture::PartSpec(s.clone())),
             _ => None,
         },
-        text: p["text"].as_array().into_iter().flatten().map(line).collect(),
-        hint: p["hint"].as_array().into_iter().flatten().map(line).collect(),
+        text: p["text"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(line)
+            .collect(),
+        hint: p["hint"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(line)
+            .collect(),
     }
 }
 
 /// A level's consoles (`levels/NN/text_consoles.json`), by lowercase name.
 pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("text_consoles.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-    let Some(consoles) = doc["consoles"].as_object() else { return HashMap::new() };
+    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("text_consoles.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_default();
+    let Some(consoles) = doc["consoles"].as_object() else {
+        return HashMap::new();
+    };
     consoles
         .iter()
         .map(|(name, c)| {
-            let pages = c["pages"].as_array().into_iter().flatten().map(page).collect();
+            let pages = c["pages"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(page)
+                .collect();
             (name.to_ascii_lowercase(), pages)
         })
         .collect()
@@ -115,20 +136,38 @@ pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
 
 /// The dialog's layout (`common/text_console.json`).
 pub fn load_dialog(common: &Path) -> Option<Dialog> {
-    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(common.join("text_console.json")).ok()?).ok()?;
-    let item = |id: i64| doc["items"].as_array().and_then(|a| a.iter().find(|i| i["id"].as_i64() == Some(id)));
-    let r = |i: &serde_json::Value| -> [f32; 4] { std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32) };
+    let doc: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(common.join("text_console.json")).ok()?)
+            .ok()?;
+    let item = |id: i64| {
+        doc["items"]
+            .as_array()
+            .and_then(|a| a.iter().find(|i| i["id"].as_i64() == Some(id)))
+    };
+    let r = |i: &serde_json::Value| -> [f32; 4] {
+        std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32)
+    };
     let (text, next) = (item(110)?, item(102)?);
     // (The Close button: the dialog's cancel item, 2.)
     let close = item(2);
     let f = &next["font"];
     Some(Dialog {
-        size: [doc["size"][0].as_f64()? as f32, doc["size"][1].as_f64()? as f32],
+        size: [
+            doc["size"][0].as_f64()? as f32,
+            doc["size"][1].as_f64()? as f32,
+        ],
         text: r(text),
         button: r(next),
-        button_font: (f["size"].as_u64().unwrap_or(10) as u16, f["style"].as_u64().unwrap_or(0) as u8, shade(&f["shade"]).unwrap_or(0xFFFF_FFFF)),
+        button_font: (
+            f["size"].as_u64().unwrap_or(10) as u16,
+            f["style"].as_u64().unwrap_or(0) as u8,
+            shade(&f["shade"]).unwrap_or(0xFFFF_FFFF),
+        ),
         next: next["title"].as_str().unwrap_or("Next").to_string(),
-        close: close.and_then(|c| c["title"].as_str()).unwrap_or("Close").to_string(),
+        close: close
+            .and_then(|c| c["title"].as_str())
+            .unwrap_or("Close")
+            .to_string(),
     })
 }
 
@@ -138,39 +177,92 @@ pub(super) fn glyphs(font: &text::Font, s: &str, mut x: f32, top: f32) -> Vec<[f
     let chh = font.cell_height() as f32;
     let mut tris = Vec::new();
     for ch in s.chars() {
-        let Some([gx, gy, gw, adv]) = font.glyph(ch) else { continue };
+        let Some([gx, gy, gw, adv]) = font.glyph(ch) else {
+            continue;
+        };
         let cw = gw as f32;
-        let (u0, v0, u1, v1) = (gx as f32 / aw, gy as f32 / ah, (gx as f32 + cw) / aw, (gy as f32 + chh) / ah);
-        tris.extend_from_slice(&[[x, top, u0, v0], [x + cw, top, u1, v0], [x + cw, top + chh, u1, v1], [x, top, u0, v0], [x + cw, top + chh, u1, v1], [x, top + chh, u0, v1]]);
+        let (u0, v0, u1, v1) = (
+            gx as f32 / aw,
+            gy as f32 / ah,
+            (gx as f32 + cw) / aw,
+            (gy as f32 + chh) / ah,
+        );
+        tris.extend_from_slice(&[
+            [x, top, u0, v0],
+            [x + cw, top, u1, v0],
+            [x + cw, top + chh, u1, v1],
+            [x, top, u0, v0],
+            [x + cw, top + chh, u1, v1],
+            [x, top + chh, u0, v1],
+        ]);
         x += adv as f32;
     }
     tris
 }
 
 pub(super) fn rgba(shade: u32) -> [f32; 4] {
-    [((shade >> 16) & 0xFF) as f32 / 255.0, ((shade >> 8) & 0xFF) as f32 / 255.0, (shade & 0xFF) as f32 / 255.0, 1.0]
+    [
+        ((shade >> 16) & 0xFF) as f32 / 255.0,
+        ((shade >> 8) & 0xFF) as f32 / 255.0,
+        (shade & 0xFF) as f32 / 255.0,
+        1.0,
+    ]
 }
 
 /// Glyph runs of `lines` laid down an area (x, y, width, height) from `y`
 /// within it, each in its font, wrapped to the width; what runs past its
 /// foot isn't shown. Returns the height used.
 #[allow(clippy::too_many_arguments)]
-pub fn lines_draws(out: &mut Vec<OverlayDraw>, lines: &[Line], area: [f32; 4], mut y: f32, fonts: &Fonts, fallback: u32) -> f32 {
+pub fn lines_draws(
+    out: &mut Vec<OverlayDraw>,
+    lines: &[Line],
+    area: [f32; 4],
+    mut y: f32,
+    fonts: &Fonts,
+    fallback: u32,
+) -> f32 {
     let [left, top, tw, th] = area;
     let bottom = top + th;
     for l in lines {
         let style = ["plain", "bold", "italic"][usize::from(l.style.min(2))];
-        let Some(font) = fonts.best_styled(l.size, style) else { continue };
+        let Some(font) = fonts.best_styled(l.size, style) else {
+            continue;
+        };
         let shade = l.shade.unwrap_or(fallback);
         let line_h = font.line_height().max(1);
-        let bounds = [left as i32, (top + y) as i32, (left + tw) as i32, bottom as i32];
-        let segments = text::format(font, &fonts.breaking, &l.text, bounds, left as i32, (top + y) as i32, Align::Left, false, shade & 0xFF_FFFF);
-        let n = segments.iter().map(|s| s.top).collect::<std::collections::BTreeSet<_>>().len().max(1);
+        let bounds = [
+            left as i32,
+            (top + y) as i32,
+            (left + tw) as i32,
+            bottom as i32,
+        ];
+        let segments = text::format(
+            font,
+            &fonts.breaking,
+            &l.text,
+            bounds,
+            left as i32,
+            (top + y) as i32,
+            Align::Left,
+            false,
+            shade & 0xFF_FFFF,
+        );
+        let n = segments
+            .iter()
+            .map(|s| s.top)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len()
+            .max(1);
         for s in &segments {
             if s.top as f32 + font.cell_height() as f32 > bottom {
                 continue;
             }
-            out.push(OverlayDraw { texture: Some(font.atlas.clone()), tris: glyphs(font, &s.text, s.x as f32, s.top as f32), color: rgba(shade), additive: false });
+            out.push(OverlayDraw {
+                texture: Some(font.atlas.clone()),
+                tris: glyphs(font, &s.text, s.x as f32, s.top as f32),
+                color: rgba(shade),
+                additive: false,
+            });
         }
         y += (n as i32 * line_h) as f32;
     }
@@ -184,7 +276,16 @@ pub fn lines_draws(out: &mut Vec<OverlayDraw>, lines: &[Line], area: [f32; 4], m
 /// centred in the area over them. `fallback`: the shade of strings with
 /// none of their own.
 #[allow(clippy::too_many_arguments)]
-pub fn page_draws(page: &Page, area: [f32; 4], fonts: &Fonts, part: &dyn Fn(&str) -> Option<PartSpec>, textures: &Path, texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>, fallback: u32, overlay: bool) -> Vec<OverlayDraw> {
+pub fn page_draws(
+    page: &Page,
+    area: [f32; 4],
+    fonts: &Fonts,
+    part: &dyn Fn(&str) -> Option<PartSpec>,
+    textures: &Path,
+    texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>,
+    fallback: u32,
+    overlay: bool,
+) -> Vec<OverlayDraw> {
     let mut out = Vec::new();
     let [left, top, tw, th] = area;
     let texture = |name: &str| -> Option<(PathBuf, [f32; 2])> {
@@ -196,7 +297,10 @@ pub fn page_draws(page: &Page, area: [f32; 4], fonts: &Fonts, part: &dyn Fn(&str
         lines_draws(&mut out, &page.text, area, 0.0, fonts, fallback);
         if let Some(Picture::Texture(name)) = &page.picture {
             if let Some((path, [pw, ph])) = texture(name) {
-                let (x, y) = (left + ((tw - pw) / 2.0).floor(), top + ((th - ph) / 2.0).floor());
+                let (x, y) = (
+                    left + ((tw - pw) / 2.0).floor(),
+                    top + ((th - ph) / 2.0).floor(),
+                );
                 out.push(rect(Some(path), [x, y, x + pw, y + ph], [1.0; 4]));
             }
         }
@@ -228,22 +332,46 @@ pub fn page_draws(page: &Page, area: [f32; 4], fonts: &Fonts, part: &dyn Fn(&str
 /// else `_off`) over `r` (x, y, width, height), its title centred in a font
 /// and shade.
 #[allow(clippy::too_many_arguments)]
-pub fn button_draws(out: &mut Vec<OverlayDraw>, part: &dyn Fn(&str) -> Option<PartSpec>, r: [f32; 4], title: &str, fonts: &Fonts, font: (u16, u8), shade: u32, on: bool) {
+pub fn button_draws(
+    out: &mut Vec<OverlayDraw>,
+    part: &dyn Fn(&str) -> Option<PartSpec>,
+    r: [f32; 4],
+    title: &str,
+    fonts: &Fonts,
+    font: (u16, u8),
+    shade: u32,
+    on: bool,
+) {
     let [bx, by, bw, bh] = r;
-    if let Some(p) = part(if on { "ps_oniUI_button_on" } else { "ps_oniUI_button_off" }) {
+    if let Some(p) = part(if on {
+        "ps_oniUI_button_on"
+    } else {
+        "ps_oniUI_button_off"
+    }) {
         out.extend(p.draw([bx, by], bw, bh));
     }
-    if let Some(f) = fonts.best_styled(font.0, ["plain", "bold", "italic"][usize::from(font.1.min(2))]) {
+    if let Some(f) = fonts.best_styled(
+        font.0,
+        ["plain", "bold", "italic"][usize::from(font.1.min(2))],
+    ) {
         let width: i32 = title.chars().filter_map(|c| f.glyph(c)).map(|g| g[3]).sum();
         let x = (bx + (bw - width as f32) / 2.0).floor();
         let t = (by + (bh - f.cell_height() as f32) / 2.0).floor();
-        out.push(OverlayDraw { texture: Some(f.atlas.clone()), tris: glyphs(f, title, x, t), color: rgba(shade), additive: false });
+        out.push(OverlayDraw {
+            texture: Some(f.atlas.clone()),
+            tris: glyphs(f, title, x, t),
+            color: rgba(shade),
+            additive: false,
+        });
     }
 }
 
 /// The dialog's button on a `w` × `h` screen: x, y, width, height.
 pub fn button_rect(d: &Dialog, w: f32, h: f32) -> [f32; 4] {
-    let at = [((w - d.size[0]) * 0.5).floor().max(0.0), ((h - d.size[1]) * 0.5).floor().max(0.0)];
+    let at = [
+        ((w - d.size[0]) * 0.5).floor().max(0.0),
+        ((h - d.size[1]) * 0.5).floor().max(0.0),
+    ];
     let [bx, by, bw, bh] = d.button;
     [at[0] + bx, at[1] + by, bw, bh]
 }
@@ -252,23 +380,59 @@ pub fn button_rect(d: &Dialog, w: f32, h: f32) -> [f32; 4] {
 /// size that fits): the in-game UI's background and outline, the page in
 /// the text area, the button.
 #[allow(clippy::too_many_arguments)]
-pub fn draw(open: &Open, d: &Dialog, fonts: &Fonts, part: &dyn Fn(&str) -> Option<PartSpec>, textures: &Path, texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>, w: f32, h: f32) -> Vec<OverlayDraw> {
+pub fn draw(
+    open: &Open,
+    d: &Dialog,
+    fonts: &Fonts,
+    part: &dyn Fn(&str) -> Option<PartSpec>,
+    textures: &Path,
+    texture_size: &dyn Fn(&Path) -> Option<[f32; 2]>,
+    w: f32,
+    h: f32,
+) -> Vec<OverlayDraw> {
     let mut out = Vec::new();
-    let at = [((w - d.size[0]) * 0.5).floor().max(0.0), ((h - d.size[1]) * 0.5).floor().max(0.0)];
+    let at = [
+        ((w - d.size[0]) * 0.5).floor().max(0.0),
+        ((h - d.size[1]) * 0.5).floor().max(0.0),
+    ];
     match part("ps_oniUI_background") {
         Some(p) => out.extend(p.draw(at, d.size[0], d.size[1])),
-        None => out.push(rect(None, [at[0], at[1], at[0] + d.size[0], at[1] + d.size[1]], [0.0, 0.0, 0.0, 0.85])),
+        None => out.push(rect(
+            None,
+            [at[0], at[1], at[0] + d.size[0], at[1] + d.size[1]],
+            [0.0, 0.0, 0.0, 0.85],
+        )),
     }
     if let Some(p) = part("ps_oniUI_outline") {
         out.extend(p.draw(at, d.size[0], d.size[1]));
     }
-    let Some(page) = open.pages.get(open.page) else { return out };
+    let Some(page) = open.pages.get(open.page) else {
+        return out;
+    };
     let [tx, ty, tw, th] = d.text;
-    out.extend(page_draws(page, [at[0] + tx, at[1] + ty, tw, th], fonts, part, textures, texture_size, 0xFFFF_FFFF, false));
+    out.extend(page_draws(
+        page,
+        [at[0] + tx, at[1] + ty, tw, th],
+        fonts,
+        part,
+        textures,
+        texture_size,
+        0xFFFF_FFFF,
+        false,
+    ));
     // The button: Next, or Close on the last page; its title centred.
     let [bx, by, bw, bh] = d.button;
     let (size, style, shade) = d.button_font;
     let title = if open.last() { &d.close } else { &d.next };
-    button_draws(&mut out, part, [at[0] + bx, at[1] + by, bw, bh], title, fonts, (size, style), shade, false);
+    button_draws(
+        &mut out,
+        part,
+        [at[0] + bx, at[1] + by, bw, bh],
+        title,
+        fonts,
+        (size, style),
+        shade,
+        false,
+    );
     out
 }

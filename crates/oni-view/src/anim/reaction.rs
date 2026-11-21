@@ -196,24 +196,52 @@ mod tests {
     #[test]
     fn a_standing_victim_takes_the_hit_as_named() {
         assert_eq!(adapt(ty::HIT_HEAD, STANDING, Quirks::FIXED), ty::HIT_HEAD);
-        assert_eq!(adapt(ty::KNOCKDOWN_HEAD, STANDING, Quirks::FIXED), ty::KNOCKDOWN_HEAD);
+        assert_eq!(
+            adapt(ty::KNOCKDOWN_HEAD, STANDING, Quirks::FIXED),
+            ty::KNOCKDOWN_HEAD
+        );
     }
 
     #[test]
     fn situation_adapts_the_reaction() {
-        let air = Victim { airborne: true, ..STANDING };
+        let air = Victim {
+            airborne: true,
+            ..STANDING
+        };
         assert_eq!(adapt(ty::HIT_BODY, air, Quirks::FIXED), ty::KNOCKDOWN_BODY);
-        let crouch = Victim { to_state: st::CROUCH, ..STANDING };
+        let crouch = Victim {
+            to_state: st::CROUCH,
+            ..STANDING
+        };
         assert_eq!(adapt(ty::HIT_FOOT, crouch, Quirks::FIXED), ty::HIT_CROUCH);
-        assert_eq!(adapt(ty::KNOCKDOWN_HEAD, crouch, Quirks::FIXED), ty::KNOCKDOWN_CROUCH);
-        let down = Victim { to_state: st::FALLEN_BACK, ..STANDING };
-        assert_eq!(adapt(ty::KNOCKDOWN_HEAD, down, Quirks::FIXED), ty::HIT_FALLEN);
-        let tough = Victim { resistant: true, ..STANDING };
+        assert_eq!(
+            adapt(ty::KNOCKDOWN_HEAD, crouch, Quirks::FIXED),
+            ty::KNOCKDOWN_CROUCH
+        );
+        let down = Victim {
+            to_state: st::FALLEN_BACK,
+            ..STANDING
+        };
+        assert_eq!(
+            adapt(ty::KNOCKDOWN_HEAD, down, Quirks::FIXED),
+            ty::HIT_FALLEN
+        );
+        let tough = Victim {
+            resistant: true,
+            ..STANDING
+        };
         assert_eq!(adapt(ty::HIT_HEAD, tough, Quirks::FIXED), ty::HIT_OVERLAY);
         assert_eq!(adapt(ty::KNOCKDOWN_BODY, tough, Quirks::FIXED), ty::STAGGER);
         // Airborne beats resistance.
-        let tough_air = Victim { airborne: true, resistant: true, ..STANDING };
-        assert_eq!(adapt(ty::HIT_HEAD, tough_air, Quirks::FIXED), ty::KNOCKDOWN_HEAD);
+        let tough_air = Victim {
+            airborne: true,
+            resistant: true,
+            ..STANDING
+        };
+        assert_eq!(
+            adapt(ty::HIT_HEAD, tough_air, Quirks::FIXED),
+            ty::KNOCKDOWN_HEAD
+        );
     }
 
     #[test]
@@ -226,8 +254,14 @@ mod tests {
 
     #[test]
     fn knockdown_upgrade_quirk() {
-        assert_eq!(to_knockdown(ty::KNOCKDOWN_FOOT, Quirks::FIXED), ty::KNOCKDOWN_FOOT);
-        assert_eq!(to_knockdown(ty::KNOCKDOWN_FOOT, Quirks::FAITHFUL), ty::KNOCKDOWN_HEAD);
+        assert_eq!(
+            to_knockdown(ty::KNOCKDOWN_FOOT, Quirks::FIXED),
+            ty::KNOCKDOWN_FOOT
+        );
+        assert_eq!(
+            to_knockdown(ty::KNOCKDOWN_FOOT, Quirks::FAITHFUL),
+            ty::KNOCKDOWN_HEAD
+        );
         assert_eq!(to_knockdown(ty::STAGGER, Quirks::FIXED), ty::KNOCKDOWN_HEAD);
     }
 }

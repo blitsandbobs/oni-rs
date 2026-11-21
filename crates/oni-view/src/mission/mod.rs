@@ -23,7 +23,10 @@ pub trait Host {
     fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>>;
     /// A clip by name from any character's animations (as a one-clip
     /// collection), for a script playing it on someone else.
-    fn clip(&mut self, _name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
+    fn clip(
+        &mut self,
+        _name: &str,
+    ) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
         None
     }
     /// The character classes (a placement's costume, its default melee).
@@ -96,7 +99,11 @@ impl State {
         let key = name.to_ascii_lowercase();
         // (Else the subtitles, by the name without its first letter, as the
         // `message` command looks — `crate::hud::Hud::message`.)
-        let raw = self.texts.get(&key).map(String::as_str).or_else(|| self.subtitles.find(name.get(1..).unwrap_or("")))?;
+        let raw = self
+            .texts
+            .get(&key)
+            .map(String::as_str)
+            .or_else(|| self.subtitles.find(name.get(1..).unwrap_or("")))?;
         // `[o.text]` / `[c.text]`: styled spans.
         let mut out = String::new();
         let mut chars = raw.chars().peekable();
@@ -148,21 +155,34 @@ impl Mission {
         let chunk = std::fs::read_to_string(level_dir.join("scripts.lua"))
             .map_err(|e| format!("{}: {e}", level_dir.join("scripts.lua").display()))?;
         let lua = Lua::new();
-        lua.load(include_str!("prelude.lua")).set_name("prelude").exec().map_err(|e| e.to_string())?;
+        lua.load(include_str!("prelude.lua"))
+            .set_name("prelude")
+            .exec()
+            .map_err(|e| e.to_string())?;
         let load: Function = lua.globals().get("__load").map_err(|e| e.to_string())?;
-        load.call::<()>((chunk, "scripts")).map_err(|e| e.to_string())?;
+        load.call::<()>((chunk, "scripts"))
+            .map_err(|e| e.to_string())?;
         let mut state = State::default();
         state.vars.insert("save_point".into(), Value::Integer(0));
-        let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("../../common/messages.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let doc: serde_json::Value =
+            std::fs::read_to_string(level_dir.join("../../common/messages.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
         state.texts = doc["messages"]
             .as_object()
-            .map(|m| m.iter().map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())).collect())
+            .map(|m| {
+                m.iter()
+                    .map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
         state.subtitles = crate::hud::Subtitles::from_json(&doc["subtitles"]);
-        Ok(Mission { lua, tasks: Vec::new(), state })
+        Ok(Mission {
+            lua,
+            tasks: Vec::new(),
+            state,
+        })
     }
 
     /// Starts the level (`scripting/BSL.md`, *Level start*): the player is
@@ -170,7 +190,8 @@ impl Mission {
     /// spawned (their spawn scripts run on the first tick), then `main`
     /// runs.
     pub fn begin(&mut self, host: &mut dyn Host) {
-        self.state.triggers = commands::Triggers::load(&host.world().level_dir.join("triggers.json"));
+        self.state.triggers =
+            commands::Triggers::load(&host.world().level_dir.join("triggers.json"));
         let placed = host.world().level_ai.characters.clone();
         if let Some(k) = placed.iter().position(|c| c.has("player")) {
             let p = &placed[k];
@@ -187,7 +208,10 @@ impl Mission {
             // (Its event scripts: the player's die script loses the level.)
             self.state.scripts.insert(0, p.scripts.clone());
         }
-        for c in placed.iter().filter(|c| !c.has("player") && !c.has("notInitiallyPresent")) {
+        for c in placed
+            .iter()
+            .filter(|c| !c.has("player") && !c.has("notInitiallyPresent"))
+        {
             if let Some((script, arg)) = commands::spawn(&mut self.state, host, &c.name, false) {
                 self.state.pending_events.push((script, vec![arg]));
             }
@@ -201,7 +225,11 @@ impl Mission {
     /// `F.name = function() C.command(…) SLEEP(n) end`) — for tests that
     /// define their own script functions.
     pub fn exec(&self, code: &str) -> Result<(), String> {
-        self.lua.load(code).set_name("exec").exec().map_err(|e| e.to_string())
+        self.lua
+            .load(code)
+            .set_name("exec")
+            .exec()
+            .map_err(|e| e.to_string())
     }
 
     fn function(&self, name: &str) -> Option<Function> {
@@ -217,16 +245,20 @@ impl Mission {
     }
 
     fn start_for(&mut self, name: &str, args: &[&str], waiter: Option<usize>) -> bool {
-        let Some(f) = self.function(name) else { return false };
+        let Some(f) = self.function(name) else {
+            return false;
+        };
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         let lua = &self.lua;
-        let made = lua.create_function(move |_, ()| Ok(args.clone())).and_then(|a| {
-            // A wrapper so the task's first resume passes the arguments.
-            let w: Function = lua
-                .load("local f, a = ... return function() f(table.unpack(a())) end")
-                .call((f, a))?;
-            lua.create_thread(w)
-        });
+        let made = lua
+            .create_function(move |_, ()| Ok(args.clone()))
+            .and_then(|a| {
+                // A wrapper so the task's first resume passes the arguments.
+                let w: Function = lua
+                    .load("local f, a = ... return function() f(table.unpack(a())) end")
+                    .call((f, a))?;
+                lua.create_thread(w)
+            });
         match made {
             Ok(co) => {
                 self.state.started.push((co, name.to_string(), waiter, 0));
@@ -246,7 +278,12 @@ impl Mission {
         // Messages shown for a while go away.
         let now = self.state.now;
         let st = &mut self.state;
-        let expired: Vec<String> = st.message_until.iter().filter(|(_, &t)| t <= now).map(|(m, _)| m.clone()).collect();
+        let expired: Vec<String> = st
+            .message_until
+            .iter()
+            .filter(|(_, &t)| t <= now)
+            .map(|(m, _)| m.clone())
+            .collect();
         for m in expired {
             st.message_until.remove(&m);
             st.messages.retain(|x| *x != m);
@@ -262,12 +299,16 @@ impl Mission {
         }
         // Patrol scripts (`patrolscriptNNNN`, with the character's name).
         for id in 0..host.world().fighters.len() {
-            let Some(crate::ai::Brain::Agent(a)) = host.world().fighters[id].brain.as_mut() else { continue };
+            let Some(crate::ai::Brain::Agent(a)) = host.world().fighters[id].brain.as_mut() else {
+                continue;
+            };
             let (asked, who) = (std::mem::take(&mut a.scripts), a.name.clone());
             for name in asked {
                 if !self.start_for(&name, &[&who], Some(id)) {
                     eprintln!("script: no patrol script {name}");
-                    if let Some(crate::ai::Brain::Agent(a)) = host.world().fighters[id].brain.as_mut() {
+                    if let Some(crate::ai::Brain::Agent(a)) =
+                        host.world().fighters[id].brain.as_mut()
+                    {
                         a.script_done();
                     }
                 }
@@ -278,16 +319,22 @@ impl Mission {
         // (The dispatcher and the loop below share the state.)
         let cell = std::cell::RefCell::new(std::mem::take(state));
         let result = lua.scope(|scope| {
-            let dispatch = scope.create_function_mut(|lua, (name, args): (String, Variadic<Value>)| {
-                commands::dispatch(&mut cell.borrow_mut(), host, lua, &name, args)
-            })?;
+            let dispatch =
+                scope.create_function_mut(|lua, (name, args): (String, Variadic<Value>)| {
+                    commands::dispatch(&mut cell.borrow_mut(), host, lua, &name, args)
+                })?;
             lua.globals().set("__cmd", dispatch)?;
             let now = cell.borrow().now;
             // Tasks started now run this tick; so do those they start.
             let mut i = 0;
             loop {
                 for (co, label, waiter, delay) in cell.borrow_mut().started.drain(..) {
-                    tasks.push(Task { co, wake: now + delay, label, waiter });
+                    tasks.push(Task {
+                        co,
+                        wake: now + delay,
+                        label,
+                        waiter,
+                    });
                 }
                 if i >= tasks.len() {
                     break;
@@ -296,7 +343,9 @@ impl Mission {
                     let t = &mut tasks[i];
                     match t.co.resume::<MultiValue>(()) {
                         Ok(v) if t.co.status() == ThreadStatus::Resumable => {
-                            let n = v.front().and_then(|x| x.as_number().or(x.as_integer().map(|i| i as f64)));
+                            let n = v
+                                .front()
+                                .and_then(|x| x.as_number().or(x.as_integer().map(|i| i as f64)));
                             t.wake = now + n.unwrap_or(1.0).max(1.0) as u64;
                         }
                         Ok(_) => t.wake = u64::MAX, // done
@@ -312,10 +361,13 @@ impl Mission {
                 i += 1;
             }
             // Beyond the task limit, the newest waiting tasks die.
-            let waiting: Vec<usize> = (0..tasks.len()).filter(|&k| tasks[k].wake != u64::MAX).collect();
+            let waiting: Vec<usize> = (0..tasks.len())
+                .filter(|&k| tasks[k].wake != u64::MAX)
+                .collect();
             if waiting.len() > MAX_TASKS {
                 for &k in &waiting[MAX_TASKS..] {
-                    cell.borrow_mut().error(format!("{}: no task slot left (32)", tasks[k].label));
+                    cell.borrow_mut()
+                        .error(format!("{}: no task slot left (32)", tasks[k].label));
                     tasks[k].wake = u64::MAX;
                 }
             }
@@ -326,7 +378,12 @@ impl Mission {
             Ok(())
         });
         for id in finished_waits {
-            if let Some(crate::ai::Brain::Agent(a)) = host.world().fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+            if let Some(crate::ai::Brain::Agent(a)) = host
+                .world()
+                .fighters
+                .get_mut(id)
+                .and_then(|f| f.brain.as_mut())
+            {
                 a.script_done();
             }
         }
@@ -366,7 +423,10 @@ mod tests {
         fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
             self.classes.melee_by_id(id)
         }
-        fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
+        fn clip(
+            &mut self,
+            name: &str,
+        ) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
             self.classes.clip(name)
         }
         fn classes(&self) -> Option<&crate::classes::Classes> {
@@ -379,14 +439,24 @@ mod tests {
     /// failures in level order. None without the converted assets.
     fn each_level(check: impl Fn(&Path, u16, &Path) -> Vec<String> + Sync) -> Vec<String> {
         let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../../generated/oni");
-        let Ok(levels) = std::fs::read_dir(root.join("levels")) else { return Vec::new() };
-        let mut dirs: Vec<PathBuf> = levels.flatten().map(|e| e.path()).filter(|p| p.join("scripts.lua").exists()).collect();
+        let Ok(levels) = std::fs::read_dir(root.join("levels")) else {
+            return Vec::new();
+        };
+        let mut dirs: Vec<PathBuf> = levels
+            .flatten()
+            .map(|e| e.path())
+            .filter(|p| p.join("scripts.lua").exists())
+            .collect();
         dirs.sort();
         std::thread::scope(|s| {
             let runs: Vec<_> = dirs
                 .iter()
                 .map(|dir| {
-                    let level: u16 = dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
+                    let level: u16 = dir
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .and_then(|n| n.parse().ok())
+                        .unwrap_or(1);
                     let (root, check) = (&root, &check);
                     std::thread::Builder::new()
                         .name(format!("level {level}"))
@@ -395,7 +465,12 @@ mod tests {
                         .expect("a level's thread")
                 })
                 .collect();
-            runs.into_iter().flat_map(|r| r.join().unwrap_or_else(|_| vec!["a level's check panicked".into()])).collect()
+            runs.into_iter()
+                .flat_map(|r| {
+                    r.join()
+                        .unwrap_or_else(|_| vec!["a level's check panicked".into()])
+                })
+                .collect()
         })
     }
 
@@ -405,11 +480,18 @@ mod tests {
     #[test]
     fn every_level_begins_without_script_errors() {
         let failures = each_level(|root, level, dir| {
-            let Ok(classes) = crate::classes::Classes::open(root, level) else { return Vec::new() };
+            let Ok(classes) = crate::classes::Classes::open(root, level) else {
+                return Vec::new();
+            };
             // (No level geometry: nothing to stand on.)
-            let mut host = Headless { world: World::new(), classes };
+            let mut host = Headless {
+                world: World::new(),
+                classes,
+            };
             host.world.load_level(dir);
-            let Ok(player) = host.kind("konoko_generic") else { return Vec::new() };
+            let Ok(player) = host.kind("konoko_generic") else {
+                return Vec::new();
+            };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
             let mut m = match Mission::load(dir) {
                 Ok(m) => m,
@@ -420,8 +502,17 @@ mod tests {
                 host.world.step(0);
                 m.tick(&mut host);
             }
-            eprintln!("level {level}: {} spawned, {} tasks, {} errors", m.state.spawned.len(), m.tasks(), m.state.errors.len());
-            m.state.errors.iter().map(|e| format!("level {level}: {e}")).collect()
+            eprintln!(
+                "level {level}: {} spawned, {} tasks, {} errors",
+                m.state.spawned.len(),
+                m.tasks(),
+                m.state.errors.len()
+            );
+            m.state
+                .errors
+                .iter()
+                .map(|e| format!("level {level}: {e}"))
+                .collect()
         });
         assert!(failures.is_empty(), "{failures:#?}");
     }
@@ -432,19 +523,33 @@ mod tests {
     #[test]
     fn every_trigger_volume_runs_without_script_errors() {
         let report = each_level(|root, level, dir| {
-            let Ok(classes) = crate::classes::Classes::open(root, level) else { return Vec::new() };
-            let mut host = Headless { world: World::new(), classes };
+            let Ok(classes) = crate::classes::Classes::open(root, level) else {
+                return Vec::new();
+            };
+            let mut host = Headless {
+                world: World::new(),
+                classes,
+            };
             host.world.load_level(dir);
-            let Ok(player) = host.kind("konoko_generic") else { return Vec::new() };
+            let Ok(player) = host.kind("konoko_generic") else {
+                return Vec::new();
+            };
             host.world.spawn(&player, glam::Vec3::ZERO, 0.0, false);
-            let Ok(mut m) = Mission::load(dir) else { return Vec::new() };
+            let Ok(mut m) = Mission::load(dir) else {
+                return Vec::new();
+            };
             m.begin(&mut host);
             let centres: Vec<glam::Vec3> = m
                 .state
                 .triggers
                 .volumes
                 .iter()
-                .map(|v| v.corner + v.axes[0] * v.size.x * 0.5 + v.axes[2] * v.size.z * 0.5 + v.axes[1] * 1.0)
+                .map(|v| {
+                    v.corner
+                        + v.axes[0] * v.size.x * 0.5
+                        + v.axes[2] * v.size.z * 0.5
+                        + v.axes[1] * 1.0
+                })
                 .collect();
             for c in centres {
                 host.world.teleport(0, c, None);
@@ -467,7 +572,11 @@ mod tests {
             for w in &m.state.warnings {
                 eprintln!("  level {level} warning: {w}");
             }
-            m.state.errors.iter().map(|e| format!("level {level}: {e}")).collect()
+            m.state
+                .errors
+                .iter()
+                .map(|e| format!("level {level}: {e}"))
+                .collect()
         });
         assert!(report.is_empty(), "{report:#?}");
     }

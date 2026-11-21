@@ -313,7 +313,13 @@ impl Character {
     /// Like [`pose_blended`](Self::pose_blended), with `layers` on top of
     /// the pose (overlays, aim): each replaces its `replace` parts' rotation
     /// and multiplies its rotation onto its other `used` parts, by `weight`.
-    pub fn pose_layered(&self, clip: Option<&Clip>, time: f32, stitch: Option<(&[Quat], f32)>, layers: &[Layer]) -> Vec<Mat4> {
+    pub fn pose_layered(
+        &self,
+        clip: Option<&Clip>,
+        time: f32,
+        stitch: Option<(&[Quat], f32)>,
+        layers: &[Layer],
+    ) -> Vec<Mat4> {
         let n = self.bones.len();
         let mut world = vec![Mat4::IDENTITY; n];
         for i in 0..n {
@@ -329,7 +335,9 @@ impl Character {
             }
             for l in layers {
                 let bit = 1u32 << i;
-                let Some(&q) = l.rotations.get(i) else { continue };
+                let Some(&q) = l.rotations.get(i) else {
+                    continue;
+                };
                 if l.replace & bit != 0 {
                     rot = nlerp(rot, q, l.weight);
                 } else if l.used & bit != 0 {
@@ -499,10 +507,13 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
                         color: [1.0, 1.0, 1.0],
                     });
                 }
-                let bound_box = verts.iter().fold((Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)), |(lo, hi), v| {
-                    let p = Vec3::from(v.pos);
-                    (lo.min(p), hi.max(p))
-                });
+                let bound_box = verts.iter().fold(
+                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                    |(lo, hi), v| {
+                        let p = Vec3::from(v.pos);
+                        (lo.min(p), hi.max(p))
+                    },
+                );
                 parts.push(Part {
                     bone: i,
                     bound_box,
@@ -617,7 +628,9 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
     let (atomic_start, atomic_end) = match ex["atomic"].as_object() {
         Some(r) => (
             r.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
-            r.get("end").and_then(|v| v.as_u64()).map_or(u16::MAX, |v| v as u16),
+            r.get("end")
+                .and_then(|v| v.as_u64())
+                .map_or(u16::MAX, |v| v as u16),
         ),
         None => (1, 0),
     };
@@ -665,9 +678,16 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .unwrap_or_default(),
         direct: ex["direct"]
             .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(String::from)).collect())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(String::from))
+                    .collect()
+            })
             .unwrap_or_default(),
-        action_frame: ex["actionFrame"].as_i64().filter(|&v| v >= 0).map(|v| v as u16),
+        action_frame: ex["actionFrame"]
+            .as_i64()
+            .filter(|&v| v >= 0)
+            .map(|v| v as u16),
         atomic_start,
         atomic_end,
         varient_end: named_bits(&ex["variantEnd"], &sc::VARIANTS) as u16,
@@ -737,18 +757,37 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .unwrap_or_default(),
         footsteps: ex["footsteps"]
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_u64().map(|v| v as u16)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_u64().map(|v| v as u16))
+                    .collect()
+            })
             .unwrap_or_default(),
         footstep_kinds: ex["footstepKinds"]
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_u64().map(|v| v as u16)).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_u64().map(|v| v as u16))
+                    .collect()
+            })
             .unwrap_or_default(),
         attack_name: ex["attackName"].as_str().unwrap_or("").to_string(),
         sound_frame: ex["soundFrame"].as_u64().unwrap_or(0) as u16,
-        vocalization: ex["vocalization"].as_str().and_then(|v| oni_schema::VOCALIZATIONS.iter().position(|n| *n == v)),
+        vocalization: ex["vocalization"]
+            .as_str()
+            .and_then(|v| oni_schema::VOCALIZATIONS.iter().position(|n| *n == v)),
         sounds: ex["sounds"]
             .as_array()
-            .map(|a| a.iter().filter_map(|s| Some((s["impulse"].as_str()?.to_string(), s["frame"].as_u64()? as u16))).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|s| {
+                        Some((
+                            s["impulse"].as_str()?.to_string(),
+                            s["frame"].as_u64()? as u16,
+                        ))
+                    })
+                    .collect()
+            })
             .unwrap_or_default(),
         self_damage: ex["selfDamage"]
             .as_array()

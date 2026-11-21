@@ -31,7 +31,11 @@ pub struct Fights {
 impl Fights {
     /// `me` fights `target` (leaving any other fight).
     pub fn join(&mut self, me: usize, target: usize) {
-        if self.fights.get(&target).is_some_and(|f| f.attackers.contains(&me)) {
+        if self
+            .fights
+            .get(&target)
+            .is_some_and(|f| f.attackers.contains(&me))
+        {
             return;
         }
         self.leave(me);
@@ -86,7 +90,12 @@ impl Fights {
     /// `me` dealt (`dealt`) or took (`!dealt`) `damage`: its slot lasts
     /// longer or shorter.
     pub fn damage(&mut self, me: usize, damage: i32, dealt: bool) {
-        let delta = i64::from(damage) * if dealt { PER_DAMAGE_DEALT } else { -PER_DAMAGE_TAKEN };
+        let delta = i64::from(damage)
+            * if dealt {
+                PER_DAMAGE_DEALT
+            } else {
+                -PER_DAMAGE_TAKEN
+            };
         if let Some(f) = self.fight_of(me) {
             if let Some(s) = f.slots.iter_mut().find(|(h, _)| *h == me) {
                 s.1 += delta;
@@ -96,12 +105,16 @@ impl Fights {
 
     /// Whether `me` holds an attack slot.
     pub fn holds_slot(&self, me: usize) -> bool {
-        self.fights.values().any(|f| f.slots.iter().any(|&(h, _)| h == me))
+        self.fights
+            .values()
+            .any(|f| f.slots.iter().any(|&(h, _)| h == me))
     }
 
     /// Everyone fighting `target`.
     pub fn attackers(&self, target: usize) -> &[usize] {
-        self.fights.get(&target).map_or(&[], |f| f.attackers.as_slice())
+        self.fights
+            .get(&target)
+            .map_or(&[], |f| f.attackers.as_slice())
     }
 }
 
@@ -136,7 +149,10 @@ mod tests {
         f.join(3, 0);
         assert!(f.slot(1, 0));
         f.damage(1, 5, true); // +50
-        assert!(f.slot(1, SLOT_TICKS + 40), "still within the stretched slot");
+        assert!(
+            f.slot(1, SLOT_TICKS + 40),
+            "still within the stretched slot"
+        );
         f.damage(1, 20, false); // −120: now expired, and others are waiting
         assert!(!f.slot(1, SLOT_TICKS + 40), "handed on");
     }

@@ -34,7 +34,10 @@ impl Output {
                         m.mix(Some(&mut stereo), frames);
                     }
                     for (f, out) in data.chunks_mut(channels).enumerate() {
-                        let (l, r) = (stereo[f * 2].clamp(-1.0, 1.0), stereo[f * 2 + 1].clamp(-1.0, 1.0));
+                        let (l, r) = (
+                            stereo[f * 2].clamp(-1.0, 1.0),
+                            stereo[f * 2 + 1].clamp(-1.0, 1.0),
+                        );
                         for (c, s) in out.iter_mut().enumerate() {
                             *s = match (channels, c) {
                                 (1, _) => (l + r) * 0.5,
@@ -53,4 +56,3 @@ impl Output {
         Some(Output { _stream: stream })
     }
 }
-

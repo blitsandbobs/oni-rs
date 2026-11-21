@@ -23,8 +23,8 @@ use crate::anim::input::{key, Buttons};
 use crate::anim::motion::{ClassTuning, Motion};
 use crate::anim::reaction;
 use crate::anim::types::{flag, st, ty, var};
-use crate::control::{Facing, MED_TURN, SLOW_TURN};
 use crate::chrphys;
+use crate::control::{Facing, MED_TURN, SLOW_TURN};
 use crate::quirks::Quirks;
 use crate::render::CharDraw;
 use crate::skel::Character;
@@ -392,7 +392,10 @@ impl Fighter {
         let foot_offset = capsule_dims(&character);
         let part_spheres = part_spheres(&character);
         let feet = Vec3::new(spawn_pos.x, spawn_pos.y + foot_offset, spawn_pos.z);
-        let physics = chrphys::Body { feet, grounded: false };
+        let physics = chrphys::Body {
+            feet,
+            grounded: false,
+        };
         let mut motion = Motion::new(anims, tuning);
         motion.idle_enabled = !passive;
         motion.feet_y = feet.y;
@@ -567,7 +570,10 @@ impl Fighter {
         decide::think(&mut self.motion, &ch, &mut self.facing, &controls);
         self.facing.rotate(self.motion.take_facing_change());
         self.track_throw();
-        if std::mem::take(&mut self.motion.attack_began) && self.player && self.motion.air.frames == 0 {
+        if std::mem::take(&mut self.motion.attack_began)
+            && self.player
+            && self.motion.air.frames == 0
+        {
             self.face_opponent(opponents);
         }
         self.motion.count_down(&ch);
@@ -624,9 +630,11 @@ impl Fighter {
         if self.motion.frame == self.motion.length() / 2 {
             use crate::ai::perception::Stimulus;
             self.noise = match self.motion.kind {
-                ty::CROUCH_FORWARD | ty::CROUCH_BACK | ty::CROUCH_LEFT | ty::CROUCH_RIGHT | ty::SLIDE => {
-                    Some((Stimulus::SoundIgnore, 60.0))
-                }
+                ty::CROUCH_FORWARD
+                | ty::CROUCH_BACK
+                | ty::CROUCH_LEFT
+                | ty::CROUCH_RIGHT
+                | ty::SLIDE => Some((Stimulus::SoundIgnore, 60.0)),
                 ty::TAUNT => Some((Stimulus::SoundInteresting, 150.0)),
                 _ => None,
             };
@@ -638,10 +646,17 @@ impl Fighter {
         // makes — the sound, and the noise the AI hears (`docs/AUDIO.md`,
         // *Impact effects*) — at the foot that came down.
         let clip = self.motion.clip_of(played.0);
-        if let Some(k) = clip.footsteps.iter().position(|&f| f == played.1).filter(|_| self.motion.air.frames == 0) {
+        if let Some(k) = clip
+            .footsteps
+            .iter()
+            .position(|&f| f == played.1)
+            .filter(|_| self.motion.air.frames == 0)
+        {
             let kind_name = oni_schema::name(&oni_schema::ANIM_TYPES, clip.anim_type).unwrap_or("");
             if let Some(mut kind) = crate::impacts::anim_impact(kind_name) {
-                if kind == crate::impacts::anim::RUN && clip.varient & crate::anim::types::var::SPRINT != 0 {
+                if kind == crate::impacts::anim::RUN
+                    && clip.varient & crate::anim::types::var::SPRINT != 0
+                {
                     kind = crate::impacts::anim::SPRINT;
                 }
                 let feet = self.feet();
@@ -661,7 +676,11 @@ impl Fighter {
         // A clip can hurt whoever plays it at set frames (a throw's victim
         // hitting the floor).
         let wound = self.motion.self_damage();
-        let wound = if wound > 0 && self.thrown_by.is_some() { (wound as f32 * self.thrown_potency).round() as i32 } else { wound };
+        let wound = if wound > 0 && self.thrown_by.is_some() {
+            (wound as f32 * self.thrown_potency).round() as i32
+        } else {
+            wound
+        };
         if wound > 0 {
             self.take_damage(wound, Vec3::ZERO);
             eprintln!("thrown: {wound} damage (hp {})", self.hp);
@@ -683,7 +702,11 @@ impl Fighter {
         let spheres = self.body_spheres();
         let part = |k: usize, or: Vec3| spheres.iter().find(|s| s.0 == k).map_or(or, |s| s.1);
         let feet = self.feet();
-        [part(0, feet + Vec3::Y * 8.0), part(10, feet + Vec3::Y * 15.0), feet + Vec3::Y]
+        [
+            part(0, feet + Vec3::Y * 8.0),
+            part(10, feet + Vec3::Y * 15.0),
+            feet + Vec3::Y,
+        ]
     }
 
     /// A startled jump toward something at `at`: the startle animation for
@@ -691,7 +714,8 @@ impl Fighter {
     pub fn startle(&mut self, at: Vec3) {
         use crate::ai::melee::tables::ty;
         let d = at - self.feet();
-        let off = (d.x.atan2(d.z) - self.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+        let off = (d.x.atan2(d.z) - self.facing.facing + std::f32::consts::PI)
+            .rem_euclid(std::f32::consts::TAU)
             - std::f32::consts::PI;
         let q = std::f32::consts::FRAC_PI_4;
         let kind = if off.abs() <= q {
@@ -706,11 +730,15 @@ impl Fighter {
         // Into the fight stance (the startle clips are fight-stance ones).
         self.motion.fight_mode();
         let ch = self.character.clone();
-        if let Some(clip) = self.motion.request(&ch, crate::anim::motion::Urge::Force, false, ty(kind)) {
+        if let Some(clip) =
+            self.motion
+                .request(&ch, crate::anim::motion::Urge::Force, false, ty(kind))
+        {
             // Over the clip the body turns to face the contact.
             let rotation = self.motion.clip_of(clip).final_rotation;
             let want = d.x.atan2(d.z);
-            let delta = (want - self.facing.facing - rotation + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            let delta = (want - self.facing.facing - rotation + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
                 - std::f32::consts::PI;
             self.startling = Some((self.facing.facing, delta));
             eprintln!("perception: startled ({kind})");
@@ -720,7 +748,9 @@ impl Fighter {
     /// While startled: turn by the startle's share for this frame. Returns
     /// whether it is still startled.
     pub fn startle_turn(&mut self) -> bool {
-        let Some((start, delta)) = self.startling else { return false };
+        let Some((start, delta)) = self.startling else {
+            return false;
+        };
         let startle = matches!(
             oni_schema::name(&oni_schema::ANIM_TYPES, self.motion.kind),
             Some("startleForward" | "startleLeft" | "startleBack" | "startleRight")
@@ -742,7 +772,8 @@ impl Fighter {
         let locked = crate::anim::decide::cannot_turn(&self.motion, false);
         if let (Some(yaw), false) = (d.face, locked) {
             let cap = crate::ai::MAX_TURN;
-            let delta = (yaw - self.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+            let delta = (yaw - self.facing.facing + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
                 - std::f32::consts::PI;
             self.facing.rotate(delta.clamp(-cap, cap));
             self.facing.desired_facing = self.facing.facing;
@@ -860,7 +891,12 @@ impl Fighter {
             if in_air || landing {
                 self.last_floor = None;
             }
-            let ground = chrphys::find_ground(env.quads, &mut self.physics.feet, &footing, &mut self.deferred_max);
+            let ground = chrphys::find_ground(
+                env.quads,
+                &mut self.physics.feet,
+                &footing,
+                &mut self.deferred_max,
+            );
             if let Some(g) = ground {
                 self.last_floor = Some(g.quad);
                 if in_air && !landing {
@@ -959,7 +995,9 @@ impl Fighter {
         let moved = air.velocity;
         air.frames = air.frames.saturating_add(1);
         air.velocity *= 0.9;
-        let Some(owner) = self.lift.owner_at else { return moved };
+        let Some(owner) = self.lift.owner_at else {
+            return moved;
+        };
         let me = self.physics.feet;
         let start = *self.lift.start.get_or_insert(me);
         let to = owner - me;
@@ -1006,7 +1044,9 @@ impl Fighter {
         let bones = self.bones();
         let (mut lo, mut hi) = (f32::INFINITY, f32::NEG_INFINITY);
         for p in self.character.parts.iter().filter(|p| p.bone <= 10) {
-            let (Some((c, r)), Some(m)) = (p.bound_sphere, bones.get(p.bone)) else { continue };
+            let (Some((c, r)), Some(m)) = (p.bound_sphere, bones.get(p.bone)) else {
+                continue;
+            };
             let y = m.transform_point3(c).y;
             lo = lo.min(y - r);
             hi = hi.max(y + r);
@@ -1025,8 +1065,21 @@ impl Fighter {
     pub fn tree(&self) -> chrphys::Tree {
         let (fo, top) = self.extent();
         let at = self.physics.feet;
-        let bottom = if self.motion.air.frames > 0 { at.y + fo } else { at.y };
-        chrphys::Tree::new(at, bottom, top, if self.player { chrphys::PLAYER_LEAF } else { chrphys::AI_LEAF })
+        let bottom = if self.motion.air.frames > 0 {
+            at.y + fo
+        } else {
+            at.y
+        };
+        chrphys::Tree::new(
+            at,
+            bottom,
+            top,
+            if self.player {
+                chrphys::PLAYER_LEAF
+            } else {
+                chrphys::AI_LEAF
+            },
+        )
     }
 
     /// Put somewhere directly (`ONrCharacter_Teleport`): the floor memory
@@ -1042,7 +1095,13 @@ impl Fighter {
     pub fn snap_to_floor(&mut self, quads: &crate::quads::Quads) {
         self.deferred_max = self.physics.feet.y;
         let (h, fall) = (self.motion.height(), self.motion.tuning.fall_gravity);
-        if let Some(g) = chrphys::snap_to_floor(quads, &mut self.physics.feet, h, fall, &mut self.deferred_max) {
+        if let Some(g) = chrphys::snap_to_floor(
+            quads,
+            &mut self.physics.feet,
+            h,
+            fall,
+            &mut self.deferred_max,
+        ) {
             self.last_floor = Some(g.quad);
         }
         self.motion.feet_y = self.physics.feet.y;
@@ -1064,14 +1123,19 @@ impl Fighter {
         let damage = damage.round() as i32;
         if damage > 0 {
             if self.is_invincible() {
-            return;
-        }
-        let damage = self.survive(damage);
-        self.hp = (self.hp - damage).max(0);
-        // A hurt eats into the hypo still to come, two and a half times over
-        // (`ONcDamage_HurtHypoScale`); dead, it is gone.
-        let inv = &mut self.inventory;
-        inv.hypo_remaining = if self.hp == 0 { 0 } else { inv.hypo_remaining.saturating_sub((2.5 * damage.max(0) as f32).round() as u16) };
+                return;
+            }
+            let damage = self.survive(damage);
+            self.hp = (self.hp - damage).max(0);
+            // A hurt eats into the hypo still to come, two and a half times over
+            // (`ONcDamage_HurtHypoScale`); dead, it is gone.
+            let inv = &mut self.inventory;
+            inv.hypo_remaining = if self.hp == 0 {
+                0
+            } else {
+                inv.hypo_remaining
+                    .saturating_sub((2.5 * damage.max(0) as f32).round() as u16)
+            };
             eprintln!("fall: {fall:.1} units, {damage} damage (hp {})", self.hp);
         }
         let air = &mut self.motion.air;
@@ -1142,7 +1206,11 @@ impl Fighter {
             .flatten()
             .or_else(|| m.coll.lookup(ty::HIT_OVERLAY, st::ANYTHING, m.varient));
         if let Some(clip) = clip {
-            self.overlays[HIT_REACTION] = Some(Overlay { clip, frame: 0, magic: false });
+            self.overlays[HIT_REACTION] = Some(Overlay {
+                clip,
+                frame: 0,
+                magic: false,
+            });
         }
     }
 
@@ -1184,7 +1252,12 @@ impl Fighter {
             // knocked down or landing dead.
             let least = match oni_schema::name(&oni_schema::ANIM_TYPES, m.kind).unwrap_or("") {
                 "blownup" | "blownupBehind" => 2,
-                "landDead" | "knockdownHead" | "knockdownBody" | "knockdownFoot" | "knockdownHeadBehind" | "knockdownBodyBehind"
+                "landDead"
+                | "knockdownHead"
+                | "knockdownBody"
+                | "knockdownFoot"
+                | "knockdownHeadBehind"
+                | "knockdownBodyBehind"
                 | "knockdownFootBehind" => 1,
                 _ => 0,
             };
@@ -1194,7 +1267,12 @@ impl Fighter {
         // A hurt eats into the hypo still to come, two and a half times over
         // (`ONcDamage_HurtHypoScale`); dead, it is gone.
         let inv = &mut self.inventory;
-        inv.hypo_remaining = if self.hp == 0 { 0 } else { inv.hypo_remaining.saturating_sub((2.5 * damage.max(0) as f32).round() as u16) };
+        inv.hypo_remaining = if self.hp == 0 {
+            0
+        } else {
+            inv.hypo_remaining
+                .saturating_sub((2.5 * damage.max(0) as f32).round() as u16)
+        };
         if !self.is_unstoppable() {
             self.knockback += knockback;
         }
@@ -1206,7 +1284,9 @@ impl Fighter {
             self.motion.dying = true;
             // Killed mid-throw on the way to the floor: the throw plays out.
             let c = self.motion.current();
-            if c.has_flag(flag::THROW_TARGET) && matches!(c.to_state, st::FALLEN_BACK | st::FALLEN_FRONT) {
+            if c.has_flag(flag::THROW_TARGET)
+                && matches!(c.to_state, st::FALLEN_BACK | st::FALLEN_FRONT)
+            {
                 self.pending_reaction = ty::NONE;
                 eprintln!("fighter died (thrown)");
                 return;
@@ -1380,7 +1460,11 @@ impl Fighter {
     /// Body part `part`'s matrix, shared (it follows the part each tick).
     pub fn part_matrix(&mut self, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
         if self.part_cells.is_empty() {
-            self.part_cells = self.bones().into_iter().map(|m| Rc::new(std::cell::Cell::new(m))).collect();
+            self.part_cells = self
+                .bones()
+                .into_iter()
+                .map(|m| Rc::new(std::cell::Cell::new(m)))
+                .collect();
         }
         self.part_cells.get(part).cloned()
     }
@@ -1428,7 +1512,14 @@ impl Fighter {
     fn replace(&mut self) {
         if let Some((anim, frame)) = &self.env_anim {
             let m = anim.matrix((*frame - 1).max(0));
-            let col = |c: usize| glam::Vec4::new(m[c * 3], m[c * 3 + 1], m[c * 3 + 2], if c == 3 { 1.0 } else { 0.0 });
+            let col = |c: usize| {
+                glam::Vec4::new(
+                    m[c * 3],
+                    m[c * 3 + 1],
+                    m[c * 3 + 2],
+                    if c == 3 { 1.0 } else { 0.0 },
+                )
+            };
             self.placement = if self.env_anim_no_rotation {
                 let s = &anim.scale;
                 let scale = Mat4::from_cols(
@@ -1439,7 +1530,8 @@ impl Fighter {
                 );
                 Mat4::from_translation(Vec3::new(m[9], m[10], m[11])) * scale
             } else {
-                Mat4::from_cols(col(0), col(1), col(2), col(3)) * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                Mat4::from_cols(col(0), col(1), col(2), col(3))
+                    * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
             };
             return;
         }
@@ -1454,7 +1546,11 @@ impl Fighter {
     /// the class's screen for the clip's aiming type and variant.
     fn screen(&self, dont_aim: bool) -> Option<&crate::anim::aim::Screen> {
         let c = self.motion.current();
-        if dont_aim || !c.has_flag(flag::DO_AIM) || c.anim_type == ty::BLOCK || reaction::is_victim(c.anim_type) {
+        if dont_aim
+            || !c.has_flag(flag::DO_AIM)
+            || c.anim_type == ty::BLOCK
+            || reaction::is_victim(c.anim_type)
+        {
             return None;
         }
         crate::anim::aim::find(&self.aiming, c.aiming_type, c.varient)
@@ -1462,7 +1558,10 @@ impl Fighter {
 
     /// Whether an overlay playing now forbids aiming.
     fn overlay_dont_aim(&self) -> bool {
-        self.overlays.iter().flatten().any(|o| self.motion.clip_of(o.clip).has_flag(flag::DONT_AIM))
+        self.overlays
+            .iter()
+            .flatten()
+            .any(|o| self.motion.clip_of(o.clip).has_flag(flag::DONT_AIM))
     }
 
     /// The aiming screen for the held gun: one for a gun variant, if aiming
@@ -1470,7 +1569,8 @@ impl Fighter {
     pub fn gun_screen(&self) -> Option<&crate::anim::aim::Screen> {
         use crate::anim::types::var;
         let any_gun = var::RIGHTY_PISTOL | var::LEFTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_RIFLE;
-        self.screen(self.overlay_dont_aim()).filter(|s| s.varient() & any_gun != 0)
+        self.screen(self.overlay_dont_aim())
+            .filter(|s| s.varient() & any_gun != 0)
     }
 
     /// The bone the gun is held in (the left hand for a left-handed class).
@@ -1492,10 +1592,14 @@ impl Fighter {
             let c = self.motion.clip_of(o.clip);
             let frames = c.frames();
             // A six-frame ramp in and out.
-            let weight = (f32::from(o.frame) / 6.0).min(f32::from(frames.saturating_sub(o.frame)) / 6.0).clamp(0.0, 1.0);
+            let weight = (f32::from(o.frame) / 6.0)
+                .min(f32::from(frames.saturating_sub(o.frame)) / 6.0)
+                .clamp(0.0, 1.0);
             dont_aim |= c.has_flag(flag::DONT_AIM);
             layers.push(crate::skel::Layer {
-                rotations: self.character.local_rotations(Some(c), f32::from(o.frame) / crate::skel::FPS),
+                rotations: self
+                    .character
+                    .local_rotations(Some(c), f32::from(o.frame) / crate::skel::FPS),
                 used: c.used_parts,
                 replace: c.replace_parts,
                 weight,
@@ -1505,7 +1609,12 @@ impl Fighter {
             layers.push(l);
         }
         self.character
-            .pose_layered(Some(self.motion.current()), self.motion.frame_time(), self.motion.blend_pose(), &layers)
+            .pose_layered(
+                Some(self.motion.current()),
+                self.motion.frame_time(),
+                self.motion.blend_pose(),
+                &layers,
+            )
             .into_iter()
             .map(|m| self.placement * m)
             .collect()
@@ -1520,11 +1629,15 @@ impl Fighter {
             return None;
         }
         let s = self.screen(dont_aim)?;
-        let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+        let wrap = |a: f32| {
+            (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
+        };
         // (With the auto-aim's turn, as the gun has it: the original's aiming
         // screen adds `autoAimAdjustmentLR` / `UD` too.)
-        let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-        let pitch = (self.aiming_ud + self.recoil + self.auto_aim.1).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing)
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+        let pitch = (self.aiming_ud + self.recoil + self.auto_aim.1)
+            .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         if yaw == 0.0 && pitch == 0.0 {
             return None;
         }
@@ -1566,13 +1679,19 @@ impl Fighter {
     /// The animation types it is playing: its body's, and its overlays'.
     pub fn anim_types(&self) -> Vec<u16> {
         let mut v = vec![self.motion.kind];
-        v.extend(self.overlays.iter().flatten().map(|o| self.motion.clip_of(o.clip).anim_type));
+        v.extend(
+            self.overlays
+                .iter()
+                .flatten()
+                .map(|o| self.motion.clip_of(o.clip).anim_type),
+        );
         v
     }
 
     /// Reloading (a reload clip in the inventory overlay).
     pub fn reloading(&self) -> bool {
-        self.overlays[INVENTORY].is_some_and(|o| (164..=171).contains(&self.motion.clip_of(o.clip).anim_type))
+        self.overlays[INVENTORY]
+            .is_some_and(|o| (164..=171).contains(&self.motion.clip_of(o.clip).anim_type))
     }
 
     /// Standing or crouching still (`ONrCharacter_IsStill`): a stand or
@@ -1580,7 +1699,10 @@ impl Fighter {
     pub fn still(&self) -> bool {
         use crate::anim::types::{st, ty};
         (self.motion.kind == ty::STAND || self.motion.kind == ty::CROUCH)
-            && matches!(self.motion.current().to_state, st::STANDING | st::CROUCH | st::LIE_BACK | st::FALLEN_BACK | st::FALLEN_FRONT)
+            && matches!(
+                self.motion.current().to_state,
+                st::STANDING | st::CROUCH | st::LIE_BACK | st::FALLEN_BACK | st::FALLEN_FRONT
+            )
     }
 
     /// One tick of the player's look (`ONrCharacter_UpdateCharacter`'s
@@ -1589,8 +1711,17 @@ impl Fighter {
     /// level (to within a fifth of a right angle) — 0.03 a tick each.
     pub fn look_tick(&mut self, look: bool) {
         const STEP: f32 = 0.03;
-        let toward_zero = |x: f32| if x > STEP { x - STEP } else if x < -STEP { x + STEP } else { 0.0 };
-        let fight = f32::from(self.motion.fight_frames) / f32::from(self.motion.tuning.fight_mode_duration.max(1));
+        let toward_zero = |x: f32| {
+            if x > STEP {
+                x - STEP
+            } else if x < -STEP {
+                x + STEP
+            } else {
+                0.0
+            }
+        };
+        let fight = f32::from(self.motion.fight_frames)
+            / f32::from(self.motion.tuning.fight_mode_duration.max(1));
         if 0.5 >= 1.0 - fight && !self.still() && self.hand.is_none() && !look {
             let back = std::f32::consts::FRAC_PI_2 * 0.2;
             if self.aiming_ud > back {
@@ -1637,7 +1768,10 @@ impl FilmPlay {
         let keys = &self.film.keys;
         let k = keys.iter().rposition(|k| k.0 <= self.frame).unwrap_or(0);
         let out = keys.get(k).map(|&(t, b, turn)| {
-            (crate::anim::input::from_original_buttons(b), if t == self.frame { turn } else { 0.0 })
+            (
+                crate::anim::input::from_original_buttons(b),
+                if t == self.frame { turn } else { 0.0 },
+            )
         });
         self.frame += 1;
         Some(out.unwrap_or((0, 0.0)))
@@ -1707,7 +1841,6 @@ mod tests {
         crate::quads::tests::room(&[([c(-e, -e), c(-e, e), c(e, e), c(e, -e)], 0)])
     }
 
-
     fn konoko_at(y: f32) -> Option<Fighter> {
         let coll = konoko()?;
         let model = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -1750,7 +1883,11 @@ mod tests {
         };
         let hp0 = f.hp;
         let landed = fall_and_land(&mut f).expect("falls and lands");
-        assert!(f.hp < hp0, "a ~70 unit fall costs health ({hp0} -> {})", f.hp);
+        assert!(
+            f.hp < hp0,
+            "a ~70 unit fall costs health ({hp0} -> {})",
+            f.hp
+        );
         assert!(
             (ty::LAND_HARD..=ty::LAND_BACK_HARD).contains(&landed),
             "lands with a hard-landing clip, got type {landed}"
@@ -1772,7 +1909,10 @@ mod tests {
         let landed = fall_and_land(&mut f).expect("takes off and lands");
         assert_eq!(f.hp, hp0, "a jump on flat ground is harmless");
         assert!(
-            matches!(landed, ty::LAND | ty::LAND_FORWARD | ty::LAND_LEFT | ty::LAND_RIGHT | ty::LAND_BACK),
+            matches!(
+                landed,
+                ty::LAND | ty::LAND_FORWARD | ty::LAND_LEFT | ty::LAND_RIGHT | ty::LAND_BACK
+            ),
             "lands with an ordinary landing clip, got type {landed} ({})",
             f.motion.name()
         );

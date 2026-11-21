@@ -36,7 +36,9 @@ impl Font {
 
     pub fn glyph(&self, c: char) -> Option<[i32; 4]> {
         // (The font's codes are single bytes; the game's text is ASCII.)
-        u16::try_from(u32::from(c)).ok().and_then(|code| self.glyphs.get(&code).copied())
+        u16::try_from(u32::from(c))
+            .ok()
+            .and_then(|code| self.glyphs.get(&code).copied())
     }
 }
 
@@ -51,10 +53,17 @@ pub struct Fonts {
 impl Fonts {
     /// Loads the default family (Tahoma) from `common/fonts.json`.
     pub fn load(common: &Path) -> Fonts {
-        let Some(doc) = std::fs::read_to_string(common.join("fonts.json")).ok().and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok()) else {
+        let Some(doc) = std::fs::read_to_string(common.join("fonts.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
+        else {
             return Fonts::default();
         };
-        let fam = doc["families"].as_object().and_then(|f| f.get("Tahoma").or_else(|| f.values().next())).cloned().unwrap_or_default();
+        let fam = doc["families"]
+            .as_object()
+            .and_then(|f| f.get("Tahoma").or_else(|| f.values().next()))
+            .cloned()
+            .unwrap_or_default();
         let int = |v: &serde_json::Value| v.as_i64().unwrap_or(0) as i32;
         let fonts = fam["fonts"]
             .as_array()
@@ -77,35 +86,53 @@ impl Fonts {
                         .flatten()
                         .filter_map(|(k, v)| {
                             let a = v.as_array()?;
-                            Some((k.parse().ok()?, std::array::from_fn(|i| a.get(i).map_or(0, int))))
+                            Some((
+                                k.parse().ok()?,
+                                std::array::from_fn(|i| a.get(i).map_or(0, int)),
+                            ))
                         })
                         .collect(),
                 }
             })
             .collect();
-        Fonts { fonts, breaking: fam["breaking"].as_str().unwrap_or(" ").chars().collect() }
+        Fonts {
+            fonts,
+            breaking: fam["breaking"].as_str().unwrap_or(" ").chars().collect(),
+        }
     }
 
     /// The font for a size in a style (`TSiContext_GetBestFont`): as
     /// [`Fonts::best`], in that style where the size has it.
     pub fn best_styled(&self, size: u16, style: &str) -> Option<&Font> {
         let plain = self.best(size)?;
-        self.fonts.iter().find(|f| f.size == plain.size && f.style == style).or(Some(plain))
+        self.fonts
+            .iter()
+            .find(|f| f.size == plain.size && f.style == style)
+            .or(Some(plain))
     }
 
     /// The font for a size (`TSiContext_GetBestFont`): that size, else the
     /// nearest smaller one, else the nearest larger; plain if the style
     /// isn't there.
     pub fn best(&self, size: u16) -> Option<&Font> {
-        let at = |s: u16| self.fonts.iter().find(|f| f.size == s && f.style == "plain");
-        (1..=size).rev().find_map(at).or_else(|| (size..=48).find_map(at))
+        let at = |s: u16| {
+            self.fonts
+                .iter()
+                .find(|f| f.size == s && f.style == "plain")
+        };
+        (1..=size)
+            .rev()
+            .find_map(at)
+            .or_else(|| (size..=48).find_map(at))
     }
 }
 
 /// A PNG's width and height.
 fn image_size(path: &Path) -> Option<[f32; 2]> {
     let d = std::fs::File::open(path).ok()?;
-    let r = png::Decoder::new(std::io::BufReader::new(d)).read_info().ok()?;
+    let r = png::Decoder::new(std::io::BufReader::new(d))
+        .read_info()
+        .ok()?;
     let i = r.info();
     Some([i.width as f32, i.height as f32])
 }
@@ -152,7 +179,17 @@ pub type Rect = [i32; 4];
 /// at the segment's start when the line has earlier segments — and lines
 /// placed from `top` down, a line height apart, aligned in the bounds.
 #[allow(clippy::too_many_arguments)]
-pub fn format(font: &Font, breaking: &[char], text: &str, bounds: Rect, left: i32, top: i32, align: Align, formatting: bool, color: u32) -> Vec<Segment> {
+pub fn format(
+    font: &Font,
+    breaking: &[char],
+    text: &str,
+    bounds: Rect,
+    left: i32,
+    top: i32,
+    align: Align,
+    formatting: bool,
+    color: u32,
+) -> Vec<Segment> {
     let chars: Vec<char> = text.chars().collect();
     let width = bounds[2] - bounds[0];
     let mut out: Vec<Segment> = Vec::new();
@@ -236,7 +273,13 @@ pub fn format(font: &Font, breaking: &[char], text: &str, bounds: Rect, left: i3
             }
         }
         if n > 0 {
-            out.push(Segment { text: chars[start..start + n].iter().collect(), x: 0, top: 0, width: seg_w, color: shade });
+            out.push(Segment {
+                text: chars[start..start + n].iter().collect(),
+                x: 0,
+                top: 0,
+                width: seg_w,
+                color: shade,
+            });
             line_width += seg_w;
         }
         if !intraline {
@@ -296,8 +339,21 @@ pub struct TextArea {
 pub const IMMEDIATE_FADE: u32 = 64;
 
 impl TextArea {
-    pub fn new(max: usize, align: Align, formatting: bool, font_size: u16, fade_over_bounds: bool) -> TextArea {
-        TextArea { entries: Vec::new(), max, align, formatting, font_size, fade_over_bounds }
+    pub fn new(
+        max: usize,
+        align: Align,
+        formatting: bool,
+        font_size: u16,
+        fade_over_bounds: bool,
+    ) -> TextArea {
+        TextArea {
+            entries: Vec::new(),
+            max,
+            align,
+            formatting,
+            font_size,
+            fade_over_bounds,
+        }
     }
 
     /// Prints a line (`COrTextArea_Print`): full, the oldest goes.
@@ -308,7 +364,11 @@ impl TextArea {
         if self.entries.len() >= self.max {
             self.entries.remove(0);
         }
-        self.entries.push(Entry { text: text.to_string(), timer, tag: tag.map(str::to_string) });
+        self.entries.push(Entry {
+            text: text.to_string(),
+            timer,
+            tag: tag.map(str::to_string),
+        });
     }
 
     /// Whether a line printed as `tag` is up (`COrTextArea_IdentifierVisible`).
@@ -347,17 +407,40 @@ impl TextArea {
     /// each a little apart; a line fading out (its last 64 ticks) at 4 × its
     /// ticks left of opacity. One that overflows the top fades at once, or
     /// (not fading over bounds) stops the drawing.
-    pub fn layout(&mut self, fonts: &Fonts, bounds: Rect, screen_h: f32) -> Vec<(Segment, f32, String)> {
+    pub fn layout(
+        &mut self,
+        fonts: &Fonts,
+        bounds: Rect,
+        screen_h: f32,
+    ) -> Vec<(Segment, f32, String)> {
         let size = ((u32::from(self.font_size) * screen_h as u32) / 480) as u16;
-        let Some(font) = fonts.best(size.max(1)) else { return Vec::new() };
+        let Some(font) = fonts.best(size.max(1)) else {
+            return Vec::new();
+        };
         let mut out = Vec::new();
         let mut y = bounds[3];
         for e in self.entries.iter_mut().rev() {
-            let alpha = if e.timer == 0 || e.timer * 4 > 255 { 1.0 } else { (e.timer * 4) as f32 / 255.0 };
+            let alpha = if e.timer == 0 || e.timer * 4 > 255 {
+                1.0
+            } else {
+                (e.timer * 4) as f32 / 255.0
+            };
             // (Laid out from the bounds' top as its first line's baseline,
             // so the text sits its ascending height above its slot.)
-            let segs = format(font, &fonts.breaking, &e.text, bounds, bounds[0], bounds[1] - font.ascending, self.align, self.formatting, 0xFFFFFF);
-            let (Some(first), Some(last)) = (segs.first(), segs.last()) else { continue };
+            let segs = format(
+                font,
+                &fonts.breaking,
+                &e.text,
+                bounds,
+                bounds[0],
+                bounds[1] - font.ascending,
+                self.align,
+                self.formatting,
+                0xFFFFFF,
+            );
+            let (Some(first), Some(last)) = (segs.first(), segs.last()) else {
+                continue;
+            };
             let height = last.top + font.line_height() - first.top + 2;
             y -= height;
             if y < bounds[1] {
@@ -399,9 +482,22 @@ mod tests {
 
     #[test]
     fn colour_spans_split_segments() {
-        let s = format(&font(), &[' '], "Press [c.Q] now", [0, 0, 500, 100], 0, 0, Align::Left, true, 0xFFFFFF);
+        let s = format(
+            &font(),
+            &[' '],
+            "Press [c.Q] now",
+            [0, 0, 500, 100],
+            0,
+            0,
+            Align::Left,
+            true,
+            0xFFFFFF,
+        );
         let texts: Vec<_> = s.iter().map(|s| (s.text.as_str(), s.color)).collect();
-        assert_eq!(texts, vec![("Press ", 0xFFFFFF), ("Q", 0x93EAEB), (" now", 0xFFFFFF)]);
+        assert_eq!(
+            texts,
+            vec![("Press ", 0xFFFFFF), ("Q", 0x93EAEB), (" now", 0xFFFFFF)]
+        );
         assert_eq!(s[1].x, 30);
         assert_eq!(s[2].x, 35);
     }
@@ -409,7 +505,17 @@ mod tests {
     #[test]
     fn long_lines_wrap_after_a_space_and_centre() {
         // 10 glyphs fit in 50.
-        let s = format(&font(), &[' '], "aaaa bbbb cccc", [0, 0, 50, 100], 0, 0, Align::Center, true, 0xFFFFFF);
+        let s = format(
+            &font(),
+            &[' '],
+            "aaaa bbbb cccc",
+            [0, 0, 50, 100],
+            0,
+            0,
+            Align::Center,
+            true,
+            0xFFFFFF,
+        );
         let lines: Vec<_> = s.iter().map(|s| (s.text.as_str(), s.top)).collect();
         assert_eq!(lines, vec![("aaaa bbbb ", 0), ("cccc", 13)]);
         assert_eq!(s[1].x, (50 - 20) / 2);

@@ -223,9 +223,18 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
         // (Placed objects — under a pivot node — are flagged not to collide
         // as level geometry because the object itself collides: they do.)
         let object = parent[node].is_some();
-        let (visible, collide) = (!name.ends_with("__invisible"), object || !name.ends_with("__nocollide"));
+        let (visible, collide) = (
+            !name.ends_with("__invisible"),
+            object || !name.ends_with("__nocollide"),
+        );
         let number_after = |tag: &str| -> Option<u32> {
-            name.split(tag).nth(1).and_then(|r| r.chars().take_while(char::is_ascii_digit).collect::<String>().parse().ok())
+            name.split(tag).nth(1).and_then(|r| {
+                r.chars()
+                    .take_while(char::is_ascii_digit)
+                    .collect::<String>()
+                    .parse()
+                    .ok()
+            })
         };
         let (env_ref, glass) = (number_after("__ref"), number_after("__glass"));
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
@@ -249,7 +258,9 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
                 .as_u64()
                 .map(|m| material_texture(m as usize))
                 .unwrap_or((None, false, false, false));
-            let one_sided = prim["material"].as_u64().is_some_and(|m| json["materials"][m as usize]["doubleSided"].as_bool() == Some(false));
+            let one_sided = prim["material"].as_u64().is_some_and(|m| {
+                json["materials"][m as usize]["doubleSided"].as_bool() == Some(false)
+            });
             // Self-lit / additive surfaces ignore baked lighting (full bright).
             let full_bright = additive || self_illum;
 

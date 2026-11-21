@@ -140,10 +140,13 @@ pub fn attempt(
         let Some(target_clip) = coll.lookup(t.target_anim_type, victim.state, theirs) else {
             continue;
         };
-        if sense.victim_needs != 0 && coll.entries[target_clip].clip.varient & sense.victim_needs == 0 {
+        if sense.victim_needs != 0
+            && coll.entries[target_clip].clip.varient & sense.victim_needs == 0
+        {
             continue;
         }
-        let score = (u32::from(coll.entries[target_clip].clip.varient) << 16) | u32::from(c.varient);
+        let score =
+            (u32::from(coll.entries[target_clip].clip.varient) << 16) | u32::from(c.varient);
         if score > best.map_or(0, |b| b.0) {
             best = Some((score, clip, target_clip));
         }
@@ -185,8 +188,8 @@ mod tests {
     #[test]
     fn forward_punch_becomes_a_front_throw() {
         let Some(c) = konoko() else { return };
-        let (clip, s) = attempt(&c, ty::PUNCH_FORWARD, st::STANDING, 0, &facing_me(8.0, PI))
-            .expect("a throw");
+        let (clip, s) =
+            attempt(&c, ty::PUNCH_FORWARD, st::STANDING, 0, &facing_me(8.0, PI)).expect("a throw");
         assert_eq!(c.entries[clip].clip.anim_type, ty::THROW_FORWARD_PUNCH);
         assert_eq!(s.target, 1);
         assert!(ty::is_thrown(c.entries[s.target_clip].clip.anim_type));
@@ -195,8 +198,8 @@ mod tests {
     #[test]
     fn same_facing_is_a_throw_from_behind() {
         let Some(c) = konoko() else { return };
-        let (clip, _) = attempt(&c, ty::KICK_FORWARD, st::STANDING, 0, &facing_me(8.0, 0.0))
-            .expect("a throw");
+        let (clip, _) =
+            attempt(&c, ty::KICK_FORWARD, st::STANDING, 0, &facing_me(8.0, 0.0)).expect("a throw");
         assert_eq!(c.entries[clip].clip.anim_type, ty::THROW_BEHIND_KICK);
     }
 

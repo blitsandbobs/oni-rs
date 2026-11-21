@@ -8,8 +8,8 @@
 
 pub mod cinematic;
 pub mod console;
-pub mod pause;
 pub mod menu;
+pub mod pause;
 pub mod text;
 
 use std::collections::HashMap;
@@ -21,7 +21,20 @@ use crate::render::OverlayDraw;
 use text::{Align, Fonts, TextArea};
 
 /// The HUD's elements (`ONcIGUIElement_*`), as the scripts name them.
-pub const ELEMENTS: [&str; 12] = ["health", "damage", "invis", "shield", "hypo", "weapon", "ammo", "compass", "arrow", "ballistic", "energy", "lsi"];
+pub const ELEMENTS: [&str; 12] = [
+    "health",
+    "damage",
+    "invis",
+    "shield",
+    "hypo",
+    "weapon",
+    "ammo",
+    "compass",
+    "arrow",
+    "ballistic",
+    "energy",
+    "lsi",
+];
 mod el {
     pub const HEALTH: u32 = 1 << 0;
     pub const DAMAGE: u32 = 1 << 1;
@@ -316,7 +329,11 @@ impl Subtitles {
         self.0
             .iter()
             .find(|(k, _)| {
-                let n = if k.starts_with(|c: char| c.is_ascii_digit()) { name.get(1..).unwrap_or("") } else { name };
+                let n = if k.starts_with(|c: char| c.is_ascii_digit()) {
+                    name.get(1..).unwrap_or("")
+                } else {
+                    name
+                };
                 n.get(..k.len()).is_some_and(|p| p.eq_ignore_ascii_case(k))
             })
             .map(|(_, t)| t.as_str())
@@ -327,24 +344,58 @@ impl Hud {
     /// The HUD for a level: its textures, fonts and message tables from
     /// `common`.
     pub fn load(common: &Path, level: u16) -> Hud {
-        let doc: serde_json::Value = std::fs::read_to_string(common.join("messages.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let doc: serde_json::Value = std::fs::read_to_string(common.join("messages.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         let table = |k: &str| -> HashMap<String, String> {
-            doc[k].as_object().map(|m| m.iter().map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())).collect()).unwrap_or_default()
+            doc[k]
+                .as_object()
+                .map(|m| {
+                    m.iter()
+                        .map(|(n, v)| {
+                            (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
         };
-        let settings: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let settings: serde_json::Value =
+            std::fs::read_to_string(common.join("game_settings.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
         let autoprompts = settings["autoprompts"]
             .as_array()
             .into_iter()
             .flatten()
             .map(|a| {
                 let l = |k: usize| a["levels"][k].as_u64().unwrap_or(0) as u16;
-                (a["event"].as_str().unwrap_or("").to_string(), [l(0), l(1)], a["message"].as_str().unwrap_or("").to_string())
+                (
+                    a["event"].as_str().unwrap_or("").to_string(),
+                    [l(0), l(1)],
+                    a["message"].as_str().unwrap_or("").to_string(),
+                )
             })
             .collect();
-        let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let additive = flags["additive"].as_array().into_iter().flatten().filter_map(|n| n.as_str().map(str::to_string)).collect();
-        let specs: serde_json::Value = std::fs::read_to_string(common.join("part_specs.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        let border = PartSpec::from_json(&specs["partSpecs"]["cinematic_border"], &common.join("textures"));
+        let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let additive = flags["additive"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|n| n.as_str().map(str::to_string))
+            .collect();
+        let specs: serde_json::Value = std::fs::read_to_string(common.join("part_specs.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        let border = PartSpec::from_json(
+            &specs["partSpecs"]["cinematic_border"],
+            &common.join("textures"),
+        );
         Hud {
             textures: common.join("textures"),
             border,
@@ -364,12 +415,18 @@ impl Hud {
 
     /// The health meter's shadow (what its colour follows while it fades).
     pub fn health_shadow(&self) -> f32 {
-        if self.health.after { self.health.shadow } else { self.health.value as f32 }
+        if self.health.after {
+            self.health.shadow
+        } else {
+            self.health.value as f32
+        }
     }
 
     /// A message's text by name, as the game looks it up (`SSrMessage_Find`).
     pub fn message_text(&self, name: &str) -> Option<&str> {
-        self.texts.get(&name.to_ascii_lowercase()).map(String::as_str)
+        self.texts
+            .get(&name.to_ascii_lowercase())
+            .map(String::as_str)
     }
 
     /// A dialogue line's subtitle, by the line's name (`SSrSubtitle_Find`;
@@ -385,7 +442,11 @@ impl Hud {
         if let Some(t) = self.message_text(name).map(str::to_string) {
             self.messages.print(&t, Some(name), ticks);
             true
-        } else if let Some(t) = self.subtitle_texts.find(name.get(1..).unwrap_or("")).map(str::to_string) {
+        } else if let Some(t) = self
+            .subtitle_texts
+            .find(name.get(1..).unwrap_or(""))
+            .map(str::to_string)
+        {
             // (The subtitles, by the name without its first letter — which
             // the lookup then strips again for a numbered entry, so a
             // numbered line is never found this way; as shipped.)
@@ -407,7 +468,9 @@ impl Hud {
         if !self.subtitles_on {
             return;
         }
-        let Some(t) = self.subtitle_text(line).map(str::to_string) else { return };
+        let Some(t) = self.subtitle_text(line).map(str::to_string) else {
+            return;
+        };
         let tag = (ticks == 0).then_some("dialog");
         if letterboxed {
             self.console.print(&t, tag, ticks);
@@ -462,10 +525,17 @@ impl Hud {
             self.target = None;
             return true;
         };
-        if self.target.is_some_and(|t| t.at.distance_squared(at) < SAME_TARGET * SAME_TARGET) {
+        if self
+            .target
+            .is_some_and(|t| t.at.distance_squared(at) < SAME_TARGET * SAME_TARGET)
+        {
             return false;
         }
-        self.target = Some(Target { at, max_d2: (at - from).length_squared(), min_d2: distance * distance });
+        self.target = Some(Target {
+            at,
+            max_d2: (at - from).length_squared(),
+            min_d2: distance * distance,
+        });
         true
     }
 
@@ -474,12 +544,20 @@ impl Hud {
         if name == "all" {
             return (1 << ELEMENTS.len()) - 1;
         }
-        ELEMENTS.iter().position(|e| *e == name).map_or(0, |k| 1 << k)
+        ELEMENTS
+            .iter()
+            .position(|e| *e == name)
+            .map_or(0, |k| 1 << k)
     }
 
     /// `fade_out r g b ticks`.
     pub fn fade_out(&mut self, rgb: [f32; 3], ticks: u32) {
-        self.fade = Some(Fade { start: self.now, end: self.now + u64::from(ticks), from: [rgb[0], rgb[1], rgb[2], 0.0], to: [rgb[0], rgb[1], rgb[2], 1.0] });
+        self.fade = Some(Fade {
+            start: self.now,
+            end: self.now + u64::from(ticks),
+            from: [rgb[0], rgb[1], rgb[2], 0.0],
+            to: [rgb[0], rgb[1], rgb[2], 1.0],
+        });
     }
 
     /// `fade_in ticks`: back from where a fade got to (no fade: nothing).
@@ -502,7 +580,11 @@ impl Hud {
     fn fade_now(&self) -> Option<[f32; 4]> {
         let f = self.fade?;
         let span = f.end.saturating_sub(f.start) as f32;
-        let t = if self.now < f.end && span > 0.0 { ((self.now.min(f.end) - f.start) as f32 / span).powf(1.9) } else { 1.0 };
+        let t = if self.now < f.end && span > 0.0 {
+            ((self.now.min(f.end) - f.start) as f32 / span).powf(1.9)
+        } else {
+            1.0
+        };
         Some(std::array::from_fn(|k| f.from[k] * (1.0 - t) + f.to[k] * t))
     }
 
@@ -527,17 +609,35 @@ impl Hud {
         self.now += 1;
         if p.max_hp > 0 {
             let hp = p.hp.max(0) as u32;
-            self.health.update(hp, hp + u32::from(p.hypo_remaining), p.max_hp as f32 / 180.0);
+            self.health.update(
+                hp,
+                hp + u32::from(p.hypo_remaining),
+                p.max_hp as f32 / 180.0,
+            );
         }
-        self.shield.update(u32::from(p.shield_display), u32::from(p.shield), f32::from(MAX_SHIELD) / 180.0);
+        self.shield.update(
+            u32::from(p.shield_display),
+            u32::from(p.shield),
+            f32::from(MAX_SHIELD) / 180.0,
+        );
         let mut sound = None;
         // (A new move — this level's diary — prompts as a new objective does,
         // with its own message.)
-        if (self.new_objective || self.new_move) && (self.immediate_prompt || self.now.saturating_sub(self.last_prompt) > PROMPT_EVERY) {
+        if (self.new_objective || self.new_move)
+            && (self.immediate_prompt || self.now.saturating_sub(self.last_prompt) > PROMPT_EVERY)
+        {
             if !in_cutscene && self.now >= 30 {
-                sound = Some(if self.immediate_prompt { "objectiveNew" } else { "objectivePrompt" });
+                sound = Some(if self.immediate_prompt {
+                    "objectiveNew"
+                } else {
+                    "objectivePrompt"
+                });
             }
-            let name = if self.new_move { "new_move" } else { "new_objective" };
+            let name = if self.new_move {
+                "new_move"
+            } else {
+                "new_objective"
+            };
             if !self.messages.visible(name) {
                 if let Some(t) = self.message_text(name).map(str::to_string) {
                     self.messages.print(&t, Some(name), NEW_OBJECTIVE_FADE);
@@ -549,7 +649,11 @@ impl Hud {
         self.messages.tick();
         self.subtitles.tick();
         self.console.tick();
-        self.letterbox = if letterbox { (self.letterbox + LETTERBOX_STEP).min(LETTERBOX_DEPTH) } else { (self.letterbox - LETTERBOX_STEP).max(0.0) };
+        self.letterbox = if letterbox {
+            (self.letterbox + LETTERBOX_STEP).min(LETTERBOX_DEPTH)
+        } else {
+            (self.letterbox - LETTERBOX_STEP).max(0.0)
+        };
         if let Some(c) = self.fade_now() {
             if c[3] <= 0.0 && self.now >= self.fade.map_or(0, |f| f.end) {
                 self.fade = None;
@@ -569,7 +673,9 @@ impl Hud {
     pub fn autoprompt(&mut self, events: &[&str]) {
         let mut message = None;
         for e in events {
-            if let Some((_, _, m)) = self.autoprompts.iter().find(|(ev, l, _)| ev.eq_ignore_ascii_case(e) && (l[0]..=l[1]).contains(&self.level)) {
+            if let Some((_, _, m)) = self.autoprompts.iter().find(|(ev, l, _)| {
+                ev.eq_ignore_ascii_case(e) && (l[0]..=l[1]).contains(&self.level)
+            }) {
                 message = Some(m.clone());
             }
         }
@@ -590,8 +696,18 @@ impl Hud {
     /// `text_console name`: opens that console's pages, the first showing
     /// (false: no such console).
     pub fn open_text_console(&mut self, name: &str) -> bool {
-        let Some(pages) = self.consoles.get(&name.to_ascii_lowercase()).filter(|p| !p.is_empty()) else { return false };
-        self.text_console = Some(console::Open { name: name.to_string(), pages: pages.clone(), page: 0 });
+        let Some(pages) = self
+            .consoles
+            .get(&name.to_ascii_lowercase())
+            .filter(|p| !p.is_empty())
+        else {
+            return false;
+        };
+        self.text_console = Some(console::Open {
+            name: name.to_string(),
+            pages: pages.clone(),
+            page: 0,
+        });
         true
     }
 
@@ -612,12 +728,15 @@ impl Hud {
     /// The console text's button (Next or Close) on a `w` × `h` screen.
     pub fn text_console_button(&self, w: f32, h: f32) -> Option<[f32; 4]> {
         self.text_console.as_ref()?;
-        self.console_dialog.as_ref().map(|d| console::button_rect(d, w, h))
+        self.console_dialog
+            .as_ref()
+            .map(|d| console::button_rect(d, w, h))
     }
 
     /// Whether screen `x`, `y` is on the console text's button.
     pub fn text_console_hit(&self, w: f32, h: f32, x: f32, y: f32) -> bool {
-        self.text_console_button(w, h).is_some_and(|[l, t, bw, bh]| x >= l && x < l + bw && y >= t && y < t + bh)
+        self.text_console_button(w, h)
+            .is_some_and(|[l, t, bw, bh]| x >= l && x < l + bw && y >= t && y < t + bh)
     }
 
     /// Whether a modal screen is up (a console's text, the pause screen):
@@ -647,7 +766,11 @@ impl Hud {
     /// The player took up a weapon class: new, the first time
     /// (`ONrInGameUI_NewWeapon`).
     pub fn weapon_met(&mut self, class: &str) {
-        if !self.weapon_classes_seen.iter().any(|c| c.eq_ignore_ascii_case(class)) {
+        if !self
+            .weapon_classes_seen
+            .iter()
+            .any(|c| c.eq_ignore_ascii_case(class))
+        {
             self.weapon_classes_seen.push(class.to_string());
             self.new_weapon_class = Some(class.to_string());
         }
@@ -681,7 +804,9 @@ impl Hud {
     /// A pause screen button (by id: 101–105 the sections, 106 / 107
     /// Previous / Next, 2 Close).
     pub fn pause_press(&mut self, id: i64) {
-        let Some(mut p) = self.pause.take() else { return };
+        let Some(mut p) = self.pause.take() else {
+            return;
+        };
         if p.press(&self.pause_data, id) {
             self.pause = Some(p);
             self.pause_read();
@@ -690,7 +815,9 @@ impl Hud {
 
     /// The pause screen button at a screen point (`w` × `h` screen).
     pub fn pause_hit(&self, w: f32, h: f32, x: f32, y: f32) -> Option<i64> {
-        self.pause.as_ref().and_then(|p| p.hit(&self.pause_data, w, h, x, y))
+        self.pause
+            .as_ref()
+            .and_then(|p| p.hit(&self.pause_data, w, h, x, y))
     }
 
     /// The section showing is read: it stops flashing, and what was new
@@ -715,9 +842,21 @@ impl Hud {
         let p = self.pause.as_ref()?;
         let (pages, page) = p.pages(&self.pause_data);
         let shown = p.page(&self.pause_data).map(|(pg, _)| pg);
-        let strings = |f: fn(&console::Page) -> &Vec<console::Line>| shown.map(|pg| f(pg).iter().map(|l| l.text.clone()).collect()).unwrap_or_default();
+        let strings = |f: fn(&console::Page) -> &Vec<console::Line>| {
+            shown
+                .map(|pg| f(pg).iter().map(|l| l.text.clone()).collect())
+                .unwrap_or_default()
+        };
         let (previous, next) = p.buttons(&self.pause_data);
-        Some(pause::State { tab: p.tab, page, pages, text: strings(|pg| &pg.text), hint: strings(|pg| &pg.hint), previous, next })
+        Some(pause::State {
+            tab: p.tab,
+            page,
+            pages,
+            text: strings(|pg| &pg.text),
+            hint: strings(|pg| &pg.hint),
+            previous,
+            next,
+        })
     }
 
     /// A part specification by name (`part_specs.json`).
@@ -732,7 +871,12 @@ impl Hud {
         }
         let s = std::fs::File::open(self.texture(name))
             .ok()
-            .and_then(|f| png::Decoder::new(std::io::BufReader::new(f)).read_info().ok().map(|r| [r.info().width as f32, r.info().height as f32]))
+            .and_then(|f| {
+                png::Decoder::new(std::io::BufReader::new(f))
+                    .read_info()
+                    .ok()
+                    .map(|r| [r.info().width as f32, r.info().height as f32])
+            })
             .unwrap_or([128.0, 128.0]);
         self.texture_sizes.insert(name.to_string(), s);
         s
@@ -750,7 +894,13 @@ impl Hud {
     }
 
     /// The frame's overlay, for a screen `w` × `h` (in the HUD's pixels).
-    pub fn draw(&mut self, p: Option<&Player>, w: f32, h: f32, letterboxed: bool) -> Vec<OverlayDraw> {
+    pub fn draw(
+        &mut self,
+        p: Option<&Player>,
+        w: f32,
+        h: f32,
+        letterboxed: bool,
+    ) -> Vec<OverlayDraw> {
         let mut out = Vec::new();
         // The letterbox's bars.
         if self.letterbox > 0.0 {
@@ -763,7 +913,12 @@ impl Hud {
             self.rings(&mut out, p, w, h);
             // (Textures flagged additive add to the frame.)
             for d in &mut out[from..] {
-                let stem = d.texture.as_ref().and_then(|t| t.file_stem()).and_then(|s| s.to_str()).unwrap_or("");
+                let stem = d
+                    .texture
+                    .as_ref()
+                    .and_then(|t| t.file_stem())
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("");
                 d.additive = self.additive.contains(stem);
             }
         }
@@ -776,9 +931,18 @@ impl Hud {
         if !letterboxed && self.fade.is_none() {
             let bounds = [148, 0, (w as i32 - 148).max(178), h as i32 - 2];
             let line = self.fonts.best(7).map_or(13, |f| f.line_height());
-            let bounds = [bounds[0], (bounds[3] - line * 10).max(2), bounds[2], bounds[3]];
+            let bounds = [
+                bounds[0],
+                (bounds[3] - line * 10).max(2),
+                bounds[2],
+                bounds[3],
+            ];
             let fonts = self.fonts.clone();
-            let area = if self.subtitles.entries.is_empty() { &mut self.messages } else { &mut self.subtitles };
+            let area = if self.subtitles.entries.is_empty() {
+                &mut self.messages
+            } else {
+                &mut self.subtitles
+            };
             let laid = area.layout(&fonts, bounds, h);
             out.extend(text_draws(&fonts, &laid));
         }
@@ -798,19 +962,42 @@ impl Hud {
             }
             out.push(d);
             if let Some(b) = &self.border {
-                out.extend(b.draw([r[0] - 3.0, r[1] - 3.0], (r[2] - r[0]).round() + 6.0, (r[3] - r[1]).round() + 6.0));
+                out.extend(b.draw(
+                    [r[0] - 3.0, r[1] - 3.0],
+                    (r[2] - r[0]).round() + 6.0,
+                    (r[3] - r[1]).round() + 6.0,
+                ));
             }
         }
         // A data console's text, or the pause screen, over everything.
         let size = |p: &std::path::Path| -> Option<[f32; 2]> {
-            let r = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(p).ok()?)).read_info().ok()?;
+            let r = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(p).ok()?))
+                .read_info()
+                .ok()?;
             Some([r.info().width as f32, r.info().height as f32])
         };
         if let (Some(open), Some(d)) = (&self.text_console, &self.console_dialog) {
-            out.extend(console::draw(open, d, &self.fonts, &|n| self.part(n), &self.textures, &size, w, h));
+            out.extend(console::draw(
+                open,
+                d,
+                &self.fonts,
+                &|n| self.part(n),
+                &self.textures,
+                &size,
+                w,
+                h,
+            ));
         }
         if let Some(p) = &self.pause {
-            out.extend(p.draw(&self.pause_data, &self.fonts, &|n| self.part(n), &self.textures, &size, w, h));
+            out.extend(p.draw(
+                &self.pause_data,
+                &self.fonts,
+                &|n| self.part(n),
+                &self.textures,
+                &size,
+                w,
+                h,
+            ));
         }
         out
     }
@@ -824,7 +1011,15 @@ impl Hud {
         } else {
             // (Names are looked up regardless of case.)
             let want = format!("{}.png", name.to_ascii_lowercase());
-            std::fs::read_dir(&self.textures).ok()?.flatten().map(|e| e.path()).find(|p| p.file_name().and_then(|n| n.to_str()).is_some_and(|n| n.to_ascii_lowercase() == want))?
+            std::fs::read_dir(&self.textures)
+                .ok()?
+                .flatten()
+                .map(|e| e.path())
+                .find(|p| {
+                    p.file_name()
+                        .and_then(|n| n.to_str())
+                        .is_some_and(|n| n.to_ascii_lowercase() == want)
+                })?
         };
         let stem = path.file_stem()?.to_str()?.to_string();
         let size = self.size_of(&stem);
@@ -838,8 +1033,14 @@ impl Hud {
         let filled = self.filled;
         let left = self.size_of("left");
         let right = self.size_of("right");
-        let lc = [10.0 + (left[0] as i32 / 2) as f32, h - (left[1] as i32 / 2) as f32];
-        let rc = [w - 10.0 - (right[0] as i32 / 2) as f32, h - (right[1] as i32 / 2) as f32];
+        let lc = [
+            10.0 + (left[0] as i32 / 2) as f32,
+            h - (left[1] as i32 / 2) as f32,
+        ];
+        let rc = [
+            w - 10.0 - (right[0] as i32 / 2) as f32,
+            h - (right[1] as i32 / 2) as f32,
+        ];
         let white = [1.0, 1.0, 1.0, 1.0];
         let lring = Some(self.texture("leftRing"));
         let rring = Some(self.texture("rightRing"));
@@ -848,29 +1049,80 @@ impl Hud {
         if self.show[0] {
             out.push(sprite(Some(self.texture("left")), lc, left, false, white));
             // Ballistic clips and energy cells.
-            let clips = if filled & el::BALLISTIC != 0 { MAX_AMMO } else { p.ammo.min(MAX_AMMO) };
+            let clips = if filled & el::BALLISTIC != 0 {
+                MAX_AMMO
+            } else {
+                p.ammo.min(MAX_AMMO)
+            };
             if clips > 0 {
-                out.push(arc(lring.clone(), lc, 64.0, 51.5, ring_w, 180.0 * DEG, 270.0 * DEG, u32::from(MAX_AMMO), u32::from(clips), [1.0, 1.0, 1.0, fl(el::BALLISTIC, self)]));
+                out.push(arc(
+                    lring.clone(),
+                    lc,
+                    64.0,
+                    51.5,
+                    ring_w,
+                    180.0 * DEG,
+                    270.0 * DEG,
+                    u32::from(MAX_AMMO),
+                    u32::from(clips),
+                    [1.0, 1.0, 1.0, fl(el::BALLISTIC, self)],
+                ));
             }
-            let cells = if filled & el::ENERGY != 0 { MAX_CELLS } else { p.cells.min(MAX_CELLS) };
+            let cells = if filled & el::ENERGY != 0 {
+                MAX_CELLS
+            } else {
+                p.cells.min(MAX_CELLS)
+            };
             if cells > 0 {
-                out.push(arc(lring.clone(), lc, 64.0, 51.5, ring_w, 180.0 * DEG, 90.0 * DEG, u32::from(MAX_CELLS), u32::from(cells), [1.0, 1.0, 1.0, fl(el::ENERGY, self)]));
+                out.push(arc(
+                    lring.clone(),
+                    lc,
+                    64.0,
+                    51.5,
+                    ring_w,
+                    180.0 * DEG,
+                    90.0 * DEG,
+                    u32::from(MAX_CELLS),
+                    u32::from(cells),
+                    [1.0, 1.0, 1.0, fl(el::ENERGY, self)],
+                ));
             }
             self.compass(out, p, lc, lring.clone(), ring_w, flash);
             // The gun's rounds: its empty ring, the full one by the share left.
             if let Some(g) = &p.gun {
                 if let Some(empty) = &g.empty {
                     out.push(sprite(Some(self.texture(empty)), lc, left, false, white));
-                    let rounds = if filled & el::AMMO != 0 { g.max } else { g.rounds };
+                    let rounds = if filled & el::AMMO != 0 {
+                        g.max
+                    } else {
+                        g.rounds
+                    };
                     if let (true, Some(fill)) = (rounds > 0 && g.max > 0, &g.fill) {
                         let share = f32::from(rounds) / f32::from(g.max);
                         let (s, e) = (15.0 * DEG, 345.0 * DEG);
                         let fw = self.size_of(fill)[0];
-                        out.push(arc(Some(self.texture(fill)), lc, 44.0, 30.0, fw, s, s + (e - s) * share, 24, 24, [1.0, 1.0, 1.0, fl(el::AMMO, self)]));
+                        out.push(arc(
+                            Some(self.texture(fill)),
+                            lc,
+                            44.0,
+                            30.0,
+                            fw,
+                            s,
+                            s + (e - s) * share,
+                            24,
+                            24,
+                            [1.0, 1.0, 1.0, fl(el::AMMO, self)],
+                        ));
                     }
                 }
                 if let (true, Some(icon)) = (g.in_hand, &g.icon) {
-                    out.push(sprite(Some(self.texture(icon)), lc, [54.0, 54.0], false, [1.0, 1.0, 1.0, fl(el::WEAPON, self)]));
+                    out.push(sprite(
+                        Some(self.texture(icon)),
+                        lc,
+                        [54.0, 54.0],
+                        false,
+                        [1.0, 1.0, 1.0, fl(el::WEAPON, self)],
+                    ));
                 }
             }
         }
@@ -878,53 +1130,155 @@ impl Hud {
             out.push(sprite(Some(self.texture("right")), rc, right, false, white));
             self.health_rings(out, p, rc, rring.clone(), rring_w, flash);
             // The phase cloak's time.
-            let invis = if filled & el::INVIS != 0 { MAX_INVISIBILITY } else { p.invisibility };
+            let invis = if filled & el::INVIS != 0 {
+                MAX_INVISIBILITY
+            } else {
+                p.invisibility
+            };
             if invis > 0 {
                 let (s, e) = (-2.0 * DEG, -89.0 * DEG);
                 let share = (f32::from(invis) / f32::from(MAX_INVISIBILITY)).min(1.0);
-                out.push(arc(rring.clone(), rc, 63.0, 51.0, rring_w, s, s + (e - s) * share, 8, 8, [1.0, 1.0, 1.0, fl(el::INVIS, self)]));
+                out.push(arc(
+                    rring.clone(),
+                    rc,
+                    63.0,
+                    51.0,
+                    rring_w,
+                    s,
+                    s + (e - s) * share,
+                    8,
+                    8,
+                    [1.0, 1.0, 1.0, fl(el::INVIS, self)],
+                ));
             }
             // The shield, with its shadow.
             let (s, e) = (2.0 * DEG, 89.0 * DEG);
             let m = self.shield;
             if filled & el::SHIELD != 0 {
-                out.push(arc(rring.clone(), rc, 63.0, 51.0, rring_w, s, e, 8, 8, [1.0, 1.0, 1.0, fl(el::SHIELD, self)]));
+                out.push(arc(
+                    rring.clone(),
+                    rc,
+                    63.0,
+                    51.0,
+                    rring_w,
+                    s,
+                    e,
+                    8,
+                    8,
+                    [1.0, 1.0, 1.0, fl(el::SHIELD, self)],
+                ));
             } else {
                 let share = m.value as f32 / f32::from(MAX_SHIELD);
                 if m.value > 0 {
-                    out.push(arc(rring.clone(), rc, 63.0, 51.0, rring_w, s, s + (e - s) * share.min(1.0), 8, 8, [1.0, 1.0, 1.0, fl(el::SHIELD, self)]));
+                    out.push(arc(
+                        rring.clone(),
+                        rc,
+                        63.0,
+                        51.0,
+                        rring_w,
+                        s,
+                        s + (e - s) * share.min(1.0),
+                        8,
+                        8,
+                        [1.0, 1.0, 1.0, fl(el::SHIELD, self)],
+                    ));
                 }
                 if m.fore || m.after {
                     let to = (m.shadow / f32::from(MAX_SHIELD)).min(1.0);
                     // (As shipped, a flashing shield's shadow takes a
                     // garbled opacity: the flash over its own alpha.)
-                    let a = if self.flashing & el::SHIELD != 0 { (((flash * 255.0).powi(2) / 127.0) as u32 & 0xFF) as f32 / 255.0 } else { 127.0 / 255.0 };
-                    out.push(arc(rring.clone(), rc, 63.0, 51.0, rring_w, s + (e - s) * share, s + (e - s) * to, 8, 8, [1.0, 1.0, 1.0, a]));
+                    let a = if self.flashing & el::SHIELD != 0 {
+                        (((flash * 255.0).powi(2) / 127.0) as u32 & 0xFF) as f32 / 255.0
+                    } else {
+                        127.0 / 255.0
+                    };
+                    out.push(arc(
+                        rring.clone(),
+                        rc,
+                        63.0,
+                        51.0,
+                        rring_w,
+                        s + (e - s) * share,
+                        s + (e - s) * to,
+                        8,
+                        8,
+                        [1.0, 1.0, 1.0, a],
+                    ));
                 }
             }
             // Hypos, one segment each.
-            let hypos = if filled & el::HYPO != 0 { MAX_HYPOS } else { p.hypos.min(MAX_HYPOS) };
-            const HYPO_ARCS: [(f32, f32); 6] = [(92.0, 103.0), (107.0, 118.0), (123.0, 133.0), (137.0, 148.0), (152.0, 163.0), (167.0, 179.0)];
+            let hypos = if filled & el::HYPO != 0 {
+                MAX_HYPOS
+            } else {
+                p.hypos.min(MAX_HYPOS)
+            };
+            const HYPO_ARCS: [(f32, f32); 6] = [
+                (92.0, 103.0),
+                (107.0, 118.0),
+                (123.0, 133.0),
+                (137.0, 148.0),
+                (152.0, 163.0),
+                (167.0, 179.0),
+            ];
             for &(s, e) in HYPO_ARCS.iter().take(usize::from(hypos)) {
-                out.push(arc(rring.clone(), rc, 63.0, 51.0, rring_w, s * DEG, e * DEG, 1, 1, [1.0, 1.0, 1.0, fl(el::HYPO, self)]));
+                out.push(arc(
+                    rring.clone(),
+                    rc,
+                    63.0,
+                    51.0,
+                    rring_w,
+                    s * DEG,
+                    e * DEG,
+                    1,
+                    1,
+                    [1.0, 1.0, 1.0, fl(el::HYPO, self)],
+                ));
             }
             // The hit ring: where the last hits came from.
-            const HIT_ARCS: [(f32, f32); 4] = [(-45.0, 45.0), (45.0, 135.0), (135.0, 225.0), (225.0, 315.0)];
+            const HIT_ARCS: [(f32, f32); 4] =
+                [(-45.0, 45.0), (45.0, 135.0), (135.0, 225.0), (225.0, 315.0)];
             for (k, &(s, e)) in HIT_ARCS.iter().enumerate() {
-                let a = if filled & el::DAMAGE != 0 { 255 } else { p.hits[k] };
+                let a = if filled & el::DAMAGE != 0 {
+                    255
+                } else {
+                    p.hits[k]
+                };
                 if a > 0 {
-                    out.push(arc(rring.clone(), rc, 37.0, 30.0, rring_w, s * DEG, e * DEG, 4, 4, [1.0, 1.0, 1.0, f32::from(a) / 255.0 * fl(el::DAMAGE, self)]));
+                    out.push(arc(
+                        rring.clone(),
+                        rc,
+                        37.0,
+                        30.0,
+                        rring_w,
+                        s * DEG,
+                        e * DEG,
+                        4,
+                        4,
+                        [1.0, 1.0, 1.0, f32::from(a) / 255.0 * fl(el::DAMAGE, self)],
+                    ));
                 }
             }
             if p.lsi {
                 // (A third as bright while a countdown runs.)
                 let dim = if p.timer_on { 1.0 / 3.0 } else { 1.0 };
-                out.push(sprite(Some(self.texture("lsi_icon")), rc, [54.0, 54.0], false, [1.0, 1.0, 1.0, fl(el::LSI, self) * dim]));
+                out.push(sprite(
+                    Some(self.texture("lsi_icon")),
+                    rc,
+                    [54.0, 54.0],
+                    false,
+                    [1.0, 1.0, 1.0, fl(el::LSI, self) * dim],
+                ));
             }
             // The countdown (`ONrGameState_Timer_Display`): the default
             // font, bold, white, centred on the ring's middle.
             if let Some(t) = p.timer.as_deref() {
-                if let Some(font) = self.fonts.fonts.iter().find(|f| f.size == 7 && f.style == "bold").cloned() {
+                if let Some(font) = self
+                    .fonts
+                    .fonts
+                    .iter()
+                    .find(|f| f.size == 7 && f.style == "bold")
+                    .cloned()
+                {
                     out.push(timer_draw(&font, t, rc));
                 }
             }
@@ -934,7 +1288,15 @@ impl Hud {
     /// The health ring (`ONiInGameUI_DisplayHealth`): the health in its
     /// colour along 270°, past full (a hypo's boost) on an inner ring, the
     /// shadow of where it was, and a throb below 30 %.
-    fn health_rings(&mut self, out: &mut Vec<OverlayDraw>, p: &Player, rc: [f32; 2], tex: Option<PathBuf>, tw: f32, flash: f32) {
+    fn health_rings(
+        &mut self,
+        out: &mut Vec<OverlayDraw>,
+        p: &Player,
+        rc: [f32; 2],
+        tex: Option<PathBuf>,
+        tw: f32,
+        flash: f32,
+    ) {
         let (hs, he) = (180.0 * DEG, -90.0 * DEG);
         let (ss, se) = (-90.0 * DEG, -170.0 * DEG);
         let m = self.health;
@@ -956,16 +1318,40 @@ impl Hud {
             if m.fore || m.after {
                 let shadow = m.shadow / max;
                 if share <= 1.0 {
-                    arcs.push((hs + share * (he - hs), hs + shadow.min(1.0) * (he - hs), 50.0, 40.0, false));
+                    arcs.push((
+                        hs + share * (he - hs),
+                        hs + shadow.min(1.0) * (he - hs),
+                        50.0,
+                        40.0,
+                        false,
+                    ));
                 }
                 if shadow > 1.0 {
-                    let start = if boost > 0.0 { ss + boost * (se - ss) } else { ss };
-                    arcs.push((start, ss + (se - ss) * (shadow.min(p.boosted) - 1.0), 55.0, 40.0, false));
+                    let start = if boost > 0.0 {
+                        ss + boost * (se - ss)
+                    } else {
+                        ss
+                    };
+                    arcs.push((
+                        start,
+                        ss + (se - ss) * (shadow.min(p.boosted) - 1.0),
+                        55.0,
+                        40.0,
+                        false,
+                    ));
                 }
             }
         }
-        let shade = if m.after { p.shadow_shade } else { p.health_shade };
-        let rgb = [((shade >> 16) & 0xFF) as f32 / 255.0, ((shade >> 8) & 0xFF) as f32 / 255.0, (shade & 0xFF) as f32 / 255.0];
+        let shade = if m.after {
+            p.shadow_shade
+        } else {
+            p.health_shade
+        };
+        let rgb = [
+            ((shade >> 16) & 0xFF) as f32 / 255.0,
+            ((shade >> 8) & 0xFF) as f32 / 255.0,
+            (shade & 0xFF) as f32 / 255.0,
+        ];
         let mut main = 1.0;
         let mut shadow = if m.after { 127.0 / 255.0 } else { 80.0 / 255.0 };
         if self.flashing & el::HEALTH != 0 {
@@ -979,21 +1365,45 @@ impl Hud {
                 let flash_period = 40.0 + low * (75.0 - 40.0);
                 let t = (self.now as f32) % period;
                 if t < flash_period {
-                    let amount = (0.5 + low * (0.3 - 0.5)) * (std::f32::consts::PI * t / flash_period).sin();
+                    let amount =
+                        (0.5 + low * (0.3 - 0.5)) * (std::f32::consts::PI * t / flash_period).sin();
                     main *= 1.0 - amount;
                 }
             }
         }
         for (s, e, o, i, is_main) in arcs {
-            out.push(arc(tex.clone(), rc, o, i, tw, s, e, 24, 24, [rgb[0], rgb[1], rgb[2], if is_main { main } else { shadow }]));
+            out.push(arc(
+                tex.clone(),
+                rc,
+                o,
+                i,
+                tw,
+                s,
+                e,
+                24,
+                24,
+                [rgb[0], rgb[1], rgb[2], if is_main { main } else { shadow }],
+            ));
         }
     }
 
     /// The compass (`ONiInGameUI_DisplayRadar`): an arc toward the target,
     /// wide near it and narrow far off, and an arrow if it is well above or
     /// below; the whole ring flashing for an unread objective with none.
-    fn compass(&mut self, out: &mut Vec<OverlayDraw>, p: &Player, lc: [f32; 2], tex: Option<PathBuf>, tw: f32, flash: f32) {
-        let alpha = if self.new_objective || self.flashing & el::COMPASS != 0 { flash } else { 1.0 };
+    fn compass(
+        &mut self,
+        out: &mut Vec<OverlayDraw>,
+        p: &Player,
+        lc: [f32; 2],
+        tex: Option<PathBuf>,
+        tw: f32,
+        flash: f32,
+    ) {
+        let alpha = if self.new_objective || self.flashing & el::COMPASS != 0 {
+            flash
+        } else {
+            1.0
+        };
         let mut to = Vec3::ZERO;
         let ring = if self.filled & el::COMPASS != 0 {
             Some((0.0, std::f32::consts::TAU))
@@ -1005,22 +1415,41 @@ impl Hud {
             } else if d2 > t.max_d2 {
                 20.0 * DEG
             } else {
-                std::f32::consts::FRAC_PI_2 - std::f32::consts::FRAC_PI_2 * (d2 / t.max_d2.max(1e-6))
+                std::f32::consts::FRAC_PI_2
+                    - std::f32::consts::FRAC_PI_2 * (d2 / t.max_d2.max(1e-6))
             }
             .clamp(20.0 * DEG, std::f32::consts::PI);
             let toward = to.x.atan2(to.z);
             let mut a = p.facing - toward;
             a = (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-            Some((a - len + std::f32::consts::FRAC_PI_2 * 3.0, a + len + std::f32::consts::FRAC_PI_2 * 3.0))
+            Some((
+                a - len + std::f32::consts::FRAC_PI_2 * 3.0,
+                a + len + std::f32::consts::FRAC_PI_2 * 3.0,
+            ))
         } else if self.new_objective {
             Some((0.0, std::f32::consts::TAU))
         } else {
             None
         };
         if let Some((s, e)) = ring {
-            out.push(arc(tex, lc, 50.0, 46.0, tw, s, e, 32, 32, [1.0, 1.0, 1.0, alpha]));
+            out.push(arc(
+                tex,
+                lc,
+                50.0,
+                46.0,
+                tw,
+                s,
+                e,
+                32,
+                32,
+                [1.0, 1.0, 1.0, alpha],
+            ));
         }
-        let alpha = if self.flashing & el::ARROW != 0 { flash } else { 1.0 };
+        let alpha = if self.flashing & el::ARROW != 0 {
+            flash
+        } else {
+            1.0
+        };
         let (mut up, down) = match self.target {
             Some(_) => (to.y > 10.0, to.y < -10.0),
             None => (false, false),
@@ -1030,7 +1459,13 @@ impl Hud {
         }
         if up || down {
             let c = [lc[0] + 36.5, lc[1]];
-            out.push(sprite(Some(self.texture("updn_arrow")), c, [12.0, 12.0], down, [1.0, 1.0, 1.0, alpha]));
+            out.push(sprite(
+                Some(self.texture("updn_arrow")),
+                c,
+                [12.0, 12.0],
+                down,
+                [1.0, 1.0, 1.0, alpha],
+            ));
         }
     }
 }
@@ -1051,9 +1486,16 @@ impl PartSpec {
         let name = v["texture"].as_str()?;
         let texture = textures.join(format!("{name}.png"));
         let f = std::fs::File::open(&texture).ok()?;
-        let r = png::Decoder::new(std::io::BufReader::new(f)).read_info().ok()?;
+        let r = png::Decoder::new(std::io::BufReader::new(f))
+            .read_info()
+            .ok()?;
         let size = [r.info().width as f32, r.info().height as f32];
-        let p = |k: &str, i: usize| -> [f32; 2] { [v[k][i][0].as_f64().unwrap_or(0.0) as f32, v[k][i][1].as_f64().unwrap_or(0.0) as f32] };
+        let p = |k: &str, i: usize| -> [f32; 2] {
+            [
+                v[k][i][0].as_f64().unwrap_or(0.0) as f32,
+                v[k][i][1].as_f64().unwrap_or(0.0) as f32,
+            ]
+        };
         let mut slices = [[[0.0; 4]; 3]; 3];
         for (c, column) in slices.iter_mut().enumerate() {
             for (r, s) in column.iter_mut().enumerate() {
@@ -1061,7 +1503,11 @@ impl PartSpec {
                 *s = [tl[0], tl[1], br[0], br[1]];
             }
         }
-        Some(PartSpec { texture, slices, size })
+        Some(PartSpec {
+            texture,
+            slices,
+            size,
+        })
     }
 
     /// Its top row's height.
@@ -1090,11 +1536,23 @@ impl PartSpec {
     /// One slice drawn stretched over `width` × `height` from `at`.
     fn slice(&self, c: usize, r: usize, at: [f32; 2], width: f32, height: f32) -> OverlayDraw {
         let [u0, v0, u1, v1] = self.slices[c][r];
-        let (u0, v0, u1, v1) = (u0 / self.size[0], v0 / self.size[1], u1 / self.size[0], v1 / self.size[1]);
+        let (u0, v0, u1, v1) = (
+            u0 / self.size[0],
+            v0 / self.size[1],
+            u1 / self.size[0],
+            v1 / self.size[1],
+        );
         let (l, t, rr, b) = (at[0], at[1], at[0] + width, at[1] + height);
         OverlayDraw {
             texture: Some(self.texture.clone()),
-            tris: vec![[l, t, u0, v0], [rr, t, u1, v0], [rr, b, u1, v1], [l, t, u0, v0], [rr, b, u1, v1], [l, b, u0, v1]],
+            tris: vec![
+                [l, t, u0, v0],
+                [rr, t, u1, v0],
+                [rr, b, u1, v1],
+                [l, t, u0, v0],
+                [rr, b, u1, v1],
+                [l, b, u0, v1],
+            ],
             color: [1.0, 1.0, 1.0, 1.0],
             additive: false,
         }
@@ -1116,7 +1574,11 @@ impl PartSpec {
     pub fn draw_top_row(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
         let (lw, rw) = (self.corner()[0], self.right_width());
         let mw = (width - lw - rw).max(0.0);
-        vec![self.slice(0, 0, at, lw, height), self.slice(1, 0, [at[0] + lw, at[1]], mw, height), self.slice(2, 0, [at[0] + lw + mw, at[1]], rw, height)]
+        vec![
+            self.slice(0, 0, at, lw, height),
+            self.slice(1, 0, [at[0] + lw, at[1]], mw, height),
+            self.slice(2, 0, [at[0] + lw + mw, at[1]], rw, height),
+        ]
     }
 
     /// The frame drawn `width` × `height` from `at`: the corners at their
@@ -1125,9 +1587,21 @@ impl PartSpec {
     /// corners themselves still drawn whole).
     pub fn draw(&self, at: [f32; 2], width: f32, height: f32) -> Vec<OverlayDraw> {
         let s = &self.slices;
-        let (lw, rw) = ((s[0][0][2] - s[0][0][0]).abs(), (s[2][0][2] - s[2][0][0]).abs());
-        let (th, bh) = ((s[0][0][3] - s[0][0][1]).abs(), (s[0][2][3] - s[0][2][1]).abs());
-        let fit = |a: f32, b: f32, total: f32| if a + b > total { ((a * a / total).trunc(), (b * b / total).trunc()) } else { (a, b) };
+        let (lw, rw) = (
+            (s[0][0][2] - s[0][0][0]).abs(),
+            (s[2][0][2] - s[2][0][0]).abs(),
+        );
+        let (th, bh) = (
+            (s[0][0][3] - s[0][0][1]).abs(),
+            (s[0][2][3] - s[0][2][1]).abs(),
+        );
+        let fit = |a: f32, b: f32, total: f32| {
+            if a + b > total {
+                ((a * a / total).trunc(), (b * b / total).trunc())
+            } else {
+                (a, b)
+            }
+        };
         let (l2, r2) = fit(lw, rw, width);
         let (t2, b2) = fit(th, bh, height);
         let (mw, mh) = ((width - (l2 + r2)).max(0.0), (height - (t2 + b2)).max(0.0));
@@ -1140,11 +1614,23 @@ impl PartSpec {
                     continue;
                 }
                 let [u0, v0, u1, v1] = s[c][r];
-                let (u0, v0, u1, v1) = (u0 / self.size[0], v0 / self.size[1], u1 / self.size[0], v1 / self.size[1]);
+                let (u0, v0, u1, v1) = (
+                    u0 / self.size[0],
+                    v0 / self.size[1],
+                    u1 / self.size[0],
+                    v1 / self.size[1],
+                );
                 let (l, t, rr, b) = (x, y, x + w, y + h);
                 out.push(OverlayDraw {
                     texture: Some(self.texture.clone()),
-                    tris: vec![[l, t, u0, v0], [rr, t, u1, v0], [rr, b, u1, v1], [l, t, u0, v0], [rr, b, u1, v1], [l, b, u0, v1]],
+                    tris: vec![
+                        [l, t, u0, v0],
+                        [rr, t, u1, v0],
+                        [rr, b, u1, v1],
+                        [l, t, u0, v0],
+                        [rr, b, u1, v1],
+                        [l, b, u0, v1],
+                    ],
                     color: [1.0, 1.0, 1.0, 1.0],
                     additive: false,
                 });
@@ -1156,13 +1642,34 @@ impl PartSpec {
 
 pub(super) fn rect(texture: Option<PathBuf>, r: [f32; 4], color: [f32; 4]) -> OverlayDraw {
     let [l, t, rr, b] = r;
-    OverlayDraw { texture, tris: vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]], color, additive: false }
+    OverlayDraw {
+        texture,
+        tris: vec![
+            [l, t, 0.0, 0.0],
+            [rr, t, 1.0, 0.0],
+            [rr, b, 1.0, 1.0],
+            [l, t, 0.0, 0.0],
+            [rr, b, 1.0, 1.0],
+            [l, b, 0.0, 1.0],
+        ],
+        color,
+        additive: false,
+    }
 }
 
 /// A sprite `size` big centred on `c` (its top-left on whole pixels, as the
 /// original's halving does), upside down if `flip`.
-fn sprite(texture: Option<PathBuf>, c: [f32; 2], size: [f32; 2], flip: bool, color: [f32; 4]) -> OverlayDraw {
-    let (l, t) = (c[0] - (size[0] * 0.5).floor(), c[1] - (size[1] * 0.5).floor());
+fn sprite(
+    texture: Option<PathBuf>,
+    c: [f32; 2],
+    size: [f32; 2],
+    flip: bool,
+    color: [f32; 4],
+) -> OverlayDraw {
+    let (l, t) = (
+        c[0] - (size[0] * 0.5).floor(),
+        c[1] - (size[1] * 0.5).floor(),
+    );
     let mut d = rect(texture, [l, t, l + size[0], t + size[1]], color);
     if flip {
         for v in &mut d.tris {
@@ -1177,21 +1684,47 @@ fn sprite(texture: Option<PathBuf>, c: [f32; 2], size: [f32; 2], flip: bool, col
 /// angles, y down), textured by where it lies on a ring texture `tex_w`
 /// wide.
 #[allow(clippy::too_many_arguments)]
-fn arc(texture: Option<PathBuf>, c: [f32; 2], outer: f32, inner: f32, tex_w: f32, start: f32, end: f32, segments: u32, draw: u32, color: [f32; 4]) -> OverlayDraw {
+fn arc(
+    texture: Option<PathBuf>,
+    c: [f32; 2],
+    outer: f32,
+    inner: f32,
+    tex_w: f32,
+    start: f32,
+    end: f32,
+    segments: u32,
+    draw: u32,
+    color: [f32; 4],
+) -> OverlayDraw {
     let half = (tex_w as i32 >> 1).max(1) as f32;
     let (uo, ui) = (outer / half, inner / half);
     let step = (end - start) / segments as f32;
     let point = |k: u32, r: f32, ur: f32| {
         let th = start + k as f32 * step;
         let (s, co) = th.sin_cos();
-        [co * r + c[0], s * r + c[1], co * 0.5 * ur + 0.5, s * 0.5 * ur + 0.5]
+        [
+            co * r + c[0],
+            s * r + c[1],
+            co * 0.5 * ur + 0.5,
+            s * 0.5 * ur + 0.5,
+        ]
     };
     let mut tris = Vec::new();
     for k in 0..draw.min(segments) {
-        let (i0, o0, o1, i1) = (point(k, inner, ui), point(k, outer, uo), point(k + 1, outer, uo), point(k + 1, inner, ui));
+        let (i0, o0, o1, i1) = (
+            point(k, inner, ui),
+            point(k, outer, uo),
+            point(k + 1, outer, uo),
+            point(k + 1, inner, ui),
+        );
         tris.extend_from_slice(&[i0, o0, o1, i0, o1, i1]);
     }
-    OverlayDraw { texture, tris, color, additive: false }
+    OverlayDraw {
+        texture,
+        tris,
+        color,
+        additive: false,
+    }
 }
 
 /// Text segments as glyph cells: a drop shadow a pixel down and right
@@ -1205,34 +1738,82 @@ fn timer_draw(font: &text::Font, s: &str, center: [f32; 2]) -> OverlayDraw {
     let (aw, ah) = (font.atlas_size[0], font.atlas_size[1]);
     let mut tris = Vec::new();
     for ch in s.chars() {
-        let Some([gx, gy, gw, adv]) = font.glyph(ch) else { continue };
+        let Some([gx, gy, gw, adv]) = font.glyph(ch) else {
+            continue;
+        };
         let (cw, chh) = (gw as f32, font.cell_height() as f32);
-        let (u0, v0, u1, v1) = (gx as f32 / aw, gy as f32 / ah, (gx as f32 + cw) / aw, (gy as f32 + chh) / ah);
-        tris.extend_from_slice(&[[x, top, u0, v0], [x + cw, top, u1, v0], [x + cw, top + chh, u1, v1], [x, top, u0, v0], [x + cw, top + chh, u1, v1], [x, top + chh, u0, v1]]);
+        let (u0, v0, u1, v1) = (
+            gx as f32 / aw,
+            gy as f32 / ah,
+            (gx as f32 + cw) / aw,
+            (gy as f32 + chh) / ah,
+        );
+        tris.extend_from_slice(&[
+            [x, top, u0, v0],
+            [x + cw, top, u1, v0],
+            [x + cw, top + chh, u1, v1],
+            [x, top, u0, v0],
+            [x + cw, top + chh, u1, v1],
+            [x, top + chh, u0, v1],
+        ]);
         x += adv as f32;
     }
-    OverlayDraw { texture: Some(font.atlas.clone()), tris, color: [1.0, 1.0, 1.0, 1.0], additive: false }
+    OverlayDraw {
+        texture: Some(font.atlas.clone()),
+        tris,
+        color: [1.0, 1.0, 1.0, 1.0],
+        additive: false,
+    }
 }
 
 fn text_draws(fonts: &Fonts, laid: &[(text::Segment, f32, String)]) -> Vec<OverlayDraw> {
     let mut out = Vec::new();
     for (shadow, (dx, rgb)) in [(true, (1.0, 0x404040)), (false, (0.0, 0))] {
         for (s, alpha, atlas) in laid {
-            let Some(font) = fonts.fonts.iter().find(|f| f.atlas.display().to_string() == *atlas) else { continue };
+            let Some(font) = fonts
+                .fonts
+                .iter()
+                .find(|f| f.atlas.display().to_string() == *atlas)
+            else {
+                continue;
+            };
             let color = if shadow { rgb } else { s.color };
             let mut tris = Vec::new();
             let mut x = s.x as f32 + dx;
             let y = s.top as f32 + dx;
             let (aw, ah) = (font.atlas_size[0], font.atlas_size[1]);
             for ch in s.text.chars() {
-                let Some([gx, gy, gw, adv]) = font.glyph(ch) else { continue };
+                let Some([gx, gy, gw, adv]) = font.glyph(ch) else {
+                    continue;
+                };
                 let (cw, chh) = (gw as f32, font.cell_height() as f32);
-                let (u0, v0, u1, v1) = (gx as f32 / aw, gy as f32 / ah, (gx as f32 + cw) / aw, (gy as f32 + chh) / ah);
-                tris.extend_from_slice(&[[x, y, u0, v0], [x + cw, y, u1, v0], [x + cw, y + chh, u1, v1], [x, y, u0, v0], [x + cw, y + chh, u1, v1], [x, y + chh, u0, v1]]);
+                let (u0, v0, u1, v1) = (
+                    gx as f32 / aw,
+                    gy as f32 / ah,
+                    (gx as f32 + cw) / aw,
+                    (gy as f32 + chh) / ah,
+                );
+                tris.extend_from_slice(&[
+                    [x, y, u0, v0],
+                    [x + cw, y, u1, v0],
+                    [x + cw, y + chh, u1, v1],
+                    [x, y, u0, v0],
+                    [x + cw, y + chh, u1, v1],
+                    [x, y + chh, u0, v1],
+                ]);
                 x += adv as f32;
             }
-            let rgbf = [((color >> 16) & 0xFF) as f32 / 255.0, ((color >> 8) & 0xFF) as f32 / 255.0, (color & 0xFF) as f32 / 255.0];
-            out.push(OverlayDraw { texture: Some(font.atlas.clone()), tris, color: [rgbf[0], rgbf[1], rgbf[2], *alpha], additive: false });
+            let rgbf = [
+                ((color >> 16) & 0xFF) as f32 / 255.0,
+                ((color >> 8) & 0xFF) as f32 / 255.0,
+                (color & 0xFF) as f32 / 255.0,
+            ];
+            out.push(OverlayDraw {
+                texture: Some(font.atlas.clone()),
+                tris,
+                color: [rgbf[0], rgbf[1], rgbf[2], *alpha],
+                additive: false,
+            });
         }
     }
     out
@@ -1275,19 +1856,38 @@ mod tests {
 
     #[test]
     fn an_arc_draws_its_first_segments() {
-        let a = arc(None, [0.0, 0.0], 64.0, 51.5, 128.0, 0.0, std::f32::consts::FRAC_PI_2, 6, 2, [1.0; 4]);
+        let a = arc(
+            None,
+            [0.0, 0.0],
+            64.0,
+            51.5,
+            128.0,
+            0.0,
+            std::f32::consts::FRAC_PI_2,
+            6,
+            2,
+            [1.0; 4],
+        );
         assert_eq!(a.tris.len(), 2 * 6);
         // Its first corner: the inner radius at angle 0, the texture at the
         // matching place on the ring.
-        assert!((a.tris[0][0] - 51.5).abs() < 1e-4 && (a.tris[0][2] - (0.5 + 0.5 * 51.5 / 64.0)).abs() < 1e-4);
+        assert!(
+            (a.tris[0][0] - 51.5).abs() < 1e-4
+                && (a.tris[0][2] - (0.5 + 0.5 * 51.5 / 64.0)).abs() < 1e-4
+        );
     }
 
     #[test]
     fn objectives_prompt_until_read() {
         let mut h = Hud::default();
-        h.texts.insert("new_objective".into(), "New objective received.".into());
+        h.texts
+            .insert("new_objective".into(), "New objective received.".into());
         assert!(h.objective_set(1, false));
-        let p = Player { hp: 100, max_hp: 100, ..Player::default() };
+        let p = Player {
+            hp: 100,
+            max_hp: 100,
+            ..Player::default()
+        };
         for _ in 0..40 {
             h.tick(&p, false, false);
         }

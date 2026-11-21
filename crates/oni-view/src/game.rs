@@ -51,7 +51,13 @@ const HASTY: f32 = 30.0;
 
 impl Splash {
     pub fn new(texture: PathBuf, after: After) -> Splash {
-        Splash { texture, after, music: None, phase: Phase::In, t: 0.0 }
+        Splash {
+            texture,
+            after,
+            music: None,
+            phase: Phase::In,
+            t: 0.0,
+        }
     }
 
     /// Whether it is fading out.
@@ -93,12 +99,21 @@ impl Splash {
 /// The level after `level` (`ONrLevel_GetNextLevel`): the lowest numbered
 /// one above it that exists (`levels/NN/`), if any.
 pub fn next_level(oni_root: &Path, level: u16) -> Option<u16> {
-    (level + 1..100).find(|n| oni_root.join(format!("levels/{n:02}/environment.glb")).is_file())
+    (level + 1..100).find(|n| {
+        oni_root
+            .join(format!("levels/{n:02}/environment.glb"))
+            .is_file()
+    })
 }
 
 /// A level's splash screen texture: the level's own, else the common one.
 pub fn splash_texture(oni_root: &Path, level: u16, name: &str) -> Option<PathBuf> {
-    [oni_root.join(format!("levels/{level:02}/textures/{name}.png")), oni_root.join(format!("common/textures/{name}.png"))].into_iter().find(|p| p.is_file())
+    [
+        oni_root.join(format!("levels/{level:02}/textures/{name}.png")),
+        oni_root.join(format!("common/textures/{name}.png")),
+    ]
+    .into_iter()
+    .find(|p| p.is_file())
 }
 
 /// What a save point keeps of the player (`ONtContinue`), so a restart
@@ -123,7 +138,14 @@ pub struct Continue {
 
 impl Continue {
     fn to_json(&self) -> serde_json::Value {
-        let guns: Vec<serde_json::Value> = self.guns.iter().map(|g| g.as_ref().map_or(serde_json::Value::Null, |(c, a)| serde_json::json!([c, a]))).collect();
+        let guns: Vec<serde_json::Value> = self
+            .guns
+            .iter()
+            .map(|g| {
+                g.as_ref()
+                    .map_or(serde_json::Value::Null, |(c, a)| serde_json::json!([c, a]))
+            })
+            .collect();
         serde_json::json!({
             "savePoint": self.save_point, "hp": self.hp, "maxHp": self.max_hp,
             "position": [self.position.x, self.position.y, self.position.z], "facing": self.facing,
@@ -144,7 +166,11 @@ impl Continue {
             save_point: v["savePoint"].as_i64()?,
             hp: v["hp"].as_i64()? as i32,
             max_hp: v["maxHp"].as_i64()? as i32,
-            position: glam::Vec3::new(p[0].as_f64()? as f32, p[1].as_f64()? as f32, p[2].as_f64()? as f32),
+            position: glam::Vec3::new(
+                p[0].as_f64()? as f32,
+                p[1].as_f64()? as f32,
+                p[2].as_f64()? as f32,
+            ),
             facing: f("facing")?,
             ammo: u("ammo"),
             cells: u("cells"),
@@ -191,14 +217,21 @@ pub fn continue_name(level: u16, save_point: i64) -> String {
 /// kept, and level 1's warehouse always (`ONrPersistance_Initialize` makes
 /// it, flagged to start there without restoring anything).
 pub fn continues_of(level: u16) -> Vec<(i64, String)> {
-    let doc = continues_file().map(|p| read_continues(&p)).unwrap_or_else(|| serde_json::json!({}));
+    let doc = continues_file()
+        .map(|p| read_continues(&p))
+        .unwrap_or_else(|| serde_json::json!({}));
     let mut out: Vec<(i64, String)> = doc[format!("{level:02}")]
         .as_object()
         .into_iter()
         .flatten()
         .filter_map(|(k, v)| {
             let n: i64 = k.parse().ok()?;
-            Some((n, v["name"].as_str().map_or_else(|| continue_name(level, n), str::to_string)))
+            Some((
+                n,
+                v["name"]
+                    .as_str()
+                    .map_or_else(|| continue_name(level, n), str::to_string),
+            ))
         })
         .filter(|(n, _)| (1..10).contains(n))
         .collect();
@@ -215,7 +248,12 @@ pub fn level_begun(level: u16) {
     let Some(path) = continues_file() else { return };
     let mut doc = read_continues(&path);
     doc["place"] = serde_json::json!({ "level": level, "savePoint": 0 });
-    let mut levels: Vec<u64> = doc["unlocked"]["levels"].as_array().into_iter().flatten().filter_map(|l| l.as_u64()).collect();
+    let mut levels: Vec<u64> = doc["unlocked"]["levels"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|l| l.as_u64())
+        .collect();
     if level > 1 && !levels.contains(&u64::from(level)) {
         levels.push(u64::from(level));
         levels.sort_unstable();
@@ -229,23 +267,40 @@ pub fn level_unlocked(level: u16) -> bool {
     level == 1
         || continues_file()
             .map(|p| read_continues(&p))
-            .is_some_and(|d| d["unlocked"]["levels"].as_array().is_some_and(|ls| ls.iter().any(|l| l.as_u64() == Some(u64::from(level)))))
+            .is_some_and(|d| {
+                d["unlocked"]["levels"]
+                    .as_array()
+                    .is_some_and(|ls| ls.iter().any(|l| l.as_u64() == Some(u64::from(level))))
+            })
 }
 
 /// The load game list (`OWrLevelList_Initialize`): each level (of the
 /// descriptors `levels`, in their order) shipped and reached, then its
 /// continues; and the place last played.
-pub fn load_rows(levels: &[(u16, String)], oni_root: &Path) -> (Vec<crate::hud::menu::LoadRow>, Option<(u16, i64)>) {
+pub fn load_rows(
+    levels: &[(u16, String)],
+    oni_root: &Path,
+) -> (Vec<crate::hud::menu::LoadRow>, Option<(u16, i64)>) {
     use crate::hud::menu::LoadRow;
     let mut rows = Vec::new();
     for (level, name) in levels {
-        let exists = oni_root.join(format!("levels/{level:02}/environment.glb")).is_file();
+        let exists = oni_root
+            .join(format!("levels/{level:02}/environment.glb"))
+            .is_file();
         if !exists || !level_unlocked(*level) {
             continue;
         }
-        rows.push(LoadRow { text: name.clone(), level: *level, save_point: 0 });
+        rows.push(LoadRow {
+            text: name.clone(),
+            level: *level,
+            save_point: 0,
+        });
         for (sp, text) in continues_of(*level) {
-            rows.push(LoadRow { text, level: *level, save_point: sp });
+            rows.push(LoadRow {
+                text,
+                level: *level,
+                save_point: sp,
+            });
         }
     }
     (rows, place())
@@ -254,12 +309,17 @@ pub fn load_rows(levels: &[(u16, String)], oni_root: &Path) -> (Vec<crate::hud::
 /// The place last played: level and save point.
 pub fn place() -> Option<(u16, i64)> {
     let doc = read_continues(&continues_file()?);
-    Some((doc["place"]["level"].as_u64()? as u16, doc["place"]["savePoint"].as_i64().unwrap_or(0)))
+    Some((
+        doc["place"]["level"].as_u64()? as u16,
+        doc["place"]["savePoint"].as_i64().unwrap_or(0),
+    ))
 }
 
 /// The game's mode: shipped bugs (`--faithful`, chosen at a new game) or not.
 pub fn game_faithful() -> bool {
-    continues_file().map(|p| read_continues(&p)).is_some_and(|d| d["faithful"].as_bool() == Some(true))
+    continues_file()
+        .map(|p| read_continues(&p))
+        .is_some_and(|d| d["faithful"].as_bool() == Some(true))
 }
 
 pub fn set_game_faithful(on: bool) {
@@ -270,7 +330,10 @@ pub fn set_game_faithful(on: bool) {
 }
 
 fn read_continues(path: &std::path::Path) -> serde_json::Value {
-    std::fs::read_to_string(path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}))
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|t| serde_json::from_str(&t).ok())
+        .unwrap_or_else(|| serde_json::json!({}))
 }
 
 /// The continue kept for `level`'s save point `n`, if one was made.
@@ -295,7 +358,12 @@ pub fn store_continue(level: u16, c: &Continue) {
 pub fn load_unlocks() -> Option<(u32, Vec<String>)> {
     let doc = read_continues(&continues_file()?);
     let u = doc.get("unlocked")?;
-    let weapons = u["weapons"].as_array().into_iter().flatten().filter_map(|w| w.as_str().map(str::to_string)).collect();
+    let weapons = u["weapons"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|w| w.as_str().map(str::to_string))
+        .collect();
     Some((u["items"].as_u64().unwrap_or(0) as u32, weapons))
 }
 
@@ -329,7 +397,12 @@ pub fn save_points(level: u16, level_dir: &Path) -> Vec<i64> {
     let mut out: Vec<i64> = text
         .split("C[\"save_game\"](")
         .skip(1)
-        .filter_map(|rest| rest.split(|c: char| !c.is_ascii_digit()).next()?.parse().ok())
+        .filter_map(|rest| {
+            rest.split(|c: char| !c.is_ascii_digit())
+                .next()?
+                .parse()
+                .ok()
+        })
         .filter(|n| (1..10).contains(n))
         .collect();
     if level == 1 {
@@ -346,14 +419,20 @@ pub fn save_points(level: u16, level_dir: &Path) -> Vec<i64> {
 /// scripts set her up). Continues already kept stay. Returns what it
 /// offered, by level.
 pub fn unlock_all(oni_root: &Path) -> Vec<(u16, Vec<i64>)> {
-    let Some(path) = continues_file() else { return Vec::new() };
+    let Some(path) = continues_file() else {
+        return Vec::new();
+    };
     let mut doc = read_continues(&path);
     let mut levels: Vec<u16> = std::fs::read_dir(oni_root.join("levels"))
         .into_iter()
         .flatten()
         .flatten()
         .filter_map(|e| e.file_name().to_str()?.parse().ok())
-        .filter(|l: &u16| oni_root.join(format!("levels/{l:02}/environment.glb")).is_file())
+        .filter(|l: &u16| {
+            oni_root
+                .join(format!("levels/{l:02}/environment.glb"))
+                .is_file()
+        })
         .collect();
     levels.sort_unstable();
     let mut out = Vec::new();
@@ -367,7 +446,8 @@ pub fn unlock_all(oni_root: &Path) -> Vec<(u16, Vec<i64>)> {
         }
         out.push((level, points));
     }
-    doc["unlocked"]["levels"] = serde_json::json!(levels.iter().filter(|&&l| l > 1).collect::<Vec<_>>());
+    doc["unlocked"]["levels"] =
+        serde_json::json!(levels.iter().filter(|&&l| l > 1).collect::<Vec<_>>());
     write_continues(&path, &doc);
     out
 }
@@ -394,9 +474,17 @@ mod tests {
     fn save_points_are_read_from_the_scripts() {
         let dir = std::env::temp_dir().join(format!("oni-save-points-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
-        std::fs::write(dir.join("scripts.lua"), "C[\"save_game\"](3, \"autosave\")\nC[\"save_game\"](2)\nC[\"save_game\"](3)").unwrap();
+        std::fs::write(
+            dir.join("scripts.lua"),
+            "C[\"save_game\"](3, \"autosave\")\nC[\"save_game\"](2)\nC[\"save_game\"](3)",
+        )
+        .unwrap();
         assert_eq!(save_points(4, &dir), vec![2, 3]);
-        assert_eq!(save_points(1, &dir), vec![1, 2, 3], "level 1's warehouse too");
+        assert_eq!(
+            save_points(1, &dir),
+            vec![1, 2, 3],
+            "level 1's warehouse too"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -445,7 +533,10 @@ mod tests {
     fn keys_hurry_it() {
         let mut s = Splash::new(PathBuf::new(), After::Restart);
         s.tick(10.0, true);
-        assert!(s.tick(10.0, true).is_none(), "keys ignored early in the fade out");
+        assert!(
+            s.tick(10.0, true).is_none(),
+            "keys ignored early in the fade out"
+        );
         assert_eq!(s.tick(30.0, true), Some(After::Restart));
     }
 }

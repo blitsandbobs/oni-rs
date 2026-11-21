@@ -128,7 +128,11 @@ impl Audio {
         if let Some(c) = self.clips.get(sound) {
             return c.clone();
         }
-        let c = self.dirs.iter().find_map(|d| Clip::load(&d.join(format!("{sound}.wav")), sound)).map(Arc::new);
+        let c = self
+            .dirs
+            .iter()
+            .find_map(|d| Clip::load(&d.join(format!("{sound}.wav")), sound))
+            .map(Arc::new);
         self.clips.insert(sound.to_string(), c.clone());
         c
     }
@@ -136,7 +140,10 @@ impl Audio {
     /// How fast a hit must be for impulse `name` to sound at full volume
     /// (0: always).
     pub fn impact_velocity(&self, name: &str) -> f32 {
-        self.defs.impulses.get(name).map_or(0.0, |i| i.impact_velocity)
+        self.defs
+            .impulses
+            .get(name)
+            .map_or(0.0, |i| i.impact_velocity)
     }
 
     /// The listener: the player's ear and facing.
@@ -178,11 +185,20 @@ impl Audio {
 
     /// A script slot's sound of that name halted at once (`OSrMusic_Halt`).
     pub fn script_halt(&mut self, name: &str) {
-        let ids: Vec<u32> = self.script_slots.iter().flatten().filter(|(_, n)| n.eq_ignore_ascii_case(name)).filter_map(|(id, _)| *id).collect();
+        let ids: Vec<u32> = self
+            .script_slots
+            .iter()
+            .flatten()
+            .filter(|(_, n)| n.eq_ignore_ascii_case(name))
+            .filter_map(|(id, _)| *id)
+            .collect();
         for id in ids {
             self.halt(id);
         }
-        self.script_slots.retain(|s| s.as_ref().is_none_or(|(_, n)| !n.eq_ignore_ascii_case(name)));
+        self.script_slots.retain(|s| {
+            s.as_ref()
+                .is_none_or(|(_, n)| !n.eq_ignore_ascii_case(name))
+        });
     }
 
     /// A tick: without an output device the mixer first plays a tick's
@@ -228,7 +244,10 @@ impl Audio {
             .map(|p| Heard {
                 name: p.name.clone(),
                 stage: p.stage,
-                clip: p.ch1.and_then(|c| m.voice(c)).map(|v| v.now.clip.name.clone()),
+                clip: p
+                    .ch1
+                    .and_then(|c| m.voice(c))
+                    .map(|v| v.now.clip.name.clone()),
                 gain: p.ch1.map_or([0.0; 2], |c| m.gains(c)),
             })
             .collect()
@@ -259,12 +278,29 @@ mod tests {
         let mut a = Audio::empty();
         a.mixer.lock().unwrap().rate = 60.0;
         for &(name, frames, channels) in sounds {
-            let clip = Clip { name: name.into(), rate: 60.0, channels, samples: vec![0.1; frames * channels] };
+            let clip = Clip {
+                name: name.into(),
+                rate: 60.0,
+                channels,
+                samples: vec![0.1; frames * channels],
+            };
             a.clips.insert(name.into(), Some(Arc::new(clip)));
-            let p = Permutation { weight: 10, volume: (1.0, 1.0), pitch: (1.0, 1.0), sound: name.into() };
+            let p = Permutation {
+                weight: 10,
+                volume: (1.0, 1.0),
+                pitch: (1.0, 1.0),
+                sound: name.into(),
+            };
             a.defs.groups.insert(
                 name.into(),
-                Group { volume: 1.0, pitch: 1.0, channels: channels as u32, prevent_repeats: false, last: 0, permutations: vec![p] },
+                Group {
+                    volume: 1.0,
+                    pitch: 1.0,
+                    channels: channels as u32,
+                    prevent_repeats: false,
+                    last: 0,
+                    permutations: vec![p],
+                },
             );
         }
         a.listen(Vec3::ZERO, Vec3::Z);
@@ -291,18 +327,24 @@ mod tests {
 
     fn hum(flags: u32) -> Audio {
         let mut a = audio(&[("i", 6, 1), ("b", 12, 1), ("o", 6, 1), ("d", 3, 1)]);
-        a.defs.ambients.insert("hum".into(), ambient(flags, None, Some("b")));
+        a.defs
+            .ambients
+            .insert("hum".into(), ambient(flags, None, Some("b")));
         a
     }
 
     fn stage(a: &Audio) -> Option<(Stage, String)> {
-        a.heard().first().map(|h| (h.stage, h.clip.clone().unwrap_or_default()))
+        a.heard()
+            .first()
+            .map(|h| (h.stage, h.clip.clone().unwrap_or_default()))
     }
 
     #[test]
     fn in_loop_out_and_done() {
         let mut a = hum(PAN);
-        let h = a.ambient_start("hum", Vec3::new(0.0, 0.0, 30.0), None).unwrap();
+        let h = a
+            .ambient_start("hum", Vec3::new(0.0, 0.0, 30.0), None)
+            .unwrap();
         assert_eq!(stage(&a), Some((Stage::In, "i".into())));
         for _ in 0..8 {
             a.tick(None);
@@ -311,7 +353,11 @@ mod tests {
         for _ in 0..40 {
             a.tick(None);
         }
-        assert_eq!(stage(&a), Some((Stage::Body, "b".into())), "it loops, each pass rolled afresh");
+        assert_eq!(
+            stage(&a),
+            Some((Stage::Body, "b".into())),
+            "it loops, each pass rolled afresh"
+        );
         a.ambient_stop(h);
         let mut seen: Vec<Option<(Stage, String)>> = vec![stage(&a)];
         for _ in 0..30 {
@@ -320,26 +366,45 @@ mod tests {
                 seen.push(stage(&a));
             }
         }
-        assert_eq!(seen, vec![Some((Stage::Stopping, "b".into())), Some((Stage::Out, "o".into())), None]);
-        assert!(a.channels().iter().all(|c| !c.locked && c.clip.is_none()), "its channel is free again");
+        assert_eq!(
+            seen,
+            vec![
+                Some((Stage::Stopping, "b".into())),
+                Some((Stage::Out, "o".into())),
+                None
+            ]
+        );
+        assert!(
+            a.channels().iter().all(|c| !c.locked && c.clip.is_none()),
+            "its channel is free again"
+        );
     }
 
     #[test]
     fn heard_by_distance_halted_out_of_earshot_and_restarted() {
         let mut a = hum(0);
         // 30 units = 10 ft: full; 90 = 30 ft: halfway (−16.7 dB on a PC).
-        a.ambient_start("hum", Vec3::new(0.0, 0.0, 30.0), None).unwrap();
+        a.ambient_start("hum", Vec3::new(0.0, 0.0, 30.0), None)
+            .unwrap();
         a.tick(None);
         assert_eq!(a.heard()[0].gain, [1.0, 1.0]);
         a.listen(Vec3::new(0.0, 0.0, -60.0), Vec3::Z);
         a.tick(None);
-        assert!((a.heard()[0].gain[0] - 0.1468).abs() < 1e-3, "{:?}", a.heard()[0].gain);
+        assert!(
+            (a.heard()[0].gain[0] - 0.1468).abs() < 1e-3,
+            "{:?}",
+            a.heard()[0].gain
+        );
         a.listen(Vec3::new(0.0, 0.0, -200.0), Vec3::Z);
         a.tick(None);
         assert!(a.heard().is_empty(), "halted beyond 50 ft, no out sound");
         a.listen(Vec3::ZERO, Vec3::Z);
         a.tick(None);
-        assert_eq!(stage(&a), Some((Stage::In, "i".into())), "back in earshot: from its in sound");
+        assert_eq!(
+            stage(&a),
+            Some((Stage::In, "i".into())),
+            "back in earshot: from its in sound"
+        );
     }
 
     #[test]
@@ -358,7 +423,15 @@ mod tests {
         let mut a = audio(&[("s", 600, 1)]);
         a.defs.impulses.insert(
             "s".into(),
-            ImpulseDef { group: "s".into(), priority: 1, max_distance: 10.0, min_distance: 50.0, alt: None, impact_velocity: 0.0, min_occlusion: 0.0 },
+            ImpulseDef {
+                group: "s".into(),
+                priority: 1,
+                max_distance: 10.0,
+                min_distance: 50.0,
+                alt: None,
+                impact_velocity: 0.0,
+                min_occlusion: 0.0,
+            },
         );
         // Ten at falling volumes fill the mono pool (channels 6..16).
         for k in 0..10 {
@@ -384,7 +457,9 @@ mod tests {
             impact_velocity: 0.0,
             min_occlusion: 0.0,
         };
-        a.defs.impulses.insert("s".into(), imp("s", Some((2, "t".into()))));
+        a.defs
+            .impulses
+            .insert("s".into(), imp("s", Some((2, "t".into()))));
         a.defs.impulses.insert("t".into(), imp("t", None));
         for _ in 0..3 {
             a.impulse_play("s", None, None, None);
@@ -396,11 +471,19 @@ mod tests {
     #[test]
     fn a_detail_only_ambient_plays_details_from_the_start() {
         let mut a = audio(&[("d", 3, 1)]);
-        a.defs.ambients.insert("city".into(), ambient(0, Some("d"), None));
-        a.ambient_start("city", Vec3::new(0.0, 0.0, 10.0), None).unwrap();
+        a.defs
+            .ambients
+            .insert("city".into(), ambient(0, Some("d"), None));
+        a.ambient_start("city", Vec3::new(0.0, 0.0, 10.0), None)
+            .unwrap();
         a.tick(None);
         assert_eq!(a.heard()[0].stage, Stage::DetailOnly);
-        let detail = |a: &Audio| a.channels().iter().filter(|c| c.clip.as_deref() == Some("d")).count();
+        let detail = |a: &Audio| {
+            a.channels()
+                .iter()
+                .filter(|c| c.clip.as_deref() == Some("d"))
+                .count()
+        };
         assert_eq!(detail(&a), 1, "the first detail at once");
         for _ in 0..40 {
             a.tick(None);
@@ -411,19 +494,37 @@ mod tests {
     #[test]
     fn a_looping_body_rolls_each_pass_afresh() {
         let mut a = audio(&[("i", 2, 1), ("x", 4, 1), ("y", 4, 1), ("o", 2, 1)]);
-        let p = |s: &str| Permutation { weight: 10, volume: (1.0, 1.0), pitch: (1.0, 1.0), sound: s.into() };
+        let p = |s: &str| Permutation {
+            weight: 10,
+            volume: (1.0, 1.0),
+            pitch: (1.0, 1.0),
+            sound: s.into(),
+        };
         a.defs.groups.insert(
             "b".into(),
-            Group { volume: 1.0, pitch: 1.0, channels: 1, prevent_repeats: false, last: 0, permutations: vec![p("x"), p("y")] },
+            Group {
+                volume: 1.0,
+                pitch: 1.0,
+                channels: 1,
+                prevent_repeats: false,
+                last: 0,
+                permutations: vec![p("x"), p("y")],
+            },
         );
-        a.defs.ambients.insert("hum".into(), ambient(0, None, Some("b")));
-        a.ambient_start("hum", Vec3::new(0.0, 0.0, 10.0), None).unwrap();
+        a.defs
+            .ambients
+            .insert("hum".into(), ambient(0, None, Some("b")));
+        a.ambient_start("hum", Vec3::new(0.0, 0.0, 10.0), None)
+            .unwrap();
         let mut clips = std::collections::HashSet::new();
         for _ in 0..80 {
             a.tick(None);
             clips.extend(a.heard()[0].clip.clone());
         }
-        assert!(clips.contains("x") && clips.contains("y"), "both permutations heard: {clips:?}");
+        assert!(
+            clips.contains("x") && clips.contains("y"),
+            "both permutations heard: {clips:?}"
+        );
     }
 
     /// `hum` (no in or out sound here: its body only) as sound objects.
@@ -432,7 +533,8 @@ mod tests {
         let mut def = ambient(0, None, Some("b"));
         (def.in_sound, def.out_sound) = (None, None);
         a.defs.ambients.insert("hum".into(), def);
-        let dir = std::env::temp_dir().join(format!("oni-sound-objects-{}-{test}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("oni-sound-objects-{}-{test}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         std::fs::write(dir.join("sounds.json"), json).unwrap();
         a.objects = objects::load(&dir);
@@ -442,7 +544,10 @@ mod tests {
     #[test]
     fn a_sphere_fades_up_while_inside_and_stops_outside() {
         // Heard within 18 ft (54 units), full within 6.
-        let mut a = with_objects("sphere", r#"{"objects":[{"ambient":"hum","position":[0,0,0],"volume":0.8,"sphere":{"max":6,"min":18}}]}"#);
+        let mut a = with_objects(
+            "sphere",
+            r#"{"objects":[{"ambient":"hum","position":[0,0,0],"volume":0.8,"sphere":{"max":6,"min":18}}]}"#,
+        );
         a.listen(Vec3::new(0.0, 0.0, 100.0), Vec3::Z);
         a.tick(None);
         assert!(a.heard().is_empty(), "outside: silent");
@@ -478,7 +583,11 @@ mod tests {
         for _ in 0..60 {
             a.tick(None);
         }
-        assert!((obj(&a, 0).1 - 0.75).abs() < 0.03, "an ease-in, three quarters up after a second: {:?}", obj(&a, 0));
+        assert!(
+            (obj(&a, 0).1 - 0.75).abs() < 0.03,
+            "an ease-in, three quarters up after a second: {:?}",
+            obj(&a, 0)
+        );
         // Into the next box (same ambient) while the first fades out: it
         // takes the sound over rather than starting another.
         a.listen(Vec3::new(25.0, 0.0, 0.0), Vec3::Z);
@@ -498,7 +607,8 @@ mod tests {
     #[test]
     fn the_overall_volume_moves_by_steps() {
         let mut a = hum(0);
-        a.ambient_start("hum", Vec3::new(0.0, 0.0, 10.0), None).unwrap();
+        a.ambient_start("hum", Vec3::new(0.0, 0.0, 10.0), None)
+            .unwrap();
         a.set_volume(0.5);
         a.tick(None);
         assert!((a.channels().iter().map(|c| c.volume).fold(0.0, f32::max) - 0.95).abs() < 1e-5);

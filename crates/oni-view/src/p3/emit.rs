@@ -11,7 +11,9 @@ use super::{Handle, Host, Particle, System, HZ};
 /// An orthonormal frame with `dir` as forward (Y) and `up` as the up hint
 /// (Z); falls back to world up, then world Z, when they are parallel.
 pub(super) fn basis(dir: Vec3, up: Vec3) -> Mat3 {
-    let Some(d) = dir.try_normalize() else { return Mat3::IDENTITY };
+    let Some(d) = dir.try_normalize() else {
+        return Mat3::IDENTITY;
+    };
     let right = d
         .cross(up)
         .try_normalize()
@@ -26,24 +28,51 @@ pub(super) fn basis(dir: Vec3, up: Vec3) -> Mat3 {
 /// forward (Y) from `dir_o`, its up (Z) as near `up_o` as square to it.
 /// `parent`: the emitter's orientation; `offset`: where the particle starts
 /// from the emitter; `vel`: the way it is sent.
-fn construct_orientation(dir_o: Orient, up_o: Orient, parent: Option<Mat3>, offset: Vec3, vel: Vec3) -> Mat3 {
+fn construct_orientation(
+    dir_o: Orient,
+    up_o: Orient,
+    parent: Option<Mat3>,
+    offset: Vec3,
+    vel: Vec3,
+) -> Mat3 {
     let p = parent.unwrap_or(Mat3::IDENTITY);
     let axis = |world: bool, axis: usize, negative: bool| {
         let v = if world { Mat3::IDENTITY } else { p }.col(axis);
-        if negative { -v } else { v }
+        if negative {
+            -v
+        } else {
+            v
+        }
     };
     // Up along the very axis it faces (the same space): the next axis's +
     // instead (X → Y, Y → Z, Z → X; the original's table).
     let up_o = match (dir_o, up_o) {
-        (Orient::Axis { world: w1, axis: a1, .. }, Orient::Axis { world: w2, axis: a2, .. }) if w1 == w2 && a1 == a2 => {
-            Orient::Axis { world: w1, axis: (a1 + 1) % 3, negative: false }
-        }
+        (
+            Orient::Axis {
+                world: w1,
+                axis: a1,
+                ..
+            },
+            Orient::Axis {
+                world: w2,
+                axis: a2,
+                ..
+            },
+        ) if w1 == w2 && a1 == a2 => Orient::Axis {
+            world: w1,
+            axis: (a1 + 1) % 3,
+            negative: false,
+        },
         _ => up_o,
     };
     // Its forward: a missing velocity or offset falls back to the parent's
     // Y or Z (unturned).
     let dir = match dir_o {
-        Orient::Axis { world, axis: a, negative } => axis(world, a, negative),
+        Orient::Axis {
+            world,
+            axis: a,
+            negative,
+        } => axis(world, a, negative),
         Orient::Velocity => vel.try_normalize().unwrap_or(p.y_axis),
         Orient::ReverseVelocity => vel.try_normalize().map_or(p.y_axis, |v| -v),
         Orient::TowardsEmitter => offset.try_normalize().map_or(p.z_axis, |v| -v),
@@ -51,7 +80,11 @@ fn construct_orientation(dir_o: Orient, up_o: Orient, parent: Option<Mat3>, offs
     };
     // Its up hint — none for a missing one (then world Y).
     let up = match up_o {
-        Orient::Axis { world, axis: a, negative } => axis(world, a, negative),
+        Orient::Axis {
+            world,
+            axis: a,
+            negative,
+        } => axis(world, a, negative),
         Orient::Velocity => vel,
         Orient::ReverseVelocity => -vel,
         Orient::TowardsEmitter => -offset,
@@ -75,7 +108,11 @@ impl System {
     /// A random unit vector.
     pub(super) fn random_unit(&mut self) -> Vec3 {
         loop {
-            let v = Vec3::new(self.signed_random(), self.signed_random(), self.signed_random());
+            let v = Vec3::new(
+                self.signed_random(),
+                self.signed_random(),
+                self.signed_random(),
+            );
             let l = v.length_squared();
             if l > 1e-4 && l <= 1.0 {
                 return v / l.sqrt();
@@ -94,23 +131,43 @@ impl System {
         }
         let phi = (c * angle).to_radians();
         let theta = theta.unwrap_or_else(|| TAU * self.random());
-        (Vec3::new(theta.cos() * phi.sin(), phi.cos(), theta.sin() * phi.sin()), c)
+        (
+            Vec3::new(theta.cos() * phi.sin(), phi.cos(), theta.sin() * phi.sin()),
+            c,
+        )
     }
 
     /// Emits `bursts` bursts from emitter `e` of `parent` at time `t`.
-    pub(super) fn emit(&mut self, parent: &mut Particle, ph: Handle, e: usize, t: f64, bursts: u32, host: &mut dyn Host) {
+    pub(super) fn emit(
+        &mut self,
+        parent: &mut Particle,
+        ph: Handle,
+        e: usize,
+        t: f64,
+        bursts: u32,
+        host: &mut dyn Host,
+    ) {
         for _ in 0..bursts {
             self.emit_burst(parent, ph, e, t, host);
         }
     }
 
-    fn emit_burst(&mut self, parent: &mut Particle, ph: Handle, e: usize, t: f64, host: &mut dyn Host) {
+    fn emit_burst(
+        &mut self,
+        parent: &mut Particle,
+        ph: Handle,
+        e: usize,
+        t: f64,
+        host: &mut dyn Host,
+    ) {
         let classes = self.classes.clone();
         let pc = &classes.list[parent.class];
         let def = &pc.emitters[e];
         let Some(child_class) = def.class else { return };
         let cc = &classes.list[child_class];
-        if parent.flags & super::pflag::CUTSCENE_KILLED != 0 && cc.has(cflag::DIE_ON_CUTSCENE | cflag::EXPIRE_ON_CUTSCENE) {
+        if parent.flags & super::pflag::CUTSCENE_KILLED != 0
+            && cc.has(cflag::DIE_ON_CUTSCENE | cflag::EXPIRE_ON_CUTSCENE)
+        {
             return;
         }
         if def.chance < u16::MAX && self.rand16() >= def.chance {
@@ -122,12 +179,24 @@ impl System {
         }
         // Emitting toward attractors: the parent's candidates.
         let wants_targets = def.direction.0 == Direction::Attractor
-            || cc.attractor.as_ref().is_some_and(|a| a.iterator == class::Iterator::EmittedTowards);
+            || cc
+                .attractor
+                .as_ref()
+                .is_some_and(|a| a.iterator == class::Iterator::EmittedTowards);
         let mut targets = Vec::new();
         if wants_targets {
-            targets = self.attractor_candidates(parent, host).into_iter().map(|x| x.0).take(32).collect();
+            targets = self
+                .attractor_candidates(parent, host)
+                .into_iter()
+                .map(|x| x.0)
+                .take(32)
+                .collect();
             if def.flags & eflag::ONE_PER_ATTRACTOR != 0 {
-                let n = if def.flags & eflag::AT_LEAST_ONE != 0 { targets.len().max(1) } else { targets.len() };
+                let n = if def.flags & eflag::AT_LEAST_ONE != 0 {
+                    targets.len().max(1)
+                } else {
+                    targets.len()
+                };
                 count *= n;
             }
         }
@@ -141,7 +210,11 @@ impl System {
             (Some(m), false) => Some(m.get()),
             _ => None,
         };
-        let shared = if cc.has(cflag::DYNAMIC_MATRIX) { parent.matrix.clone() } else { None };
+        let shared = if cc.has(cflag::DYNAMIC_MATRIX) {
+            parent.matrix.clone()
+        } else {
+            None
+        };
         let m3 = applied.map(glam::Mat3::from_mat4);
         let tick = (t * HZ).round() as u32;
         let vars = parent.vars.clone();
@@ -259,7 +332,11 @@ impl System {
                 Link::Inherited => parent.link,
                 Link::LastEmission(k) => parent.emitters.get(k).and_then(|s| s.last),
             };
-            child.owner = if pc.has(cflag::OWNER) { parent.owner } else { 0 };
+            child.owner = if pc.has(cflag::OWNER) {
+                parent.owner
+            } else {
+                0
+            };
             child.matrix = shared.clone();
 
             // Position: the parent's (offset included), the emit offset
@@ -294,7 +371,8 @@ impl System {
             // Orientation.
             if cc.has(cflag::ORIENTATION) {
                 let po = parent_orient.map(|o| m3.map_or(o, |m| m * o));
-                child.orientation = construct_orientation(def.orient_dir, def.orient_up, po, off, d);
+                child.orientation =
+                    construct_orientation(def.orient_dir, def.orient_up, po, off, d);
             }
             // An attractor handed down by the emitter.
             if let Some(a) = cc.attractor.as_ref() {

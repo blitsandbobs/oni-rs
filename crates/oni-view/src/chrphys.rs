@@ -61,7 +61,10 @@ impl Tree {
     /// `r`.
     pub fn new(at: Vec3, bottom: f32, top: f32, r: f32) -> Tree {
         let height = (top - bottom).clamp(0.0, 72.0);
-        let s = |y: f32, radius: f32| Sphere { center: Vec3::new(at.x, y, at.z), radius };
+        let s = |y: f32, radius: f32| Sphere {
+            center: Vec3::new(at.x, y, at.z),
+            radius,
+        };
         let step = (height - 2.0 * r) / 3.0;
         let leaves = std::array::from_fn(|k| s(bottom + r + k as f32 * step, r));
         let mids = std::array::from_fn(|m| {
@@ -69,7 +72,11 @@ impl Tree {
             let diff = two.center.y - one.center.y;
             s(one.center.y + diff / 2.0, one.radius + diff / 2.0)
         });
-        Tree { root: s(bottom + height / 2.0, height / 2.0), mids, leaves }
+        Tree {
+            root: s(bottom + height / 2.0, height / 2.0),
+            mids,
+            leaves,
+        }
     }
 
     /// Whether quad `q` stops the stack swept along `v`
@@ -77,9 +84,11 @@ impl Tree {
     /// and one of that half's spheres all touch it.
     fn touches(&self, quads: &Quads, q: &Quad, v: Vec3) -> bool {
         let hit = |s: &Sphere| quads.sphere_vector(q, s.center, s.radius, v).is_some();
-        hit(&self.root) && (0..2).rev().any(|m| hit(&self.mids[m]) && (0..2).rev().any(|l| hit(&self.leaves[2 * m + l])))
+        hit(&self.root)
+            && (0..2)
+                .rev()
+                .any(|m| hit(&self.mids[m]) && (0..2).rev().any(|l| hit(&self.leaves[2 * m + l])))
     }
-
 }
 
 /// A door leaf as collision sees it: a box (centre, unit axes, half sizes),
@@ -104,7 +113,12 @@ impl DoorBox {
             hi = hi.max(l);
         }
         let mid = (lo + hi) / 2.0;
-        DoorBox { center: origin + axes[0] * mid.x + axes[1] * mid.y + axes[2] * mid.z, axes, half: (hi - lo) / 2.0, solid: true }
+        DoorBox {
+            center: origin + axes[0] * mid.x + axes[1] * mid.y + axes[2] * mid.z,
+            axes,
+            half: (hi - lo) / 2.0,
+            solid: true,
+        }
     }
 
     /// Whether the segment from `a` to `b` meets it (either end inside, or
@@ -158,7 +172,12 @@ pub struct Env<'a> {
 
 impl<'a> Env<'a> {
     pub fn new(quads: &'a Quads, doors: &'a [DoorBox]) -> Env<'a> {
-        Env { quads, doors, touched: None, spheres: &[] }
+        Env {
+            quads,
+            doors,
+            touched: None,
+            spheres: &[],
+        }
     }
 }
 
@@ -168,9 +187,15 @@ fn sphere_sphere(a: &Sphere, v: Vec3, b: (Vec3, f32)) -> bool {
     let (c, r) = b;
     let end = a.center + v;
     let ab = end - a.center;
-    let t = if ab.length_squared() > 0.0 { ((c - a.center).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+    let t = if ab.length_squared() > 0.0 {
+        ((c - a.center).dot(ab) / ab.length_squared()).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
     let reach = (a.radius + r) * (a.radius + r);
-    (a.center + ab * t).distance_squared(c) < r * r || a.center.distance_squared(c) < reach || end.distance_squared(c) < reach
+    (a.center + ab * t).distance_squared(c) < r * r
+        || a.center.distance_squared(c) < reach
+        || end.distance_squared(c) < reach
 }
 
 /// An object's sphere the stack meets (`PHrCollision_SphereTree_SphereTree`:
@@ -180,14 +205,25 @@ fn sphere_collider(tree: &Tree, v: Vec3, b: (Vec3, f32)) -> Option<Collider> {
     if !sphere_sphere(&tree.root, v, b) {
         return None;
     }
-    let leaf = (0..2).any(|m| sphere_sphere(&tree.mids[m], v, b) && (0..2).any(|l| sphere_sphere(&tree.leaves[2 * m + l], v, b)));
+    let leaf = (0..2).any(|m| {
+        sphere_sphere(&tree.mids[m], v, b)
+            && (0..2).any(|l| sphere_sphere(&tree.leaves[2 * m + l], v, b))
+    });
     if !leaf {
         return None;
     }
     let (c, r) = b;
     Some(match (tree.root.center - c).try_normalize() {
-        Some(n) => Collider { normal: n, point: ((c + n * r) + (tree.root.center - n * tree.root.radius)) * 0.5, sphere: None },
-        None => Collider { normal: Vec3::Y, point: tree.root.center, sphere: None },
+        Some(n) => Collider {
+            normal: n,
+            point: ((c + n * r) + (tree.root.center - n * tree.root.radius)) * 0.5,
+            sphere: None,
+        },
+        None => Collider {
+            normal: Vec3::Y,
+            point: tree.root.center,
+            sphere: None,
+        },
     })
 }
 
@@ -246,23 +282,48 @@ pub struct Collider {
 fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
     let mut out = Vec::new();
     let mut contacts = env.touched.map(|t| t.borrow_mut());
-    for hit in env.quads.sphere(tree.root.center, tree.root.radius, v, flag::CHR_COL_SKIP) {
+    for hit in env
+        .quads
+        .sphere(tree.root.center, tree.root.radius, v, flag::CHR_COL_SKIP)
+    {
         let q = &env.quads.quads[hit.quad as usize];
         if !tree.touches(env.quads, q, v) {
             continue;
         }
         let (normal, d) = env.quads.plane(q.plane);
-        out.push(Collider { normal, point: hit.point, sphere: None });
+        out.push(Collider {
+            normal,
+            point: hit.point,
+            sphere: None,
+        });
         let two_sided = q.flags & flag::AK_2SIDED != 0;
         if two_sided {
-            out.push(Collider { normal: -normal, point: hit.point, sphere: None });
+            out.push(Collider {
+                normal: -normal,
+                point: hit.point,
+                sphere: None,
+            });
         }
         // (A wall, not a floor: counted once, noted both ways.)
         if let Some(c) = contacts.as_mut().filter(|_| normal.y <= MIN_FLOOR_NORMAL_Y) {
             c.walls += 1;
-            c.touches.push(Touch { wall: Some(q.plane), door: None, object: None, point: hit.point, normal, d });
+            c.touches.push(Touch {
+                wall: Some(q.plane),
+                door: None,
+                object: None,
+                point: hit.point,
+                normal,
+                d,
+            });
             if two_sided {
-                c.touches.push(Touch { wall: Some(q.plane ^ 0x8000_0000), door: None, object: None, point: hit.point, normal: -normal, d: -d });
+                c.touches.push(Touch {
+                    wall: Some(q.plane ^ 0x8000_0000),
+                    door: None,
+                    object: None,
+                    point: hit.point,
+                    normal: -normal,
+                    d: -d,
+                });
             }
         }
     }
@@ -272,7 +333,14 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
             c.sphere = Some(k);
             out.push(c);
             if let Some(t) = contacts.as_mut() {
-                t.touches.push(Touch { wall: None, door: None, object: Some(k), point: c.point, normal: c.normal, d: -c.normal.dot(c.point) });
+                t.touches.push(Touch {
+                    wall: None,
+                    door: None,
+                    object: Some(k),
+                    point: c.point,
+                    normal: c.normal,
+                    d: -c.normal.dot(c.point),
+                });
             }
         }
     }
@@ -280,7 +348,14 @@ fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
         let at = out.len();
         door_colliders(door, tree, v, initial, &mut out);
         if let Some(c) = contacts.as_mut() {
-            c.touches.extend(out[at..].iter().map(|o| Touch { wall: None, door: Some(k), object: None, point: o.point, normal: o.normal, d: -o.normal.dot(o.point) }));
+            c.touches.extend(out[at..].iter().map(|o| Touch {
+                wall: None,
+                door: Some(k),
+                object: None,
+                point: o.point,
+                normal: o.normal,
+                d: -o.normal.dot(o.point),
+            }));
         }
     }
     if let Some(c) = contacts.as_mut() {
@@ -304,12 +379,18 @@ fn door_colliders(door: &DoorBox, tree: &Tree, v: Vec3, initial: bool, out: &mut
     let touch = |s: &Sphere, out: &mut Vec<Collider>| -> bool {
         let mut any = false;
         for (n, corners) in &faces {
-            let Some(point) = sphere_face(s, *n, corners) else { continue };
+            let Some(point) = sphere_face(s, *n, corners) else {
+                continue;
+            };
             // (Facing the way it moves — at under 90° — it is left out.)
             if discard && dir.dot(*n) > 0.0 {
                 continue;
             }
-            out.push(Collider { normal: *n, point, sphere: None });
+            out.push(Collider {
+                normal: *n,
+                point,
+                sphere: None,
+            });
             any = true;
         }
         any
@@ -381,7 +462,11 @@ fn in_face(n: Vec3, c: &[Vec3; 4], p: Vec3) -> bool {
 /// (`PHiRemoveBackfacingCollisions`), then nearest first.
 fn prepare(mut cols: Vec<Collider>, v: Vec3, root: Vec3) -> Vec<Collider> {
     cols.retain(|c| !(v.dot(c.normal) > 0.0 || (c.point - root).dot(c.normal) > 0.0));
-    cols.sort_by(|a, b| a.point.distance_squared(root).total_cmp(&b.point.distance_squared(root)));
+    cols.sort_by(|a, b| {
+        a.point
+            .distance_squared(root)
+            .total_cmp(&b.point.distance_squared(root))
+    });
     cols
 }
 
@@ -420,7 +505,11 @@ fn halt(env: &Env, tree: &Tree, v: &mut Vec3) {
     if met.iter().any(|c| push_back(*v, c.normal) != Vec3::ZERO) {
         if let Some(t) = env.touched {
             // (Only the first: the move is gone after it.)
-            if let Some(k) = met.iter().find(|c| push_back(*v, c.normal) != Vec3::ZERO).and_then(|c| c.sphere) {
+            if let Some(k) = met
+                .iter()
+                .find(|c| push_back(*v, c.normal) != Vec3::ZERO)
+                .and_then(|c| c.sphere)
+            {
                 t.borrow_mut().pushed.push((k, *v));
             }
         }
@@ -498,12 +587,26 @@ pub struct Ground {
 /// stand on the highest floor under a 3×3 square round it — if that floor
 /// isn't above half the body (or 6 above the location, or 6 above the last
 /// floor). `deferred` is the last floor's height, carried between ticks.
-pub fn find_ground(quads: &Quads, location: &mut Vec3, f: &Footing, deferred: &mut f32) -> Option<Ground> {
+pub fn find_ground(
+    quads: &Quads,
+    location: &mut Vec3,
+    f: &Footing,
+    deferred: &mut f32,
+) -> Option<Ground> {
     let l = f.start;
-    let (fo, mut feet) = if f.airborne { (f.feet_offset, l.y + f.feet_offset.max(0.0)) } else { (0.0, l.y) };
+    let (fo, mut feet) = if f.airborne {
+        (f.feet_offset, l.y + f.feet_offset.max(0.0))
+    } else {
+        (0.0, l.y)
+    };
     let mut max_h = (l.y + fo + (f.height - fo) / 2.0).max(l.y + MIN_BUMP);
     let center = Vec3::new(l.x, l.y + fo + SOLID_OFFSET, l.z);
-    let hits = quads.sphere(center, GROUND_SPHERE, Vec3::new(0.0, f.gravity - fo - SOLID_OFFSET, 0.0), flag::CHR_COL_SKIP | flag::WALL);
+    let hits = quads.sphere(
+        center,
+        GROUND_SPHERE,
+        Vec3::new(0.0, f.gravity - fo - SOLID_OFFSET, 0.0),
+        flag::CHR_COL_SKIP | flag::WALL,
+    );
     location.y += f.gravity;
     feet += f.gravity;
     if max_h < *deferred + MIN_BUMP {
@@ -523,11 +626,21 @@ pub fn find_ground(quads: &Quads, location: &mut Vec3, f: &Footing, deferred: &m
             continue;
         }
         let pts: Vec<Vec3> = (0..q.corners()).map(|k| quads.corner(q, k)).collect();
-        let Some(height) = floor_height(&pts, location.x - FOOTPRINT, location.x + FOOTPRINT, location.z - FOOTPRINT, location.z + FOOTPRINT, max_h) else {
+        let Some(height) = floor_height(
+            &pts,
+            location.x - FOOTPRINT,
+            location.x + FOOTPRINT,
+            location.z - FOOTPRINT,
+            location.z + FOOTPRINT,
+            max_h,
+        ) else {
             continue;
         };
         if best.is_none_or(|b| height > b.height) {
-            best = Some(Ground { height, quad: h.quad });
+            best = Some(Ground {
+                height,
+                quad: h.quad,
+            });
         }
     }
     let g = best.filter(|g| feet <= g.height)?;
@@ -539,21 +652,47 @@ pub fn find_ground(quads: &Quads, location: &mut Vec3, f: &Footing, deferred: &m
 /// Placing a character (`ONrCharacter_SnapToFloor`): the floor pass without
 /// a fall (it only lifts), else a floor found from 12 above down to just
 /// below the feet.
-pub fn snap_to_floor(quads: &Quads, location: &mut Vec3, height: f32, fall_gravity: f32, deferred: &mut f32) -> Option<Ground> {
-    let f = Footing { start: *location, gravity: 0.0, height, feet_offset: 0.0, airborne: false };
+pub fn snap_to_floor(
+    quads: &Quads,
+    location: &mut Vec3,
+    height: f32,
+    fall_gravity: f32,
+    deferred: &mut f32,
+) -> Option<Ground> {
+    let f = Footing {
+        start: *location,
+        gravity: 0.0,
+        height,
+        feet_offset: 0.0,
+        airborne: false,
+    };
     if let Some(g) = find_ground(quads, location, &f, deferred) {
         return Some(g);
     }
     let from = *location + Vec3::Y * SNAP_HEIGHT;
-    let h = quads.ray(from, Vec3::Y * -(SNAP_HEIGHT + fall_gravity), flag::CHR_COL_SKIP | flag::WALL)?;
+    let h = quads.ray(
+        from,
+        Vec3::Y * -(SNAP_HEIGHT + fall_gravity),
+        flag::CHR_COL_SKIP | flag::WALL,
+    )?;
     *location = h.point;
-    Some(Ground { height: h.point.y, quad: h.quad })
+    Some(Ground {
+        height: h.point.y,
+        quad: h.quad,
+    })
 }
 
 /// `GetQuadRangeClipped`: a floor polygon cut to the square, and the height
 /// of its highest point there that isn't wholly above `max_y` (at most
 /// `max_y`).
-fn floor_height(points: &[Vec3], min_x: f32, max_x: f32, min_z: f32, max_z: f32, max_y: f32) -> Option<f32> {
+fn floor_height(
+    points: &[Vec3],
+    min_x: f32,
+    max_x: f32,
+    min_z: f32,
+    max_z: f32,
+    max_y: f32,
+) -> Option<f32> {
     // Each cut keeps one side of a line: x < max_x, z > min_z, x > min_x,
     // z < max_z, in that order.
     let cut = |pts: &[Vec3], axis: usize, limit: f32, keep_below: bool| -> Vec<Vec3> {
@@ -561,7 +700,11 @@ fn floor_height(points: &[Vec3], min_x: f32, max_x: f32, min_z: f32, max_z: f32,
         let n = pts.len();
         for k in 0..n {
             let (p1, p2) = (pts[k], pts[(k + 1) % n]);
-            let (inside1_larger, larger, smaller) = if p1[axis] >= p2[axis] { (true, p1, p2) } else { (false, p2, p1) };
+            let (inside1_larger, larger, smaller) = if p1[axis] >= p2[axis] {
+                (true, p1, p2)
+            } else {
+                (false, p2, p1)
+            };
             let clipped = |l: Vec3, s: Vec3| {
                 let t = (limit - s[axis]) / (l[axis] - s[axis]);
                 s + (l - s) * t
@@ -591,7 +734,12 @@ fn floor_height(points: &[Vec3], min_x: f32, max_x: f32, min_z: f32, max_z: f32,
         out
     };
     let mut pts = points.to_vec();
-    for (axis, limit, below) in [(0, max_x, true), (2, min_z, false), (0, min_x, false), (2, max_z, true)] {
+    for (axis, limit, below) in [
+        (0, max_x, true),
+        (2, min_z, false),
+        (0, min_x, false),
+        (2, max_z, true),
+    ] {
         pts = cut(&pts, axis, limit, below);
         if pts.is_empty() {
             return None;
@@ -615,13 +763,23 @@ fn floor_height(points: &[Vec3], min_x: f32, max_x: f32, min_z: f32, max_z: f32,
 /// knees, could go before a wall or a closed door, and where (if anywhere
 /// before that) the floor drops away by more than `drop` — a ledge (a ray
 /// down every 2 units). (An AI's own look; the original's AI uses its grids.)
-pub fn probe(env: &Env, at: Vec3, radius: f32, dir: Vec3, max: f32, drop: f32) -> crate::physics::Probe {
+pub fn probe(
+    env: &Env,
+    at: Vec3,
+    radius: f32,
+    dir: Vec3,
+    max: f32,
+    drop: f32,
+) -> crate::physics::Probe {
     const STEP: f32 = 2.0;
     const SAMPLE: f32 = 2.0;
     let dir = Vec3::new(dir.x, 0.0, dir.z).normalize_or_zero();
     let center = at + Vec3::Y * (radius + STEP);
     let mut free = max;
-    for h in env.quads.sphere(center, radius, dir * max, flag::CHR_COL_SKIP) {
+    for h in env
+        .quads
+        .sphere(center, radius, dir * max, flag::CHR_COL_SKIP)
+    {
         let q = &env.quads.quads[h.quad as usize];
         let (n, d) = env.quads.plane(q.plane);
         let toward = -dir.dot(n);
@@ -639,7 +797,11 @@ pub fn probe(env: &Env, at: Vec3, radius: f32, dir: Vec3, max: f32, drop: f32) -
     let mut d = SAMPLE;
     while d <= free {
         let p = at + dir * d + Vec3::Y * STEP;
-        if env.quads.ray(p, Vec3::Y * -(STEP + drop), flag::CHR_COL_SKIP | flag::WALL).is_none() {
+        if env
+            .quads
+            .ray(p, Vec3::Y * -(STEP + drop), flag::CHR_COL_SKIP | flag::WALL)
+            .is_none()
+        {
             ledge = Some(d);
             break;
         }
@@ -666,12 +828,20 @@ pub fn level_ray(env: &Env, from: Vec3, ray: Vec3) -> Option<RayHit> {
     }
     let mut best = env.quads.ray(from, ray, flag::OBJ_COL_SKIP).map(|h| {
         let q = &env.quads.quads[h.quad as usize];
-        RayHit { fraction: (h.point - from).length() / len, normal: env.quads.plane(q.plane).0, quad: Some(h.quad) }
+        RayHit {
+            fraction: (h.point - from).length() / len,
+            normal: env.quads.plane(q.plane).0,
+            quad: Some(h.quad),
+        }
     });
     for door in env.doors.iter().filter(|d| d.solid) {
         if let Some((t, n)) = door.ray(from, ray, 0.0) {
             if best.is_none_or(|b| t < b.fraction) {
-                best = Some(RayHit { fraction: t, normal: n, quad: None });
+                best = Some(RayHit {
+                    fraction: t,
+                    normal: n,
+                    quad: None,
+                });
             }
         }
     }
@@ -686,7 +856,11 @@ impl DoorBox {
         let (mut t0, mut t1) = (0.0f32, 1.0f32);
         let mut normal = Vec3::ZERO;
         for k in 0..3 {
-            let (o, v, h) = (d.dot(self.axes[k]), ray.dot(self.axes[k]), self.half[k] + grow);
+            let (o, v, h) = (
+                d.dot(self.axes[k]),
+                ray.dot(self.axes[k]),
+                self.half[k] + grow,
+            );
             if v.abs() < 1e-9 {
                 if o.abs() > h {
                     return None;
@@ -720,17 +894,33 @@ mod tests {
     /// A floor at y = 0 (40 × 40 round the origin), facing up.
     fn floor(y: f32, half: f32, at: Vec3) -> [Vec3; 4] {
         let c = |x: f32, z: f32| Vec3::new(at.x + x, y, at.z + z);
-        [c(-half, -half), c(-half, half), c(half, half), c(half, -half)]
+        [
+            c(-half, -half),
+            c(-half, half),
+            c(half, half),
+            c(half, -half),
+        ]
     }
 
     /// A wall in the plane x = `x`, facing -x, from y 0 to 40.
     fn wall_at(x: f32) -> [Vec3; 4] {
-        [Vec3::new(x, 0.0, 40.0), Vec3::new(x, 40.0, 40.0), Vec3::new(x, 40.0, -40.0), Vec3::new(x, 0.0, -40.0)]
+        [
+            Vec3::new(x, 0.0, 40.0),
+            Vec3::new(x, 40.0, 40.0),
+            Vec3::new(x, 40.0, -40.0),
+            Vec3::new(x, 0.0, -40.0),
+        ]
     }
 
     fn standing(quads: &Quads, mut at: Vec3, mut deferred: f32) -> (Vec3, f32, Option<Ground>) {
         let g = ground_gravity(quads, at, true);
-        let f = Footing { start: at, gravity: -g, height: 9.0, feet_offset: 0.0, airborne: false };
+        let f = Footing {
+            start: at,
+            gravity: -g,
+            height: 9.0,
+            feet_offset: 0.0,
+            airborne: false,
+        };
         let r = find_ground(quads, &mut at, &f, &mut deferred);
         (at, deferred, r)
     }
@@ -751,11 +941,17 @@ mod tests {
     fn a_ledge_within_half_the_body_is_stepped_onto() {
         // A platform 4 high beside the floor: with its edge in the square
         // the character goes up onto it.
-        let q = room(&[(floor(0.0, 20.0, Vec3::ZERO), 0), (floor(4.0, 5.0, Vec3::new(26.0, 0.0, 0.0)), 0)]);
+        let q = room(&[
+            (floor(0.0, 20.0, Vec3::ZERO), 0),
+            (floor(4.0, 5.0, Vec3::new(26.0, 0.0, 0.0)), 0),
+        ]);
         let (at, _, g) = standing(&q, Vec3::new(20.0, 0.0, 0.0), 0.0);
         assert!((at.y - 4.0).abs() < 1e-4, "{at} {g:?}");
         // One above half the body (pelvis 9: 4.5) and over 6 doesn't.
-        let q = room(&[(floor(0.0, 20.0, Vec3::ZERO), 0), (floor(6.5, 5.0, Vec3::new(26.0, 0.0, 0.0)), 0)]);
+        let q = room(&[
+            (floor(0.0, 20.0, Vec3::ZERO), 0),
+            (floor(6.5, 5.0, Vec3::new(26.0, 0.0, 0.0)), 0),
+        ]);
         let (at, _, _) = standing(&q, Vec3::new(20.0, 0.0, 0.0), 0.0);
         assert!(at.y.abs() < 1e-4, "{at}");
     }
@@ -784,26 +980,43 @@ mod tests {
         }
         let gap = 10.0 - at.x;
         assert!(gap > 4.0 && gap <= 4.71, "standoff {gap}");
-        assert!(((at.z - z0) / 20.0 - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3, "{}", (at.z - z0) / 20.0);
+        assert!(
+            ((at.z - z0) / 20.0 - std::f32::consts::FRAC_1_SQRT_2).abs() < 1e-3,
+            "{}",
+            (at.z - z0) / 20.0
+        );
     }
 
     #[test]
     fn a_lifted_stack_passes_over_a_ledge_a_low_one_cannot() {
         // A box 10 high: standing, the stack (from the location) runs into
         // its side; raised (feet 10.5 up, as in a tucked jump) it passes.
-        let side = [Vec3::new(10.0, 0.0, 10.0), Vec3::new(10.0, 10.0, 10.0), Vec3::new(10.0, 10.0, -10.0), Vec3::new(10.0, 0.0, -10.0)];
+        let side = [
+            Vec3::new(10.0, 0.0, 10.0),
+            Vec3::new(10.0, 10.0, 10.0),
+            Vec3::new(10.0, 10.0, -10.0),
+            Vec3::new(10.0, 0.0, -10.0),
+        ];
         let q = room(&[(side, 0)]);
         let env = Env::new(&q, &[]);
         let low = Tree::new(Vec3::new(5.5, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
         assert!(resolve(&env, &low, Vec3::X, true).x < 1e-5, "blocked");
         let high = Tree::new(Vec3::new(5.5, 0.0, 0.0), 10.5, 28.5, PLAYER_LEAF);
-        assert!((resolve(&env, &high, Vec3::X, true).x - 1.0).abs() < 1e-5, "over it");
+        assert!(
+            (resolve(&env, &high, Vec3::X, true).x - 1.0).abs() < 1e-5,
+            "over it"
+        );
     }
 
     #[test]
     fn a_wall_is_passed_from_behind() {
         // (One-sided: from its back it is no wall.)
-        let back = [Vec3::new(10.0, 0.0, -40.0), Vec3::new(10.0, 40.0, -40.0), Vec3::new(10.0, 40.0, 40.0), Vec3::new(10.0, 0.0, 40.0)];
+        let back = [
+            Vec3::new(10.0, 0.0, -40.0),
+            Vec3::new(10.0, 40.0, -40.0),
+            Vec3::new(10.0, 40.0, 40.0),
+            Vec3::new(10.0, 0.0, 40.0),
+        ];
         let q = room(&[(back, 0)]);
         let env = Env::new(&q, &[]);
         let tree = Tree::new(Vec3::new(6.0, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
@@ -834,8 +1047,14 @@ mod tests {
     #[test]
     fn a_closed_door_stops_a_walker() {
         let q = room(&[(floor(0.0, 40.0, Vec3::ZERO), 0)]);
-        let pts = [Vec3::new(10.0, 0.0, -5.0), Vec3::new(11.0, 0.0, -5.0), Vec3::new(10.0, 20.0, 5.0), Vec3::new(11.0, 20.0, 5.0)];
-        let mut door = DoorBox::around(&pts, Vec3::new(10.5, 0.0, 0.0), [Vec3::X, Vec3::Y, Vec3::Z]);
+        let pts = [
+            Vec3::new(10.0, 0.0, -5.0),
+            Vec3::new(11.0, 0.0, -5.0),
+            Vec3::new(10.0, 20.0, 5.0),
+            Vec3::new(11.0, 20.0, 5.0),
+        ];
+        let mut door =
+            DoorBox::around(&pts, Vec3::new(10.5, 0.0, 0.0), [Vec3::X, Vec3::Y, Vec3::Z]);
         let mut at = Vec3::ZERO;
         for _ in 0..30 {
             let doors = [door.clone()];
@@ -851,14 +1070,22 @@ mod tests {
         let doors = [door];
         let env = Env::new(&q, &doors);
         let tree = Tree::new(at, 0.0, 18.0, PLAYER_LEAF);
-        assert!((resolve(&env, &tree, Vec3::X, true).x - 1.0).abs() < 1e-5, "open: through");
+        assert!(
+            (resolve(&env, &tree, Vec3::X, true).x - 1.0).abs() < 1e-5,
+            "open: through"
+        );
     }
 
     #[test]
     fn the_floor_cut_takes_the_highest_point_under_the_square() {
         // A ramp rising 1 per unit along x: under the square round x = 5,
         // its highest point is at x = 6.5.
-        let ramp = [Vec3::new(0.0, 0.0, -10.0), Vec3::new(0.0, 0.0, 10.0), Vec3::new(20.0, 20.0, 10.0), Vec3::new(20.0, 20.0, -10.0)];
+        let ramp = [
+            Vec3::new(0.0, 0.0, -10.0),
+            Vec3::new(0.0, 0.0, 10.0),
+            Vec3::new(20.0, 20.0, 10.0),
+            Vec3::new(20.0, 20.0, -10.0),
+        ];
         let h = floor_height(&ramp, 3.5, 6.5, -1.5, 1.5, 100.0).unwrap();
         assert!((h - 6.5).abs() < 1e-4, "{h}");
         // Capped at the most it may reach.

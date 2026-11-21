@@ -40,7 +40,8 @@ fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
                 at += 4;
                 let name = sc::name(&sc::PATROL_WAYPOINTS, kind as u16).unwrap_or("unknown");
                 let mut w = json!({ "type": name });
-                let point = |at: usize| json!([le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)]);
+                let point =
+                    |at: usize| json!([le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)]);
                 let size = match kind {
                     0 | 3 | 5 => {
                         w["flag"] = json!(i16_at(d, at));
@@ -55,11 +56,14 @@ fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
                         12
                     }
                     7 => {
-                        w["mode"] = json!(sc::name(&sc::MOVEMENT_MODES, le_u32(d, at) as u16).unwrap_or("byAlertLevel"));
+                        w["mode"] = json!(sc::name(&sc::MOVEMENT_MODES, le_u32(d, at) as u16)
+                            .unwrap_or("byAlertLevel"));
                         4
                     }
                     9 => {
-                        w["direction"] = json!(sc::name(&sc::MOVE_DIRECTIONS, le_u32(d, at) as u16).unwrap_or("forward"));
+                        w["direction"] =
+                            json!(sc::name(&sc::MOVE_DIRECTIONS, le_u32(d, at) as u16)
+                                .unwrap_or("forward"));
                         4
                     }
                     10 => {
@@ -150,7 +154,11 @@ fn flags(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             let zz = a.cos() * b.cos();
             let facing = zx.atan2(zz).rem_euclid(std::f32::consts::TAU);
             let mut f = json!({ "id": id, "name": name, "position": o.position, "facing": facing });
-            let note = if d.len() >= 136 { cstr(d, 8, 128) } else { String::new() };
+            let note = if d.len() >= 136 {
+                cstr(d, 8, 128)
+            } else {
+                String::new()
+            };
             if !note.is_empty() {
                 f["note"] = json!(note);
             }
@@ -166,11 +174,20 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("patrols.json"), serde_json::to_string_pretty(&json!({ "patrols": p }))?)?;
-    std::fs::write(root.join("flags.json"), serde_json::to_string_pretty(&json!({ "flags": f }))?)?;
+    std::fs::write(
+        root.join("patrols.json"),
+        serde_json::to_string_pretty(&json!({ "patrols": p }))?,
+    )?;
+    std::fs::write(
+        root.join("flags.json"),
+        serde_json::to_string_pretty(&json!({ "flags": f }))?,
+    )?;
     let t = triggers(dat, raw);
     if !t.is_empty() {
-        std::fs::write(root.join("triggers.json"), serde_json::to_string_pretty(&json!({ "triggers": t }))?)?;
+        std::fs::write(
+            root.join("triggers.json"),
+            serde_json::to_string_pretty(&json!({ "triggers": t }))?,
+        )?;
     }
     Ok(())
 }
@@ -183,9 +200,23 @@ pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
         .filter(|o| o.data.len() >= 88)
         .map(|o| {
             let d = o.data;
-            let f = |at: usize, def: f32| if d.len() >= at + 4 { le_f32(d, at) } else { def };
-            let u = |at: usize, def: u32| if d.len() >= at + 4 { le_u32(d, at) } else { def };
-            let behavior = |k: usize| sc::name(&sc::COMBAT_BEHAVIORS, le_u32(d, 68 + k * 4) as u16).unwrap_or("none");
+            let f = |at: usize, def: f32| {
+                if d.len() >= at + 4 {
+                    le_f32(d, at)
+                } else {
+                    def
+                }
+            };
+            let u = |at: usize, def: u32| {
+                if d.len() >= at + 4 {
+                    le_u32(d, at)
+                } else {
+                    def
+                }
+            };
+            let behavior = |k: usize| {
+                sc::name(&sc::COMBAT_BEHAVIORS, le_u32(d, 68 + k * 4) as u16).unwrap_or("none")
+            };
             let flags = if version >= 36 { le_u16(d, 66) } else { 0 };
             json!({
                 "id": le_u16(d, 64),

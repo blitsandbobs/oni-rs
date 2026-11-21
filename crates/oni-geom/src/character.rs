@@ -191,12 +191,12 @@ const TRAM_NUM_PTRS: usize = 13;
 const TRAM_ATTACK_NAME: usize = 312; // `attackName[16]`: its special impact (`ONIA`)
 const TRAM_NUM_SOUNDS: usize = 332; // `numNewSounds` u32
 const TRAM_SOUND_FRAME: usize = 340; // `soundFrame` u16
-// Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
-// usedParts(4), replaceParts(4), finalRotation(4), moveDirection +
-// vocalizationType(4), extentInfo(232), attackName[16], hardPause + softPause,
-// numNewSounds + soundName, soundFrame + fps, compressionSize, then a u16 run.
+                                     // Scalars (byte offsets in the instance): flags(4), directAnimation[2](8),
+                                     // usedParts(4), replaceParts(4), finalRotation(4), moveDirection +
+                                     // vocalizationType(4), extentInfo(232), attackName[16], hardPause + softPause,
+                                     // numNewSounds + soundName, soundFrame + fps, compressionSize, then a u16 run.
 const TRAM_FLAGS: usize = 52; // `flags` u32
-// `extentInfo` (80..312): where the clip's striking parts reach.
+                              // `extentInfo` (80..312): where the clip's striking parts reach.
 const TRAM_RING: usize = 80; // max distance, min / max height, 36 spokes (f32)
 const TRAM_FIRST_STRIKE: usize = 236; // TRtAttackBound (32 bytes)
 const TRAM_FARTHEST_STRIKE: usize = 268; // TRtAttackBound
@@ -536,9 +536,7 @@ fn decode_shortcuts(raw: &[u8], ptrs: &[u32], count: usize) -> Vec<Shortcut> {
         .filter(|&p| p > off)
         .min()
         .unwrap_or(off + count * SHORTCUT_SIZE);
-    let n = count
-        .min(MAX_SHORTCUTS)
-        .min((bound - off) / SHORTCUT_SIZE);
+    let n = count.min(MAX_SHORTCUTS).min((bound - off) / SHORTCUT_SIZE);
     (0..n)
         .filter_map(|s| {
             let o = off + s * SHORTCUT_SIZE;
@@ -653,7 +651,11 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         .then(|| {
             let o = ptrs[PTR_THROW] as usize;
             Some(Throw {
-                target_offset: [read_f32(raw, o)?, read_f32(raw, o + 4)?, read_f32(raw, o + 8)?],
+                target_offset: [
+                    read_f32(raw, o)?,
+                    read_f32(raw, o + 4)?,
+                    read_f32(raw, o + 8)?,
+                ],
                 target_facing: read_f32(raw, o + 12)?,
                 range: read_f32(raw, o + 16)?,
                 target_anim_type: read_u16(raw, o + 20)?,
@@ -741,14 +743,19 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 let o = off + k * 34;
                 let name = raw.get(o..o + 32)?;
                 let end = name.iter().position(|&c| c == 0).unwrap_or(32);
-                Some((String::from_utf8_lossy(&name[..end]).into_owned(), read_u16(raw, o + 32)?))
+                Some((
+                    String::from_utf8_lossy(&name[..end]).into_owned(),
+                    read_u16(raw, o + 32)?,
+                ))
             })
             .filter(|(n, _)| !n.is_empty())
             .collect()
     };
     let attack_name = d
         .get(TRAM_ATTACK_NAME..TRAM_ATTACK_NAME + 16)
-        .map(|b| String::from_utf8_lossy(&b[..b.iter().position(|&c| c == 0).unwrap_or(16)]).into_owned())
+        .map(|b| {
+            String::from_utf8_lossy(&b[..b.iter().position(|&c| c == 0).unwrap_or(16)]).into_owned()
+        })
         .unwrap_or_default();
     let reach = decode_reach(d, raw);
     let body = {

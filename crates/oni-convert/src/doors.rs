@@ -61,7 +61,11 @@ pub fn doors(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             let d = o.data;
             let flags = (le_u16(d, NAME + 4) & 0x1795) as u32;
             let radius = le_f32(d, NAME + 18).max(0.0).sqrt();
-            let events_at = if version >= 16 { NAME + 22 + 2 * NAME } else { NAME + 22 };
+            let events_at = if version >= 16 {
+                NAME + 22 + 2 * NAME
+            } else {
+                NAME + 22
+            };
             let (events, _) = crate::consoles::events(d, events_at);
             let mut door = json!({
                 "id": le_u16(d, NAME),
@@ -103,12 +107,24 @@ pub fn doors(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
 /// matrix `debugOrigMatrix` @64 (4×3, column-major).
 fn leaf_setups(dat: &Dat<'_>) -> Vec<(u32, [f32; 12])> {
     const TAG_OBOA: oni_dat::FourCc = oni_dat::FourCc(u32::from_be_bytes(*b"OBOA"));
-    let Some(d) = dat.instances.iter().find(|i| i.tag == TAG_OBOA).and_then(|i| dat.instance_data(i)) else { return Vec::new() };
+    let Some(d) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_OBOA)
+        .and_then(|i| dat.instance_data(i))
+    else {
+        return Vec::new();
+    };
     (0..le_u16(d, 22) as usize)
         .map(|k| 24 + k * 240)
         .take_while(|o| o + 240 <= d.len())
         .filter(|&o| crate::le_u32(d, o + 20) != 0)
-        .map(|o| (crate::le_u32(d, o + 20), std::array::from_fn(|i| le_f32(d, o + 64 + 4 * i))))
+        .map(|o| {
+            (
+                crate::le_u32(d, o + 20),
+                std::array::from_fn(|i| le_f32(d, o + 64 + 4 * i)),
+            )
+        })
         .collect()
 }
 
@@ -119,5 +135,8 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("doors.json"), serde_json::to_string_pretty(&json!({ "doors": d }))?)
+    std::fs::write(
+        root.join("doors.json"),
+        serde_json::to_string_pretty(&json!({ "doors": d }))?,
+    )
 }

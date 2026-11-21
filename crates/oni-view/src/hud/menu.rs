@@ -113,7 +113,10 @@ impl Look {
     }
 
     fn font(&self, f: FontDef) -> Option<&text::Font> {
-        self.fonts.best_styled(f.size, ["plain", "bold", "italic"][usize::from(f.style.min(2))])
+        self.fonts.best_styled(
+            f.size,
+            ["plain", "bold", "italic"][usize::from(f.style.min(2))],
+        )
     }
 
     /// A line's height in a font (14 without fonts).
@@ -123,17 +126,28 @@ impl Look {
 
     fn texture(&self, name: &str) -> (PathBuf, Option<[f32; 2]>) {
         let path = self.textures.join(format!("{name}.png"));
-        let size = *self.sizes.borrow_mut().entry(path.clone()).or_insert_with(|| {
-            let f = std::fs::File::open(&path).ok()?;
-            let r = png::Decoder::new(std::io::BufReader::new(f)).read_info().ok()?;
-            Some([r.info().width as f32, r.info().height as f32])
-        });
+        let size = *self
+            .sizes
+            .borrow_mut()
+            .entry(path.clone())
+            .or_insert_with(|| {
+                let f = std::fs::File::open(&path).ok()?;
+                let r = png::Decoder::new(std::io::BufReader::new(f))
+                    .read_info()
+                    .ok()?;
+                Some([r.info().width as f32, r.info().height as f32])
+            });
         (path, size)
     }
 
     /// How wide a string is in a font.
     fn width(&self, f: FontDef, s: &str) -> f32 {
-        self.font(f).map_or(0.0, |font| s.chars().filter_map(|c| font.glyph(c)).map(|g| g[3]).sum::<i32>() as f32)
+        self.font(f).map_or(0.0, |font| {
+            s.chars()
+                .filter_map(|c| font.glyph(c))
+                .map(|g| g[3])
+                .sum::<i32>() as f32
+        })
     }
 }
 
@@ -148,12 +162,19 @@ pub struct Data {
 }
 
 fn shade(v: &serde_json::Value) -> u32 {
-    v.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0xFFFF_FFFF)
+    v.as_str()
+        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+        .unwrap_or(0xFFFF_FFFF)
 }
 
 impl Data {
     pub fn load(common: &Path) -> Data {
-        let read = |name: &str| -> serde_json::Value { std::fs::read_to_string(common.join(name)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default() };
+        let read = |name: &str| -> serde_json::Value {
+            std::fs::read_to_string(common.join(name))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default()
+        };
         let doc = read("menus.json");
         let dialogs = doc["dialogs"]
             .as_object()
@@ -171,26 +192,69 @@ impl Data {
                         flags: i["flags"].as_u64().unwrap_or(1) as u32,
                         style: i["style"].as_u64().unwrap_or(0) as u32,
                         rect: std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32),
-                        font: FontDef { size: i["font"]["size"].as_u64().unwrap_or(10) as u16, style: i["font"]["style"].as_u64().unwrap_or(0) as u8, shade: shade(&i["font"]["shade"]) },
+                        font: FontDef {
+                            size: i["font"]["size"].as_u64().unwrap_or(10) as u16,
+                            style: i["font"]["style"].as_u64().unwrap_or(0) as u8,
+                            shade: shade(&i["font"]["shade"]),
+                        },
                     })
                     .collect();
-                let size = [d["size"][0].as_f64().unwrap_or(640.0) as f32, d["size"][1].as_f64().unwrap_or(480.0) as f32];
+                let size = [
+                    d["size"][0].as_f64().unwrap_or(640.0) as f32,
+                    d["size"][1].as_f64().unwrap_or(480.0) as f32,
+                ];
                 (name.clone(), DialogDef { size, items })
             })
             .collect();
-        let levels = doc["levels"].as_array().into_iter().flatten().map(|l| (l["level"].as_u64().unwrap_or(0) as u16, l["name"].as_str().unwrap_or("").to_string())).collect();
+        let levels = doc["levels"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|l| {
+                (
+                    l["level"].as_u64().unwrap_or(0) as u16,
+                    l["name"].as_str().unwrap_or("").to_string(),
+                )
+            })
+            .collect();
         let popups = doc["popups"]
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(name, items)| (name.clone(), items.as_array().into_iter().flatten().map(|i| (i["id"].as_i64().unwrap_or(0), i["title"].as_str().unwrap_or("").to_string())).collect()))
+            .map(|(name, items)| {
+                (
+                    name.clone(),
+                    items
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .map(|i| {
+                            (
+                                i["id"].as_i64().unwrap_or(0),
+                                i["title"].as_str().unwrap_or("").to_string(),
+                            )
+                        })
+                        .collect(),
+                )
+            })
             .collect();
-        let skin = doc["skin"].as_object().into_iter().flatten().filter_map(|(k, v)| v.as_str().map(|n| (k.clone(), n.to_string()))).collect();
+        let skin = doc["skin"]
+            .as_object()
+            .into_iter()
+            .flatten()
+            .filter_map(|(k, v)| v.as_str().map(|n| (k.clone(), n.to_string())))
+            .collect();
         Data {
             dialogs,
             levels,
             popups,
-            look: Look { fonts: Fonts::load(common), specs: read("part_specs.json"), skin, textures: common.join("textures"), sizes: Default::default() },
+            look: Look {
+                fonts: Fonts::load(common),
+                specs: read("part_specs.json"),
+                skin,
+                textures: common.join("textures"),
+                sizes: Default::default(),
+            },
         }
     }
 
@@ -206,18 +270,37 @@ impl Data {
 pub enum Ctl {
     Static,
     /// Pressed (the mouse went down on it and is over it).
-    Button { hilite: bool, down: bool },
+    Button {
+        hilite: bool,
+        down: bool,
+    },
     Check(bool),
     /// `drag`: the thumb held, the mouse's offset from it; `held`: the
     /// left button down on it (its timer presses again).
-    Slider { min: i32, max: i32, value: i32, drag: Option<f32>, held: bool },
+    Slider {
+        min: i32,
+        max: i32,
+        value: i32,
+        drag: Option<f32>,
+        held: bool,
+    },
     /// A progress bar's percent (`WMtProgressBar`).
     Progress(u32),
     /// Rows (string, data), the one selected, the first showing.
-    List { rows: Vec<(String, u32)>, selected: Option<usize>, start: usize },
+    List {
+        rows: Vec<(String, u32)>,
+        selected: Option<usize>,
+        start: usize,
+    },
     /// Items (id, string), the one chosen; its menu open (and just opened:
     /// released over the popup, it stays open), the item under the mouse.
-    Popup { items: Vec<(i64, String)>, selected: usize, open: bool, fresh: bool, hover: Option<usize> },
+    Popup {
+        items: Vec<(i64, String)>,
+        selected: usize,
+        open: bool,
+        fresh: bool,
+        hover: Option<usize>,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -298,24 +381,60 @@ impl Window {
             .enumerate()
             .map(|(k, i)| {
                 let ctl = match i.kind {
-                    BUTTON => Ctl::Button { hilite: false, down: false },
+                    BUTTON => Ctl::Button {
+                        hilite: false,
+                        down: false,
+                    },
                     CHECKBOX => Ctl::Check(false),
-                    SLIDER => Ctl::Slider { min: 0, max: 100, value: 0, drag: None, held: false },
+                    SLIDER => Ctl::Slider {
+                        min: 0,
+                        max: 100,
+                        value: 0,
+                        drag: None,
+                        held: false,
+                    },
                     PROGRESSBAR => Ctl::Progress(0),
                     LISTBOX => {
                         line.insert(k, data.look.line_height(i.font));
-                        Ctl::List { rows: Vec::new(), selected: None, start: 0 }
+                        Ctl::List {
+                            rows: Vec::new(),
+                            selected: None,
+                            start: 0,
+                        }
                     }
                     POPUP => {
-                        let items = if i.style & POPUP_RUNTIME != 0 { Vec::new() } else { data.popups.get(&i.title).cloned().unwrap_or_default() };
-                        Ctl::Popup { items, selected: 0, open: false, fresh: false, hover: None }
+                        let items = if i.style & POPUP_RUNTIME != 0 {
+                            Vec::new()
+                        } else {
+                            data.popups.get(&i.title).cloned().unwrap_or_default()
+                        };
+                        Ctl::Popup {
+                            items,
+                            selected: 0,
+                            open: false,
+                            fresh: false,
+                            hover: None,
+                        }
                     }
                     _ => Ctl::Static,
                 };
-                Control { def: i.clone(), visible: i.flags & FLAG_VISIBLE != 0, enabled: i.flags & FLAG_DISABLED == 0, ctl }
+                Control {
+                    def: i.clone(),
+                    visible: i.flags & FLAG_VISIBLE != 0,
+                    enabled: i.flags & FLAG_DISABLED == 0,
+                    ctl,
+                }
             })
             .collect();
-        Window { name: name.to_string(), size: def.size, controls, focus: None, last_click: None, line, timer: Instant::now() + std::time::Duration::from_secs_f32(SLIDER_REPEAT) }
+        Window {
+            name: name.to_string(),
+            size: def.size,
+            controls,
+            focus: None,
+            last_click: None,
+            line,
+            timer: Instant::now() + std::time::Duration::from_secs_f32(SLIDER_REPEAT),
+        }
     }
 
     fn index(&self, id: i64) -> Option<usize> {
@@ -354,7 +473,13 @@ impl Window {
     }
 
     pub fn set_slider(&mut self, id: i64, min: i32, max: i32, value: i32) {
-        if let Some(Ctl::Slider { min: a, max: b, value: v, .. }) = self.control_mut(id).map(|c| &mut c.ctl) {
+        if let Some(Ctl::Slider {
+            min: a,
+            max: b,
+            value: v,
+            ..
+        }) = self.control_mut(id).map(|c| &mut c.ctl)
+        {
             (*a, *b, *v) = (min, max, value.clamp(min, max));
         }
     }
@@ -367,7 +492,12 @@ impl Window {
     }
 
     pub fn set_popup(&mut self, id: i64, items: Option<Vec<(i64, String)>>, selected_id: i64) {
-        if let Some(Ctl::Popup { items: its, selected, .. }) = self.control_mut(id).map(|c| &mut c.ctl) {
+        if let Some(Ctl::Popup {
+            items: its,
+            selected,
+            ..
+        }) = self.control_mut(id).map(|c| &mut c.ctl)
+        {
             if let Some(i) = items {
                 *its = i;
             }
@@ -377,7 +507,9 @@ impl Window {
 
     pub fn popup(&self, id: i64) -> Option<i64> {
         match &self.control(id)?.ctl {
-            Ctl::Popup { items, selected, .. } => items.get(*selected).map(|(k, _)| *k),
+            Ctl::Popup {
+                items, selected, ..
+            } => items.get(*selected).map(|(k, _)| *k),
             _ => None,
         }
     }
@@ -385,7 +517,12 @@ impl Window {
     pub fn set_rows(&mut self, id: i64, rows: Vec<(String, u32)>, selected: Option<usize>) {
         let k = self.index(id);
         let visible = k.map_or(1, |k| self.visible_rows(k));
-        if let Some(Ctl::List { rows: r, selected: s, start }) = self.control_mut(id).map(|c| &mut c.ctl) {
+        if let Some(Ctl::List {
+            rows: r,
+            selected: s,
+            start,
+        }) = self.control_mut(id).map(|c| &mut c.ctl)
+        {
             *r = rows;
             *s = selected;
             *start = selected.map_or(0, |s| s.saturating_sub(visible.saturating_sub(1)));
@@ -413,7 +550,10 @@ impl Window {
 
     /// Where it sits on a `w` × `h` screen: centred.
     pub fn at(&self, w: f32, h: f32) -> [f32; 2] {
-        [((w - self.size[0]) * 0.5).floor().max(0.0), ((h - self.size[1]) * 0.5).floor().max(0.0)]
+        [
+            ((w - self.size[0]) * 0.5).floor().max(0.0),
+            ((h - self.size[1]) * 0.5).floor().max(0.0),
+        ]
     }
 
     fn visible_rows(&self, k: usize) -> usize {
@@ -424,20 +564,43 @@ impl Window {
     /// The control the mouse is over, front to back
     /// (`WMiWindow_GetWindowUnderPoint`).
     fn under(&self, at: [f32; 2], x: f32, y: f32) -> Option<usize> {
-        self.controls.iter().position(|c| c.visible && c.def.flags & FLAG_MOUSE_TRANSPARENT == 0 && c.def.kind != PICTURE && c.def.kind != TEXT && c.def.kind != BOX && c.contains(at, x, y))
+        self.controls.iter().position(|c| {
+            c.visible
+                && c.def.flags & FLAG_MOUSE_TRANSPARENT == 0
+                && c.def.kind != PICTURE
+                && c.def.kind != TEXT
+                && c.def.kind != BOX
+                && c.contains(at, x, y)
+        })
     }
 
     /// An open popup's menu: its index, and its items' rows (screen x, y,
     /// width, height each).
     fn open_menu(&self, look: &Look, at: [f32; 2]) -> Option<(usize, Vec<[f32; 4]>)> {
-        let k = self.controls.iter().position(|c| matches!(c.ctl, Ctl::Popup { open: true, .. }))?;
+        let k = self
+            .controls
+            .iter()
+            .position(|c| matches!(c.ctl, Ctl::Popup { open: true, .. }))?;
         let c = &self.controls[k];
-        let Ctl::Popup { items, .. } = &c.ctl else { return None };
+        let Ctl::Popup { items, .. } = &c.ctl else {
+            return None;
+        };
         let [bw, bh] = look.part("background").map_or([0.0; 2], |p| p.corner());
         let lh = look.line_height(c.def.font);
-        let width = items.iter().map(|(_, s)| look.width(c.def.font, s)).fold(0.0, f32::max) + 2.0 * bw + MENU_LEFT + MENU_RIGHT;
+        let width = items
+            .iter()
+            .map(|(_, s)| look.width(c.def.font, s))
+            .fold(0.0, f32::max)
+            + 2.0 * bw
+            + MENU_LEFT
+            + MENU_RIGHT;
         let (x, y) = (at[0] + c.def.rect[0], at[1] + c.def.rect[1]);
-        Some((k, (0..items.len()).map(|i| [x, y + bh + i as f32 * lh, width.max(c.def.rect[2]), lh]).collect()))
+        Some((
+            k,
+            (0..items.len())
+                .map(|i| [x, y + bh + i as f32 * lh, width.max(c.def.rect[2]), lh])
+                .collect(),
+        ))
     }
 
     /// The left button down at screen `x`, `y`.
@@ -445,10 +608,14 @@ impl Window {
         let at = self.at(w, h);
         // An open popup menu takes the click: an item chosen, else closed.
         if let Some((k, rows)) = self.open_menu(look, at) {
-            let hit = rows.iter().position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
+            let hit = rows
+                .iter()
+                .position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
             return self.close_menu(k, hit);
         }
-        let Some(k) = self.under(at, x, y) else { return Vec::new() };
+        let Some(k) = self.under(at, x, y) else {
+            return Vec::new();
+        };
         if !self.controls[k].enabled {
             return Vec::new();
         }
@@ -460,7 +627,9 @@ impl Window {
         let (lx, ly) = (x - at[0] - rx, y - at[1] - ry);
         if let Ctl::Slider { held, .. } = &mut c.ctl {
             *held = true;
-            return slider_press(look, &c.def, &mut c.ctl, lx, ly).into_iter().collect();
+            return slider_press(look, &c.def, &mut c.ctl, lx, ly)
+                .into_iter()
+                .collect();
         }
         let mut out = Vec::new();
         match &mut c.ctl {
@@ -468,13 +637,23 @@ impl Window {
                 *hilite = true;
                 *down = true;
             }
-            Ctl::Popup { open, fresh, hover, .. } => {
+            Ctl::Popup {
+                open, fresh, hover, ..
+            } => {
                 *open = true;
                 *fresh = true;
                 *hover = None;
             }
-            Ctl::List { rows, selected, start } => {
-                let scroll_w = if c.def.style & LIST_SCROLLBAR != 0 { look.part("up_arrow").map_or(0.0, |p| p.corner()[0]) } else { 0.0 };
+            Ctl::List {
+                rows,
+                selected,
+                start,
+            } => {
+                let scroll_w = if c.def.style & LIST_SCROLLBAR != 0 {
+                    look.part("up_arrow").map_or(0.0, |p| p.corner()[0])
+                } else {
+                    0.0
+                };
                 if scroll_w > 0.0 && lx >= rw - scroll_w {
                     // The scroll bar: its arrows a line, its track a page.
                     let arrow_h = look.part("up_arrow").map_or(0.0, |p| p.corner()[1]);
@@ -493,9 +672,19 @@ impl Window {
                 let row = *start + (ly / lh).floor().max(0.0) as usize;
                 if row < rows.len() && row < *start + visible {
                     *selected = Some(row);
-                    let double = self.last_click.is_some_and(|(kk, r, t)| kk == k && r == row && t.elapsed().as_secs_f32() < DOUBLE_CLICK);
+                    let double = self.last_click.is_some_and(|(kk, r, t)| {
+                        kk == k && r == row && t.elapsed().as_secs_f32() < DOUBLE_CLICK
+                    });
                     self.last_click = Some((k, row, Instant::now()));
-                    out.push(Command { id: c.def.id, notify: if double { Notify::DoubleClick } else { Notify::Click }, button: false });
+                    out.push(Command {
+                        id: c.def.id,
+                        notify: if double {
+                            Notify::DoubleClick
+                        } else {
+                            Notify::Click
+                        },
+                        button: false,
+                    });
                 }
             }
             _ => {}
@@ -508,7 +697,15 @@ impl Window {
     /// left button is down on is pressed again where the mouse is
     /// (`WMiSlider_HandleTimer`) — paging on until the thumb comes under
     /// the mouse, which then takes it.
-    pub fn tick(&mut self, look: &Look, w: f32, h: f32, x: f32, y: f32, now: Instant) -> Vec<Command> {
+    pub fn tick(
+        &mut self,
+        look: &Look,
+        w: f32,
+        h: f32,
+        x: f32,
+        y: f32,
+        now: Instant,
+    ) -> Vec<Command> {
         if now <= self.timer {
             return Vec::new();
         }
@@ -525,10 +722,20 @@ impl Window {
     }
 
     /// The mouse moved (the left button `held` or not).
-    pub fn mouse_move(&mut self, look: &Look, w: f32, h: f32, x: f32, y: f32, held: bool) -> Vec<Command> {
+    pub fn mouse_move(
+        &mut self,
+        look: &Look,
+        w: f32,
+        h: f32,
+        x: f32,
+        y: f32,
+        held: bool,
+    ) -> Vec<Command> {
         let at = self.at(w, h);
         if let Some((k, rows)) = self.open_menu(look, at) {
-            let hit = rows.iter().position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
+            let hit = rows
+                .iter()
+                .position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
             if let Ctl::Popup { hover, .. } = &mut self.controls[k].ctl {
                 *hover = hit;
             }
@@ -539,14 +746,25 @@ impl Window {
             let inside = c.contains(at, x, y);
             match &mut c.ctl {
                 Ctl::Button { hilite, down } if *down && held => *hilite = inside,
-                Ctl::Slider { min, max, value, drag: Some(off), .. } if held => {
+                Ctl::Slider {
+                    min,
+                    max,
+                    value,
+                    drag: Some(off),
+                    ..
+                } if held => {
                     let (track, thumb_w) = slider_track(look, c.def.rect[2]);
                     let span = (track[1] - track[0] - thumb_w).max(1.0);
                     let lx = x - at[0] - c.def.rect[0];
-                    let v = (*min + ((lx - track[0] + *off) * (*max - *min) as f32 / span) as i32).clamp(*min, *max);
+                    let v = (*min + ((lx - track[0] + *off) * (*max - *min) as f32 / span) as i32)
+                        .clamp(*min, *max);
                     if v != *value {
                         *value = v;
-                        out.push(Command { id: c.def.id, notify: Notify::NewPosition, button: false });
+                        out.push(Command {
+                            id: c.def.id,
+                            notify: Notify::NewPosition,
+                            button: false,
+                        });
                     }
                 }
                 _ => {}
@@ -559,7 +777,9 @@ impl Window {
     pub fn mouse_up(&mut self, look: &Look, w: f32, h: f32, x: f32, y: f32) -> Vec<Command> {
         let at = self.at(w, h);
         if let Some((k, rows)) = self.open_menu(look, at) {
-            let hit = rows.iter().position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
+            let hit = rows
+                .iter()
+                .position(|r| x >= r[0] && x < r[0] + r[2] && y >= r[1] && y < r[1] + r[3]);
             // (Released over the popup just after opening it: the menu
             // stays open for a click.)
             let over_popup = self.controls[k].contains(at, x, y);
@@ -577,14 +797,22 @@ impl Window {
             match &mut c.ctl {
                 Ctl::Button { hilite, down } => {
                     if *down && inside {
-                        out.push(Command { id: c.def.id, notify: Notify::Click, button: true });
+                        out.push(Command {
+                            id: c.def.id,
+                            notify: Notify::Click,
+                            button: true,
+                        });
                     }
                     (*hilite, *down) = (false, false);
                 }
                 Ctl::Slider { drag, held, .. } => (*drag, *held) = (None, false),
                 Ctl::Check(on) if inside && focus == Some(k) => {
                     *on = !*on;
-                    out.push(Command { id: c.def.id, notify: Notify::Click, button: false });
+                    out.push(Command {
+                        id: c.def.id,
+                        notify: Notify::Click,
+                        button: false,
+                    });
                 }
                 _ => {}
             }
@@ -594,14 +822,27 @@ impl Window {
 
     fn close_menu(&mut self, k: usize, hit: Option<usize>) -> Vec<Command> {
         let id = self.controls[k].def.id;
-        let Ctl::Popup { items, selected, open, fresh, hover } = &mut self.controls[k].ctl else { return Vec::new() };
+        let Ctl::Popup {
+            items,
+            selected,
+            open,
+            fresh,
+            hover,
+        } = &mut self.controls[k].ctl
+        else {
+            return Vec::new();
+        };
         *open = false;
         *fresh = false;
         *hover = None;
         match hit {
             Some(i) if i < items.len() => {
                 *selected = i;
-                vec![Command { id, notify: Notify::Menu(items[i].0), button: false }]
+                vec![Command {
+                    id,
+                    notify: Notify::Menu(items[i].0),
+                    button: false,
+                }]
             }
             _ => Vec::new(),
         }
@@ -613,17 +854,42 @@ impl Window {
     pub fn key(&mut self, key: Key) -> Vec<Command> {
         match key {
             Key::Enter => {
-                let k = self.controls.iter().position(|c| c.def.kind == BUTTON && c.def.style & BUTTON_DEFAULT != 0 && c.visible && c.enabled);
-                return k.map(|k| vec![Command { id: self.controls[k].def.id, notify: Notify::Click, button: false }]).unwrap_or_default();
+                let k = self.controls.iter().position(|c| {
+                    c.def.kind == BUTTON
+                        && c.def.style & BUTTON_DEFAULT != 0
+                        && c.visible
+                        && c.enabled
+                });
+                return k
+                    .map(|k| {
+                        vec![Command {
+                            id: self.controls[k].def.id,
+                            notify: Notify::Click,
+                            button: false,
+                        }]
+                    })
+                    .unwrap_or_default();
             }
-            Key::Escape => return vec![Command { id: CANCEL, notify: Notify::Click, button: false }],
+            Key::Escape => {
+                return vec![Command {
+                    id: CANCEL,
+                    notify: Notify::Click,
+                    button: false,
+                }]
+            }
             _ => {}
         }
-        let Some(k) = self.focus else { return Vec::new() };
+        let Some(k) = self.focus else {
+            return Vec::new();
+        };
         let visible = self.visible_rows(k);
         let c = &mut self.controls[k];
         match &mut c.ctl {
-            Ctl::List { rows, selected, start } if !rows.is_empty() => {
+            Ctl::List {
+                rows,
+                selected,
+                start,
+            } if !rows.is_empty() => {
                 let n = rows.len();
                 let s = selected.unwrap_or(0);
                 // (Nothing selected: -1, so Down lands on the first row.)
@@ -642,9 +908,15 @@ impl Window {
                 } else if to >= *start + visible {
                     *start = to + 1 - visible;
                 }
-                vec![Command { id: c.def.id, notify: Notify::Click, button: false }]
+                vec![Command {
+                    id: c.def.id,
+                    notify: Notify::Click,
+                    button: false,
+                }]
             }
-            Ctl::Slider { min, max, value, .. } => {
+            Ctl::Slider {
+                min, max, value, ..
+            } => {
                 let page = ((*max - *min) / 10).max(1);
                 let to = match key {
                     Key::Left => *value - 1,
@@ -656,7 +928,11 @@ impl Window {
                     _ => return Vec::new(),
                 };
                 *value = to.clamp(*min, *max);
-                vec![Command { id: c.def.id, notify: Notify::NewPosition, button: false }]
+                vec![Command {
+                    id: c.def.id,
+                    notify: Notify::NewPosition,
+                    button: false,
+                }]
             }
             _ => Vec::new(),
         }
@@ -665,7 +941,9 @@ impl Window {
     /// The wheel over a list: its rows scroll.
     pub fn wheel(&mut self, w: f32, h: f32, x: f32, y: f32, lines: i32) {
         let at = self.at(w, h);
-        let Some(k) = self.under(at, x, y) else { return };
+        let Some(k) = self.under(at, x, y) else {
+            return;
+        };
         let visible = self.visible_rows(k);
         if let Ctl::List { rows, start, .. } = &mut self.controls[k].ctl {
             let most = rows.len().saturating_sub(visible) as i32;
@@ -689,7 +967,11 @@ impl Window {
                 (_, PICTURE) => {
                     let (path, size) = look.texture(&c.def.title);
                     if let Some([tw, th]) = size {
-                        let (dw, dh) = if c.def.style & PICTURE_SCALE != 0 { (rw, rh) } else { (rw.min(tw), rh.min(th)) };
+                        let (dw, dh) = if c.def.style & PICTURE_SCALE != 0 {
+                            (rw, rh)
+                        } else {
+                            (rw.min(tw), rh.min(th))
+                        };
                         // (Its texels from the top left, as many as show.)
                         let (u, v) = (dw / tw, dh / th);
                         let mut d = rect(Some(path), [r[0], r[1], r[0] + dw, r[1] + dh], [1.0; 4]);
@@ -712,7 +994,16 @@ impl Window {
                         if let Some(p) = look.part("background") {
                             out.extend(p.draw_middle([r[0] + 5.0, r[1]], tw, lh));
                         }
-                        string(&mut out, look, c.def.font, shade, &c.def.title, [r[0] + 5.0, r[1], tw + 1.0, lh], Halign::Left, true);
+                        string(
+                            &mut out,
+                            look,
+                            c.def.font,
+                            shade,
+                            &c.def.title,
+                            [r[0] + 5.0, r[1], tw + 1.0, lh],
+                            Halign::Left,
+                            true,
+                        );
                     }
                 }
                 (_, TEXT) => {
@@ -723,7 +1014,16 @@ impl Window {
                     } else {
                         Halign::Left
                     };
-                    string(&mut out, look, c.def.font, shade, &c.def.title, r, h, c.def.style & TEXT_VCENTER != 0);
+                    string(
+                        &mut out,
+                        look,
+                        c.def.font,
+                        shade,
+                        &c.def.title,
+                        r,
+                        h,
+                        c.def.style & TEXT_VCENTER != 0,
+                    );
                 }
                 (Ctl::Button { hilite, .. }, _) => {
                     let key = if *hilite {
@@ -736,7 +1036,16 @@ impl Window {
                     if let Some(p) = look.part(key) {
                         out.extend(p.draw([r[0], r[1]], rw, rh));
                     }
-                    string(&mut out, look, c.def.font, shade, &c.def.title, r, Halign::Center, true);
+                    string(
+                        &mut out,
+                        look,
+                        c.def.font,
+                        shade,
+                        &c.def.title,
+                        r,
+                        Halign::Center,
+                        true,
+                    );
                 }
                 (Ctl::Check(on), _) => {
                     let p = look.part(if *on { "checkbox_on" } else { "checkbox_off" });
@@ -746,19 +1055,39 @@ impl Window {
                     }
                     if c.def.style & CHECKBOX_TITLE != 0 {
                         let x = r[0] + pw + CHECKBOX_GAP;
-                        string(&mut out, look, c.def.font, shade, &c.def.title, [x, r[1], (rw - pw - CHECKBOX_GAP).max(0.0), rh], Halign::Left, true);
+                        string(
+                            &mut out,
+                            look,
+                            c.def.font,
+                            shade,
+                            &c.def.title,
+                            [x, r[1], (rw - pw - CHECKBOX_GAP).max(0.0), rh],
+                            Halign::Left,
+                            true,
+                        );
                     }
                 }
-                (Ctl::Slider { min, max, value, .. }, _) => {
+                (
+                    Ctl::Slider {
+                        min, max, value, ..
+                    },
+                    _,
+                ) => {
                     let (track, thumb_w) = slider_track(look, rw);
                     if let Some(p) = look.part("sl_track") {
                         let th = p.corner()[1];
-                        out.extend(p.draw_top_row([r[0], r[1] + ((rh - th) / 2.0).floor()], rw, th));
+                        out.extend(p.draw_top_row(
+                            [r[0], r[1] + ((rh - th) / 2.0).floor()],
+                            rw,
+                            th,
+                        ));
                     }
                     if let Some(p) = look.part("sl_thumb") {
                         let [tw, th] = p.corner();
                         let span = (track[1] - track[0] - thumb_w).max(1.0);
-                        let x = r[0] + track[0] + ((*value - *min) as f32 * span / (*max - *min).max(1) as f32).floor();
+                        let x = r[0]
+                            + track[0]
+                            + ((*value - *min) as f32 * span / (*max - *min).max(1) as f32).floor();
                         out.extend(p.draw_corner([x, r[1] + ((rh - th) / 2.0).floor()], tw, th));
                     }
                 }
@@ -778,7 +1107,12 @@ impl Window {
                         }
                     }
                 }
-                (Ctl::Popup { items, selected, .. }, _) => {
+                (
+                    Ctl::Popup {
+                        items, selected, ..
+                    },
+                    _,
+                ) => {
                     let p = look.part("popup_menu");
                     let lw = p.as_ref().map_or(0.0, |p| p.corner()[0]);
                     if let Some(p) = p {
@@ -787,28 +1121,68 @@ impl Window {
                     let title = items.get(*selected).map_or("", |(_, s)| s.as_str());
                     // (On one line, cut before the arrow: the original
                     // wraps a title too long for it.)
-                    let room = (rw - 2.0 - lw - look.part("popup_menu").map_or(0.0, |p| p.right_width())).max(0.0);
+                    let room =
+                        (rw - 2.0 - lw - look.part("popup_menu").map_or(0.0, |p| p.right_width()))
+                            .max(0.0);
                     let title = fit(look, c.def.font, title, room);
-                    string(&mut out, look, c.def.font, shade, &title, [r[0] + 2.0 + lw, r[1], room + 1000.0, rh], Halign::Left, true);
+                    string(
+                        &mut out,
+                        look,
+                        c.def.font,
+                        shade,
+                        &title,
+                        [r[0] + 2.0 + lw, r[1], room + 1000.0, rh],
+                        Halign::Left,
+                        true,
+                    );
                 }
-                (Ctl::List { rows, selected, start }, _) => {
+                (
+                    Ctl::List {
+                        rows,
+                        selected,
+                        start,
+                    },
+                    _,
+                ) => {
                     let lh = self.line.get(&k).copied().unwrap_or(14.0);
                     let scroll = c.def.style & LIST_SCROLLBAR != 0;
-                    let sw = if scroll { look.part("up_arrow").map_or(0.0, |p| p.corner()[0]) } else { 0.0 };
+                    let sw = if scroll {
+                        look.part("up_arrow").map_or(0.0, |p| p.corner()[0])
+                    } else {
+                        0.0
+                    };
                     let item_w = if scroll { rw - (sw - 1.0) } else { rw };
                     let visible = self.visible_rows(k);
                     let focused = self.focus == Some(k);
                     for (n, (text, _)) in rows.iter().enumerate().skip(*start).take(visible) {
                         let y = r[1] + (n - start) as f32 * lh;
                         if *selected == Some(n) && c.enabled {
-                            if let Some(p) = look.part(if focused { "hilite" } else { "background" }) {
+                            if let Some(p) =
+                                look.part(if focused { "hilite" } else { "background" })
+                            {
                                 out.extend(p.draw([r[0], y], item_w, lh));
                             }
                         }
-                        string(&mut out, look, c.def.font, shade, text, [r[0] + LIST_TEXT_X, y, item_w - LIST_TEXT_X, lh], Halign::Left, false);
+                        string(
+                            &mut out,
+                            look,
+                            c.def.font,
+                            shade,
+                            text,
+                            [r[0] + LIST_TEXT_X, y, item_w - LIST_TEXT_X, lh],
+                            Halign::Left,
+                            false,
+                        );
                     }
                     if scroll {
-                        scrollbar(&mut out, look, [r[0] + rw - sw + 1.0, r[1] - 1.0, sw, rh + 2.0], *start, rows.len(), visible);
+                        scrollbar(
+                            &mut out,
+                            look,
+                            [r[0] + rw - sw + 1.0, r[1] - 1.0, sw, rh + 2.0],
+                            *start,
+                            rows.len(),
+                            visible,
+                        );
                     }
                 }
                 _ => {}
@@ -830,7 +1204,16 @@ impl Window {
                             out.extend(p.draw([row[0] + bw, row[1]], row[2] - 2.0 * bw, row[3]));
                         }
                     }
-                    string(&mut out, look, c.def.font, c.def.font.shade, &items[i].1, [row[0] + bw + MENU_LEFT, row[1], row[2], row[3]], Halign::Left, false);
+                    string(
+                        &mut out,
+                        look,
+                        c.def.font,
+                        c.def.font.shade,
+                        &items[i].1,
+                        [row[0] + bw + MENU_LEFT, row[1], row[2], row[3]],
+                        Halign::Left,
+                        false,
+                    );
                 }
             }
         }
@@ -843,14 +1226,24 @@ impl Window {
 /// else left of it (to its first pixel) a page less, right of it (from its
 /// last) a page more — a tenth of the range, at least one — reported.
 fn slider_press(look: &Look, def: &ItemDef, ctl: &mut Ctl, lx: f32, ly: f32) -> Option<Command> {
-    let Ctl::Slider { min, max, value, drag, .. } = ctl else { return None };
+    let Ctl::Slider {
+        min,
+        max,
+        value,
+        drag,
+        ..
+    } = ctl
+    else {
+        return None;
+    };
     let [_, _, rw, rh] = def.rect;
     let (track, thumb_w) = slider_track(look, rw);
     let thumb_h = look.part("sl_thumb").map_or(0.0, |p| p.corner()[1]);
     let span = (track[1] - track[0] - thumb_w).max(1.0);
     let thumb = track[0] + ((*value - *min) as f32 * span / (*max - *min).max(1) as f32).floor();
     let thumb_top = ((rh - thumb_h) / 2.0).floor();
-    let in_thumb = lx >= thumb && lx < thumb + thumb_w && ly >= thumb_top && ly < thumb_top + thumb_h;
+    let in_thumb =
+        lx >= thumb && lx < thumb + thumb_w && ly >= thumb_top && ly < thumb_top + thumb_h;
     let in_height = ly >= 0.0 && ly < rh;
     let page = ((*max - *min) / 10).max(1);
     let step = if in_thumb && drag.is_none() {
@@ -867,20 +1260,33 @@ fn slider_press(look: &Look, def: &ItemDef, ctl: &mut Ctl, lx: f32, ly: f32) -> 
         return None;
     }
     *value = (*value + step).clamp(*min, *max);
-    Some(Command { id: def.id, notify: Notify::NewPosition, button: false })
+    Some(Command {
+        id: def.id,
+        notify: Notify::NewPosition,
+        button: false,
+    })
 }
 
 /// A slider's track (its run between the track's end caps, within the
 /// slider) and its thumb's width (`WMiSlider_GetTrackBounds`).
 fn slider_track(look: &Look, width: f32) -> ([f32; 2], f32) {
-    let (l, r) = look.part("sl_track").map_or((0.0, 0.0), |p| (p.corner()[0], p.right_width()));
+    let (l, r) = look
+        .part("sl_track")
+        .map_or((0.0, 0.0), |p| (p.corner()[0], p.right_width()));
     let thumb = look.part("sl_thumb").map_or(0.0, |p| p.corner()[0]);
     ([l, width - r], thumb)
 }
 
 /// A vertical scroll bar (`WMiScrollbar_Paint`): its arrows at the ends,
 /// the track between, the thumb where the first row showing puts it.
-fn scrollbar(out: &mut Vec<OverlayDraw>, look: &Look, r: [f32; 4], start: usize, rows: usize, visible: usize) {
+fn scrollbar(
+    out: &mut Vec<OverlayDraw>,
+    look: &Look,
+    r: [f32; 4],
+    start: usize,
+    rows: usize,
+    visible: usize,
+) {
     let [x, y, w, h] = r;
     let (up, dn) = (look.part("up_arrow"), look.part("dn_arrow"));
     let ah = up.as_ref().map_or(0.0, |p| p.corner()[1]);
@@ -913,18 +1319,64 @@ enum Halign {
 /// A string in an area (`DCrDraw_String`): wrapped to its width, placed as
 /// asked, centred top to bottom if `vcenter`.
 #[allow(clippy::too_many_arguments)]
-fn string(out: &mut Vec<OverlayDraw>, look: &Look, f: FontDef, shade: u32, s: &str, area: [f32; 4], h: Halign, vcenter: bool) {
+fn string(
+    out: &mut Vec<OverlayDraw>,
+    look: &Look,
+    f: FontDef,
+    shade: u32,
+    s: &str,
+    area: [f32; 4],
+    h: Halign,
+    vcenter: bool,
+) {
     let Some(font) = look.font(f) else { return };
     let [x, y, w, ah] = area;
-    let bounds = [x as i32, y as i32, (x + w) as i32, (y + ah.max(1000.0)) as i32];
-    let align = if h == Halign::Center { Align::Center } else { Align::Left };
-    let segments = text::format(font, &look.fonts.breaking, s, bounds, x as i32, y as i32, align, false, shade & 0xFF_FFFF);
-    let lines = segments.iter().map(|s| s.top).collect::<std::collections::BTreeSet<_>>().len().max(1) as f32;
+    let bounds = [
+        x as i32,
+        y as i32,
+        (x + w) as i32,
+        (y + ah.max(1000.0)) as i32,
+    ];
+    let align = if h == Halign::Center {
+        Align::Center
+    } else {
+        Align::Left
+    };
+    let segments = text::format(
+        font,
+        &look.fonts.breaking,
+        s,
+        bounds,
+        x as i32,
+        y as i32,
+        align,
+        false,
+        shade & 0xFF_FFFF,
+    );
+    let lines = segments
+        .iter()
+        .map(|s| s.top)
+        .collect::<std::collections::BTreeSet<_>>()
+        .len()
+        .max(1) as f32;
     let used = lines * font.line_height().max(1) as f32 - font.leading as f32;
-    let dy = if vcenter { ((ah - used) / 2.0).floor() } else { 0.0 };
+    let dy = if vcenter {
+        ((ah - used) / 2.0).floor()
+    } else {
+        0.0
+    };
     for seg in &segments {
-        let dx = if h == Halign::Right { (w - seg.width as f32).floor() } else { 0.0 };
-        out.push(OverlayDraw { texture: Some(font.atlas.clone()), tris: glyphs(font, &seg.text, seg.x as f32 + dx, seg.top as f32 + dy), color: rgba(shade), additive: false });
+        let dx = if h == Halign::Right {
+            (w - seg.width as f32).floor()
+        } else {
+            0.0
+        };
+        out.push(OverlayDraw {
+            texture: Some(font.atlas.clone()),
+            tris: glyphs(font, &seg.text, seg.x as f32 + dx, seg.top as f32 + dy),
+            color: rgba(shade),
+            additive: false,
+        });
     }
 }
 
@@ -961,16 +1413,27 @@ pub const FAITHFUL: i64 = 3;
 /// The resolutions the options offer (shown and kept; the window is sized
 /// freely), named without the original's bit depth (`%d x %d x %d bit`:
 /// the port has none to choose, and the longest wouldn't fit the popup).
-const RESOLUTIONS: [(u32, u32); 5] = [(640, 480), (800, 600), (1024, 768), (1280, 1024), (1600, 1200)];
+const RESOLUTIONS: [(u32, u32); 5] = [
+    (640, 480),
+    (800, 600),
+    (1024, 768),
+    (1280, 1024),
+    (1600, 1200),
+];
 const DIFFICULTIES: [&str; 3] = ["easy", "normal", "hard"];
 
 /// What the menus ask the game to do.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Action {
     /// A new game: level 1 from its start, with the original's bugs or not.
-    NewGame { faithful: bool },
+    NewGame {
+        faithful: bool,
+    },
     /// A level from a save point (0: its start).
-    Load { level: u16, save_point: i64 },
+    Load {
+        level: u16,
+        save_point: i64,
+    },
     /// Back to the game.
     Resume,
     Quit,
@@ -1004,7 +1467,12 @@ impl MainMenu {
         let mut w = Window::new(data, "mainmenu");
         w.set_visible(OPTIONS, !in_game);
         w.set_visible(RESUME, in_game);
-        MainMenu { stack: vec![w], in_game, settings, quirks: crate::quirks::Quirks::FIXED }
+        MainMenu {
+            stack: vec![w],
+            in_game,
+            settings,
+            quirks: crate::quirks::Quirks::FIXED,
+        }
     }
 
     pub fn top(&self) -> Option<&Window> {
@@ -1020,8 +1488,14 @@ impl MainMenu {
     /// reached, then its continues — the place last played selected.
     pub fn open_load(&mut self, data: &Data, rows: Vec<LoadRow>, place: Option<(u16, i64)>) {
         let mut w = Window::new(data, "loadgame");
-        let selected = place.and_then(|(l, s)| rows.iter().position(|r| r.level == l && r.save_point == s && s > 0));
-        let list = rows.into_iter().map(|r| (r.text, ((r.save_point as u32) << 8) | u32::from(r.level))).collect();
+        let selected = place.and_then(|(l, s)| {
+            rows.iter()
+                .position(|r| r.level == l && r.save_point == s && s > 0)
+        });
+        let list = rows
+            .into_iter()
+            .map(|r| (r.text, ((r.save_point as u32) << 8) | u32::from(r.level)))
+            .collect();
         w.set_rows(LEVELS, list, selected);
         w.focus(LEVELS);
         self.stack.push(w);
@@ -1041,9 +1515,23 @@ impl MainMenu {
                 c.def.title = "On".into();
             }
         }
-        w.set_popup(DIFFICULTY, None, DIFFICULTIES.iter().position(|d| *d == s.difficulty).unwrap_or(1) as i64);
-        let modes: Vec<(i64, String)> = RESOLUTIONS.iter().enumerate().map(|(i, (w, h))| (i as i64, format!("{w} x {h}"))).collect();
-        let current = RESOLUTIONS.iter().position(|r| *r == s.resolution).unwrap_or(0) as i64;
+        w.set_popup(
+            DIFFICULTY,
+            None,
+            DIFFICULTIES
+                .iter()
+                .position(|d| *d == s.difficulty)
+                .unwrap_or(1) as i64,
+        );
+        let modes: Vec<(i64, String)> = RESOLUTIONS
+            .iter()
+            .enumerate()
+            .map(|(i, (w, h))| (i as i64, format!("{w} x {h}")))
+            .collect();
+        let current = RESOLUTIONS
+            .iter()
+            .position(|r| *r == s.resolution)
+            .unwrap_or(0) as i64;
         w.set_popup(RESOLUTION, Some(modes), current);
         self.stack.push(w);
     }
@@ -1053,15 +1541,36 @@ impl MainMenu {
         // (The port's own: play with the original's bugs. Under the
         // buttons, off.)
         let font = w.control(OK).map(|c| c.def.font).unwrap_or_default();
-        let def = ItemDef { id: FAITHFUL, kind: CHECKBOX, title: "Faithful (the original's bugs)".into(), flags: FLAG_VISIBLE, style: CHECKBOX_TITLE, rect: [35.0, 115.0, 280.0, 20.0], font };
-        w.controls.insert(0, Control { def, visible: true, enabled: true, ctl: Ctl::Check(false) });
+        let def = ItemDef {
+            id: FAITHFUL,
+            kind: CHECKBOX,
+            title: "Faithful (the original's bugs)".into(),
+            flags: FLAG_VISIBLE,
+            style: CHECKBOX_TITLE,
+            rect: [35.0, 115.0, 280.0, 20.0],
+            font,
+        };
+        w.controls.insert(
+            0,
+            Control {
+                def,
+                visible: true,
+                enabled: true,
+                ctl: Ctl::Check(false),
+            },
+        );
         w.line.clear();
         self.stack.push(w);
     }
 
     /// A dialog's commands, as its callback takes them (`ONiOGU_*_Handle*`).
     /// `rows`: the load game list, when it opens.
-    pub fn command(&mut self, data: &Data, cmd: Command, rows: &dyn Fn() -> (Vec<LoadRow>, Option<(u16, i64)>)) -> Option<Action> {
+    pub fn command(
+        &mut self,
+        data: &Data,
+        cmd: Command,
+        rows: &dyn Fn() -> (Vec<LoadRow>, Option<(u16, i64)>),
+    ) -> Option<Action> {
         let name = self.top()?.name.clone();
         match (name.as_str(), cmd.id, cmd.notify) {
             ("mainmenu", NEW_GAME, Notify::Click) => self.open_new_game(data),
@@ -1080,7 +1589,10 @@ impl MainMenu {
             }
             ("loadgame", LEVELS, Notify::DoubleClick) | ("loadgame", OK, Notify::Click) => {
                 let data = self.top()?.selected_data(LEVELS)?;
-                return Some(Action::Load { level: (data & 0xFF) as u16, save_point: i64::from(data >> 8) });
+                return Some(Action::Load {
+                    level: (data & 0xFF) as u16,
+                    save_point: i64::from(data >> 8),
+                });
             }
             ("QuitYesNo", OK, Notify::Click) => return Some(Action::Quit),
             ("options", id, n) if id != CANCEL => return self.option(id, n),
@@ -1102,7 +1614,9 @@ impl MainMenu {
             (VOLUME, Notify::NewPosition) => s.overall_volume = w.slider(VOLUME)? as f32 / 100.0,
             (SUBTITLES, Notify::Click) => s.subtitles = w.check(SUBTITLES),
             (INVERT_MOUSE, Notify::Click) => s.invert_mouse = w.check(INVERT_MOUSE),
-            (DIFFICULTY, Notify::Menu(k)) => s.difficulty = DIFFICULTIES.get(k as usize)?.to_string(),
+            (DIFFICULTY, Notify::Menu(k)) => {
+                s.difficulty = DIFFICULTIES.get(k as usize)?.to_string()
+            }
             (RESOLUTION, Notify::Menu(k)) => s.resolution = *RESOLUTIONS.get(k as usize)?,
             _ => return None,
         }
@@ -1125,17 +1639,64 @@ mod tests {
     use super::*;
 
     fn item(id: i64, kind: u16, rect: [f32; 4], style: u32) -> ItemDef {
-        ItemDef { id, kind, title: String::new(), flags: FLAG_VISIBLE, style, rect, font: FontDef::default() }
+        ItemDef {
+            id,
+            kind,
+            title: String::new(),
+            flags: FLAG_VISIBLE,
+            style,
+            rect,
+            font: FontDef::default(),
+        }
     }
 
     fn data() -> Data {
         let mut d = Data::default();
-        let dialog = |items: Vec<ItemDef>| DialogDef { size: [640.0, 480.0], items };
-        d.dialogs.insert("mainmenu".into(), dialog(vec![item(NEW_GAME, BUTTON, [350.0, 230.0, 180.0, 40.0], 0), item(LOAD_GAME, BUTTON, [350.0, 290.0, 180.0, 40.0], 0), item(OPTIONS, BUTTON, [350.0, 350.0, 180.0, 40.0], 0), item(RESUME, BUTTON, [350.0, 350.0, 180.0, 40.0], 0), item(QUIT, BUTTON, [350.0, 410.0, 180.0, 40.0], 0)]));
-        d.dialogs.insert("NewGame".into(), DialogDef { size: [350.0, 150.0], items: vec![item(OK, BUTTON, [35.0, 70.0, 130.0, 40.0], 0), item(CANCEL, BUTTON, [185.0, 70.0, 130.0, 40.0], 0)] });
-        d.dialogs.insert("loadgame".into(), dialog(vec![item(LEVELS, LISTBOX, [140.0, 30.0, 375.0, 360.0], 0), item(OK, BUTTON, [120.0, 425.0, 130.0, 40.0], BUTTON_DEFAULT), item(CANCEL, BUTTON, [410.0, 425.0, 130.0, 40.0], 0)]));
-        d.dialogs.insert("options".into(), dialog(vec![item(VOLUME, SLIDER, [160.0, 215.0, 120.0, 20.0], 0), item(SUBTITLES, CHECKBOX, [115.0, 330.0, 50.0, 20.0], 0), item(DIFFICULTY, POPUP, [115.0, 305.0, 150.0, 20.0], 0), item(CANCEL, BUTTON, [175.0, 405.0, 130.0, 40.0], 0)]));
-        d.popups.insert(String::new(), vec![(0, "Easy".into()), (1, "Normal".into()), (2, "Hard".into())]);
+        let dialog = |items: Vec<ItemDef>| DialogDef {
+            size: [640.0, 480.0],
+            items,
+        };
+        d.dialogs.insert(
+            "mainmenu".into(),
+            dialog(vec![
+                item(NEW_GAME, BUTTON, [350.0, 230.0, 180.0, 40.0], 0),
+                item(LOAD_GAME, BUTTON, [350.0, 290.0, 180.0, 40.0], 0),
+                item(OPTIONS, BUTTON, [350.0, 350.0, 180.0, 40.0], 0),
+                item(RESUME, BUTTON, [350.0, 350.0, 180.0, 40.0], 0),
+                item(QUIT, BUTTON, [350.0, 410.0, 180.0, 40.0], 0),
+            ]),
+        );
+        d.dialogs.insert(
+            "NewGame".into(),
+            DialogDef {
+                size: [350.0, 150.0],
+                items: vec![
+                    item(OK, BUTTON, [35.0, 70.0, 130.0, 40.0], 0),
+                    item(CANCEL, BUTTON, [185.0, 70.0, 130.0, 40.0], 0),
+                ],
+            },
+        );
+        d.dialogs.insert(
+            "loadgame".into(),
+            dialog(vec![
+                item(LEVELS, LISTBOX, [140.0, 30.0, 375.0, 360.0], 0),
+                item(OK, BUTTON, [120.0, 425.0, 130.0, 40.0], BUTTON_DEFAULT),
+                item(CANCEL, BUTTON, [410.0, 425.0, 130.0, 40.0], 0),
+            ]),
+        );
+        d.dialogs.insert(
+            "options".into(),
+            dialog(vec![
+                item(VOLUME, SLIDER, [160.0, 215.0, 120.0, 20.0], 0),
+                item(SUBTITLES, CHECKBOX, [115.0, 330.0, 50.0, 20.0], 0),
+                item(DIFFICULTY, POPUP, [115.0, 305.0, 150.0, 20.0], 0),
+                item(CANCEL, BUTTON, [175.0, 405.0, 130.0, 40.0], 0),
+            ]),
+        );
+        d.popups.insert(
+            String::new(),
+            vec![(0, "Easy".into()), (1, "Normal".into()), (2, "Hard".into())],
+        );
         d
     }
 
@@ -1143,8 +1704,26 @@ mod tests {
         let w = m.top_mut().unwrap();
         let mut cmds = w.mouse_down(&d.look, 640.0, 480.0, x, y);
         cmds.extend(m.top_mut().unwrap().mouse_up(&d.look, 640.0, 480.0, x, y));
-        let rows = || (vec![LoadRow { text: "TCTF Training".into(), level: 1, save_point: 0 }, LoadRow { text: "Syndicate Warehouse".into(), level: 1, save_point: 1 }], Some((1, 1)));
-        cmds.into_iter().filter_map(|c| m.command(d, c, &rows)).last()
+        let rows = || {
+            (
+                vec![
+                    LoadRow {
+                        text: "TCTF Training".into(),
+                        level: 1,
+                        save_point: 0,
+                    },
+                    LoadRow {
+                        text: "Syndicate Warehouse".into(),
+                        level: 1,
+                        save_point: 1,
+                    },
+                ],
+                Some((1, 1)),
+            )
+        };
+        cmds.into_iter()
+            .filter_map(|c| m.command(d, c, &rows))
+            .last()
     }
 
     #[test]
@@ -1152,7 +1731,10 @@ mod tests {
         let d = data();
         // At the start: Options shows, Resume doesn't; Escape does nothing.
         let mut m = MainMenu::open(&d, false, Settings::default());
-        assert!(m.top().unwrap().control(OPTIONS).unwrap().visible && !m.top().unwrap().control(RESUME).unwrap().visible);
+        assert!(
+            m.top().unwrap().control(OPTIONS).unwrap().visible
+                && !m.top().unwrap().control(RESUME).unwrap().visible
+        );
         let esc = m.top_mut().unwrap().key(Key::Escape);
         assert_eq!(m.command(&d, esc[0], &|| (Vec::new(), None)), None);
         // New Game → the prompt; its faithful box off → a game as fixed.
@@ -1160,16 +1742,32 @@ mod tests {
         assert_eq!(m.top().unwrap().name, "NewGame");
         // (The prompt is centred: 350 × 150 on 640 × 480 at 145, 165.)
         let (ox, oy) = (145.0, 165.0);
-        assert_eq!(click(&mut m, &d, ox + 50.0, oy + 120.0), None, "the faithful box toggles");
+        assert_eq!(
+            click(&mut m, &d, ox + 50.0, oy + 120.0),
+            None,
+            "the faithful box toggles"
+        );
         assert!(m.top().unwrap().check(FAITHFUL));
-        assert_eq!(click(&mut m, &d, ox + 60.0, oy + 90.0), Some(Action::NewGame { faithful: true }));
+        assert_eq!(
+            click(&mut m, &d, ox + 60.0, oy + 90.0),
+            Some(Action::NewGame { faithful: true })
+        );
         // Cancel goes back to the main menu.
         click(&mut m, &d, ox + 200.0, oy + 90.0);
         assert_eq!(m.top().unwrap().name, "mainmenu");
         // Load Game: the warehouse selected (the place last played); Load.
         click(&mut m, &d, 400.0, 310.0);
-        assert_eq!(m.top().unwrap().rows(LEVELS), ["TCTF Training", "Syndicate Warehouse"]);
-        assert_eq!(click(&mut m, &d, 150.0, 445.0), Some(Action::Load { level: 1, save_point: 1 }));
+        assert_eq!(
+            m.top().unwrap().rows(LEVELS),
+            ["TCTF Training", "Syndicate Warehouse"]
+        );
+        assert_eq!(
+            click(&mut m, &d, 150.0, 445.0),
+            Some(Action::Load {
+                level: 1,
+                save_point: 1
+            })
+        );
         // The level's row (the list focused again), then Down and Up the
         // arrows, and Enter (the default button): the level's start.
         click(&mut m, &d, 200.0, 35.0);
@@ -1177,13 +1775,22 @@ mod tests {
         assert_eq!(m.top().unwrap().selected_data(LEVELS), Some((1 << 8) | 1));
         m.top_mut().unwrap().key(Key::Up);
         let enter = m.top_mut().unwrap().key(Key::Enter);
-        assert_eq!(m.command(&d, enter[0], &|| (Vec::new(), None)), Some(Action::Load { level: 1, save_point: 0 }));
+        assert_eq!(
+            m.command(&d, enter[0], &|| (Vec::new(), None)),
+            Some(Action::Load {
+                level: 1,
+                save_point: 0
+            })
+        );
         // In a game: Resume, and Escape resumes.
         let mut m = MainMenu::open(&d, true, Settings::default());
         assert!(m.top().unwrap().control(RESUME).unwrap().visible);
         assert_eq!(click(&mut m, &d, 400.0, 370.0), Some(Action::Resume));
         let esc = m.top_mut().unwrap().key(Key::Escape);
-        assert_eq!(m.command(&d, esc[0], &|| (Vec::new(), None)), Some(Action::Resume));
+        assert_eq!(
+            m.command(&d, esc[0], &|| (Vec::new(), None)),
+            Some(Action::Resume)
+        );
     }
 
     #[test]
@@ -1195,7 +1802,10 @@ mod tests {
         assert_eq!(m.top().unwrap().slider(VOLUME), Some(100));
         // The track left of the thumb: a page down (a tenth).
         let a = click(&mut m, &d, 165.0, 225.0);
-        assert!(matches!(a, Some(Action::Options(ref s)) if (s.overall_volume - 0.9).abs() < 1e-6), "{a:?}");
+        assert!(
+            matches!(a, Some(Action::Options(ref s)) if (s.overall_volume - 0.9).abs() < 1e-6),
+            "{a:?}"
+        );
         // The subtitles box.
         let a = click(&mut m, &d, 120.0, 340.0);
         assert!(matches!(a, Some(Action::Options(ref s)) if s.subtitles));
@@ -1203,7 +1813,10 @@ mod tests {
         // without fonts).
         assert_eq!(click(&mut m, &d, 120.0, 310.0), None);
         let a = click(&mut m, &d, 120.0, 305.0 + 2.0 * 14.0 + 5.0);
-        assert!(matches!(a, Some(Action::Options(ref s)) if s.difficulty == "hard"), "{a:?}");
+        assert!(
+            matches!(a, Some(Action::Options(ref s)) if s.difficulty == "hard"),
+            "{a:?}"
+        );
         // Cancel (Close) back to the main menu.
         click(&mut m, &d, 180.0, 410.0);
         assert_eq!(m.top().unwrap().name, "mainmenu");
@@ -1218,17 +1831,55 @@ mod tests {
         // (The options dialog fills the screen: its slider at 160, 215.)
         let (x, y) = (160.0 + 110.0, 225.0);
         let cmds = w.mouse_down(&d.look, 640.0, 480.0, x, y);
-        assert_eq!(cmds, vec![Command { id: VOLUME, notify: Notify::NewPosition, button: false }]);
+        assert_eq!(
+            cmds,
+            vec![Command {
+                id: VOLUME,
+                notify: Notify::NewPosition,
+                button: false
+            }]
+        );
         assert_eq!(value(&w), 10, "a page: a tenth of the range");
         // Its timer: a page each firing, not more often than every 10/60 s.
         let t0 = w.timer + std::time::Duration::from_millis(1);
         assert_eq!(w.tick(&d.look, 640.0, 480.0, x, y, t0).len(), 1);
-        assert!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_millis(100)).is_empty(), "not yet");
-        assert_eq!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_millis(200)).len(), 1);
+        assert!(
+            w.tick(
+                &d.look,
+                640.0,
+                480.0,
+                x,
+                y,
+                t0 + std::time::Duration::from_millis(100)
+            )
+            .is_empty(),
+            "not yet"
+        );
+        assert_eq!(
+            w.tick(
+                &d.look,
+                640.0,
+                480.0,
+                x,
+                y,
+                t0 + std::time::Duration::from_millis(200)
+            )
+            .len(),
+            1
+        );
         assert_eq!(value(&w), 30);
         // Let go: no more.
         w.mouse_up(&d.look, 640.0, 480.0, x, y);
-        assert!(w.tick(&d.look, 640.0, 480.0, x, y, t0 + std::time::Duration::from_secs(1)).is_empty());
+        assert!(w
+            .tick(
+                &d.look,
+                640.0,
+                480.0,
+                x,
+                y,
+                t0 + std::time::Duration::from_secs(1)
+            )
+            .is_empty());
         assert_eq!(value(&w), 30);
     }
 }

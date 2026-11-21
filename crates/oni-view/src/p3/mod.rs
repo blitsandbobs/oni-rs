@@ -7,10 +7,10 @@
 //! The system knows nothing of the world: what it needs (rays against the
 //! level and characters, damage, attractor targets) it asks a [`Host`].
 
-pub mod class;
-mod emit;
 mod actions;
+pub mod class;
 pub mod effect;
+mod emit;
 pub mod glass;
 
 use std::cell::Cell;
@@ -18,8 +18,8 @@ use std::rc::Rc;
 
 use glam::{Mat3, Mat4, Vec3};
 
-pub use class::{event, ClassId, Classes};
 use class::{cflag, Class, Value, VarKind};
+pub use class::{event, ClassId, Classes};
 
 /// Ticks per second.
 pub const HZ: f64 = 60.0;
@@ -41,7 +41,8 @@ pub mod owner {
 
     /// The character an owner word names, if it names one.
     pub fn character(o: u32) -> Option<usize> {
-        matches!(o & TYPE_MASK, CHARACTER_WEAPON | CHARACTER_MELEE).then_some((o & !TYPE_MASK) as usize)
+        matches!(o & TYPE_MASK, CHARACTER_WEAPON | CHARACTER_MELEE)
+            .then_some((o & !TYPE_MASK) as usize)
     }
 }
 
@@ -176,14 +177,27 @@ pub enum SoundEvent {
     /// An impulse sound at a place.
     Impulse { name: Rc<str>, at: Vec3 },
     /// A particle starts an ambient sound (that follows it) …
-    AmbientStart { particle: Handle, name: Rc<str>, at: Vec3 },
+    AmbientStart {
+        particle: Handle,
+        name: Rc<str>,
+        at: Vec3,
+    },
     /// … or stops it (it plays out).
     AmbientStop { particle: Handle },
     /// An impact effect (`docs/AUDIO.md`, *Impact effects*): by name and
     /// weight, where, how fast, what it hit, whose.
     /// (With the particle's orientation and flags, for the effect's
     /// particles.)
-    Impact { impact: Rc<str>, modifier: u32, at: Vec3, velocity: Option<Vec3>, orientation: Option<Mat3>, hit: Option<Collision>, owner: u32, flags: u32 },
+    Impact {
+        impact: Rc<str>,
+        modifier: u32,
+        at: Vec3,
+        velocity: Option<Vec3>,
+        orientation: Option<Mat3>,
+        hit: Option<Collision>,
+        owner: u32,
+        flags: u32,
+    },
     /// A projectile with a flyby sound is out.
     Flyby { particle: Handle },
 }
@@ -213,14 +227,44 @@ pub trait Host {
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit>;
     /// The first character hit along the ray — by a point, or by a sphere
     /// of `radius` — except a hit leaving `owner`'s own body.
-    fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, owner: Option<usize>) -> Option<CharHit>;
+    fn ray_chars(
+        &mut self,
+        from: Vec3,
+        ray: Vec3,
+        radius: f32,
+        owner: Option<usize>,
+    ) -> Option<CharHit>;
     /// A direct hit (`WPrHitChar`); true when `stamp` is the victim's last
     /// particle (a duplicate, rejected).
     #[allow(clippy::too_many_arguments)]
-    fn hit_char(&mut self, who: usize, point: Vec3, dir: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, owner: u32, stamp: Option<u64>, self_immune: bool) -> bool;
+    fn hit_char(
+        &mut self,
+        who: usize,
+        point: Vec3,
+        dir: Vec3,
+        kind: u32,
+        damage: f32,
+        stun: f32,
+        knockback: f32,
+        owner: u32,
+        stamp: Option<u64>,
+        self_immune: bool,
+    ) -> bool;
     /// A blast (`WPrBlast`).
     #[allow(clippy::too_many_arguments)]
-    fn blast(&mut self, centre: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, radius: f32, falloff: u32, owner: u32, stamp: u64, self_immune: bool);
+    fn blast(
+        &mut self,
+        centre: Vec3,
+        kind: u32,
+        damage: f32,
+        stun: f32,
+        knockback: f32,
+        radius: f32,
+        falloff: u32,
+        owner: u32,
+        stamp: u64,
+        self_immune: bool,
+    );
     /// Damages a level surface (breaks glass, `damage` hard); true if it
     /// broke.
     fn damage_surface(&mut self, _surface: u32, _damage: f32) -> bool {
@@ -231,7 +275,14 @@ pub trait Host {
     }
     /// Breaks the glass within `radius` of `centre`, `damage` hard, blown
     /// out by `blast` (none: shattered as by a shot).
-    fn damage_surfaces_near(&mut self, _centre: Vec3, _radius: f32, _damage: f32, _blast: Option<glass::Blast>) {}
+    fn damage_surfaces_near(
+        &mut self,
+        _centre: Vec3,
+        _radius: f32,
+        _damage: f32,
+        _blast: Option<glass::Blast>,
+    ) {
+    }
     /// Character `who`'s super amount (`ONtCharacter.super_amount`).
     fn super_amount(&self, _who: usize) -> f32 {
         0.0
@@ -256,7 +307,11 @@ pub trait Host {
         None
     }
     /// Lays a decal on the level (`crate::decal::build`).
-    fn build_decal(&mut self, _quad: Option<u32>, _params: &crate::decal::Params) -> Option<crate::decal::Mesh> {
+    fn build_decal(
+        &mut self,
+        _quad: Option<u32>,
+        _params: &crate::decal::Params,
+    ) -> Option<crate::decal::Mesh> {
         None
     }
 }
@@ -296,7 +351,9 @@ struct Outcome {
 }
 
 /// One inverse-normal table (deciles), for bell-curve values.
-const NORMAL: [f32; 11] = [0.0, 0.1257, 0.2533, 0.3853, 0.5244, 0.6745, 0.8416, 1.0364, 1.2816, 1.6449, 3.0902];
+const NORMAL: [f32; 11] = [
+    0.0, 0.1257, 0.2533, 0.3853, 0.5244, 0.6745, 0.8416, 1.0364, 1.2816, 1.6449, 3.0902,
+];
 
 impl System {
     pub fn new(classes: Rc<Classes>) -> System {
@@ -317,7 +374,15 @@ impl System {
     /// Live particles (for drawing and tests).
     pub fn iter(&self) -> impl std::iter::Iterator<Item = (Handle, &Particle)> {
         self.slots.iter().enumerate().filter_map(|(i, s)| {
-            s.particle.as_ref().map(|p| (Handle { slot: i as u32, generation: s.generation }, p))
+            s.particle.as_ref().map(|p| {
+                (
+                    Handle {
+                        slot: i as u32,
+                        generation: s.generation,
+                    },
+                    p,
+                )
+            })
         })
     }
 
@@ -380,7 +445,9 @@ impl System {
         let lerp_shade = |a: u32, b: u32, t: f32| -> u32 {
             (0..4).fold(0, |acc, k| {
                 let (ca, cb) = ((a >> (k * 8)) & 0xFF, (b >> (k * 8)) & 0xFF);
-                let c = (ca as f32 + (cb as f32 - ca as f32) * t).round().clamp(0.0, 255.0) as u32;
+                let c = (ca as f32 + (cb as f32 - ca as f32) * t)
+                    .round()
+                    .clamp(0.0, 255.0) as u32;
                 acc | c << (k * 8)
             })
         };
@@ -404,7 +471,10 @@ impl System {
             }
             Value::ShadeBell(m, s) => {
                 let c = (0..4).fold(0u32, |acc, k| {
-                    let (cm, cs) = (((m >> (k * 8)) & 0xFF) as f32, ((s >> (k * 8)) & 0xFF) as f32);
+                    let (cm, cs) = (
+                        ((m >> (k * 8)) & 0xFF) as f32,
+                        ((s >> (k * 8)) & 0xFF) as f32,
+                    );
                     let n = self.normal();
                     acc | ((cm + n * cs).round().clamp(0.0, 255.0) as u32) << (k * 8)
                 });
@@ -439,7 +509,11 @@ impl System {
             .emitters
             .iter()
             .map(|e| EmitterState {
-                count: if e.flags & class::eflag::INITIALLY_ACTIVE != 0 { 0 } else { DISABLED },
+                count: if e.flags & class::eflag::INITIALLY_ACTIVE != 0 {
+                    0
+                } else {
+                    DISABLED
+                },
                 last_time: NEVER,
                 last: None,
             })
@@ -452,17 +526,29 @@ impl System {
         let mut vars: Vec<Val> = inits
             .iter()
             .zip(kinds)
-            .map(|(v, k)| self.eval(v, &[]).unwrap_or(if k == VarKind::Float { Val::F(0.0) } else { Val::U(0) }))
+            .map(|(v, k)| {
+                self.eval(v, &[]).unwrap_or(if k == VarKind::Float {
+                    Val::F(0.0)
+                } else {
+                    Val::U(0)
+                })
+            })
             .collect();
         // The global tint, into a tint variable.
-        if let (Some(tint), Value::Var(k), true) = (self.global_tint, &c.tint, c.has(cflag::USE_GLOBAL_TINT)) {
+        if let (Some(tint), Value::Var(k), true) =
+            (self.global_tint, &c.tint, c.has(cflag::USE_GLOBAL_TINT))
+        {
             if let Some(v) = vars.get_mut(*k) {
                 *v = Val::U(tint);
             }
         }
         self.serial += 1;
         // (A random start for its texture, as the original rolls one.)
-        let texture_index = if c.has(cflag::TEXTURE_INDEX) { u32::from(self.rand16()) } else { 0 };
+        let texture_index = if c.has(cflag::TEXTURE_INDEX) {
+            u32::from(self.rand16())
+        } else {
+            0
+        };
         Particle {
             class,
             flags,
@@ -511,10 +597,19 @@ impl System {
         if let Some(slot) = self.free.pop() {
             let s = &mut self.slots[slot as usize];
             s.particle = Some(p);
-            Handle { slot, generation: s.generation }
+            Handle {
+                slot,
+                generation: s.generation,
+            }
         } else {
-            self.slots.push(Slot { generation: 1, particle: Some(p) });
-            Handle { slot: self.slots.len() as u32 - 1, generation: 1 }
+            self.slots.push(Slot {
+                generation: 1,
+                particle: Some(p),
+            });
+            Handle {
+                slot: self.slots.len() as u32 - 1,
+                generation: 1,
+            }
         }
     }
 
@@ -574,7 +669,11 @@ impl System {
 
     /// `P3rKillTemporaryParticles`: every temporary particle dies.
     pub fn kill_temporary(&mut self, host: &mut dyn Host) {
-        let doomed: Vec<Handle> = self.iter().filter(|(_, p)| p.flags & pflag::TEMPORARY != 0).map(|(h, _)| h).collect();
+        let doomed: Vec<Handle> = self
+            .iter()
+            .filter(|(_, p)| p.flags & pflag::TEMPORARY != 0)
+            .map(|(h, _)| h)
+            .collect();
         for h in doomed {
             self.kill(h, host);
         }
@@ -627,7 +726,10 @@ impl System {
             if q.flags & pflag::BREAK_LINKS_TO_ME != 0 {
                 return None;
             }
-            match q.link.filter(|_| self.class(q.class).has(cflag::LOCK_TO_LINKED)) {
+            match q
+                .link
+                .filter(|_| self.class(q.class).has(cflag::LOCK_TO_LINKED))
+            {
                 Some(next) => h = next,
                 None => return Some(self.world_position(q)),
             }
@@ -648,7 +750,10 @@ impl System {
             // from their own creation time.
             while i < self.slots.len() {
                 let generation = self.slots[i].generation;
-                let h = Handle { slot: i as u32, generation };
+                let h = Handle {
+                    slot: i as u32,
+                    generation,
+                };
                 i += 1;
                 // (Decals have their own update.)
                 let is = match &self.slots[i - 1].particle {
@@ -685,7 +790,10 @@ impl System {
                 None => {
                     p.link = None;
                     let t = p.time;
-                    if self.run(&mut p, h, event::BROKEN_LINK, t, 0.0, None, false, host).dead {
+                    if self
+                        .run(&mut p, h, event::BROKEN_LINK, t, 0.0, None, false, host)
+                        .dead
+                    {
                         self.die(p, h, t, host);
                         return;
                     }
@@ -710,7 +818,9 @@ impl System {
             // Collision along the step; a hit ends the step there and
             // cancels its emission.
             let mut hit = None;
-            if (c.has(cflag::COLLIDE_ENV) || c.has(cflag::COLLIDE_CHAR)) && p.flags & (pflag::STOPPED | pflag::CHOP) == 0 {
+            if (c.has(cflag::COLLIDE_ENV) || c.has(cflag::COLLIDE_CHAR))
+                && p.flags & (pflag::STOPPED | pflag::CHOP) == 0
+            {
                 hit = self.check_collision(&p, c, cur, run_t, &mut last_hit, host);
                 if let Some(k) = &hit {
                     run_t = k.t;
@@ -729,11 +839,16 @@ impl System {
                 p.lifetime -= dt;
                 if p.lifetime < 1.0 / HZ as f32 {
                     p.lifetime = 0.0;
-                    if p.flags & (pflag::FADE_OUT | pflag::CHOP) != 0 || c.events[event::LIFETIME].is_empty() {
+                    if p.flags & (pflag::FADE_OUT | pflag::CHOP) != 0
+                        || c.events[event::LIFETIME].is_empty()
+                    {
                         self.die(p, h, run_t, host);
                         return;
                     }
-                    if self.run(&mut p, h, event::LIFETIME, run_t, 0.0, None, false, host).dead {
+                    if self
+                        .run(&mut p, h, event::LIFETIME, run_t, 0.0, None, false, host)
+                        .dead
+                    {
                         self.die(p, h, run_t, host);
                         return;
                     }
@@ -773,7 +888,10 @@ impl System {
                 } else {
                     event::COLLIDE_CHAR
                 };
-                if self.run(&mut p, h, ev, run_t, 0.0, Some(k), true, host).dead {
+                if self
+                    .run(&mut p, h, ev, run_t, 0.0, Some(k), true, host)
+                    .dead
+                {
                     self.die(p, h, run_t, host);
                     return;
                 }
@@ -792,7 +910,14 @@ impl System {
     }
 
     /// When emitter `e` next fires, if it is on.
-    fn check_emitter(&mut self, p: &Particle, e: usize, def: &class::Emitter, cur: f64, run_t: f64) -> Option<f64> {
+    fn check_emitter(
+        &mut self,
+        p: &Particle,
+        e: usize,
+        def: &class::Emitter,
+        cur: f64,
+        run_t: f64,
+    ) -> Option<f64> {
         use class::Rate;
         let st = &p.emitters[e];
         if st.count == DISABLED {
@@ -838,7 +963,8 @@ impl System {
                 match st.last.and_then(|l| self.get(l)) {
                     None if st.last.is_none() => Some(soon),
                     None => None,
-                    Some(q) => (self.world_position(q).distance(self.world_position(p)) > d).then_some(soon),
+                    Some(q) => (self.world_position(q).distance(self.world_position(p)) > d)
+                        .then_some(soon),
                 }
             }
             Rate::Attractor => None,
@@ -856,7 +982,11 @@ impl System {
         host: &mut dyn Host,
     ) -> Option<Collision> {
         let dt = run_t - cur;
-        let ray = if c.has(cflag::VELOCITY) { p.velocity * dt as f32 } else { Vec3::ZERO };
+        let ray = if c.has(cflag::VELOCITY) {
+            p.velocity * dt as f32
+        } else {
+            Vec3::ZERO
+        };
         let from = p.position;
         let mut best: Option<Collision> = None;
         if c.has(cflag::COLLIDE_ENV) && ray.length_squared() > 0.0 {
@@ -864,7 +994,11 @@ impl System {
                 best = Some(Collision {
                     env: true,
                     point: from + ray * k.fraction,
-                    normal: if k.normal.dot(ray) > 0.0 { -k.normal } else { k.normal },
+                    normal: if k.normal.dot(ray) > 0.0 {
+                        -k.normal
+                    } else {
+                        k.normal
+                    },
                     dir: ray * k.fraction,
                     id: k.surface,
                     t: cur + dt * f64::from(k.fraction),
@@ -876,7 +1010,8 @@ impl System {
         if c.has(cflag::COLLIDE_CHAR) && (ray.length_squared() > 0.0 || c.collision_radius > 0.0) {
             let limit = best.map_or(1.0, |b| ((b.t - cur) / dt.max(1e-9)) as f32);
             let r = ray * limit;
-            if let Some(k) = host.ray_chars(from, r, c.collision_radius, owner::character(p.owner)) {
+            if let Some(k) = host.ray_chars(from, r, c.collision_radius, owner::character(p.owner))
+            {
                 best = Some(Collision {
                     env: false,
                     point: from + r * k.fraction,
@@ -904,7 +1039,11 @@ impl System {
             k.normal.normalize()
         } else {
             let y = p.orientation.y_axis;
-            if y.length_squared() > 1e-12 { y.normalize() } else { Vec3::Y }
+            if y.length_squared() > 1e-12 {
+                y.normalize()
+            } else {
+                Vec3::Y
+            }
         };
         Some(k)
     }
@@ -916,7 +1055,9 @@ impl System {
     fn attractor_candidates(&mut self, p: &Particle, host: &mut dyn Host) -> Vec<(usize, f32)> {
         use class::Iterator as It;
         let classes = self.classes.clone();
-        let Some(a) = classes.list[p.class].attractor.as_ref() else { return Vec::new() };
+        let Some(a) = classes.list[p.class].attractor.as_ref() else {
+            return Vec::new();
+        };
         let me = owner::character(p.owner);
         let max_d = self.eval_f(&a.max_distance, &p.vars).unwrap_or(f32::MAX);
         let at = self.world_position(p);
@@ -952,7 +1093,9 @@ impl System {
             }
             let mut score = d;
             if a.conical {
-                let theta = forward.angle_between((t.position - at).normalize_or_zero()).to_degrees();
+                let theta = forward
+                    .angle_between((t.position - at).normalize_or_zero())
+                    .to_degrees();
                 if theta > max_angle {
                     continue;
                 }
@@ -977,7 +1120,9 @@ impl System {
     fn find_attractor(&mut self, p: &mut Particle, delay: u32, host: &mut dyn Host) -> bool {
         use class::Iterator as It;
         let classes = self.classes.clone();
-        let Some(a) = classes.list[p.class].attractor.as_ref() else { return false };
+        let Some(a) = classes.list[p.class].attractor.as_ref() else {
+            return false;
+        };
         if delay == 0 && p.attractor.is_some() {
             return false;
         }
@@ -988,7 +1133,11 @@ impl System {
             return false;
         }
         let had = p.attractor.is_some();
-        let best = self.attractor_candidates(p, host).into_iter().min_by(|x, y| x.1.total_cmp(&y.1)).map(|x| x.0);
+        let best = self
+            .attractor_candidates(p, host)
+            .into_iter()
+            .min_by(|x, y| x.1.total_cmp(&y.1))
+            .map(|x| x.0);
         p.attractor = best;
         if best.is_some() {
             p.flags |= pflag::HAS_ATTRACTOR;

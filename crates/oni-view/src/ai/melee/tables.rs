@@ -71,12 +71,14 @@ impl Dir {
 
 /// An animation type by schema name.
 pub fn ty(name: &str) -> u16 {
-    oni_schema::value(&oni_schema::ANIM_TYPES, name).unwrap_or_else(|| panic!("animation type {name}"))
+    oni_schema::value(&oni_schema::ANIM_TYPES, name)
+        .unwrap_or_else(|| panic!("animation type {name}"))
 }
 
 /// An animation state by schema name.
 pub fn anim_state(name: &str) -> u16 {
-    oni_schema::value(&oni_schema::ANIM_STATES, name).unwrap_or_else(|| panic!("animation state {name}"))
+    oni_schema::value(&oni_schema::ANIM_STATES, name)
+        .unwrap_or_else(|| panic!("animation state {name}"))
 }
 
 impl MeleeState {
@@ -88,14 +90,18 @@ impl MeleeState {
             "crouch" => S::Crouching,
             "crouchStart" => S::CrouchStart,
             "fallenBack" | "fallenFront" | "lieBack" => S::Prone,
-            "runningLeftDown" | "runningRightDown" | "runningUpstairsRightDown"
+            "runningLeftDown"
+            | "runningRightDown"
+            | "runningUpstairsRightDown"
             | "runningUpstairsLeftDown" => S::Running,
             "runStart" | "runAccel" | "runJumpLand" => S::RunStart,
             "runBackStart" => S::RunBackStart,
             "runningBackRightDown" | "runningBackLeftDown" => S::RunningBack,
             "runSidestepLeft" | "sidestepLeftLeftDown" | "sidestepLeftRightDown" => S::RunningLeft,
             "sidestepLeftStart" | "sidestepLeftStartLongName" => S::RunLeftStart,
-            "runSidestepRight" | "sidestepRightLeftDown" | "sidestepRightRightDown" => S::RunningRight,
+            "runSidestepRight" | "sidestepRightLeftDown" | "sidestepRightRightDown" => {
+                S::RunningRight
+            }
             "sidestepRightStart" | "sidestepRightStartLongName" => S::RunRightStart,
             "jumpUp" | "flying" | "falling" => S::Jumping,
             "runJump" | "jumpForward" | "fallingForward" | "flyingForward" => S::JumpingForwards,
@@ -192,7 +198,6 @@ impl MeleeState {
             S::JumpingRight => "fallingRight",
         })
     }
-
 }
 
 /// An attack: the animation it asks for, the states it goes from and to, and
@@ -210,7 +215,13 @@ pub struct AttackMove {
 }
 
 const fn atk(anim: &'static str, from: MeleeState, to: MeleeState, dir: Dir) -> AttackMove {
-    AttackMove { anim, from, to, dir, keys: None }
+    AttackMove {
+        anim,
+        from,
+        to,
+        dir,
+        keys: None,
+    }
 }
 
 /// The attack moves, in `oni_schema::MELEE_ATTACKS` order.
@@ -287,7 +298,12 @@ pub const ATTACKS: [AttackMove; 84] = {
         atk("runBackKick", S::RunningBack, S::RunningBack, Back),
         atk("sidestepLeftPunch", S::RunningLeft, S::RunningLeft, Left),
         atk("sidestepLeftKick", S::RunningLeft, S::RunningLeft, Left),
-        atk("sidestepRightPunch", S::RunningRight, S::RunningRight, Right),
+        atk(
+            "sidestepRightPunch",
+            S::RunningRight,
+            S::RunningRight,
+            Right,
+        ),
         atk("sidestepRightKick", S::RunningRight, S::RunningRight, Right),
         AttackMove {
             anim: "slide",
@@ -380,9 +396,19 @@ pub const POSITIONS: [PositionMove; 20] = {
         pos(Left, CLOSE, J::None, &[S::RunningLeft, S::Standing]),
         pos(Right, CLOSE, J::None, &[S::RunningRight, S::Standing]),
         pos(Back, CLOSE, J::None, &[S::RunningBack, S::Standing]),
-        pos(Forward, RUNJUMP, J::RunForward, &[S::Running, S::JumpingForwards]),
+        pos(
+            Forward,
+            RUNJUMP,
+            J::RunForward,
+            &[S::Running, S::JumpingForwards],
+        ),
         pos(Left, RUNJUMP, J::RunLeft, &[S::RunningLeft, S::JumpingLeft]),
-        pos(Right, RUNJUMP, J::RunRight, &[S::RunningRight, S::JumpingRight]),
+        pos(
+            Right,
+            RUNJUMP,
+            J::RunRight,
+            &[S::RunningRight, S::JumpingRight],
+        ),
         pos(Back, RUNJUMP, J::RunBack, &[S::RunningBack, S::JumpingBack]),
     ]
 };
@@ -402,8 +428,20 @@ pub struct Maneuver {
     pub anim: &'static str,
 }
 
-const fn man(moving: Option<Dir>, keys: u32, from: MeleeState, to: MeleeState, anim: &'static str) -> Maneuver {
-    Maneuver { moving, keys, from, to, anim }
+const fn man(
+    moving: Option<Dir>,
+    keys: u32,
+    from: MeleeState,
+    to: MeleeState,
+    anim: &'static str,
+) -> Maneuver {
+    Maneuver {
+        moving,
+        keys,
+        from,
+        to,
+        anim,
+    }
 }
 
 /// Maneuver indices with their own handling.
@@ -430,9 +468,27 @@ pub const MANEUVERS: [Maneuver; 14] = {
         man(Option::None, ACTION, S::None, S::Standing, "taunt"),
         man(Option::None, 0, S::None, S::Standing, "stand"),
         man(Option::None, k::FORWARD, S::Prone, S::Standing, "run"),
-        man(Option::None, k::BACKWARD, S::Prone, S::Standing, "runBackwards"),
-        man(Option::None, TURN_LEFT, S::Prone, S::Standing, "standingTurnLeft"),
-        man(Option::None, TURN_RIGHT, S::Prone, S::Standing, "standingTurnRight"),
+        man(
+            Option::None,
+            k::BACKWARD,
+            S::Prone,
+            S::Standing,
+            "runBackwards",
+        ),
+        man(
+            Option::None,
+            TURN_LEFT,
+            S::Prone,
+            S::Standing,
+            "standingTurnLeft",
+        ),
+        man(
+            Option::None,
+            TURN_RIGHT,
+            S::Prone,
+            S::Standing,
+            "standingTurnRight",
+        ),
         man(Option::None, k::KICK, S::CrouchStart, S::Standing, "kick"),
     ]
 };
@@ -455,35 +511,166 @@ pub struct Evade {
 }
 
 const fn ev(from: MeleeState, to: MeleeState, anim: &'static str, hold: u32, press: u32) -> Evade {
-    Evade { from, to, anim, keys: (hold, press) }
+    Evade {
+        from,
+        to,
+        anim,
+        keys: (hold, press),
+    }
 }
 
 /// The evasions, in `oni_schema::MELEE_EVADES` order.
 pub const EVADES: [Evade; 24] = [
-    ev(S::Standing, S::JumpingForwards, "jump", k::FORWARD | k::JUMP, 0),
-    ev(S::Standing, S::JumpingForwards, "jumpForward", k::FORWARD | k::JUMP, 0),
-    ev(S::Standing, S::JumpingBack, "jump", k::BACKWARD | k::JUMP, 0),
-    ev(S::Standing, S::JumpingBack, "jumpBackward", k::BACKWARD | k::JUMP, 0),
-    ev(S::Standing, S::JumpingLeft, "jump", k::STEP_LEFT | k::JUMP, 0),
-    ev(S::Standing, S::JumpingLeft, "jumpLeft", k::STEP_LEFT | k::JUMP, 0),
-    ev(S::Standing, S::JumpingRight, "jump", k::STEP_RIGHT | k::JUMP, 0),
-    ev(S::Standing, S::JumpingRight, "jumpRight", k::STEP_RIGHT | k::JUMP, 0),
+    ev(
+        S::Standing,
+        S::JumpingForwards,
+        "jump",
+        k::FORWARD | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingForwards,
+        "jumpForward",
+        k::FORWARD | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingBack,
+        "jump",
+        k::BACKWARD | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingBack,
+        "jumpBackward",
+        k::BACKWARD | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingLeft,
+        "jump",
+        k::STEP_LEFT | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingLeft,
+        "jumpLeft",
+        k::STEP_LEFT | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingRight,
+        "jump",
+        k::STEP_RIGHT | k::JUMP,
+        0,
+    ),
+    ev(
+        S::Standing,
+        S::JumpingRight,
+        "jumpRight",
+        k::STEP_RIGHT | k::JUMP,
+        0,
+    ),
     ev(S::Running, S::JumpingForwards, "jump", k::JUMP, k::FORWARD),
-    ev(S::Running, S::JumpingForwards, "jumpForward", k::JUMP, k::FORWARD),
+    ev(
+        S::Running,
+        S::JumpingForwards,
+        "jumpForward",
+        k::JUMP,
+        k::FORWARD,
+    ),
     ev(S::RunningBack, S::JumpingBack, "jump", k::JUMP, k::BACKWARD),
-    ev(S::RunningBack, S::JumpingBack, "jumpBackward", k::JUMP, k::BACKWARD),
-    ev(S::RunningLeft, S::JumpingLeft, "jump", k::JUMP, k::STEP_LEFT),
-    ev(S::RunningLeft, S::JumpingLeft, "jumpLeft", k::JUMP, k::STEP_LEFT),
-    ev(S::RunningRight, S::JumpingRight, "jump", k::JUMP, k::STEP_RIGHT),
-    ev(S::RunningRight, S::JumpingRight, "jumpRight", k::JUMP, k::STEP_RIGHT),
-    ev(S::Standing, S::Standing, "crouchForward", k::FORWARD, k::CROUCH),
-    ev(S::Standing, S::Standing, "crouchBack", k::BACKWARD, k::CROUCH),
-    ev(S::Standing, S::Standing, "crouchLeft", k::STEP_LEFT, k::CROUCH),
-    ev(S::Standing, S::Standing, "crouchRight", k::STEP_RIGHT, k::CROUCH),
+    ev(
+        S::RunningBack,
+        S::JumpingBack,
+        "jumpBackward",
+        k::JUMP,
+        k::BACKWARD,
+    ),
+    ev(
+        S::RunningLeft,
+        S::JumpingLeft,
+        "jump",
+        k::JUMP,
+        k::STEP_LEFT,
+    ),
+    ev(
+        S::RunningLeft,
+        S::JumpingLeft,
+        "jumpLeft",
+        k::JUMP,
+        k::STEP_LEFT,
+    ),
+    ev(
+        S::RunningRight,
+        S::JumpingRight,
+        "jump",
+        k::JUMP,
+        k::STEP_RIGHT,
+    ),
+    ev(
+        S::RunningRight,
+        S::JumpingRight,
+        "jumpRight",
+        k::JUMP,
+        k::STEP_RIGHT,
+    ),
+    ev(
+        S::Standing,
+        S::Standing,
+        "crouchForward",
+        k::FORWARD,
+        k::CROUCH,
+    ),
+    ev(
+        S::Standing,
+        S::Standing,
+        "crouchBack",
+        k::BACKWARD,
+        k::CROUCH,
+    ),
+    ev(
+        S::Standing,
+        S::Standing,
+        "crouchLeft",
+        k::STEP_LEFT,
+        k::CROUCH,
+    ),
+    ev(
+        S::Standing,
+        S::Standing,
+        "crouchRight",
+        k::STEP_RIGHT,
+        k::CROUCH,
+    ),
     ev(S::Running, S::Running, "slide", k::FORWARD, k::CROUCH),
-    ev(S::RunningBack, S::RunningBack, "slide", k::BACKWARD, k::CROUCH),
-    ev(S::RunningLeft, S::RunningLeft, "slide", k::STEP_LEFT, k::CROUCH),
-    ev(S::RunningRight, S::RunningRight, "slide", k::STEP_RIGHT, k::CROUCH),
+    ev(
+        S::RunningBack,
+        S::RunningBack,
+        "slide",
+        k::BACKWARD,
+        k::CROUCH,
+    ),
+    ev(
+        S::RunningLeft,
+        S::RunningLeft,
+        "slide",
+        k::STEP_LEFT,
+        k::CROUCH,
+    ),
+    ev(
+        S::RunningRight,
+        S::RunningRight,
+        "slide",
+        k::STEP_RIGHT,
+        k::CROUCH,
+    ),
 ];
 
 /// A throw: the thrower's animation type and the situation it needs.
@@ -505,7 +692,13 @@ pub enum Disarm {
 }
 
 const fn thr(anim: &'static str, from_behind: bool, running: bool, disarm: Disarm) -> ThrowMove {
-    ThrowMove { anim, from_behind, running, disarm, victim_running: false }
+    ThrowMove {
+        anim,
+        from_behind,
+        running,
+        disarm,
+        victim_running: false,
+    }
 }
 
 /// The throws, in `oni_schema::MELEE_THROWS` order.
@@ -568,7 +761,15 @@ const fn tr(
     keys: u32,
     weight: f32,
 ) -> Transition {
-    Transition { dir, from, essential, to, anims, keys, weight }
+    Transition {
+        dir,
+        from,
+        essential,
+        to,
+        anims,
+        keys,
+        weight,
+    }
 }
 
 /// The transition graph, preferred transitions first.
@@ -579,55 +780,319 @@ pub const TRANSITIONS: &[Transition] = {
     const RISE_TO: &[MeleeState] = &[S::Standing, S::Running, S::JumpingForwards];
     &[
         // Standing jumps.
-        tr(Forward, S::Standing, true, &[S::Jumping], &["jump"], k::JUMP, 0.7),
-        tr(Forward, S::Standing, true, &[S::JumpingForwards], &["jump", "jumpForward"], k::FORWARD | k::JUMP, 0.7),
-        tr(Left, S::Standing, true, &[S::JumpingLeft], &["jump", "jumpLeft"], k::STEP_LEFT | k::JUMP, 0.7),
-        tr(Right, S::Standing, true, &[S::JumpingRight], &["jump", "jumpRight"], k::STEP_RIGHT | k::JUMP, 0.7),
-        tr(Back, S::Standing, true, &[S::JumpingBack], &["jump", "jumpBackward"], k::BACKWARD | k::JUMP, 0.7),
+        tr(
+            Forward,
+            S::Standing,
+            true,
+            &[S::Jumping],
+            &["jump"],
+            k::JUMP,
+            0.7,
+        ),
+        tr(
+            Forward,
+            S::Standing,
+            true,
+            &[S::JumpingForwards],
+            &["jump", "jumpForward"],
+            k::FORWARD | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Left,
+            S::Standing,
+            true,
+            &[S::JumpingLeft],
+            &["jump", "jumpLeft"],
+            k::STEP_LEFT | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Right,
+            S::Standing,
+            true,
+            &[S::JumpingRight],
+            &["jump", "jumpRight"],
+            k::STEP_RIGHT | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Back,
+            S::Standing,
+            true,
+            &[S::JumpingBack],
+            &["jump", "jumpBackward"],
+            k::BACKWARD | k::JUMP,
+            0.7,
+        ),
         // Running jumps.
-        tr(Forward, S::Running, true, &[S::JumpingForwards], &["jump", "jumpForward"], k::FORWARD | k::JUMP, 0.7),
-        tr(Left, S::RunningLeft, true, &[S::JumpingLeft], &["jump", "jumpLeft"], k::STEP_LEFT | k::JUMP, 0.7),
-        tr(Right, S::RunningRight, true, &[S::JumpingRight], &["jump", "jumpRight"], k::STEP_RIGHT | k::JUMP, 0.7),
-        tr(Back, S::RunningBack, true, &[S::JumpingBack], &["jump", "jumpBackward"], k::BACKWARD | k::JUMP, 0.7),
+        tr(
+            Forward,
+            S::Running,
+            true,
+            &[S::JumpingForwards],
+            &["jump", "jumpForward"],
+            k::FORWARD | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Left,
+            S::RunningLeft,
+            true,
+            &[S::JumpingLeft],
+            &["jump", "jumpLeft"],
+            k::STEP_LEFT | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Right,
+            S::RunningRight,
+            true,
+            &[S::JumpingRight],
+            &["jump", "jumpRight"],
+            k::STEP_RIGHT | k::JUMP,
+            0.7,
+        ),
+        tr(
+            Back,
+            S::RunningBack,
+            true,
+            &[S::JumpingBack],
+            &["jump", "jumpBackward"],
+            k::BACKWARD | k::JUMP,
+            0.7,
+        ),
         // Getting up (heavily avoided: get-up attacks are better).
-        tr(Forward, S::Prone, true, &[S::Standing, S::Running], &["run"], k::FORWARD, 0.2),
-        tr(Left, S::Prone, true, &[S::Standing, S::RunningLeft], &["standingTurnLeft"], TURN_LEFT, 0.2),
-        tr(Right, S::Prone, true, &[S::Standing, S::RunningRight], &["standingTurnRight"], TURN_RIGHT, 0.2),
-        tr(Back, S::Prone, true, &[S::Standing, S::RunningBack], &["runBackwards"], k::BACKWARD, 0.2),
+        tr(
+            Forward,
+            S::Prone,
+            true,
+            &[S::Standing, S::Running],
+            &["run"],
+            k::FORWARD,
+            0.2,
+        ),
+        tr(
+            Left,
+            S::Prone,
+            true,
+            &[S::Standing, S::RunningLeft],
+            &["standingTurnLeft"],
+            TURN_LEFT,
+            0.2,
+        ),
+        tr(
+            Right,
+            S::Prone,
+            true,
+            &[S::Standing, S::RunningRight],
+            &["standingTurnRight"],
+            TURN_RIGHT,
+            0.2,
+        ),
+        tr(
+            Back,
+            S::Prone,
+            true,
+            &[S::Standing, S::RunningBack],
+            &["runBackwards"],
+            k::BACKWARD,
+            0.2,
+        ),
         // Starting to run.
-        tr(Forward, S::Standing, true, &[S::Running, S::JumpingForwards], &["run", "runStart"], k::FORWARD, 0.7),
-        tr(Left, S::Standing, true, &[S::RunningLeft, S::JumpingLeft], &["runSidestepLeft", "runSidestepLeftStart"], k::STEP_LEFT, 0.7),
-        tr(Right, S::Standing, true, &[S::RunningRight, S::JumpingRight], &["runSidestepRight", "runSidestepRightStart"], k::STEP_RIGHT, 0.7),
-        tr(Back, S::Standing, true, &[S::RunningBack, S::JumpingBack], &["runBackwards", "runBackwardsStart"], k::BACKWARD, 0.7),
+        tr(
+            Forward,
+            S::Standing,
+            true,
+            &[S::Running, S::JumpingForwards],
+            &["run", "runStart"],
+            k::FORWARD,
+            0.7,
+        ),
+        tr(
+            Left,
+            S::Standing,
+            true,
+            &[S::RunningLeft, S::JumpingLeft],
+            &["runSidestepLeft", "runSidestepLeftStart"],
+            k::STEP_LEFT,
+            0.7,
+        ),
+        tr(
+            Right,
+            S::Standing,
+            true,
+            &[S::RunningRight, S::JumpingRight],
+            &["runSidestepRight", "runSidestepRightStart"],
+            k::STEP_RIGHT,
+            0.7,
+        ),
+        tr(
+            Back,
+            S::Standing,
+            true,
+            &[S::RunningBack, S::JumpingBack],
+            &["runBackwards", "runBackwardsStart"],
+            k::BACKWARD,
+            0.7,
+        ),
         // Accelerating.
-        tr(Forward, S::RunStart, true, &[S::Running, S::JumpingForwards], &["run", "runStart"], k::FORWARD, 1.0),
-        tr(Left, S::RunLeftStart, false, &[S::RunningLeft, S::JumpingLeft], &["runSidestepLeft", "runSidestepLeftStart"], k::STEP_LEFT, 1.0),
-        tr(Right, S::RunRightStart, false, &[S::RunningRight, S::JumpingRight], &["runSidestepRight", "runSidestepRightStart"], k::STEP_RIGHT, 1.0),
-        tr(Back, S::RunBackStart, true, &[S::RunningBack, S::JumpingBack], &["runBackwards", "runBackwardsStart"], k::BACKWARD, 1.0),
+        tr(
+            Forward,
+            S::RunStart,
+            true,
+            &[S::Running, S::JumpingForwards],
+            &["run", "runStart"],
+            k::FORWARD,
+            1.0,
+        ),
+        tr(
+            Left,
+            S::RunLeftStart,
+            false,
+            &[S::RunningLeft, S::JumpingLeft],
+            &["runSidestepLeft", "runSidestepLeftStart"],
+            k::STEP_LEFT,
+            1.0,
+        ),
+        tr(
+            Right,
+            S::RunRightStart,
+            false,
+            &[S::RunningRight, S::JumpingRight],
+            &["runSidestepRight", "runSidestepRightStart"],
+            k::STEP_RIGHT,
+            1.0,
+        ),
+        tr(
+            Back,
+            S::RunBackStart,
+            true,
+            &[S::RunningBack, S::JumpingBack],
+            &["runBackwards", "runBackwardsStart"],
+            k::BACKWARD,
+            1.0,
+        ),
         // Slowing from a run.
-        tr(Forward, S::Running, true, STOP_TO, &["stand", "runStop"], 0, 0.7),
-        tr(Left, S::RunningLeft, true, STOP_TO, &["stand", "runStop"], 0, 0.7),
-        tr(Right, S::RunningRight, true, STOP_TO, &["stand", "runStop"], 0, 0.7),
-        tr(Back, S::RunningBack, true, STOP_TO, &["stand", "runStop"], 0, 0.7),
+        tr(
+            Forward,
+            S::Running,
+            true,
+            STOP_TO,
+            &["stand", "runStop"],
+            0,
+            0.7,
+        ),
+        tr(
+            Left,
+            S::RunningLeft,
+            true,
+            STOP_TO,
+            &["stand", "runStop"],
+            0,
+            0.7,
+        ),
+        tr(
+            Right,
+            S::RunningRight,
+            true,
+            STOP_TO,
+            &["stand", "runStop"],
+            0,
+            0.7,
+        ),
+        tr(
+            Back,
+            S::RunningBack,
+            true,
+            STOP_TO,
+            &["stand", "runStop"],
+            0,
+            0.7,
+        ),
         // Stopping from a run start.
-        tr(Forward, S::RunStart, true, STOP_TO, &["stand", "runStop", "oneStepStop"], 0, 1.0),
-        tr(Left, S::RunLeftStart, false, STOP_TO, &["stand", "runStop", "oneStepStop"], 0, 1.0),
-        tr(Right, S::RunRightStart, false, STOP_TO, &["stand", "runStop", "oneStepStop"], 0, 1.0),
-        tr(Back, S::RunBackStart, true, STOP_TO, &["stand", "runStop", "oneStepStop"], 0, 1.0),
+        tr(
+            Forward,
+            S::RunStart,
+            true,
+            STOP_TO,
+            &["stand", "runStop", "oneStepStop"],
+            0,
+            1.0,
+        ),
+        tr(
+            Left,
+            S::RunLeftStart,
+            false,
+            STOP_TO,
+            &["stand", "runStop", "oneStepStop"],
+            0,
+            1.0,
+        ),
+        tr(
+            Right,
+            S::RunRightStart,
+            false,
+            STOP_TO,
+            &["stand", "runStop", "oneStepStop"],
+            0,
+            1.0,
+        ),
+        tr(
+            Back,
+            S::RunBackStart,
+            true,
+            STOP_TO,
+            &["stand", "runStop", "oneStepStop"],
+            0,
+            1.0,
+        ),
         // Crouching.
-        tr(Forward, S::Standing, true, &[S::CrouchStart, S::Crouching], &["crouch"], k::CROUCH, 1.0),
-        tr(Forward, S::CrouchStart, true, &[S::Crouching], &["crouch"], k::CROUCH, 0.5),
+        tr(
+            Forward,
+            S::Standing,
+            true,
+            &[S::CrouchStart, S::Crouching],
+            &["crouch"],
+            k::CROUCH,
+            1.0,
+        ),
+        tr(
+            Forward,
+            S::CrouchStart,
+            true,
+            &[S::Crouching],
+            &["crouch"],
+            k::CROUCH,
+            0.5,
+        ),
         // Standing up from a crouch.
         tr(Forward, S::Crouching, true, UP_TO, &["stand"], 0, 0.8),
         tr(Left, S::Crouching, true, UP_TO, &["stand"], 0, 0.8),
         tr(Right, S::Crouching, true, UP_TO, &["stand"], 0, 0.8),
         tr(Back, S::Crouching, true, UP_TO, &["stand"], 0, 0.8),
-        tr(Forward, S::Crouching, true, &[S::Standing, S::Jumping], &["stand"], 0, 1.0),
+        tr(
+            Forward,
+            S::Crouching,
+            true,
+            &[S::Standing, S::Jumping],
+            &["stand"],
+            0,
+            1.0,
+        ),
         tr(Forward, S::CrouchStart, true, RISE_TO, &["stand"], 0, 0.8),
         tr(Left, S::CrouchStart, true, RISE_TO, &["stand"], 0, 0.8),
         tr(Right, S::CrouchStart, true, RISE_TO, &["stand"], 0, 0.8),
         tr(Back, S::CrouchStart, true, RISE_TO, &["stand"], 0, 0.8),
-        tr(Forward, S::CrouchStart, true, &[S::Standing, S::Jumping], &["stand"], 0, 1.0),
+        tr(
+            Forward,
+            S::CrouchStart,
+            true,
+            &[S::Standing, S::Jumping],
+            &["stand"],
+            0,
+            1.0,
+        ),
     ]
 };
 
@@ -658,9 +1123,17 @@ mod tests {
 
     #[test]
     fn anim_states_map_to_melee_states() {
-        assert_eq!(MeleeState::from_anim_state(anim_state("standing")), MeleeState::Standing);
-        assert_eq!(MeleeState::from_anim_state(anim_state("fallenFront")), MeleeState::Prone);
-        assert_eq!(MeleeState::from_anim_state(anim_state("falling")), MeleeState::Jumping);
+        assert_eq!(
+            MeleeState::from_anim_state(anim_state("standing")),
+            MeleeState::Standing
+        );
+        assert_eq!(
+            MeleeState::from_anim_state(anim_state("fallenFront")),
+            MeleeState::Prone
+        );
+        assert_eq!(
+            MeleeState::from_anim_state(anim_state("falling")),
+            MeleeState::Jumping
+        );
     }
 }
-

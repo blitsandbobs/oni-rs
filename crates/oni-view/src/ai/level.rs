@@ -14,7 +14,12 @@ use super::perception::{Alert, Team};
 /// A patrol waypoint (`docs/GOALS.md`, *Patrol*).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Waypoint {
-    MoveTo { at: Target, stop: bool, face: bool, within: f32 },
+    MoveTo {
+        at: Target,
+        stop: bool,
+        face: bool,
+        within: f32,
+    },
     Stop,
     Pause(u32),
     LookAt(Target),
@@ -26,14 +31,31 @@ pub enum Waypoint {
     /// To waypoint N (the next one if N is itself).
     LoopTo(usize),
     Pace(String),
-    Glance { at: Target, ticks: u32 },
-    Scan { ticks: u32, angle: f32 },
+    Glance {
+        at: Target,
+        ticks: u32,
+    },
+    Scan {
+        ticks: u32,
+        angle: f32,
+    },
     StopScanning,
-    Guard { flag: i16, ticks: Option<u32>, angle: f32 },
-    Script { name: String, wait: bool },
+    Guard {
+        flag: i16,
+        ticks: Option<u32>,
+        angle: f32,
+    },
+    Script {
+        name: String,
+        wait: bool,
+    },
     Lock(bool),
     /// Shoot at a spot for a while, with this much extra spread (degrees).
-    ShootAt { at: Target, ticks: u32, inaccuracy: f32 },
+    ShootAt {
+        at: Target,
+        ticks: u32,
+        inaccuracy: f32,
+    },
 }
 
 /// Where a waypoint points: a flag (by id) or a point.
@@ -264,7 +286,11 @@ impl LevelAi {
     pub fn load(level_dir: &Path, common_dir: &Path) -> LevelAi {
         let s = |v: &Value| v.as_str().unwrap_or("").to_string();
         let mut out = LevelAi::default();
-        for c in read(&level_dir.join("characters.json"))["characters"].as_array().into_iter().flatten() {
+        for c in read(&level_dir.join("characters.json"))["characters"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let a = &c["alert"];
             let p = &c["pursue"];
             out.characters.push(Placed {
@@ -280,19 +306,39 @@ impl LevelAi {
                 melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
                 neutral_id: c["neutralId"].as_u64().map(|v| v as u16),
                 hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
-                weapon: c["weapon"].as_str().filter(|w| !w.is_empty() && *w != "none").map(String::from),
+                weapon: c["weapon"]
+                    .as_str()
+                    .filter(|w| !w.is_empty() && *w != "none")
+                    .map(String::from),
                 ammo_percent: c["ammoPercent"].as_u64().map(|v| v as u32),
-                carries: ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"]
-                    .map(|k| c["inventory"][k]["use"].as_u64().unwrap_or(0) as u16),
-                drops: ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"]
-                    .map(|k| c["inventory"][k]["drop"].as_u64().unwrap_or(0) as u16),
+                carries: [
+                    "ammoBallistic",
+                    "ammoEnergy",
+                    "hypo",
+                    "shieldBelt",
+                    "invisibility",
+                ]
+                .map(|k| c["inventory"][k]["use"].as_u64().unwrap_or(0) as u16),
+                drops: [
+                    "ammoBallistic",
+                    "ammoEnergy",
+                    "hypo",
+                    "shieldBelt",
+                    "invisibility",
+                ]
+                .map(|k| c["inventory"][k]["drop"].as_u64().unwrap_or(0) as u16),
                 alarm_groups: c["alarmGroups"]
                     .as_array()
                     .into_iter()
                     .flatten()
                     .filter_map(|b| b.as_u64().filter(|&b| b < 32))
                     .fold(0, |m, b| m | 1 << b),
-                alert: [alert(&a["initial"]), alert(&a["minimum"]), alert(&a["job"]), alert(&a["investigate"])],
+                alert: [
+                    alert(&a["initial"]),
+                    alert(&a["minimum"]),
+                    alert(&a["job"]),
+                    alert(&a["investigate"]),
+                ],
                 pursue: Pursue {
                     strong_unseen: s(&p["strongUnseen"]),
                     weak_unseen: s(&p["weakUnseen"]),
@@ -302,17 +348,32 @@ impl LevelAi {
                 },
                 scripts: c["scripts"]
                     .as_object()
-                    .map(|m| m.iter().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect())
+                    .map(|m| {
+                        m.iter()
+                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                            .collect()
+                    })
                     .unwrap_or_default(),
             });
         }
-        for f in read(&level_dir.join("flags.json"))["flags"].as_array().into_iter().flatten() {
+        for f in read(&level_dir.join("flags.json"))["flags"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             out.flags.insert(
                 f["id"].as_i64().unwrap_or(0) as i16,
-                Flag { at: v3(&f["position"]), facing: f["facing"].as_f64().unwrap_or(0.0) as f32 },
+                Flag {
+                    at: v3(&f["position"]),
+                    facing: f["facing"].as_f64().unwrap_or(0.0) as f32,
+                },
             );
         }
-        for c in read(&level_dir.join("setups.json"))["setups"].as_array().into_iter().flatten() {
+        for c in read(&level_dir.join("setups.json"))["setups"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let text = |v: &Value| v.as_str().map(str::to_string);
             let setup = Setup {
                 script_id: c["scriptId"].as_u64().unwrap_or(0) as u16,
@@ -322,20 +383,38 @@ impl LevelAi {
                 team: Team::from_name(c["team"].as_str().unwrap_or("neutral")),
                 weapon: text(&c["weapon"]),
                 ammo: c["ammo"].as_u64().unwrap_or(0) as u16,
-                scripts: c["scripts"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string()))).collect(),
+                scripts: c["scripts"]
+                    .as_object()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
+                    .collect(),
             };
             out.setups.insert(setup.script_id, setup);
         }
-        for p in read(&level_dir.join("patrols.json"))["patrols"].as_array().into_iter().flatten() {
+        for p in read(&level_dir.join("patrols.json"))["patrols"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let path = PatrolPath {
                 id: p["id"].as_u64().unwrap_or(0) as u16,
                 name: s(&p["name"]),
                 return_to_nearest: p["returnToNearest"].as_bool().unwrap_or(false),
-                waypoints: p["waypoints"].as_array().into_iter().flatten().filter_map(waypoint).collect(),
+                waypoints: p["waypoints"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                    .filter_map(waypoint)
+                    .collect(),
             };
             out.patrols.insert(path.id, Rc::new(path));
         }
-        for f in read(&level_dir.join("films.json"))["films"].as_array().into_iter().flatten() {
+        for f in read(&level_dir.join("films.json"))["films"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let keys = f["keys"]
                 .as_array()
                 .into_iter()
@@ -351,19 +430,35 @@ impl LevelAi {
             let film = Film {
                 start: v3(&f["initialLocation"]),
                 facing: f["initialFacing"].as_f64().unwrap_or(0.0) as f32,
-                desired_facing: f["initialDesiredFacing"].as_f64().or_else(|| f["initialFacing"].as_f64()).unwrap_or(0.0) as f32,
-                aim: (f["aiming"][0].as_f64().unwrap_or(0.0) as f32, f["aiming"][1].as_f64().unwrap_or(0.0) as f32),
+                desired_facing: f["initialDesiredFacing"]
+                    .as_f64()
+                    .or_else(|| f["initialFacing"].as_f64())
+                    .unwrap_or(0.0) as f32,
+                aim: (
+                    f["aiming"][0].as_f64().unwrap_or(0.0) as f32,
+                    f["aiming"][1].as_f64().unwrap_or(0.0) as f32,
+                ),
                 length: f["length"].as_u64().unwrap_or(0) as u32,
                 keys,
             };
             out.films.insert(s(&f["name"]), Rc::new(film));
         }
-        for c in read(&common_dir.join("combat_profiles.json"))["profiles"].as_array().into_iter().flatten() {
+        for c in read(&common_dir.join("combat_profiles.json"))["profiles"]
+            .as_array()
+            .into_iter()
+            .flatten()
+        {
             let b = &c["behavior"];
             let f = |v: &Value, d: f32| v.as_f64().map_or(d, |x| x as f32);
             let profile = CombatProfile {
                 name: s(&c["name"]),
-                behavior: [s(&b["long"]), s(&b["medium"]), s(&b["short"]), s(&b["mediumRetreat"]), s(&b["longRetreat"])],
+                behavior: [
+                    s(&b["long"]),
+                    s(&b["medium"]),
+                    s(&b["short"]),
+                    s(&b["mediumRetreat"]),
+                    s(&b["longRetreat"]),
+                ],
                 short_range: f(&c["shortRange"], 40.0),
                 medium_range: f(&c["mediumRange"], 200.0),
                 melee_when: s(&c["meleeWhen"]),
@@ -371,7 +466,12 @@ impl LevelAi {
                 pursuit_distance: f(&c["pursuitDistance"], 200.0),
                 panic: {
                     let u = |k: &str, d: u32| c["panic"][k].as_u64().map_or(d, |v| v as u32);
-                    [u("melee", 600), u("gunfire", 900), u("sight", 600), u("hurt", 1200)]
+                    [
+                        u("melee", 600),
+                        u("gunfire", 900),
+                        u("sight", 600),
+                        u("hurt", 1200),
+                    ]
                 },
                 alarm: {
                     let a = &c["alarm"];
@@ -386,7 +486,8 @@ impl LevelAi {
                     }
                 },
             };
-            out.combat.insert(c["id"].as_u64().unwrap_or(0) as u16, Rc::new(profile));
+            out.combat
+                .insert(c["id"].as_u64().unwrap_or(0) as u16, Rc::new(profile));
         }
         out
     }
@@ -402,16 +503,50 @@ impl LevelAi {
 
 fn waypoint(w: &Value) -> Option<Waypoint> {
     let flag = || w["flag"].as_i64().map(|v| Target::Flag(v as i16));
-    let point = || w["point"].is_array().then(|| Target::Point(v3(&w["point"])));
+    let point = || {
+        w["point"]
+            .is_array()
+            .then(|| Target::Point(v3(&w["point"])))
+    };
     let f = |k: &str| w[k].as_f64().unwrap_or(0.0) as f32;
     let ticks = || w["ticks"].as_u64().unwrap_or(0) as u32;
     Some(match w["type"].as_str()? {
-        "moveToFlag" => Waypoint::MoveTo { at: flag()?, stop: true, face: false, within: 0.0 },
-        "moveToPoint" => Waypoint::MoveTo { at: point()?, stop: true, face: false, within: 0.0 },
-        "moveAndFaceFlag" => Waypoint::MoveTo { at: flag()?, stop: true, face: true, within: 0.0 },
-        "moveThroughFlag" => Waypoint::MoveTo { at: flag()?, stop: false, face: false, within: f("distance") },
-        "moveThroughPoint" => Waypoint::MoveTo { at: point()?, stop: false, face: false, within: f("distance") },
-        "moveNearFlag" => Waypoint::MoveTo { at: flag()?, stop: true, face: false, within: f("distance") },
+        "moveToFlag" => Waypoint::MoveTo {
+            at: flag()?,
+            stop: true,
+            face: false,
+            within: 0.0,
+        },
+        "moveToPoint" => Waypoint::MoveTo {
+            at: point()?,
+            stop: true,
+            face: false,
+            within: 0.0,
+        },
+        "moveAndFaceFlag" => Waypoint::MoveTo {
+            at: flag()?,
+            stop: true,
+            face: true,
+            within: 0.0,
+        },
+        "moveThroughFlag" => Waypoint::MoveTo {
+            at: flag()?,
+            stop: false,
+            face: false,
+            within: f("distance"),
+        },
+        "moveThroughPoint" => Waypoint::MoveTo {
+            at: point()?,
+            stop: false,
+            face: false,
+            within: f("distance"),
+        },
+        "moveNearFlag" => Waypoint::MoveTo {
+            at: flag()?,
+            stop: true,
+            face: false,
+            within: f("distance"),
+        },
         "stop" => Waypoint::Stop,
         "pause" => Waypoint::Pause(ticks()),
         "lookAtFlag" => Waypoint::LookAt(flag()?),
@@ -422,18 +557,34 @@ fn waypoint(w: &Value) -> Option<Waypoint> {
         "loop" => Waypoint::Loop,
         "loopToWaypoint" => Waypoint::LoopTo(w["waypoint"].as_u64().unwrap_or(0) as usize),
         "movementMode" => Waypoint::Pace(w["mode"].as_str().unwrap_or("byAlertLevel").to_string()),
-        "glanceAtFlag" => Waypoint::Glance { at: flag()?, ticks: ticks() },
-        "scan" => Waypoint::Scan { ticks: ticks(), angle: f("angle") },
+        "glanceAtFlag" => Waypoint::Glance {
+            at: flag()?,
+            ticks: ticks(),
+        },
+        "scan" => Waypoint::Scan {
+            ticks: ticks(),
+            angle: f("angle"),
+        },
         "stopScanning" => Waypoint::StopScanning,
         "guard" => Waypoint::Guard {
             flag: w["flag"].as_i64()? as i16,
             ticks: w["ticks"].as_u64().map(|t| t as u32),
             angle: f("maxAngle"),
         },
-        "triggerScript" => Waypoint::Script { name: w["script"].as_str()?.to_string(), wait: false },
-        "playScript" => Waypoint::Script { name: w["script"].as_str()?.to_string(), wait: true },
+        "triggerScript" => Waypoint::Script {
+            name: w["script"].as_str()?.to_string(),
+            wait: false,
+        },
+        "playScript" => Waypoint::Script {
+            name: w["script"].as_str()?.to_string(),
+            wait: true,
+        },
         "lockIntoPatrol" => Waypoint::Lock(w["lock"].as_bool().unwrap_or(false)),
-        "shootAtFlag" => Waypoint::ShootAt { at: flag()?, ticks: ticks(), inaccuracy: w["inaccuracy"].as_f64().unwrap_or(0.0) as f32 },
+        "shootAtFlag" => Waypoint::ShootAt {
+            at: flag()?,
+            ticks: ticks(),
+            inaccuracy: w["inaccuracy"].as_f64().unwrap_or(0.0) as f32,
+        },
         _ => return None,
     })
 }

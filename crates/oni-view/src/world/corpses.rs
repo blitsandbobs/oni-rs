@@ -67,9 +67,17 @@ impl Corpses {
 
 /// The level's corpses (none without the file).
 pub fn load(level_dir: &std::path::Path) -> Corpses {
-    let Ok(text) = std::fs::read_to_string(level_dir.join("corpses.json")) else { return Corpses::default() };
+    let Ok(text) = std::fs::read_to_string(level_dir.join("corpses.json")) else {
+        return Corpses::default();
+    };
     let doc: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    let v3 = |v: &serde_json::Value| Vec3::new(v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32, v[2].as_f64().unwrap_or(0.0) as f32);
+    let v3 = |v: &serde_json::Value| {
+        Vec3::new(
+            v[0].as_f64().unwrap_or(0.0) as f32,
+            v[1].as_f64().unwrap_or(0.0) as f32,
+            v[2].as_f64().unwrap_or(0.0) as f32,
+        )
+    };
     let list: Vec<Corpse> = doc["corpses"]
         .as_array()
         .into_iter()
@@ -80,17 +88,36 @@ pub fn load(level_dir: &std::path::Path) -> Corpses {
                 .as_array()?
                 .iter()
                 .map(|m| {
-                    let f: Vec<f32> = m.as_array().into_iter().flatten().filter_map(|x| x.as_f64()).map(|x| x as f32).collect();
-                    let col = |k: usize, w: f32| Vec4::from((Vec3::from_slice(&f[k * 3..k * 3 + 3]), w));
-                    (f.len() == 12).then(|| Mat4::from_cols(col(0, 0.0), col(1, 0.0), col(2, 0.0), col(3, 1.0)))
+                    let f: Vec<f32> = m
+                        .as_array()
+                        .into_iter()
+                        .flatten()
+                        .filter_map(|x| x.as_f64())
+                        .map(|x| x as f32)
+                        .collect();
+                    let col =
+                        |k: usize, w: f32| Vec4::from((Vec3::from_slice(&f[k * 3..k * 3 + 3]), w));
+                    (f.len() == 12).then(|| {
+                        Mat4::from_cols(col(0, 0.0), col(1, 0.0), col(2, 0.0), col(3, 1.0))
+                    })
                 })
                 .collect::<Option<Vec<Mat4>>>()?;
-            Some(Corpse { class, bones, model: None, bbox: (v3(&c["bbox"]["min"]), v3(&c["bbox"]["max"])) })
+            Some(Corpse {
+                class,
+                bones,
+                model: None,
+                bbox: (v3(&c["bbox"]["min"]), v3(&c["bbox"]["max"])),
+            })
         })
         .collect();
     let fixed = list.len();
     let max = doc["max"].as_u64().map_or(fixed, |m| m as usize).max(fixed);
-    Corpses { list, fixed, max, next: fixed }
+    Corpses {
+        list,
+        fixed,
+        max,
+        next: fixed,
+    }
 }
 
 impl World {
@@ -106,7 +133,15 @@ impl World {
 
     /// The corpses to draw: each its model and parts' matrices.
     pub fn corpse_draws(&self) -> impl Iterator<Item = crate::render::CharDraw<'_>> {
-        self.corpses.list.iter().filter_map(|c| Some(crate::render::CharDraw { model: c.model?, bones: &c.bones, see_through: false, alpha: 1.0, shade: None }))
+        self.corpses.list.iter().filter_map(|c| {
+            Some(crate::render::CharDraw {
+                model: c.model?,
+                bones: &c.bones,
+                see_through: false,
+                alpha: 1.0,
+                shade: None,
+            })
+        })
     }
 }
 
@@ -130,12 +165,20 @@ impl World {
         let (fov, far) = (cam.fov, cam.far);
         for i in 1..self.fighters.len() {
             let f = &self.fighters[i];
-            if f.gone || !f.settled || f.death_lock || f.death_delete > 0 || f.effects.shield_active || f.effects.invis_active || f.effects.teleporting {
+            if f.gone
+                || !f.settled
+                || f.death_lock
+                || f.death_delete > 0
+                || f.effects.shield_active
+                || f.effects.invis_active
+                || f.effects.teleporting
+            {
                 continue;
             }
             let at = f.feet() + Vec3::Y * 10.0;
             let to = (at - eye).normalize_or_zero();
-            let drawn = to.angle_between(look) <= fov + FOV_FUDGE && at.distance_squared(eye) <= far * far;
+            let drawn =
+                to.angle_between(look) <= fov + FOV_FUDGE && at.distance_squared(eye) <= far * far;
             if drawn {
                 continue;
             }
@@ -150,7 +193,12 @@ impl World {
                 // (Its model is known: no class to look up.)
                 let class = String::new();
                 let model = Some(f.model);
-                self.corpses.add(Corpse { class, bones, model, bbox: (lo, hi) });
+                self.corpses.add(Corpse {
+                    class,
+                    bones,
+                    model,
+                    bbox: (lo, hi),
+                });
             }
             self.remove(i);
         }

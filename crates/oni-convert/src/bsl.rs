@@ -44,13 +44,19 @@ struct Token {
 
 /// The value of the longest valid integer prefix (`%d`).
 fn prefix_int(s: &str) -> i64 {
-    let end = s.char_indices().find(|&(k, ch)| !(ch.is_ascii_digit() || (k == 0 && ch == '-'))).map_or(s.len(), |(k, _)| k);
+    let end = s
+        .char_indices()
+        .find(|&(k, ch)| !(ch.is_ascii_digit() || (k == 0 && ch == '-')))
+        .map_or(s.len(), |(k, _)| k);
     s[..end].parse().unwrap_or(0)
 }
 
 /// The value of the longest valid float prefix (`%f`).
 fn prefix_float(s: &str) -> f64 {
-    (1..=s.len()).rev().find_map(|n| s[..n].parse::<f64>().ok()).unwrap_or(0.0)
+    (1..=s.len())
+        .rev()
+        .find_map(|n| s[..n].parse::<f64>().ok())
+        .unwrap_or(0.0)
 }
 
 fn lex(text: &str) -> Result<Vec<Token>, String> {
@@ -87,14 +93,20 @@ fn lex(text: &str) -> Result<Vec<Token>, String> {
                 if i < b.len() && b[i] == b'"' {
                     i += 1;
                 }
-                out.push(Token { tok: Tok::Str(s), line, eol: false });
+                out.push(Token {
+                    tok: Tok::Str(s),
+                    line,
+                    eol: false,
+                });
             }
             // A number: a digit, `.` or `-` then a digit, then digits / `.` /
             // `-` (only the valid prefix counts: `5-3` is 5). `f` right
             // before a digit is a prefix the original drops (`f60` = 60).
             _ if c.is_ascii_digit()
                 || (c == b'.' && b.get(i + 1).is_some_and(u8::is_ascii_digit))
-                || (c == b'-' && b.get(i + 1).is_some_and(|d| d.is_ascii_digit() || *d == b'.'))
+                || (c == b'-'
+                    && b.get(i + 1)
+                        .is_some_and(|d| d.is_ascii_digit() || *d == b'.'))
                 || (c == b'f' && b.get(i + 1).is_some_and(u8::is_ascii_digit)) =>
             {
                 if c == b'f' {
@@ -114,12 +126,24 @@ fn lex(text: &str) -> Result<Vec<Token>, String> {
                         i += 1;
                     }
                     let s = String::from_utf8_lossy(&b[start..i]).into_owned();
-                    out.push(Token { tok: Tok::Ident(s), line, eol: false });
+                    out.push(Token {
+                        tok: Tok::Ident(s),
+                        line,
+                        eol: false,
+                    });
                     continue;
                 }
                 let s = std::str::from_utf8(&b[start..i]).unwrap_or("0");
-                let tok = if float { Tok::Float(prefix_float(s)) } else { Tok::Int(prefix_int(s)) };
-                out.push(Token { tok, line, eol: false });
+                let tok = if float {
+                    Tok::Float(prefix_float(s))
+                } else {
+                    Tok::Int(prefix_int(s))
+                };
+                out.push(Token {
+                    tok,
+                    line,
+                    eol: false,
+                });
             }
             c if c.is_ascii_alphabetic() || c == b'_' => {
                 let start = i;
@@ -127,7 +151,11 @@ fn lex(text: &str) -> Result<Vec<Token>, String> {
                     i += 1;
                 }
                 let s = String::from_utf8_lossy(&b[start..i]).into_owned();
-                out.push(Token { tok: Tok::Ident(s), line, eol: false });
+                out.push(Token {
+                    tok: Tok::Ident(s),
+                    line,
+                    eol: false,
+                });
             }
             _ => {
                 let two = b.get(i..i + 2).unwrap_or(&[]);
@@ -159,7 +187,11 @@ fn lex(text: &str) -> Result<Vec<Token>, String> {
                     },
                 };
                 i += p.len();
-                out.push(Token { tok: Tok::Punct(p), line, eol: false });
+                out.push(Token {
+                    tok: Tok::Punct(p),
+                    line,
+                    eol: false,
+                });
             }
         }
     }
@@ -250,11 +282,16 @@ impl<'a> Gen<'a> {
         if self.eat_punct(p) {
             Ok(())
         } else {
-            Err(format!("expected '{p}', found {:?}", self.peek().map(|t| &t.tok)))
+            Err(format!(
+                "expected '{p}', found {:?}",
+                self.peek().map(|t| &t.tok)
+            ))
         }
     }
     fn line(&self) -> u32 {
-        self.peek().or_else(|| self.toks.last()).map_or(0, |t| t.line)
+        self.peek()
+            .or_else(|| self.toks.last())
+            .map_or(0, |t| t.line)
     }
     fn is_local(&self, n: &str) -> bool {
         self.locals.iter().any(|s| s.contains(n))
@@ -299,7 +336,11 @@ impl<'a> Gen<'a> {
     }
 
     fn call(&self, name: &str, args: &[String]) -> String {
-        let table = if self.decls.funcs.contains(name) { "F" } else { "C" };
+        let table = if self.decls.funcs.contains(name) {
+            "F"
+        } else {
+            "C"
+        };
         format!("{table}[{}]({})", lua_str(name), args.join(", "))
     }
 
@@ -383,10 +424,15 @@ impl<'a> Gen<'a> {
                 format!("({e})")
             }
             Tok::Ident(n) => {
-                if self.is_punct("(") && !self.is_local(&n) && !self.decls.global_names.contains(&n) {
+                if self.is_punct("(") && !self.is_local(&n) && !self.decls.global_names.contains(&n)
+                {
                     let args = self.paren_args()?;
                     self.call(&n, &args)
-                } else if t.eol && self.decls.funcs.contains(&n) && !self.is_local(&n) && !self.decls.global_names.contains(&n) {
+                } else if t.eol
+                    && self.decls.funcs.contains(&n)
+                    && !self.is_local(&n)
+                    && !self.decls.global_names.contains(&n)
+                {
                     // A function's name ending its line is a call.
                     format!("F[{}]()", lua_str(&n))
                 } else {
@@ -503,7 +549,14 @@ impl<'a> Gen<'a> {
                     self.pos += 1;
                 }
                 let msg = format!("{}:{line}: {e}", self.file);
-                self.emit(indent, &format!("ERR({}, {})", lua_str(&format!("{}:{line}", self.file)), lua_str(&e)));
+                self.emit(
+                    indent,
+                    &format!(
+                        "ERR({}, {})",
+                        lua_str(&format!("{}:{line}", self.file)),
+                        lua_str(&e)
+                    ),
+                );
                 self.errors.push(msg);
                 Ok(())
             }
@@ -548,7 +601,11 @@ impl<'a> Gen<'a> {
             }
             Tok::Ident(w) if w == "return" => {
                 self.pos += 1;
-                let value = if t.eol || self.is_punct(";") || self.is_punct("}") { None } else { Some(self.expr()?) };
+                let value = if t.eol || self.is_punct(";") || self.is_punct("}") {
+                    None
+                } else {
+                    Some(self.expr()?)
+                };
                 self.eat_punct(";");
                 // (`do … end` keeps a mid-block return legal Lua.)
                 match value {
@@ -564,7 +621,11 @@ impl<'a> Gen<'a> {
                     other => return Err(format!("fork of {other:?}")),
                 };
                 let head_eol = self.toks[self.pos - 1].eol;
-                let args = if self.is_punct("(") { self.paren_args()? } else { self.shell_args(head_eol)? };
+                let args = if self.is_punct("(") {
+                    self.paren_args()?
+                } else {
+                    self.shell_args(head_eol)?
+                };
                 self.eat_punct(";");
                 let f = if self.decls.funcs.contains(&name) {
                     format!("F[{}]", lua_str(&name))
@@ -592,9 +653,16 @@ impl<'a> Gen<'a> {
                     Some(Tok::Ident(n)) => n,
                     other => return Err(format!("declaration of {other:?}")),
                 };
-                let init = if self.eat_punct("=") { self.expr()? } else { default_of(&ty).to_string() };
+                let init = if self.eat_punct("=") {
+                    self.expr()?
+                } else {
+                    default_of(&ty).to_string()
+                };
                 self.eat_punct(";");
-                self.locals.last_mut().expect("in a block").insert(name.clone());
+                self.locals
+                    .last_mut()
+                    .expect("in a block")
+                    .insert(name.clone());
                 self.emit(indent, &format!("local {} = {init}", local(&name)));
                 Ok(())
             }
@@ -656,7 +724,9 @@ impl<'a> Gen<'a> {
         let line = self.line();
         self.pos += 1; // func
         if let Some(Tok::Ident(t)) = self.peek().map(|t| t.tok.clone()) {
-            if TYPES.contains(&t.as_str()) && matches!(self.peek_at(1).map(|t| &t.tok), Some(Tok::Ident(_))) {
+            if TYPES.contains(&t.as_str())
+                && matches!(self.peek_at(1).map(|t| &t.tok), Some(Tok::Ident(_)))
+            {
                 self.pos += 1;
             }
         }
@@ -685,7 +755,10 @@ impl<'a> Gen<'a> {
         self.locals = vec![params.iter().cloned().collect()];
         let list: Vec<String> = params.iter().map(|p| local(p)).collect();
         self.emit(0, &format!("-- {}:{line}", self.file));
-        self.emit(0, &format!("F[{}] = function({})", lua_str(&name), list.join(", ")));
+        self.emit(
+            0,
+            &format!("F[{}] = function({})", lua_str(&name), list.join(", ")),
+        );
         self.block(1)?;
         self.emit(0, "end");
         self.locals.clear();
@@ -715,7 +788,9 @@ fn declare(toks: &[Token], decls: &mut Decls, file: &str, errors: &mut Vec<Strin
                     decls.funcs.insert(n.clone());
                 }
             }
-            Tok::Ident(w) if depth == 0 && (w == "var" || (TYPES.contains(&w.as_str()) && w != "void")) => {
+            Tok::Ident(w)
+                if depth == 0 && (w == "var" || (TYPES.contains(&w.as_str()) && w != "void")) =>
+            {
                 let mut j = i + 1;
                 let mut ty = w.clone();
                 if w == "var" {
@@ -729,20 +804,30 @@ fn declare(toks: &[Token], decls: &mut Decls, file: &str, errors: &mut Vec<Strin
                 match toks.get(j).map(|t| &t.tok) {
                     Some(Tok::Ident(n)) => {
                         // An initial value: a literal (possibly negative).
-                        let init = match (toks.get(j + 1).map(|t| &t.tok), toks.get(j + 2).map(|t| &t.tok)) {
+                        let init = match (
+                            toks.get(j + 1).map(|t| &t.tok),
+                            toks.get(j + 2).map(|t| &t.tok),
+                        ) {
                             (Some(Tok::Punct("=")), Some(Tok::Int(v))) => Some(v.to_string()),
                             (Some(Tok::Punct("=")), Some(Tok::Float(v))) => Some(format!("{v:?}")),
                             (Some(Tok::Punct("=")), Some(Tok::Str(s))) => Some(lua_str(s)),
-                            (Some(Tok::Punct("=")), Some(Tok::Ident(b))) if b == "true" || b == "false" => {
+                            (Some(Tok::Punct("=")), Some(Tok::Ident(b)))
+                                if b == "true" || b == "false" =>
+                            {
                                 Some(b.clone())
                             }
-                            (Some(Tok::Punct("=")), Some(Tok::Punct("-"))) => match toks.get(j + 3).map(|t| &t.tok) {
-                                Some(Tok::Int(v)) => Some(format!("{}", -v)),
-                                Some(Tok::Float(v)) => Some(format!("{:?}", -v)),
-                                _ => None,
-                            },
+                            (Some(Tok::Punct("=")), Some(Tok::Punct("-"))) => {
+                                match toks.get(j + 3).map(|t| &t.tok) {
+                                    Some(Tok::Int(v)) => Some(format!("{}", -v)),
+                                    Some(Tok::Float(v)) => Some(format!("{:?}", -v)),
+                                    _ => None,
+                                }
+                            }
                             (Some(Tok::Punct("=")), other) => {
-                                errors.push(format!("{file}:{}: global {n} = {other:?}", toks[j].line));
+                                errors.push(format!(
+                                    "{file}:{}: global {n} = {other:?}",
+                                    toks[j].line
+                                ));
                                 None
                             }
                             _ => None,
@@ -751,7 +836,9 @@ fn declare(toks: &[Token], decls: &mut Decls, file: &str, errors: &mut Vec<Strin
                             decls.globals.push((n.clone(), ty, init));
                         }
                     }
-                    other => errors.push(format!("{file}:{}: declaration of {other:?}", toks[i].line)),
+                    other => {
+                        errors.push(format!("{file}:{}: declaration of {other:?}", toks[i].line))
+                    }
                 }
             }
             _ => {}
@@ -785,14 +872,24 @@ pub fn translate(files: &[(String, String)]) -> Translation {
     }
     let mut out = String::new();
     out.push_str("-- Translated from the level's BSL scripts by oni-convert. Do not edit.\n");
-    out.push_str("local V, F, C, G, W, T, EQ, NE, LT, GT, LE, GE, ADD, SUB, SLEEP, FORK, ERR = ...\n");
+    out.push_str(
+        "local V, F, C, G, W, T, EQ, NE, LT, GT, LE, GE, ADD, SUB, SLEEP, FORK, ERR = ...\n",
+    );
     for (n, ty, init) in &decls.globals {
         let v = init.clone().unwrap_or_else(|| default_of(ty).to_string());
         let _ = writeln!(out, "V[{}] = {v}", lua_str(n));
     }
     let mut seen_funcs: HashMap<String, String> = HashMap::new();
     for (file, toks) in &lexed {
-        let mut g = Gen { toks, pos: 0, file, decls: &decls, locals: Vec::new(), out: String::new(), errors: Vec::new() };
+        let mut g = Gen {
+            toks,
+            pos: 0,
+            file,
+            decls: &decls,
+            locals: Vec::new(),
+            out: String::new(),
+            errors: Vec::new(),
+        };
         let mut depth_errors = 0;
         while g.pos < toks.len() {
             let t = toks[g.pos].clone();
@@ -808,7 +905,10 @@ pub fn translate(files: &[(String, String)]) -> Translation {
                     }
                     if let Some(Tok::Ident(n)) = toks.get(k).map(|t| &t.tok) {
                         if let Some(prev) = seen_funcs.insert(n.clone(), file.to_string()) {
-                            g.errors.push(format!("{file}:{}: function {n} also defined in {prev}", t.line));
+                            g.errors.push(format!(
+                                "{file}:{}: function {n} also defined in {prev}",
+                                t.line
+                            ));
                         }
                     }
                     let mark = g.out.len();
@@ -817,7 +917,9 @@ pub fn translate(files: &[(String, String)]) -> Translation {
                         g.errors.push(format!("{file}:{}: {e}", t.line));
                         depth_errors += 1;
                         // Skip to the next top-level `func`.
-                        while g.pos < toks.len() && !matches!(&toks[g.pos].tok, Tok::Ident(w) if w == "func") {
+                        while g.pos < toks.len()
+                            && !matches!(&toks[g.pos].tok, Tok::Ident(w) if w == "func")
+                        {
                             g.pos += 1;
                         }
                     }
@@ -834,7 +936,10 @@ pub fn translate(files: &[(String, String)]) -> Translation {
                     }
                 }
                 _ => {
-                    g.errors.push(format!("{file}:{}: unexpected {:?} at top level", t.line, t.tok));
+                    g.errors.push(format!(
+                        "{file}:{}: unexpected {:?} at top level",
+                        t.line, t.tok
+                    ));
                     g.pos += 1;
                 }
             }
@@ -843,7 +948,11 @@ pub fn translate(files: &[(String, String)]) -> Translation {
         out.push_str(&g.out);
         errors.append(&mut g.errors);
     }
-    Translation { lua: out, errors, functions: seen_funcs.len() }
+    Translation {
+        lua: out,
+        errors,
+        functions: seen_funcs.len(),
+    }
 }
 
 #[cfg(test)]
@@ -863,7 +972,10 @@ mod tests {
         assert!(l.contains("V[\"done\"] = false"));
         assert!(l.contains("F[\"go\"] = function(l_who)"));
         // Shell-style words are literal (even a parameter's name).
-        assert!(l.contains("C[\"cmd_one\"](\"who\", 3, -1, \"thing\")"), "{l}");
+        assert!(
+            l.contains("C[\"cmd_one\"](\"who\", 3, -1, \"thing\")"),
+            "{l}"
+        );
         assert!(l.contains("C[\"cmd_two\"](l_who, 1.5, \"str\")"), "{l}");
         assert!(l.contains("V[\"count\"] = SUB(V[\"count\"], 1)"), "{l}");
         assert!(l.contains("F[\"helper\"]()"), "{l}");
@@ -878,8 +990,14 @@ mod tests {
         assert!(t.errors.is_empty(), "{:?}", t.errors);
         let l = &t.lua;
         assert!(l.contains("if T(EQ(V[\"n\"], 0)) then"), "{l}");
-        assert!(l.contains("if T((T(NE(C[\"probe\"](3), 1)) and T((not T(V[\"n\"]))))) then"), "{l}");
-        assert!(l.contains("if T((T(LT(V[\"n\"], 5)) or T(GT(V[\"n\"], 9)))) then"), "{l}");
+        assert!(
+            l.contains("if T((T(NE(C[\"probe\"](3), 1)) and T((not T(V[\"n\"]))))) then"),
+            "{l}"
+        );
+        assert!(
+            l.contains("if T((T(LT(V[\"n\"], 5)) or T(GT(V[\"n\"], 9)))) then"),
+            "{l}"
+        );
         assert!(l.contains("else"), "{l}");
     }
 
@@ -891,7 +1009,10 @@ mod tests {
         assert!(l.contains("G[\"fog_level\"] = 0.15"), "{l}");
         assert!(l.contains("G[\"x\"] = W(\"save_slot\")"), "{l}");
         assert!(l.contains("SLEEP(60)"), "{l}");
-        assert!(l.contains("C[\"set_thing\"](W(\"lamp_1\"), W(\"on\"), W(\"off\"))"), "{l}");
+        assert!(
+            l.contains("C[\"set_thing\"](W(\"lamp_1\"), W(\"on\"), W(\"off\"))"),
+            "{l}"
+        );
     }
 
     #[test]

@@ -41,7 +41,10 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
     let mut help: Vec<(i64, Value)> = of_tag(dat, "HPge")
         .filter_map(|n| {
             let p = get(&n)?;
-            Some((p["page_number"].as_i64().unwrap_or(0), page(&r, &p["page"], base)?))
+            Some((
+                p["page_number"].as_i64().unwrap_or(0),
+                page(&r, &p["page"], base)?,
+            ))
         })
         .collect();
     help.sort_by_key(|(n, _)| *n);
@@ -54,7 +57,12 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
     let diary: Vec<Value> = of_tag(dat, "DPge")
         .filter_map(|n| {
             let p = get(&n)?;
-            let keys: Vec<i64> = p["keys"].as_array()?.iter().filter_map(Value::as_i64).take_while(|&k| k != 0).collect();
+            let keys: Vec<i64> = p["keys"]
+                .as_array()?
+                .iter()
+                .filter_map(Value::as_i64)
+                .take_while(|&k| k != 0)
+                .collect();
             Some(json!({
                 "level": p["level_number"], "page": p["page_number"],
                 "newMove": p["has_new_move"].as_i64().unwrap_or(0) != 0,
@@ -63,8 +71,14 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
         })
         .collect();
     let icons = of_tag(dat, "KeyI").next().and_then(|n| get(&n)).map(|k| {
-        let names = ["punch", "kick", "forward", "backward", "left", "right", "crouch", "jump", "hold", "plus"];
-        let m: serde_json::Map<String, Value> = names.iter().filter_map(|&f| k[f]["$ref"].as_str().map(|t| (f.to_string(), json!(t)))).collect();
+        let names = [
+            "punch", "kick", "forward", "backward", "left", "right", "crouch", "jump", "hold",
+            "plus",
+        ];
+        let m: serde_json::Map<String, Value> = names
+            .iter()
+            .filter_map(|&f| k[f]["$ref"].as_str().map(|t| (f.to_string(), json!(t))))
+            .collect();
         Value::Object(m)
     });
     let doc = json!({
@@ -82,9 +96,22 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
 /// so their shade is left to the drawing) and its own item pages.
 pub fn level(dat: &Dat<'_>, registry: &oni_template::Registry, base: Font) -> Option<Value> {
     let r = Records::new(dat, registry);
-    let objectives = of_tag(dat, "OPge").next().and_then(|n| r.get(&json!({ "$ref": n }))).map(|(_, o)| page_array(&r, &o["objectives"], Font { shade: None, ..base }));
+    let objectives = of_tag(dat, "OPge")
+        .next()
+        .and_then(|n| r.get(&json!({ "$ref": n })))
+        .map(|(_, o)| {
+            page_array(
+                &r,
+                &o["objectives"],
+                Font {
+                    shade: None,
+                    ..base
+                },
+            )
+        });
     let items = items(&r, dat, base);
-    (objectives.is_some() || !items.is_empty()).then(|| json!({ "objectives": objectives.unwrap_or_default(), "items": items }))
+    (objectives.is_some() || !items.is_empty())
+        .then(|| json!({ "objectives": objectives.unwrap_or_default(), "items": items }))
 }
 
 pub fn write(doc: &Value, path: &Path) -> std::io::Result<()> {

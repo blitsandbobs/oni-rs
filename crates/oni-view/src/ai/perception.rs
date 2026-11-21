@@ -76,7 +76,10 @@ impl Stimulus {
 
     /// A noise of a fight (danger, melee, gunshot).
     pub fn combat_sound(self) -> bool {
-        matches!(self, Stimulus::SoundDanger | Stimulus::SoundMelee | Stimulus::SoundGunshot)
+        matches!(
+            self,
+            Stimulus::SoundDanger | Stimulus::SoundMelee | Stimulus::SoundGunshot
+        )
     }
 }
 
@@ -225,7 +228,9 @@ impl Tuning {
                 u(&p["alertDecay"]["medium"], 18000),
                 u(&p["alertDecay"]["low"], 36000),
             ],
-            never_startle: p["flags"].as_array().is_some_and(|a| a.iter().any(|f| f == "neverStartle")),
+            never_startle: p["flags"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|f| f == "neverStartle")),
         }
     }
 
@@ -251,7 +256,13 @@ impl Tuning {
     /// target at `to` (from the eye, world) is seen by an eye looking along
     /// `look` (horizontal unit). `known`: already a definite contact.
     /// `faithful_vertical`: the shipped game's vertical limit (Q9).
-    pub fn sees(&self, to: Vec3, look: Vec3, known: bool, faithful_vertical: bool) -> Option<Stimulus> {
+    pub fn sees(
+        &self,
+        to: Vec3,
+        look: Vec3,
+        known: bool,
+        faithful_vertical: bool,
+    ) -> Option<Stimulus> {
         const VERTICAL_FROM: f32 = 20.0;
         let dist = to.length();
         if dist > self.central_distance || dist < 1e-3 {
@@ -262,7 +273,11 @@ impl Tuning {
             // The class stores the vertical limit as a cosine; the shipped
             // game compares the elevation's *sine* against it, which allows
             // the complement of the authored angle.
-            let limit = if faithful_vertical { self.vertical.cos() } else { self.vertical.sin() };
+            let limit = if faithful_vertical {
+                self.vertical.cos()
+            } else {
+                self.vertical.sin()
+            };
             if dir.y.abs() > limit {
                 return None;
             }
@@ -280,9 +295,19 @@ impl Tuning {
         if along < pmax {
             return None;
         }
-        let ramp = |lo: f32, hi: f32| if hi > lo { ((along - lo) / (hi - lo)).clamp(0.0, 1.0) } else { 1.0 };
+        let ramp = |lo: f32, hi: f32| {
+            if hi > lo {
+                ((along - lo) / (hi - lo)).clamp(0.0, 1.0)
+            } else {
+                1.0
+            }
+        };
         let peripheral = self.peripheral_distance * ramp(pmax, pfull);
-        let central = if along < cmax { 0.0 } else { self.central_distance * ramp(cmax, cfull) };
+        let central = if along < cmax {
+            0.0
+        } else {
+            self.central_distance * ramp(cmax, cfull)
+        };
         if dist < central {
             Some(Stimulus::SightDefinite)
         } else if dist < peripheral {
@@ -332,7 +357,11 @@ pub enum Notice {
     /// information carries what was perceived and its damage (the
     /// original's `last_type`, `last_user_data`): by the time a goal reads
     /// the contact, a later stimulus the same tick may have replaced them.
-    Knowledge { id: u32, degrade: bool, event: Option<(Stimulus, i32)> },
+    Knowledge {
+        id: u32,
+        degrade: bool,
+        event: Option<(Stimulus, i32)>,
+    },
 }
 
 /// A character's perception: contacts, alert, and the stimuli's effects.
@@ -447,7 +476,9 @@ impl Perception {
             Relation::Hostile => true,
             Relation::Neutral => {
                 !self.non_combatant
-                    && self.about(other).is_some_and(|c| c.been_hostile || c.priority >= Priority::HostileThreat)
+                    && self
+                        .about(other)
+                        .is_some_and(|c| c.been_hostile || c.priority >= Priority::HostileThreat)
             }
         }
     }
@@ -455,7 +486,14 @@ impl Perception {
     /// Whether a stimulus caused by `who` (of team `their_team`; `player`)
     /// is beneath notice: ourselves, the dead, and anyone neither side is
     /// hostile to — never the player.
-    pub fn ignores(&self, me: usize, who: usize, their_team: Team, player: bool, combat_sound: bool) -> bool {
+    pub fn ignores(
+        &self,
+        me: usize,
+        who: usize,
+        their_team: Team,
+        player: bool,
+        combat_sound: bool,
+    ) -> bool {
         if who == me {
             return true;
         }
@@ -465,7 +503,8 @@ impl Perception {
         if combat_sound {
             return true; // the shipped rule: fights between others are heard only through their victims
         }
-        !self.potentially_hostile(who, their_team) && their_team.regards(self.team) != Relation::Hostile
+        !self.potentially_hostile(who, their_team)
+            && their_team.regards(self.team) != Relation::Hostile
     }
 
     /// Takes in a stimulus about `who` (or nobody) at `location`.
@@ -486,7 +525,11 @@ impl Perception {
             Some(t) if me.regards(t) == Relation::Hostile => Priority::HostileNoThreat,
             Some(_) => Priority::Friendly,
         };
-        let idx = match self.contacts.iter().position(|c| c.who == who && who.is_some()) {
+        let idx = match self
+            .contacts
+            .iter()
+            .position(|c| c.who == who && who.is_some())
+        {
             Some(i) => i,
             None => {
                 self.next_id += 1;
@@ -542,7 +585,11 @@ impl Perception {
             // (Non-combatants don't get alerted: their goals judge danger.)
             self.notify(&contact, upgraded, first_sighting, now);
         }
-        self.notices.push(Notice::Knowledge { id: contact.id, degrade: false, event: Some((stimulus, damage)) });
+        self.notices.push(Notice::Knowledge {
+            id: contact.id,
+            degrade: false,
+            event: Some((stimulus, damage)),
+        });
     }
 
     /// Orders the contacts most important first (behaviour per
@@ -560,7 +607,10 @@ impl Perception {
         use std::cmp::Ordering;
         let preference = match (&self.boss_battle, a.who, b.who) {
             (Some(bosses), Some(x), Some(y)) => {
-                let (bx, by) = (bosses.get(x).copied().unwrap_or(false), bosses.get(y).copied().unwrap_or(false));
+                let (bx, by) = (
+                    bosses.get(x).copied().unwrap_or(false),
+                    bosses.get(y).copied().unwrap_or(false),
+                );
                 if bx == self.boss && by != self.boss {
                     Ordering::Less
                 } else if bx != self.boss && by == self.boss {
@@ -619,7 +669,8 @@ impl Perception {
         if !threat {
             if upgraded {
                 self.glance_until = now + u64::from(c.stimulus.glance());
-                self.notices.push(Notice::Glance(c.location, c.stimulus.glance()));
+                self.notices
+                    .push(Notice::Glance(c.location, c.stimulus.glance()));
             }
             return;
         }
@@ -634,8 +685,11 @@ impl Perception {
                     self.alert_raised = Some(now);
                 }
                 // A jumpy start, the first time it sees a threat.
-                let window = self.alert_raised.is_none_or(|t| now <= t + STARTLE_TOLERANCE);
-                let startled = level >= Alert::High && !self.tuning.never_startle && first_sighting && window;
+                let window = self
+                    .alert_raised
+                    .is_none_or(|t| now <= t + STARTLE_TOLERANCE);
+                let startled =
+                    level >= Alert::High && !self.tuning.never_startle && first_sighting && window;
                 if startled {
                     self.startled_at = Some(now);
                     self.notices.push(Notice::Startle(c.location));
@@ -649,7 +703,8 @@ impl Perception {
                         self.alert_vocal_timer = 0;
                         self.said_alert = true;
                     } else if self.alert_vocal_timer == 0 {
-                        self.alert_vocal_timer = 60 + (now.wrapping_mul(2_654_435_761) >> 16) as u32 % 31;
+                        self.alert_vocal_timer =
+                            60 + (now.wrapping_mul(2_654_435_761) >> 16) as u32 % 31;
                     }
                 }
             }
@@ -669,7 +724,15 @@ impl Perception {
     /// Told to fight `who`: a definite contact it won't drop for another.
     pub fn force_target(&mut self, who: usize, team: Team, at: Vec3, now: u64) {
         let notices = self.notices.len();
-        self.perceive(Some(who), Some(team), Stimulus::SightDefinite, Strength::Definite, at, 0, now);
+        self.perceive(
+            Some(who),
+            Some(team),
+            Stimulus::SightDefinite,
+            Strength::Definite,
+            at,
+            0,
+            now,
+        );
         self.notices.truncate(notices); // ordered, not noticed
         if let Some(c) = self.contacts.iter_mut().find(|c| c.who == Some(who)) {
             c.priority = Priority::ForceTarget;
@@ -684,7 +747,11 @@ impl Perception {
         let matches = |c: &Contact| who.is_none() || c.who == who;
         for c in self.contacts.iter_mut().filter(|c| matches(c)) {
             c.strength = Strength::Forgotten;
-            self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
+            self.notices.push(Notice::Knowledge {
+                id: c.id,
+                degrade: true,
+                event: None,
+            });
         }
         self.contacts.retain(|c| !matches(c));
         self.rank();
@@ -694,7 +761,11 @@ impl Perception {
     pub fn died(&mut self, who: usize) {
         for c in self.contacts.iter_mut().filter(|c| c.who == Some(who)) {
             c.strength = Strength::Dead;
-            self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
+            self.notices.push(Notice::Knowledge {
+                id: c.id,
+                degrade: true,
+                event: None,
+            });
         }
         self.rank();
     }
@@ -719,7 +790,11 @@ impl Perception {
             if unseen || (now >= c.degrade_at && !self.omniscient) {
                 c.strength = c.strength.down();
                 c.degrade_at = now + u64::from(tuning.contact_decay(c.strength));
-                self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
+                self.notices.push(Notice::Knowledge {
+                    id: c.id,
+                    degrade: true,
+                    event: None,
+                });
             }
         }
         self.rank();
@@ -785,16 +860,32 @@ mod tests {
     fn the_cone_sees_ahead_far_and_aside_near() {
         let t = Tuning::default();
         let look = forward(0.0);
-        assert_eq!(t.sees(Vec3::new(0.0, 0.0, 300.0), look, false, false), Some(Stimulus::SightDefinite));
-        assert_eq!(t.sees(Vec3::new(0.0, 0.0, 500.0), look, false, false), None, "beyond sight");
+        assert_eq!(
+            t.sees(Vec3::new(0.0, 0.0, 300.0), look, false, false),
+            Some(Stimulus::SightDefinite)
+        );
+        assert_eq!(
+            t.sees(Vec3::new(0.0, 0.0, 500.0), look, false, false),
+            None,
+            "beyond sight"
+        );
         // 70° off: inside the peripheral cone only, near enough.
         let a = 70f32.to_radians();
-        assert_eq!(t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 100.0, look, false, false), Some(Stimulus::SightPeripheral));
-        assert_eq!(t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 200.0, look, false, false), None);
+        assert_eq!(
+            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 100.0, look, false, false),
+            Some(Stimulus::SightPeripheral)
+        );
+        assert_eq!(
+            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 200.0, look, false, false),
+            None
+        );
         // Behind: never.
         assert_eq!(t.sees(Vec3::new(0.0, 0.0, -50.0), look, false, false), None);
         // A known target stays seen anywhere in the widest cone.
-        assert_eq!(t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 400.0, look, true, false), Some(Stimulus::SightDefinite));
+        assert_eq!(
+            t.sees(Vec3::new(a.sin(), 0.0, a.cos()) * 400.0, look, true, false),
+            Some(Stimulus::SightDefinite)
+        );
         // 45° up, 100 away: over the authored 40° — but within the shipped 50°.
         let up = Vec3::new(0.0, 1.0, 1.0).normalize() * 100.0;
         assert_eq!(t.sees(up, look, false, false), None);
@@ -804,9 +895,25 @@ mod tests {
     #[test]
     fn contacts_rise_decay_and_alarm() {
         let mut p = Perception::new(Tuning::default(), Team::Syndicate);
-        p.perceive(Some(0), Some(Team::Konoko), Stimulus::SightPeripheral, Strength::Weak, Vec3::ZERO, 0, 0);
+        p.perceive(
+            Some(0),
+            Some(Team::Konoko),
+            Stimulus::SightPeripheral,
+            Strength::Weak,
+            Vec3::ZERO,
+            0,
+            0,
+        );
         assert_eq!(p.alert, Alert::Low);
-        p.perceive(Some(0), Some(Team::Konoko), Stimulus::SightDefinite, Strength::Definite, Vec3::ZERO, 0, 10);
+        p.perceive(
+            Some(0),
+            Some(Team::Konoko),
+            Stimulus::SightDefinite,
+            Strength::Definite,
+            Vec3::ZERO,
+            0,
+            10,
+        );
         assert_eq!(p.alert, Alert::Combat);
         assert!(p.notices.contains(&Notice::Combat(0)));
         // Unseen, a definite contact fades a step after its time.
@@ -819,22 +926,50 @@ mod tests {
         let mut p = Perception::new(Tuning::default(), Team::Syndicate);
         // 0 the player (a boss), 1 another boss, 2 not.
         p.boss_battle = Some(std::rc::Rc::new(vec![true, true, false]));
-        p.perceive(Some(0), Some(Team::Konoko), Stimulus::SightDefinite, Strength::Definite, Vec3::ZERO, 0, 0);
-        p.perceive(Some(2), Some(Team::Konoko), Stimulus::SightDefinite, Strength::Definite, Vec3::ZERO, 0, 0);
+        p.perceive(
+            Some(0),
+            Some(Team::Konoko),
+            Stimulus::SightDefinite,
+            Strength::Definite,
+            Vec3::ZERO,
+            0,
+            0,
+        );
+        p.perceive(
+            Some(2),
+            Some(Team::Konoko),
+            Stimulus::SightDefinite,
+            Strength::Definite,
+            Vec3::ZERO,
+            0,
+            0,
+        );
         assert_eq!(p.contacts[0].who, Some(2), "not a boss: the non-boss first");
         p.boss = true;
         p.rank();
         assert_eq!(p.contacts[0].who, Some(0), "a boss: the boss first");
         // Faded to weak, still preferred — only forgotten lets it go.
-        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Weak;
+        p.contacts
+            .iter_mut()
+            .find(|c| c.who == Some(0))
+            .unwrap()
+            .strength = Strength::Weak;
         p.rank();
         assert_eq!(p.contacts[0].who, Some(0));
-        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Forgotten;
+        p.contacts
+            .iter_mut()
+            .find(|c| c.who == Some(0))
+            .unwrap()
+            .strength = Strength::Forgotten;
         p.rank();
         assert_eq!(p.contacts[0].who, Some(2));
         // No boss battle: as usual.
         p.boss_battle = None;
-        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Weak;
+        p.contacts
+            .iter_mut()
+            .find(|c| c.who == Some(0))
+            .unwrap()
+            .strength = Strength::Weak;
         p.rank();
         assert_eq!(p.contacts[0].who, Some(2), "strong before weak");
     }

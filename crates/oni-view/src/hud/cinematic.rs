@@ -121,7 +121,10 @@ fn motion(from: [f32; 2], to: [f32; 2], speed: f32) -> ([f32; 2], u32) {
     if length <= 0.0 || speed <= 0.0 {
         return ([0.0, 0.0], 0);
     }
-    ([d[0] / length * speed, d[1] / length * speed], (length / speed) as u32)
+    (
+        [d[0] / length * speed, d[1] / length * speed],
+        (length / speed) as u32,
+    )
 }
 
 /// The inserts showing.
@@ -137,14 +140,41 @@ impl Cinematics {
     /// 480 scale (−1: its own size), from position `start` to `end` at
     /// `speed` units a tick.
     #[allow(clippy::too_many_arguments)]
-    pub fn start(&mut self, name: &str, texture: Option<(PathBuf, [f32; 2])>, width: i32, height: i32, start: i32, end: i32, speed: f32, mirror: bool) {
-        let Some((texture, natural)) = texture else { return };
-        let (Ok(start), Ok(end)) = (u8::try_from(start), u8::try_from(end)) else { return };
-        if start > POSITIONS || end > POSITIONS || width < -1 || height < -1 || (start != end && speed <= 0.0) {
+    pub fn start(
+        &mut self,
+        name: &str,
+        texture: Option<(PathBuf, [f32; 2])>,
+        width: i32,
+        height: i32,
+        start: i32,
+        end: i32,
+        speed: f32,
+        mirror: bool,
+    ) {
+        let Some((texture, natural)) = texture else {
+            return;
+        };
+        let (Ok(start), Ok(end)) = (u8::try_from(start), u8::try_from(end)) else {
+            return;
+        };
+        if start > POSITIONS
+            || end > POSITIONS
+            || width < -1
+            || height < -1
+            || (start != end && speed <= 0.0)
+        {
             return;
         }
-        let w = if width == -1 { natural[0] } else { width as f32 };
-        let h = if height == -1 { natural[1] } else { height as f32 };
+        let w = if width == -1 {
+            natural[0]
+        } else {
+            width as f32
+        };
+        let h = if height == -1 {
+            natural[1]
+        } else {
+            height as f32
+        };
         // (Meant to scale the 640 × 480 sizes onto the 1024 × 768 screen —
         // `× (1024 / 640)` — but the original's integer division makes both
         // factors 1: the sizes are
@@ -152,15 +182,36 @@ impl Cinematics {
         // kept, as shipped.)
         let size = [w.trunc(), h.trunc()];
         let at = position(start, size);
-        let (delta, steps) = if start == end { ([0.0, 0.0], 0) } else { motion(at, position(end, size), speed) };
-        self.list.push(Cinematic { name: name.to_string(), texture, mirror, size, at, delta, steps, end, at_end: false, stopping: false });
+        let (delta, steps) = if start == end {
+            ([0.0, 0.0], 0)
+        } else {
+            motion(at, position(end, size), speed)
+        };
+        self.list.push(Cinematic {
+            name: name.to_string(),
+            texture,
+            mirror,
+            size,
+            at,
+            delta,
+            steps,
+            end,
+            at_end: false,
+            stopping: false,
+        });
     }
 
     /// `cinematic_stop name end speed` (`OCrCinematic_Stop`): the first
     /// insert of that texture slides from where it was headed to position
     /// `end`, and goes.
     pub fn stop(&mut self, name: &str, end: i32, speed: f32) {
-        let Some(c) = self.list.iter_mut().find(|c| c.name.eq_ignore_ascii_case(name)) else { return };
+        let Some(c) = self
+            .list
+            .iter_mut()
+            .find(|c| c.name.eq_ignore_ascii_case(name))
+        else {
+            return;
+        };
         let Ok(end) = u8::try_from(end) else { return };
         if end > POSITIONS {
             return;
@@ -170,7 +221,11 @@ impl Cinematics {
         c.stopping = true;
         c.end = end;
         c.at = position(start, c.size);
-        (c.delta, c.steps) = if end == start { ([0.0, 0.0], 0) } else { motion(c.at, position(end, c.size), speed) };
+        (c.delta, c.steps) = if end == start {
+            ([0.0, 0.0], 0)
+        } else {
+            motion(c.at, position(end, c.size), speed)
+        };
     }
 
     /// `end_cutscene` (`OCrCinematic_DeleteAll`).
@@ -200,7 +255,17 @@ impl Cinematics {
         let (sx, sy) = (w / SCREEN_W, h / SCREEN_H);
         self.list
             .iter()
-            .map(|c| (c, [(c.at[0] * sx).round(), (c.at[1] * sy).round(), ((c.at[0] + c.size[0]) * sx).round(), ((c.at[1] + c.size[1]) * sy).round()]))
+            .map(|c| {
+                (
+                    c,
+                    [
+                        (c.at[0] * sx).round(),
+                        (c.at[1] * sy).round(),
+                        ((c.at[0] + c.size[0]) * sx).round(),
+                        ((c.at[1] + c.size[1]) * sy).round(),
+                    ],
+                )
+            })
             .collect()
     }
 }
@@ -217,7 +282,10 @@ mod tests {
         // Top right: its right edge 20 in from the area's.
         assert_eq!(position(3, size), [1024.0 - 20.0 - 288.0, 65.0]);
         // Bottom centre: centred, its bottom 65 above the area's.
-        assert_eq!(position(8, size), [(1024.0 - 288.0) / 2.0, 728.0 - 65.0 - 288.0]);
+        assert_eq!(
+            position(8, size),
+            [(1024.0 - 288.0) / 2.0, 728.0 - 65.0 - 288.0]
+        );
         // 16: off the right edge (the area's width added, then left-aligned).
         assert_eq!(position(16, size), [1024.0 + 20.0, 65.0]);
     }
@@ -227,7 +295,16 @@ mod tests {
         let mut c = Cinematics::default();
         // 180 wide (as the integer factor of 1 leaves it); from off the right
         // (16) to the top right (3) at 20 a tick.
-        c.start("tag", Some((PathBuf::from("tag.png"), [128.0, 128.0])), 180, 180, 16, 3, 20.0, false);
+        c.start(
+            "tag",
+            Some((PathBuf::from("tag.png"), [128.0, 128.0])),
+            180,
+            180,
+            16,
+            3,
+            20.0,
+            false,
+        );
         assert_eq!(c.list[0].size, [180.0, 180.0]);
         assert_eq!(c.list[0].at, position(16, [180.0, 180.0]));
         for _ in 0..40 {

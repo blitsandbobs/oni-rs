@@ -55,8 +55,10 @@ fn dialog(r: &Records<'_>, name: &str) -> Option<Value> {
 /// Level 0's menus and level names.
 pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<Value> {
     let r = Records::new(dat, registry);
-    let dialogs: serde_json::Map<String, Value> =
-        DIALOGS.iter().filter_map(|&n| dialog(&r, n).map(|d| (n.trim_start_matches("dialog_").to_string(), d))).collect();
+    let dialogs: serde_json::Map<String, Value> = DIALOGS
+        .iter()
+        .filter_map(|&n| dialog(&r, n).map(|d| (n.trim_start_matches("dialog_").to_string(), d)))
+        .collect();
     if dialogs.is_empty() {
         return None;
     }
@@ -86,11 +88,17 @@ pub fn common(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<Value>
         .iter()
         .filter_map(|&n| {
             let (_, m) = r.get(&json!({ "$ref": n }))?;
-            let items: Vec<Value> = m["items"].as_array()?.iter().map(|i| json!({ "id": i["id"], "flags": i["flags"], "title": text(&i["title"]) })).collect();
+            let items: Vec<Value> = m["items"]
+                .as_array()?
+                .iter()
+                .map(|i| json!({ "id": i["id"], "flags": i["flags"], "title": text(&i["title"]) }))
+                .collect();
             Some((n.to_string(), json!(items)))
         })
         .collect();
-    Some(json!({ "dialogs": dialogs, "levels": levels, "skin": skin.unwrap_or(Value::Null), "popups": popups }))
+    Some(
+        json!({ "dialogs": dialogs, "levels": levels, "skin": skin.unwrap_or(Value::Null), "popups": popups }),
+    )
 }
 
 pub fn write(doc: &Value, path: &Path) -> std::io::Result<()> {

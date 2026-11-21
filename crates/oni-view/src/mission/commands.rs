@@ -27,7 +27,9 @@ const FOLLOW_DISTANCE: f32 = 12.0;
 /// as kept with the saved game (in play).
 fn did_kill_griffin(host: &mut dyn Host) -> bool {
     let world = host.world();
-    world.killed_griffin.unwrap_or_else(|| world.persist_continues && crate::game::killed_griffin())
+    world
+        .killed_griffin
+        .unwrap_or_else(|| world.persist_continues && crate::game::killed_griffin())
 }
 
 fn int(v: Option<&Value>) -> Option<i64> {
@@ -67,7 +69,10 @@ fn fighter(host: &mut dyn Host, v: Option<&Value>) -> Option<usize> {
         if i == 0 {
             return (!world.fighters.is_empty()).then_some(0);
         }
-        return world.fighters.iter().position(|f| !f.gone && f.script_id.is_some_and(|s| i64::from(s) == i));
+        return world
+            .fighters
+            .iter()
+            .position(|f| !f.gone && f.script_id.is_some_and(|s| i64::from(s) == i));
     }
     // (By name: every living character, the player by its placement's name.)
     let name = text(v)?;
@@ -198,23 +203,40 @@ impl Triggers {
                 }
             })
             .collect();
-        Triggers { volumes, inside: Default::default() }
+        Triggers {
+            volumes,
+            inside: Default::default(),
+        }
     }
 
     fn by_name(&self, v: Option<&Value>) -> Vec<usize> {
-        let Some(n) = v.and_then(text) else { return Vec::new() };
-        self.volumes.iter().enumerate().filter(|(_, t)| t.name == n).map(|(i, _)| i).collect()
+        let Some(n) = v.and_then(text) else {
+            return Vec::new();
+        };
+        self.volumes
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.name == n)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn by_id(&self, v: Option<&Value>) -> Vec<usize> {
         let Some(id) = int(v) else { return Vec::new() };
-        self.volumes.iter().enumerate().filter(|(_, t)| t.id == id).map(|(i, _)| i).collect()
+        self.volumes
+            .iter()
+            .enumerate()
+            .filter(|(_, t)| t.id == id)
+            .map(|(i, _)| i)
+            .collect()
     }
 
     /// Fires volume `i`'s script of `kind` (0 entry, 1 inside, 2 exit) for
     /// `who` — and its parent's — honouring the disabled / once flags.
     fn fire(&mut self, i: usize, kind: usize, who: &str, out: &mut Vec<(String, Vec<String>)>) {
-        let parent = self.volumes[i].parent.and_then(|p| self.volumes.iter().position(|v| v.id == p));
+        let parent = self.volumes[i]
+            .parent
+            .and_then(|p| self.volumes.iter().position(|v| v.id == p));
         for k in std::iter::once(i).chain(parent) {
             let v = &mut self.volumes[k];
             let (once, off) = (tv::ENTRY_ONCE << kind, tv::ENTRY_OFF << kind);
@@ -249,18 +271,33 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         // (An AI's, by its name; the player's — its die script loses the
         // level — by its placement's.)
         let (combat, name) = match &f.brain {
-            Some(crate::ai::Brain::Agent(a)) => (matches!(a.goal, crate::ai::goals::Goal::Combat(_)), a.name.clone()),
+            Some(crate::ai::Brain::Agent(a)) => (
+                matches!(a.goal, crate::ai::goals::Goal::Combat(_)),
+                a.name.clone(),
+            ),
             _ if id == 0 && f.player => (false, world.player_name.clone()),
             _ => continue,
         };
-        let Some(scripts) = state.scripts.get(&id) else { continue };
-        let (dying, hurt) = (f.motion.dying || f.hp <= 0, f.hp < f.max_hp && !f.invincible);
+        let Some(scripts) = state.scripts.get(&id) else {
+            continue;
+        };
+        let (dying, hurt) = (
+            f.motion.dying || f.hp <= 0,
+            f.hp < f.max_hp && !f.invincible,
+        );
         let defeated = dying || f.defeated;
         let alarmed = std::mem::take(&mut host.world().fighters[id].alarmed);
         // (Its gun empty with nothing to reload it.)
         let dry = host.world().has_empty_weapon(id);
         let fired = state.fired.entry(id).or_default();
-        for (event, now) in [("hurt", hurt), ("combat", combat), ("alarm", alarmed), ("outOfAmmo", dry), ("defeated", defeated), ("die", dying)] {
+        for (event, now) in [
+            ("hurt", hurt),
+            ("combat", combat),
+            ("alarm", alarmed),
+            ("outOfAmmo", dry),
+            ("defeated", defeated),
+            ("die", dying),
+        ] {
             if now && fired.insert(event) {
                 if let Some(s) = scripts.get(event) {
                     out.push((s.clone(), vec![name.clone()]));
@@ -279,7 +316,12 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         .filter(|(_, f)| !f.gone)
         .map(|(i, f)| {
             let feet = f.feet();
-            (i, feet, feet + Vec3::Y * f.motion.height().max(12.0), 1u32 << (f.team() as u32))
+            (
+                i,
+                feet,
+                feet + Vec3::Y * f.motion.height().max(12.0),
+                1u32 << (f.team() as u32),
+            )
         })
         .collect();
     let names: Vec<String> = (0..n).map(|i| name_of(host, i)).collect();
@@ -289,7 +331,10 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
         if v.flags & tv::DISABLED != 0 {
             continue;
         }
-        let teams = v.parent.and_then(|p| tr.volumes.iter().find(|x| x.id == p)).map_or(v.teams, |p| p.teams);
+        let teams = v
+            .parent
+            .and_then(|p| tr.volumes.iter().find(|x| x.id == p))
+            .map_or(v.teams, |p| p.teams);
         let (id, player_only) = (v.id, v.flags & tv::PLAYER_ONLY != 0);
         for &(i, feet, top, team) in &bodies {
             if player_only && i != 0 {
@@ -322,7 +367,13 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
 pub type Reply = (Value, Value, Option<String>, Option<String>);
 
 /// Carries out one script command (or a prelude request, `@…`).
-pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, args: Variadic<Value>) -> mlua::Result<Reply> {
+pub fn dispatch(
+    state: &mut State,
+    host: &mut dyn Host,
+    lua: &Lua,
+    name: &str,
+    args: Variadic<Value>,
+) -> mlua::Result<Reply> {
     let a = |k: usize| args.get(k);
     let done = |v: Value| Ok((v, Value::Boolean(false), None, None));
     let nil = || done(Value::Nil);
@@ -330,10 +381,13 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
     // (`ONI_TRACE_COMMANDS=1`: each engine command a script calls, with the
     // tick — a stalled one shows again every tick it waits.)
     if !name.starts_with('@') && std::env::var_os("ONI_TRACE_COMMANDS").is_some() {
-        let shown: Vec<String> = args.iter().map(|v| match v {
-            Value::String(s) => format!("{:?}", s.to_string_lossy()),
-            other => format!("{other:?}"),
-        }).collect();
+        let shown: Vec<String> = args
+            .iter()
+            .map(|v| match v {
+                Value::String(s) => format!("{:?}", s.to_string_lossy()),
+                other => format!("{other:?}"),
+            })
+            .collect();
         eprintln!("cmd {} {name}({})", state.now, shown.join(", "));
     }
     match name {
@@ -445,7 +499,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 } else {
                     state.message_until.remove(&m);
                 }
-                if !host.world().hud.message(&m, int(a(1)).unwrap_or(0).max(0) as u32) {
+                if !host
+                    .world()
+                    .hud
+                    .message(&m, int(a(1)).unwrap_or(0).max(0) as u32)
+                {
                     state.warn(format!("message: no message {m}"));
                 }
                 state.messages.push(m);
@@ -463,11 +521,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "target_set" => {
             // The HUD's target locator (no HUD yet: said in the terminal).
-            let (Some(flag), d) = (int(a(0)), a(1).and_then(|v| match v {
-                Value::Number(n) => Some(*n),
-                Value::Integer(i) => Some(*i as f64),
-                _ => None,
-            })) else {
+            let (Some(flag), d) = (
+                int(a(0)),
+                a(1).and_then(|v| match v {
+                    Value::Number(n) => Some(*n),
+                    Value::Integer(i) => Some(*i as f64),
+                    _ => None,
+                }),
+            ) else {
                 return nil();
             };
             let world = host.world();
@@ -488,8 +549,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             state.objective = int(a(0));
             eprintln!("script: objective {:?}", state.objective);
             // (The HUD prompts a new one, with its sound, unless `silent`.)
-            let silent = a(1).and_then(text).is_some_and(|t| t.eq_ignore_ascii_case("silent"));
-            host.world().hud.objective_set(int(a(0)).unwrap_or(0), silent);
+            let silent = a(1)
+                .and_then(text)
+                .is_some_and(|t| t.eq_ignore_ascii_case("silent"));
+            host.world()
+                .hud
+                .objective_set(int(a(0)).unwrap_or(0), silent);
             nil()
         }
         "objective_complete" => {
@@ -518,10 +583,25 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // but the first two unless a flag keeps it (`weapon`, `jello`,
             // `ai`, `invis`, `keepparticles`, `animation`; `nosync` — the
             // clock not kept up with — and `nojump` no shipped script uses).
-            let keep: Vec<String> = args.iter().filter_map(text).map(|s| s.to_ascii_lowercase()).collect();
+            let keep: Vec<String> = args
+                .iter()
+                .filter_map(text)
+                .map(|s| s.to_ascii_lowercase())
+                .collect();
             let keeps = |f: &str| keep.iter().any(|k| k == f);
             for k in &keep {
-                if !["weapon", "jello", "ai", "invis", "nosync", "keepparticles", "animation", "nojump"].contains(&k.as_str()) {
+                if ![
+                    "weapon",
+                    "jello",
+                    "ai",
+                    "invis",
+                    "nosync",
+                    "keepparticles",
+                    "animation",
+                    "nojump",
+                ]
+                .contains(&k.as_str())
+                {
                     state.warn(format!("begin_cutscene: unknown flag {k}"));
                 }
             }
@@ -569,7 +649,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // --- cutscene inserts (`hud/cinematic.rs`) ---------------------------
         "cinematic_start" => {
             // (name, width, height, start, end, speed, mirror)
-            let Some(name) = a(0).and_then(text) else { return nil() };
+            let Some(name) = a(0).and_then(text) else {
+                return nil();
+            };
             let n = |k: usize| int(a(k)).unwrap_or(0) as i32;
             let (speed, mirror) = (float(a(5)).unwrap_or(0.0), truthy(a(6)));
             let hud = &mut host.world().hud;
@@ -577,12 +659,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             if texture.is_none() {
                 state.warn(format!("cinematic_start: no texture {name}"));
             }
-            hud.cinematics.start(&name, texture, n(1), n(2), n(3), n(4), speed, mirror);
+            hud.cinematics
+                .start(&name, texture, n(1), n(2), n(3), n(4), speed, mirror);
             nil()
         }
         "cinematic_stop" => {
-            let Some(name) = a(0).and_then(text) else { return nil() };
-            host.world().hud.cinematics.stop(&name, int(a(1)).unwrap_or(0) as i32, float(a(2)).unwrap_or(0.0));
+            let Some(name) = a(0).and_then(text) else {
+                return nil();
+            };
+            host.world().hud.cinematics.stop(
+                &name,
+                int(a(1)).unwrap_or(0) as i32,
+                float(a(2)).unwrap_or(0.0),
+            );
             nil()
         }
         "end_cutscene" => {
@@ -614,7 +703,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         // --- the HUD (`docs/HUD.md`, *Scripts*) ------------------------------------
         "ui_show_element" => {
-            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else { return nil() };
+            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else {
+                return nil();
+            };
             match which.as_str() {
                 "left" => host.world().hud.show[0] = on,
                 "right" => host.world().hud.show[1] = on,
@@ -623,13 +714,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "ui_fill_element" | "ui_flash_element" => {
-            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else { return nil() };
+            let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else {
+                return nil();
+            };
             let mask = crate::hud::Hud::element_mask(&which);
             if mask == 0 {
                 state.warn(format!("{name}: no element {which}"));
             }
             let hud = &mut host.world().hud;
-            let bits = if name == "ui_fill_element" { &mut hud.filled } else { &mut hud.flashing };
+            let bits = if name == "ui_fill_element" {
+                &mut hud.filled
+            } else {
+                &mut hud.flashing
+            };
             if on {
                 *bits |= mask;
             } else {
@@ -651,21 +748,33 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // --- the camera (`docs/CAMERA.md`, *Scripts*) ---------------------------
         // A `_block` form waits while the camera is busy (easing or riding a
         // clip), then does as the plain one.
-        "cm_interpolate" | "cm_interpolate_block" | "cm_anim" | "cm_anim_block" | "cm_orbit" | "cm_orbit_block"
+        "cm_interpolate"
+        | "cm_interpolate_block"
+        | "cm_anim"
+        | "cm_anim_block"
+        | "cm_orbit"
+        | "cm_orbit_block"
             if name.ends_with("_block") && host.world().camera.busy =>
         {
             Ok((Value::Nil, Value::Boolean(true), None, None))
         }
         "cm_interpolate" | "cm_interpolate_block" => {
-            let Some(clip) = a(0).and_then(text) else { return nil() };
-            if !host.world().camera_interpolate_to(&clip, int(a(1)).unwrap_or(1)) {
+            let Some(clip) = a(0).and_then(text) else {
+                return nil();
+            };
+            if !host
+                .world()
+                .camera_interpolate_to(&clip, int(a(1)).unwrap_or(1))
+            {
                 state.warn(format!("{name}: no camera clip {clip}"));
             }
             nil()
         }
         "cm_anim" | "cm_anim_block" => {
             // (The first word — move, look, both — changes nothing.)
-            let Some(clip) = a(1).and_then(text) else { return nil() };
+            let Some(clip) = a(1).and_then(text) else {
+                return nil();
+            };
             if !host.world().camera_animate(&clip) {
                 state.warn(format!("{name}: no camera clip {clip}"));
             }
@@ -691,7 +800,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "cm_barabus" => {
-            let (Some(who), Some(away), Some(up), Some(ticks)) = (fighter(host, a(0)), float(a(1)), float(a(2)), int(a(3))) else {
+            let (Some(who), Some(away), Some(up), Some(ticks)) =
+                (fighter(host, a(0)), float(a(1)), float(a(2)), int(a(3)))
+            else {
                 state.warn("cm_barabus: expected <id> <away> <up> <time>".into());
                 return nil();
             };
@@ -736,9 +847,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 
         // --- environmental particles (`docs/PARTICLES.md`) ----------------------
         "particle" => {
-            let (Some(tag), Some(command)) = (a(0).and_then(text), a(1).and_then(text)) else { return nil() };
+            let (Some(tag), Some(command)) = (a(0).and_then(text), a(1).and_then(text)) else {
+                return nil();
+            };
             let event = a(2).and_then(text);
-            if !host.world().env_particle_command(&tag, &command, event.as_deref()) {
+            if !host
+                .world()
+                .env_particle_command(&tag, &command, event.as_deref())
+            {
                 state.warn(format!("particle {tag}: unknown command {command}"));
             }
             nil()
@@ -748,9 +864,17 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // `_block` play until it is over, is cut off by `_interrupt`. Its
         // subtitle shows for its length and a second.
         "sound_dialog_play" | "sound_dialog_play_block" | "sound_dialog_play_interrupt" => {
-            let Some(line) = a(0).and_then(text) else { return nil() };
-            match host.world().audio.dialog_start(&line, name.ends_with("_interrupt")) {
-                Err(_) if name.ends_with("_block") => Ok((Value::Nil, Value::Boolean(true), None, None)),
+            let Some(line) = a(0).and_then(text) else {
+                return nil();
+            };
+            match host
+                .world()
+                .audio
+                .dialog_start(&line, name.ends_with("_interrupt"))
+            {
+                Err(_) if name.ends_with("_block") => {
+                    Ok((Value::Nil, Value::Boolean(true), None, None))
+                }
                 Err(_) => nil(),
                 // (No such line: nothing, quietly, no subtitle — as shipped.)
                 Ok(None) => nil(),
@@ -772,7 +896,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "sound_dialog_play_pause" => nil(),
         // Music and script ambients: one pool of 16 unplaced slots.
         "sound_music_start" | "sound_ambient_start" => {
-            let Some(sound) = a(0).and_then(text) else { return nil() };
+            let Some(sound) = a(0).and_then(text) else {
+                return nil();
+            };
             let volume = float(a(1)).unwrap_or(1.0);
             if !host.world().audio.script_start(&sound, volume) {
                 state.warn(format!("{name}: can't play {sound}"));
@@ -786,26 +912,39 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "sound_music_volume" | "sound_ambient_volume" => {
-            let (Some(sound), Some(volume)) = (a(0).and_then(text), float(a(1))) else { return nil() };
+            let (Some(sound), Some(volume)) = (a(0).and_then(text), float(a(1))) else {
+                return nil();
+            };
             let seconds = float(a(2)).unwrap_or(0.0);
             host.world().audio.script_volume(&sound, volume, seconds);
             nil()
         }
         "sound_impulse_play" => {
-            let Some(sound) = a(0).and_then(text) else { return nil() };
+            let Some(sound) = a(0).and_then(text) else {
+                return nil();
+            };
             let volume = float(a(1)).map(|v| v.clamp(0.0, 1.0));
             let world = host.world();
-            world.audio.impulse_play(&sound, None, volume, Some(&world.quads));
+            world
+                .audio
+                .impulse_play(&sound, None, volume, Some(&world.quads));
             nil()
         }
         // A character says a line: `chr_talk who sound pre post [type]`
         // (no type: override). (The original never stores a given type —
         // uninitialised; here it is used.)
         "chr_talk" => {
-            let (Some(who), Some(sound)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(who), Some(sound)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             let kind = match a(4).and_then(text) {
                 None => crate::world::speech::OVERRIDE,
-                Some(t) => match ["none", "idle", "chatter", "say", "call", "pain", "yell", "override"].iter().position(|n| *n == t) {
+                Some(t) => match [
+                    "none", "idle", "chatter", "say", "call", "pain", "yell", "override",
+                ]
+                .iter()
+                .position(|n| *n == t)
+                {
                     Some(k) => k as u8,
                     None => return nil(),
                 },
@@ -821,8 +960,13 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         // `chr_vocalize who kind`: its AI's line of that kind, forced.
         "chr_vocalize" => {
-            let (Some(who), Some(kind)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
-            if let Some(k) = oni_schema::VOCALIZATIONS.iter().position(|v| v.eq_ignore_ascii_case(&kind)) {
+            let (Some(who), Some(kind)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
+            if let Some(k) = oni_schema::VOCALIZATIONS
+                .iter()
+                .position(|v| v.eq_ignore_ascii_case(&kind))
+            {
                 host.world().vocalize(who, k, true);
             }
             nil()
@@ -830,10 +974,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 
         // --- characters ------------------------------------------------------
         "ai2_spawn" => {
-            let Some(who) = a(0).and_then(text) else { return nil() };
+            let Some(who) = a(0).and_then(text) else {
+                return nil();
+            };
             let force = a(1).and_then(text).is_some_and(|f| f == "force");
             match spawn(state, host, &who, force) {
-                Some((script, arg)) => Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg))),
+                Some((script, arg)) => {
+                    Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg)))
+                }
                 None => nil(),
             }
         }
@@ -841,14 +989,18 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // (The second argument, start / create, the original ignores.)
             let Some(sid) = int(a(0)) else { return nil() };
             match create(state, host, sid) {
-                Some((script, arg)) => Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg))),
+                Some((script, arg)) => {
+                    Ok((Value::Nil, Value::Boolean(false), Some(script), Some(arg)))
+                }
                 None => nil(),
             }
         }
         // A data console's text, modal: the game stands still until it is
         // closed (`ONiTextConsole_Display`; `hud/console.rs`).
         "text_console" => {
-            let Some(name) = a(0).and_then(text) else { return nil() };
+            let Some(name) = a(0).and_then(text) else {
+                return nil();
+            };
             if !host.world().hud.open_text_console(&name) {
                 state.warn(format!("text_console: no console {name}"));
             }
@@ -861,7 +1013,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "chr_teleport" => {
-            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else {
+                return nil();
+            };
             let world = host.world();
             match world.level_ai.flags.get(&(flag as i16)).copied() {
                 Some(f) => world.teleport(id, f.at, None),
@@ -870,7 +1024,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "chr_facetoflag" => {
-            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else {
+                return nil();
+            };
             let world = host.world();
             if let Some(f) = world.level_ai.flags.get(&(flag as i16)).copied() {
                 let at = world.fighters[id].feet();
@@ -879,7 +1035,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "chr_set_health" => {
-            let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else {
+                return nil();
+            };
             if let Some(f) = host.world().fighters.get_mut(id) {
                 if hp <= 0 && f.alive() {
                     // (An act of god: kills even the invincible and the
@@ -924,21 +1082,31 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "env_anim" | "env_anim_block" => {
             let Some(lo) = int(a(0)) else { return nil() };
             let hi = int(a(1)).map(|h| h.max(0) as u32);
-            if host.world().env_anim(lo.max(0) as u32, hi, name == "env_anim_block") {
+            if host
+                .world()
+                .env_anim(lo.max(0) as u32, hi, name == "env_anim_block")
+            {
                 return Ok((Value::Nil, Value::Boolean(true), None, None));
             }
             nil()
         }
         "env_setanim" | "env_setanim_block" => {
-            let (Some(id), Some(clip)) = (int(a(0)), a(1).and_then(text)) else { return nil() };
-            if !host.world().env_setanim(id.max(0) as u32, &clip, name == "env_setanim_block") {
+            let (Some(id), Some(clip)) = (int(a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
+            if !host
+                .world()
+                .env_setanim(id.max(0) as u32, &clip, name == "env_setanim_block")
+            {
                 state.warn(format!("{name}: no object {id} or animation {clip}"));
             }
             nil()
         }
         // --- collision and environment animations --------------------------
         "chr_nocollision" => {
-            let Some(id) = fighter(host, a(0)) else { return nil() };
+            let Some(id) = fighter(host, a(0)) else {
+                return nil();
+            };
             host.world().fighters[id].no_collision = truthy(a(1));
             nil()
         }
@@ -946,7 +1114,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // path, no collision) from its second frame; `_block` waits for one
         // already playing to end, then starts and goes on at once.
         "chr_envanim" | "chr_envanim_block" => {
-            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             let world = host.world();
             if name == "chr_envanim_block" {
                 if let Some((anim, frame)) = &world.fighters[id].env_anim {
@@ -973,7 +1143,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         // --- scripted animation ------------------------------------------------
         "chr_animate" | "chr_animate_block" => {
-            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             let f = &mut host.world().fighters[id];
             if name == "chr_animate_block" && f.motion.lock_frames > 1 {
                 return Ok((Value::Nil, Value::Boolean(true), None, None)); // wait for the earlier one
@@ -981,7 +1153,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let frames = int(a(2)).unwrap_or(0);
             let interp = int(a(3)).filter(|&n| n >= 0).map(|n| n as u16);
             let ch = f.character.clone();
-            let own = f.motion.coll.entries.iter().any(|e| e.name.eq_ignore_ascii_case(&clip));
+            let own = f
+                .motion
+                .coll
+                .entries
+                .iter()
+                .any(|e| e.name.eq_ignore_ascii_case(&clip));
             let elsewhere = if own { None } else { host.clip(&clip) };
             let f = &mut host.world().fighters[id];
             if !f.motion.animate(&ch, &clip, frames, interp, elsewhere) {
@@ -1007,7 +1184,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 state.warn(format!("chr_changeteam: no team {wanted:?}"));
                 return nil();
             };
-            if let Some(p) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)).and_then(|f| f.perception.as_mut()) {
+            if let Some(p) = fighter(host, a(0))
+                .and_then(|id| host.world().fighters.get_mut(id))
+                .and_then(|f| f.perception.as_mut())
+            {
                 p.team = crate::ai::perception::Team::from_name(ours);
             }
             nil()
@@ -1037,21 +1217,32 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         // --- weapons (`docs/WEAPONS.md`) ---------------------------------------
         "chr_giveweapon" => {
-            let (Some(id), Some(class)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(id), Some(class)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             if !host.world().give_weapon(id, &class) {
                 state.warn(format!("chr_giveweapon: no weapon {class:?}"));
             }
             nil()
         }
         "weapon_spawn" | "powerup_spawn" => {
-            let (Some(what), Some(flag)) = (a(0).and_then(text), int(a(1))) else { return nil() };
+            let (Some(what), Some(flag)) = (a(0).and_then(text), int(a(1))) else {
+                return nil();
+            };
             let world = host.world();
             let Some(f) = world.level_ai.flags.get(&(flag as i16)).copied() else {
                 state.warn(format!("{name}: no flag {flag}"));
                 return nil();
             };
             let made = if name == "weapon_spawn" {
-                world.spawn_weapon(&what, f.at + Vec3::Y * crate::weapons::PLACED_LIFT, f.facing, false).is_some()
+                world
+                    .spawn_weapon(
+                        &what,
+                        f.at + Vec3::Y * crate::weapons::PLACED_LIFT,
+                        f.facing,
+                        false,
+                    )
+                    .is_some()
             } else {
                 world.spawn_powerup(&what, f.at, int(a(2)).map(|n| n as u16))
             };
@@ -1063,10 +1254,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // give_powerup name [amount] [character]: limits ignored; a negative
         // character gives to everyone alive.
         "give_powerup" => {
-            let Some(what) = a(0).and_then(text) else { return nil() };
+            let Some(what) = a(0).and_then(text) else {
+                return nil();
+            };
             let amount = int(a(1)).map(|n| n as u16);
             let who: Vec<usize> = match int(a(2)) {
-                Some(n) if n < 0 => (0..host.world().fighters.len()).filter(|&i| host.world().fighters[i].alive()).collect(),
+                Some(n) if n < 0 => (0..host.world().fighters.len())
+                    .filter(|&i| host.world().fighters[i].alive())
+                    .collect(),
                 Some(_) | None if a(2).is_some() => fighter(host, a(2)).into_iter().collect(),
                 _ => vec![0],
             };
@@ -1076,7 +1271,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "chr_forceholster" => {
-            let Some(id) = fighter(host, a(0)) else { return nil() };
+            let Some(id) = fighter(host, a(0)) else {
+                return nil();
+            };
             host.world().force_holster(id, int(a(1)).unwrap_or(0) > 0);
             nil()
         }
@@ -1099,15 +1296,23 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "chr_poison" => {
-            let (Some(id), Some(amount), Some(every)) = (fighter(host, a(0)), int(a(1)), int(a(2))) else { return nil() };
+            let (Some(id), Some(amount), Some(every)) = (fighter(host, a(0)), int(a(1)), int(a(2)))
+            else {
+                return nil();
+            };
             let initial = int(a(3)).unwrap_or(every);
-            host.world().poison(id, amount as i32, every as i32, initial as i32);
+            host.world()
+                .poison(id, amount as i32, every as i32, initial as i32);
             nil()
         }
         // Kills every AI, every AI "except" one, or one.
         "ai2_kill" => {
             let spare = a(0).and_then(text).is_some_and(|t| t == "except");
-            let chosen = if spare { fighter(host, a(1)) } else { a(0).and_then(|_| fighter(host, a(0))) };
+            let chosen = if spare {
+                fighter(host, a(1))
+            } else {
+                a(0).and_then(|_| fighter(host, a(0)))
+            };
             if a(0).is_some() && !spare && chosen.is_none() {
                 return nil(); // (already gone)
             }
@@ -1135,14 +1340,16 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // (`env_shade ref ref r g b`: those level parts lit flat.)
             if let (Some(lo), Some(hi)) = (int(a(0)), int(a(1))) {
                 let c = |k: usize| float(a(k)).unwrap_or(1.0);
-                host.world().env_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
+                host.world()
+                    .env_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
             }
             nil()
         }
         "obj_shade" => {
             if let (Some(lo), Some(hi)) = (int(a(0)), int(a(1))) {
                 let c = |k: usize| float(a(k)).unwrap_or(1.0);
-                host.world().obj_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
+                host.world()
+                    .obj_shade(lo as u32, hi as u32, [c(2), c(3), c(4)]);
             }
             nil()
         }
@@ -1157,7 +1364,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         // the ticks owed; "on" / "off" whether it keeps up at all.
         "cutscene_sync" => {
             let world = host.world();
-            match a(0).and_then(text).map(|s| s.trim().to_ascii_lowercase()).as_deref() {
+            match a(0)
+                .and_then(text)
+                .map(|s| s.trim().to_ascii_lowercase())
+                .as_deref()
+            {
                 None | Some("mark") => {}
                 Some("on") => world.sync_enabled = true,
                 Some("off") => world.sync_enabled = false,
@@ -1203,14 +1414,19 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // (`AI2rPath_FollowCharacter`: one AI, or every AI, walks to where
             // the player is — stopping within 12 of her.)
             let world = host.world();
-            let Some(player) = world.fighters.first().map(|p| p.feet()) else { return nil() };
+            let Some(player) = world.fighters.first().map(|p| p.feet()) else {
+                return nil();
+            };
             let who: Vec<usize> = match a(0) {
                 Some(v) => ai(host, Some(v)).into_iter().collect(),
                 None => (1..host.world().fighters.len()).collect(),
             };
             for id in who {
                 let world = host.world();
-                let alert = world.fighters[id].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+                let alert = world.fighters[id]
+                    .perception
+                    .as_ref()
+                    .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
                 if let Some(crate::ai::Brain::Agent(ag)) = world.fighters[id].brain.as_mut() {
                     ag.script_move(player, FOLLOW_DISTANCE, None, None, alert);
                 }
@@ -1225,7 +1441,8 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
 
         // --- laser triggers --------------------------------------------------
-        "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show" | "trig_speed" => {
+        "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show"
+        | "trig_speed" => {
             let id = int(a(0)).unwrap_or(crate::lasers::ALL);
             let factor = a(1).and_then(|v| match v {
                 Value::Number(n) => Some(*n as f32),
@@ -1233,7 +1450,8 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 Value::String(s) => s.to_str().ok()?.trim().parse().ok(),
                 _ => None,
             });
-            host.world().laser_set(id, &name[5..], factor.unwrap_or(1.0));
+            host.world()
+                .laser_set(id, &name[5..], factor.unwrap_or(1.0));
             nil()
         }
 
@@ -1251,7 +1469,12 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "door_open" | "door_close" => {
             let id = int(a(0)).unwrap_or(-1);
-            for d in host.world().doors.iter_mut().filter(|d| id < 0 || i64::from(d.id) == id) {
+            for d in host
+                .world()
+                .doors
+                .iter_mut()
+                .filter(|d| id < 0 || i64::from(d.id) == id)
+            {
                 if name == "door_open" {
                     d.open();
                 } else {
@@ -1265,7 +1488,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "console_activate" | "console_deactivate" | "console_reset" => {
             let id = int(a(0));
             let world = host.world();
-            for k in world.consoles.iter_mut().filter(|k| id.is_none_or(|i| i64::from(k.id) == i)) {
+            for k in world
+                .consoles
+                .iter_mut()
+                .filter(|k| id.is_none_or(|i| i64::from(k.id) == i))
+            {
                 match name {
                     "console_activate" => k.active = true,
                     "console_deactivate" => k.active = false,
@@ -1285,7 +1512,14 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 None => world.key_mask = 0,
                 Some(group) => {
                     world.key_mask |= match group.as_str() {
-                        "keys_movement" => k::FORWARD | k::BACKWARD | k::STEP_LEFT | k::STEP_RIGHT | k::TURN_LEFT | k::TURN_RIGHT,
+                        "keys_movement" => {
+                            k::FORWARD
+                                | k::BACKWARD
+                                | k::STEP_LEFT
+                                | k::STEP_RIGHT
+                                | k::TURN_LEFT
+                                | k::TURN_RIGHT
+                        }
                         "keys_jump" => k::JUMP,
                         "keys_crouch" => k::CROUCH | k::FIRE3,
                         "keys_attack" => k::PUNCH | k::KICK | k::FIRE1 | k::FIRE2,
@@ -1325,11 +1559,15 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 
         // --- films -------------------------------------------------------------
         "playback" | "chr_playback" | "playback_block" | "chr_playback_block" => {
-            let (Some(id), Some(film)) = (fighter(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(id), Some(film)) = (fighter(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             let mode = a(2).and_then(text).unwrap_or_default();
             let interp = int(a(3)).unwrap_or(30).max(0) as u32;
             match host.world().play_film(id, &film, &mode, interp) {
-                Some(len) if name.ends_with("_block") => Ok((Value::Nil, Value::Integer(len as i64), None, None)),
+                Some(len) if name.ends_with("_block") => {
+                    Ok((Value::Nil, Value::Integer(len as i64), None, None))
+                }
                 Some(_) => nil(),
                 None => {
                     state.warn(format!("{name}: can't play film {film}"));
@@ -1340,25 +1578,48 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 
         // --- waiting on a character ---------------------------------------
         "chr_wait_animtype" | "chr_wait_animation" | "chr_wait_animstate" => {
-            let Some(id) = fighter(host, a(0)) else { return nil() };
+            let Some(id) = fighter(host, a(0)) else {
+                return nil();
+            };
             let f = &host.world().fighters[id];
             // (A type counts if the body or an overlay plays it.)
             let now: Vec<String> = match name {
-                "chr_wait_animtype" => {
-                    f.anim_types().into_iter().map(|t| oni_schema::name(&oni_schema::ANIM_TYPES, t).unwrap_or("").to_string()).collect()
-                }
+                "chr_wait_animtype" => f
+                    .anim_types()
+                    .into_iter()
+                    .map(|t| {
+                        oni_schema::name(&oni_schema::ANIM_TYPES, t)
+                            .unwrap_or("")
+                            .to_string()
+                    })
+                    .collect(),
                 "chr_wait_animstate" => {
-                    vec![oni_schema::name(&oni_schema::ANIM_STATES, f.motion.current().to_state).unwrap_or("").to_string()]
+                    vec![
+                        oni_schema::name(&oni_schema::ANIM_STATES, f.motion.current().to_state)
+                            .unwrap_or("")
+                            .to_string(),
+                    ]
                 }
                 _ => vec![f.motion.name().to_string()],
             };
-            let key = |s: &str| s.chars().filter(|c| *c != '_').collect::<String>().to_ascii_lowercase();
+            let key = |s: &str| {
+                s.chars()
+                    .filter(|c| *c != '_')
+                    .collect::<String>()
+                    .to_ascii_lowercase()
+            };
             let now: Vec<String> = now.iter().map(|n| key(n)).collect();
-            let hit = args.iter().skip(1).filter_map(text).any(|w| now.contains(&key(&w)));
+            let hit = args
+                .iter()
+                .skip(1)
+                .filter_map(text)
+                .any(|w| now.contains(&key(&w)));
             Ok((Value::Nil, Value::Boolean(!hit), None, None))
         }
         "chr_wait_health" => {
-            let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else {
+                return nil();
+            };
             let above = host.world().fighters[id].hp as i64 > hp;
             Ok((Value::Nil, Value::Boolean(above), None, None))
         }
@@ -1367,14 +1628,18 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "env_broken" => {
             let Some(from) = int(a(0)) else { return nil() };
             let to = int(a(1)).unwrap_or(from);
-            done(Value::Integer(i64::from(host.world().env_broken(from as u32, to as u32))))
+            done(Value::Integer(i64::from(
+                host.world().env_broken(from as u32, to as u32),
+            )))
         }
         "chr_has_empty_weapon" => {
             let empty = fighter(host, a(0)).is_some_and(|id| host.world().has_empty_weapon(id));
             done(Value::Integer(empty as i64))
         }
         "chr_has_lsi" => {
-            let lsi = fighter(host, a(0)).and_then(|id| host.world().fighters.get(id)).is_some_and(|f| f.inventory.lsi);
+            let lsi = fighter(host, a(0))
+                .and_then(|id| host.world().fighters.get(id))
+                .is_some_and(|f| f.inventory.lsi);
             done(Value::Integer(lsi as i64))
         }
         "did_kill_griffen" => done(Value::Integer(did_kill_griffin(host) as i64)),
@@ -1392,7 +1657,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 
         // --- AI orders -------------------------------------------------------
         "ai2_dopath" => {
-            let (Some(id), Some(path)) = (ai(host, a(0)), a(1).and_then(text)) else { return nil() };
+            let (Some(id), Some(path)) = (ai(host, a(0)), a(1).and_then(text)) else {
+                return nil();
+            };
             if host.world().fighters[id].passive {
                 eprintln!("script: ai2_dopath: {} is passive", name_of(host, id));
                 return nil();
@@ -1452,7 +1719,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "ai2_makeignoreplayer" => {
-            if let Some(p) = ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut()) {
+            if let Some(p) =
+                ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut())
+            {
                 p.ignore_player = truthy(a(1));
             }
             nil()
@@ -1464,7 +1733,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 match host.world().fighters[id].brain.as_mut() {
                     Some(crate::ai::Brain::Agent(ag)) => ag.mode = mode,
                     Some(crate::ai::Brain::Steer(s)) => s.mode = mode,
-                    _ if id == 0 => state.warn("ai2_setmovementmode: cannot move the player without ai2_takecontrol 1".into()),
+                    _ if id == 0 => state.warn(
+                        "ai2_setmovementmode: cannot move the player without ai2_takecontrol 1"
+                            .into(),
+                    ),
                     _ => {}
                 }
             }
@@ -1503,7 +1775,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         "ai2_movetoflag" => {
             // (`AI2rPath_GoToPoint` within 3 — `AI2cMoveToPoint_DefaultDistance`
             // — then the flag's facing with "setfacing".)
-            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else { return nil() };
+            let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else {
+                return nil();
+            };
             let set_facing = a(2).and_then(text).is_some_and(|s| s == "setfacing");
             let world = host.world();
             let Some(f) = world.level_ai.flags.get(&(flag as i16)).copied() else {
@@ -1516,24 +1790,43 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
         }
         "ai2_lookatchar" => {
             // (Stays where it is, turned toward the character, looking at it.)
-            let (Some(id), Some(target)) = (fighter(host, a(0)), fighter(host, a(1))) else { return nil() };
+            let (Some(id), Some(target)) = (fighter(host, a(0)), fighter(host, a(1))) else {
+                return nil();
+            };
             let world = host.world();
             let (from, to) = (world.fighters[id].feet(), world.fighters[target].feet());
-            let face = (to.x - from.x).atan2(to.z - from.z).rem_euclid(std::f32::consts::TAU);
-            script_move(state, host, id, from, Some(face), Some(to), "ai2_lookatchar");
+            let face = (to.x - from.x)
+                .atan2(to.z - from.z)
+                .rem_euclid(std::f32::consts::TAU);
+            script_move(
+                state,
+                host,
+                id,
+                from,
+                Some(face),
+                Some(to),
+                "ai2_lookatchar",
+            );
             nil()
         }
         "ai2_lookatme" => {
             // (`AI2rDebug_LookHere`: one AI, or every AI, looks at the
             // player — where she stands now.)
             let world = host.world();
-            let Some(player) = world.fighters.first().map(|p| p.feet() + Vec3::Y * p.motion.height()) else { return nil() };
+            let Some(player) = world
+                .fighters
+                .first()
+                .map(|p| p.feet() + Vec3::Y * p.motion.height())
+            else {
+                return nil();
+            };
             let who: Vec<usize> = match a(0) {
                 Some(v) => ai(host, Some(v)).into_iter().collect(),
                 None => (1..host.world().fighters.len()).collect(),
             };
             for id in who {
-                if let Some(crate::ai::Brain::Agent(ag)) = host.world().fighters[id].brain.as_mut() {
+                if let Some(crate::ai::Brain::Agent(ag)) = host.world().fighters[id].brain.as_mut()
+                {
                     ag.look_at(player);
                 }
             }
@@ -1555,7 +1848,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             nil()
         }
         "ai2_makeblind" | "ai2_makedeaf" => {
-            if let Some(p) = ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut()) {
+            if let Some(p) =
+                ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut())
+            {
                 if name == "ai2_makeblind" {
                     p.blind = truthy(a(1));
                 } else {
@@ -1591,7 +1886,10 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let kind = a(2).and_then(text);
             let found = state.triggers.by_name(a(0));
             if found.is_empty() {
-                state.warn(format!("trigvolume_enable: no volume {:?}", a(0).and_then(text)));
+                state.warn(format!(
+                    "trigvolume_enable: no volume {:?}",
+                    a(0).and_then(text)
+                ));
             }
             for i in found {
                 let bit = match kind.as_deref() {
@@ -1679,9 +1977,16 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             let doomed: Vec<usize> = (1..world.fighters.len())
                 .filter(|&j| {
                     let f = &world.fighters[j];
-                    let wanted = if name == "trigvolume_kill" { !f.gone } else { !f.gone && !f.alive() };
+                    let wanted = if name == "trigvolume_kill" {
+                        !f.gone
+                    } else {
+                        !f.gone && !f.alive()
+                    };
                     let feet = f.feet();
-                    wanted && found.iter().any(|&i| state.triggers.volumes[i].crossed(feet, feet + Vec3::Y * 12.0))
+                    wanted
+                        && found.iter().any(|&i| {
+                            state.triggers.volumes[i].crossed(feet, feet + Vec3::Y * 12.0)
+                        })
                 })
                 .collect();
             for j in doomed {
@@ -1690,7 +1995,11 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             // (And the corpses of the dead of play there:
             // `ONrGameState_KillCorpsesInsideTrigger`.)
             if name == "trigvolume_corpse" {
-                world.corpses.clear_where(|lo, hi| found.iter().any(|&i| state.triggers.volumes[i].crossed(lo, hi)));
+                world.corpses.clear_where(|lo, hi| {
+                    found
+                        .iter()
+                        .any(|&i| state.triggers.volumes[i].crossed(lo, hi))
+                });
             }
             nil()
         }
@@ -1717,18 +2026,33 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
 /// A movement order for fighter `id` (`AI2rPath_GoToPoint`): go to `at`,
 /// then face `face`, looking at `look`. The player only while the AI holds
 /// her (`ai2_takecontrol 1`), as in the original.
-fn script_move(state: &mut State, host: &mut dyn Host, id: usize, at: Vec3, face: Option<f32>, look: Option<Vec3>, what: &str) {
+fn script_move(
+    state: &mut State,
+    host: &mut dyn Host,
+    id: usize,
+    at: Vec3,
+    face: Option<f32>,
+    look: Option<Vec3>,
+    what: &str,
+) {
     const WITHIN: f32 = 0.75 * 4.0; // AI2cMoveToPoint_DefaultDistance
     let world = host.world();
-    let alert = world.fighters[id].perception.as_ref().map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
+    let alert = world.fighters[id]
+        .perception
+        .as_ref()
+        .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
     let here = (at - world.fighters[id].feet()).with_y(0.0).length() <= WITHIN;
     match world.fighters[id].brain.as_mut() {
         Some(crate::ai::Brain::Steer(s)) => {
-            s.nav = (!here).then(|| crate::ai::navigate::Navigator::new(at, WITHIN, s.mode.pace(alert, false)));
+            s.nav = (!here).then(|| {
+                crate::ai::navigate::Navigator::new(at, WITHIN, s.mode.pace(alert, false))
+            });
             s.face = face;
         }
         Some(crate::ai::Brain::Agent(ag)) => ag.script_move(at, WITHIN, face, look, alert),
-        _ if id == 0 => state.warn(format!("{what}: cannot move the player without ai2_takecontrol 1")),
+        _ if id == 0 => state.warn(format!(
+            "{what}: cannot move the player without ai2_takecontrol 1"
+        )),
         _ => {}
     }
 }
@@ -1739,7 +2063,11 @@ fn script_move(state: &mut State, host: &mut dyn Host, id: usize, at: Vec3, face
 /// the setup or `ai_<n>`; its spawn script runs. Only the cutscenes use it.
 pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(String, String)> {
     let world = host.world();
-    let Some(setup) = u16::try_from(sid).ok().and_then(|s| world.level_ai.setups.get(&s)).cloned() else {
+    let Some(setup) = u16::try_from(sid)
+        .ok()
+        .and_then(|s| world.level_ai.setups.get(&s))
+        .cloned()
+    else {
         state.warn(format!("chr_create: no character setup {sid}"));
         return None;
     };
@@ -1747,7 +2075,10 @@ pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(Strin
         state.warn(format!("chr_create {sid}: no flag {}", setup.flag));
         return None;
     };
-    let class = setup.class.clone().unwrap_or_else(|| "konoko_generic".into());
+    let class = setup
+        .class
+        .clone()
+        .unwrap_or_else(|| "konoko_generic".into());
     let kind = match host.kind(&class) {
         Ok(k) => k,
         Err(e) => {
@@ -1783,11 +2114,21 @@ pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(Strin
     setup.scripts.get("spawn").map(|s| (s.clone(), name))
 }
 
-pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) -> Option<(String, String)> {
+pub fn spawn(
+    state: &mut State,
+    host: &mut dyn Host,
+    name: &str,
+    force: bool,
+) -> Option<(String, String)> {
     let world = host.world();
-    let index = world.level_ai.characters.iter().enumerate().position(|(i, c)| {
-        c.name == name && (force || c.has("spawnMultiple") || !state.spawned.contains(&i))
-    })?;
+    let index = world
+        .level_ai
+        .characters
+        .iter()
+        .enumerate()
+        .position(|(i, c)| {
+            c.name == name && (force || c.has("spawnMultiple") || !state.spawned.contains(&i))
+        })?;
     let placed = world.level_ai.characters[index].clone();
     state.spawned.insert(index);
     // Its class: a random costume, or upgraded on hard (`ONrGameState_
@@ -1797,7 +2138,13 @@ pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) ->
     let hard = world.difficulty.level >= 2;
     let (class, default_melee) = match host.classes() {
         Some(c) => (
-            c.costume(&placed.class, placed.has("randomCostume"), placed.has("upgradeDifficulty"), hard, roll),
+            c.costume(
+                &placed.class,
+                placed.has("randomCostume"),
+                placed.has("upgradeDifficulty"),
+                hard,
+                roll,
+            ),
             placed.melee_id.is_some() && placed.melee_id == c.default_melee_id(&placed.class),
         ),
         None => (placed.class.clone(), false),
@@ -1812,7 +2159,11 @@ pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) ->
             return None;
         }
     };
-    let melee = if default_melee { kind.melee.clone() } else { placed.melee_id.and_then(|m| host.melee(m)) };
+    let melee = if default_melee {
+        kind.melee.clone()
+    } else {
+        placed.melee_id.and_then(|m| host.melee(m))
+    };
     let world = host.world();
     // (A placement is the feet; spawning takes the pelvis: start a little
     // above and let it settle.)
@@ -1824,5 +2175,8 @@ pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) ->
     state.scripts.insert(id, placed.scripts.clone());
     state.fired.remove(&id);
     eprintln!("script: spawned {} (fighter {id})", placed.name);
-    placed.scripts.get("spawn").map(|s| (s.clone(), placed.name.clone()))
+    placed
+        .scripts
+        .get("spawn")
+        .map(|s| (s.clone(), placed.name.clone()))
 }

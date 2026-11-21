@@ -50,7 +50,11 @@ const CLASS_FLAGS: [(u32, &str); 17] = [
     (23, "hasAttractor"),
 ];
 /// The remaining optional-field bits.
-const CLASS_FLAGS_MORE: [(u32, &str); 3] = [(21, "hasContrailData"), (22, "hasLensFrames"), (24, "hasEnvironmentCache")];
+const CLASS_FLAGS_MORE: [(u32, &str); 3] = [
+    (21, "hasContrailData"),
+    (22, "hasLensFrames"),
+    (24, "hasEnvironmentCache"),
+];
 
 /// `flags2` bits (`P3cParticleClassFlag2_*`).
 const CLASS_FLAGS2: [(u32, &str); 21] = [
@@ -198,8 +202,25 @@ const LINKS: [&str; 11] = [
     "ourLink",
 ];
 const RATES: [&str; 5] = ["continuous", "random", "instant", "distance", "attractor"];
-const POSITIONS: [&str; 8] = ["point", "line", "circle", "sphere", "offset", "cylinder", "bodySurface", "bodyBones"];
-const DIRECTIONS: [&str; 7] = ["straight", "random", "cone", "ring", "offset", "inaccurate", "attractor"];
+const POSITIONS: [&str; 8] = [
+    "point",
+    "line",
+    "circle",
+    "sphere",
+    "offset",
+    "cylinder",
+    "bodySurface",
+    "bodyBones",
+];
+const DIRECTIONS: [&str; 7] = [
+    "straight",
+    "random",
+    "cone",
+    "ring",
+    "offset",
+    "inaccurate",
+    "attractor",
+];
 const SPEEDS: [&str; 2] = ["uniform", "stratified"];
 const ORIENTS: [&str; 16] = [
     "parentPosX",
@@ -237,7 +258,11 @@ fn name<const N: usize>(table: &[&str; N], i: u32) -> Value {
 }
 
 fn flag_names(bits: u32, table: &[(u32, &'static str)]) -> Vec<&'static str> {
-    table.iter().filter(|(b, _)| bits & (1 << b) != 0).map(|(_, n)| *n).collect()
+    table
+        .iter()
+        .filter(|(b, _)| bits & (1 << b) != 0)
+        .map(|(_, n)| *n)
+        .collect()
 }
 
 fn shade(c: u32) -> Value {
@@ -297,7 +322,11 @@ pub fn decode(d: &[u8]) -> Option<Value> {
     if d.len() < FIXED || le_u16(d, 2) != 18 {
         return None;
     }
-    let (nv, na, ne) = (le_u16(d, 16) as usize, le_u16(d, 18) as usize, le_u16(d, 20) as usize);
+    let (nv, na, ne) = (
+        le_u16(d, 16) as usize,
+        le_u16(d, 18) as usize,
+        le_u16(d, 20) as usize,
+    );
     if d.len() < FIXED + nv * VAR + na * ACTION + ne * EMITTER {
         return None;
     }
@@ -337,7 +366,13 @@ pub fn decode(d: &[u8]) -> Option<Value> {
         c.insert("flybySound".into(), json!(flyby));
     }
     let mut app = Map::new();
-    for (key, off) in [("scale", 168), ("yScale", 196), ("rotation", 224), ("alpha", 252), ("tint", 368)] {
+    for (key, off) in [
+        ("scale", 168),
+        ("yScale", 196),
+        ("rotation", 224),
+        ("alpha", 252),
+        ("tint", 368),
+    ] {
         let v = value(d, off);
         if !v.is_null() {
             app.insert(key.into(), v);
@@ -419,7 +454,10 @@ pub fn decode(d: &[u8]) -> Option<Value> {
             let mut a = Map::new();
             a.insert(
                 "type".into(),
-                ACTIONS.iter().find(|x| x.0 == t).map_or(json!(t), |x| json!(x.1)),
+                ACTIONS
+                    .iter()
+                    .find(|x| x.0 == t)
+                    .map_or(json!(t), |x| json!(x.1)),
             );
             let vars = trim(
                 (0..8)
@@ -450,11 +488,22 @@ pub fn decode(d: &[u8]) -> Option<Value> {
     let emitters: Vec<Value> = (0..ne)
         .map(|i| {
             let o = base + i * EMITTER;
-            let vals = |from: usize, n: usize| trim((from..from + n).map(|k| value(d, o + 108 + k * VALUE)).collect());
+            let vals = |from: usize, n: usize| {
+                trim(
+                    (from..from + n)
+                        .map(|k| value(d, o + 108 + k * VALUE))
+                        .collect(),
+                )
+            };
             let mut e = Map::new();
             e.insert("class".into(), json!(cstr(d, o, 64)));
             let f = le_u32(d, o + 68);
-            let fl: Vec<&str> = EMITTER_FLAGS.iter().enumerate().filter(|(b, _)| f & (1 << b) != 0).map(|(_, n)| *n).collect();
+            let fl: Vec<&str> = EMITTER_FLAGS
+                .iter()
+                .enumerate()
+                .filter(|(b, _)| f & (1 << b) != 0)
+                .map(|(_, n)| *n)
+                .collect();
             if !fl.is_empty() {
                 e.insert("flags".into(), json!(fl));
             }
@@ -462,10 +511,22 @@ pub fn decode(d: &[u8]) -> Option<Value> {
             e.insert("chance".into(), json!(le_u16(d, o + 74)));
             e.insert("burst".into(), json!(le_f32(d, o + 76)));
             e.insert("link".into(), name(&LINKS, le_u32(d, o + 80)));
-            e.insert("rate".into(), json!({ "type": name(&RATES, le_u32(d, o + 84)), "values": vals(0, 2) }));
-            e.insert("position".into(), json!({ "type": name(&POSITIONS, le_u32(d, o + 88)), "values": vals(2, 3) }));
-            e.insert("direction".into(), json!({ "type": name(&DIRECTIONS, le_u32(d, o + 92)), "values": vals(5, 3) }));
-            e.insert("speed".into(), json!({ "type": name(&SPEEDS, le_u32(d, o + 96)), "values": vals(8, 3) }));
+            e.insert(
+                "rate".into(),
+                json!({ "type": name(&RATES, le_u32(d, o + 84)), "values": vals(0, 2) }),
+            );
+            e.insert(
+                "position".into(),
+                json!({ "type": name(&POSITIONS, le_u32(d, o + 88)), "values": vals(2, 3) }),
+            );
+            e.insert(
+                "direction".into(),
+                json!({ "type": name(&DIRECTIONS, le_u32(d, o + 92)), "values": vals(5, 3) }),
+            );
+            e.insert(
+                "speed".into(),
+                json!({ "type": name(&SPEEDS, le_u32(d, o + 96)), "values": vals(8, 3) }),
+            );
             e.insert("orientDir".into(), name(&ORIENTS, le_u32(d, o + 100)));
             e.insert("orientUp".into(), name(&ORIENTS, le_u32(d, o + 104)));
             Value::Object(e)
@@ -479,7 +540,10 @@ pub fn decode(d: &[u8]) -> Option<Value> {
 
 /// Writes every class in `classes` (raw definitions by name) to
 /// `<common>/particle_classes.json`; returns how many were written.
-pub fn write(classes: &BTreeMap<String, &[u8]>, common: &std::path::Path) -> std::io::Result<usize> {
+pub fn write(
+    classes: &BTreeMap<String, &[u8]>,
+    common: &std::path::Path,
+) -> std::io::Result<usize> {
     let mut out = Map::new();
     for (n, d) in classes {
         if let Some(v) = decode(d) {
@@ -537,15 +601,25 @@ mod tests {
         let c = decode(&d).unwrap();
         assert_eq!(c["flags"], json!(["collideEnv", "hasVelocity"]));
         assert_eq!(c["lifetime"], json!(30.0));
-        assert_eq!(c["variables"][0], json!({ "name": "speed", "type": "float", "init": { "range": [1.0, 2.0] } }));
+        assert_eq!(
+            c["variables"][0],
+            json!({ "name": "speed", "type": "float", "init": { "range": [1.0, 2.0] } })
+        );
         assert_eq!(c["events"], json!({ "update": [0, 2] }));
         assert_eq!(c["actions"][0], json!({ "type": "moveLine" }));
-        assert_eq!(c["actions"][1], json!({ "type": "moveGravity", "params": [0.5] }));
+        assert_eq!(
+            c["actions"][1],
+            json!({ "type": "moveGravity", "params": [0.5] })
+        );
         assert_eq!(c["emitters"][0]["class"], json!("kid"));
         assert_eq!(c["emitters"][0]["rate"]["type"], json!("instant"));
         assert_eq!(
             c["emitters"][0]["flags"],
-            json!(["initiallyActive", "increaseEmitCount", "deactivateWhenEmitCountThreshold"])
+            json!([
+                "initiallyActive",
+                "increaseEmitCount",
+                "deactivateWhenEmitCountThreshold"
+            ])
         );
     }
 

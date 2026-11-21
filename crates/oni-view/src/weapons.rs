@@ -173,8 +173,15 @@ pub struct Tunnel {
 
 /// An `#AARRGGBB` colour's RGB (0–1).
 fn rgb(j: &Json) -> [f32; 3] {
-    let v = j.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0x00FF_FFFF);
-    [((v >> 16) & 0xFF) as f32 / 255.0, ((v >> 8) & 0xFF) as f32 / 255.0, (v & 0xFF) as f32 / 255.0]
+    let v = j
+        .as_str()
+        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+        .unwrap_or(0x00FF_FFFF);
+    [
+        ((v >> 16) & 0xFF) as f32 / 255.0,
+        ((v >> 8) & 0xFF) as f32 / 255.0,
+        (v & 0xFF) as f32 / 255.0,
+    ]
 }
 
 impl WeaponClass {
@@ -192,14 +199,20 @@ pub struct WeaponClasses {
 impl WeaponClasses {
     /// Loads `weapons.json`, resolving attachment particle classes.
     pub fn load(path: &Path, particles: &p3::Classes) -> WeaponClasses {
-        let Ok(doc) = std::fs::read_to_string(path).map_err(|_| ()).and_then(|t| serde_json::from_str::<Json>(&t).map_err(|_| ()))
+        let Ok(doc) = std::fs::read_to_string(path)
+            .map_err(|_| ())
+            .and_then(|t| serde_json::from_str::<Json>(&t).map_err(|_| ()))
         else {
             return WeaponClasses::default();
         };
         let dir = path.parent().unwrap_or(Path::new("."));
         let by_name = doc["classes"]
             .as_object()
-            .map(|m| m.iter().map(|(n, c)| (n.clone(), Rc::new(class(n, c, dir, particles)))).collect())
+            .map(|m| {
+                m.iter()
+                    .map(|(n, c)| (n.clone(), Rc::new(class(n, c, dir, particles))))
+                    .collect()
+            })
             .unwrap_or_default();
         WeaponClasses { by_name }
     }
@@ -210,7 +223,11 @@ impl WeaponClasses {
 }
 
 fn vec3(j: &Json) -> Vec3 {
-    Vec3::new(j[0].as_f64().unwrap_or(0.0) as f32, j[1].as_f64().unwrap_or(0.0) as f32, j[2].as_f64().unwrap_or(0.0) as f32)
+    Vec3::new(
+        j[0].as_f64().unwrap_or(0.0) as f32,
+        j[1].as_f64().unwrap_or(0.0) as f32,
+        j[2].as_f64().unwrap_or(0.0) as f32,
+    )
 }
 
 fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponClass {
@@ -218,15 +235,29 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
     let u = |j: &Json| j.as_u64().unwrap_or(0) as u16;
     let flags = c["flags"]
         .as_array()
-        .map(|a| a.iter().filter_map(|n| FLAG_NAMES.iter().find(|(k, _)| Some(*k) == n.as_str())).fold(0, |acc, (_, b)| acc | b))
+        .map(|a| {
+            a.iter()
+                .filter_map(|n| FLAG_NAMES.iter().find(|(k, _)| Some(*k) == n.as_str()))
+                .fold(0, |acc, (_, b)| acc | b)
+        })
         .unwrap_or(0);
     let attachments = c["attachments"]
         .as_array()
         .map(|a| {
             a.iter()
                 .map(|x| {
-                    let m: Vec<f32> = x["matrix"].as_array().map(|m| m.iter().map(f).collect()).unwrap_or_default();
-                    let col = |k: usize| glam::Vec4::new(m.get(k * 3).copied().unwrap_or(0.0), m.get(k * 3 + 1).copied().unwrap_or(0.0), m.get(k * 3 + 2).copied().unwrap_or(0.0), if k == 3 { 1.0 } else { 0.0 });
+                    let m: Vec<f32> = x["matrix"]
+                        .as_array()
+                        .map(|m| m.iter().map(f).collect())
+                        .unwrap_or_default();
+                    let col = |k: usize| {
+                        glam::Vec4::new(
+                            m.get(k * 3).copied().unwrap_or(0.0),
+                            m.get(k * 3 + 1).copied().unwrap_or(0.0),
+                            m.get(k * 3 + 2).copied().unwrap_or(0.0),
+                            if k == 3 { 1.0 } else { 0.0 },
+                        )
+                    };
                     Attachment {
                         class: x["class"].as_str().and_then(|n| particles.get(n)),
                         matrix: Mat4::from_cols(col(0), col(1), col(2), col(3)),
@@ -249,7 +280,13 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         count: c["tunnel"]["count"].as_u64().unwrap_or(0) as u32,
         spacing: f(&c["tunnel"]["spacing"]),
     });
-    let sprite = |j: &Json| j["texture"].as_str().map(|t| SpriteDef { texture: t.to_string(), color: rgb(&j["shade"]), scale: f(&j["scale"]) });
+    let sprite = |j: &Json| {
+        j["texture"].as_str().map(|t| SpriteDef {
+            texture: t.to_string(),
+            color: rgb(&j["shade"]),
+            scale: f(&j["scale"]),
+        })
+    };
     let text = |j: &Json| j.as_str().map(str::to_string);
     WeaponClass {
         cursor: sprite(&c["cursor"]),
@@ -282,7 +319,10 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         reload_anim: c["reloadAnimType"].as_str().unwrap_or("").to_string(),
         aiming_speed: f(&c["aimingSpeed"]),
         pickup_offset: vec3(&c["pickupOffset"]),
-        detection_volume: [f(&c["ai"]["detectionVolume"]), f(&c["aiAlternate"]["detectionVolume"])],
+        detection_volume: [
+            f(&c["ai"]["detectionVolume"]),
+            f(&c["aiAlternate"]["detectionVolume"]),
+        ],
         ai: AiGun::from_json(&c["ai"]),
         dodge_pattern: [0, 1, 2].map(|k| c["ai"]["dodgePattern"][k].as_f64().unwrap_or(0.0) as f32),
         attachments,
@@ -305,9 +345,16 @@ pub struct AiGun {
 impl AiGun {
     pub fn from_json(j: &Json) -> AiGun {
         let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
-        let m: Vec<f32> = j["shooterInverse"].as_array().map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect()).unwrap_or_default();
+        let m: Vec<f32> = j["shooterInverse"]
+            .as_array()
+            .map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect())
+            .unwrap_or_default();
         let inverse = if m.len() >= 9 {
-            glam::Mat3::from_cols(Vec3::new(m[0], m[1], m[2]), Vec3::new(m[3], m[4], m[5]), Vec3::new(m[6], m[7], m[8]))
+            glam::Mat3::from_cols(
+                Vec3::new(m[0], m[1], m[2]),
+                Vec3::new(m[3], m[4], m[5]),
+                Vec3::new(m[6], m[7], m[8]),
+            )
         } else {
             glam::Mat3::IDENTITY
         };
@@ -319,7 +366,8 @@ impl AiGun {
                 no_wild_shots: j["noWildShots"].as_bool().unwrap_or(false),
                 shooter_offset: vec3(&j["shooterOffset"]),
                 shooter_inverse: inverse,
-                ballistic: (f("ballisticSpeed") > 0.0).then(|| (f("ballisticSpeed"), f("ballisticGravity"))),
+                ballistic: (f("ballisticSpeed") > 0.0)
+                    .then(|| (f("ballisticSpeed"), f("ballisticGravity"))),
                 barrel_z: false,
             },
             min_safe_distance: f("minSafeDistance"),
@@ -392,12 +440,17 @@ impl Weapon {
             class,
             owner: None,
             infinite_ammo: false,
-            matrix: Rc::new(Cell::new(Mat4::from_rotation_translation(glam::Quat::from_rotation_y(yaw), position))),
+            matrix: Rc::new(Cell::new(Mat4::from_rotation_translation(
+                glam::Quat::from_rotation_y(yaw),
+                position,
+            ))),
             position,
             yaw,
             velocity: Vec3::ZERO,
             resting: placed,
-            body: (!placed).then(|| crate::objphys::Body::new(position, radius, STATIC_FRICTION, DYNAMIC_FRICTION)),
+            body: (!placed).then(|| {
+                crate::objphys::Body::new(position, radius, STATIC_FRICTION, DYNAMIC_FRICTION)
+            }),
             hit_ground: false,
             chamber: 0,
             chamber_total: 0,
@@ -446,7 +499,12 @@ impl Weapon {
         self.velocity = kick.map_or(Vec3::ZERO, |k| Vec3::Y * 1.5 + k);
         self.resting = false;
         self.hit_ground = false;
-        let mut body = crate::objphys::Body::new(self.position, self.class.sphere_radius, STATIC_FRICTION, DYNAMIC_FRICTION);
+        let mut body = crate::objphys::Body::new(
+            self.position,
+            self.class.sphere_radius,
+            STATIC_FRICTION,
+            DYNAMIC_FRICTION,
+        );
         body.velocity = self.velocity;
         self.body = Some(body);
         self.owner = None;
@@ -456,7 +514,11 @@ impl Weapon {
         self.reload_delay = 0;
         self.start_delay.iter_mut().for_each(|d| *d = 0);
         self.fade_time = 0;
-        self.free_time = if self.class.has(flag::DONT_FADE_OUT) { 0 } else { FREE_TIME };
+        self.free_time = if self.class.has(flag::DONT_FADE_OUT) {
+            0
+        } else {
+            FREE_TIME
+        };
     }
 
     /// Put away (holstered): it stops firing, and its particles go until
@@ -503,7 +565,11 @@ impl Weapon {
             p.lifetime = 0.0;
             self.particles[i] = sys.created(p, t, host);
         }
-        let ev = if self.background { event::BG_START } else { event::BG_STOP };
+        let ev = if self.background {
+            event::BG_START
+        } else {
+            event::BG_STOP
+        };
         self.send(sys, host, ev, -1, Vec3::ZERO);
     }
 
@@ -524,7 +590,14 @@ impl Weapon {
         }
     }
 
-    fn deliver(&mut self, sys: &mut System, host: &mut dyn Host, i: usize, ev: usize, motion: Vec3) {
+    fn deliver(
+        &mut self,
+        sys: &mut System,
+        host: &mut dyn Host,
+        i: usize,
+        ev: usize,
+        motion: Vec3,
+    ) {
         if ev == event::START {
             self.started |= 1 << i;
         } else if ev == event::STOP {
@@ -534,7 +607,9 @@ impl Weapon {
             self.started &= !(1 << i);
         }
         let Some(h) = self.particles[i] else { return };
-        let owner = self.owner.map_or(0, |o| p3::owner::CHARACTER_WEAPON | o as u32);
+        let owner = self
+            .owner
+            .map_or(0, |o| p3::owner::CHARACTER_WEAPON | o as u32);
         match sys.get_mut(h) {
             Some(p) => {
                 p.velocity = motion * p3::HZ as f32;
@@ -555,7 +630,14 @@ impl Weapon {
     }
 
     /// One shot from shooter attachment `i`.
-    fn pulse(&mut self, sys: &mut System, host: &mut dyn Host, i: usize, shooter: i32, motion: Vec3) {
+    fn pulse(
+        &mut self,
+        sys: &mut System,
+        host: &mut dyn Host,
+        i: usize,
+        shooter: i32,
+        motion: Vec3,
+    ) {
         if self.owner.is_none() {
             return;
         }
@@ -573,7 +655,10 @@ impl Weapon {
         self.chamber = a.chamber_time;
         self.chamber_total = a.chamber_time;
         let volume = self.class.detection_volume[usize::from(shooter > 0)];
-        self.reports.push(Report::Shot { recoil: self.class.recoil.base, volume });
+        self.reports.push(Report::Shot {
+            recoil: self.class.recoil.base,
+            volume,
+        });
     }
 
     fn stop_background(&mut self, sys: &mut System, host: &mut dyn Host) {
@@ -599,7 +684,14 @@ impl Weapon {
 
     /// Pulls the trigger (`alternate`: the second shooter). Returns whether
     /// it took, and whether it was empty.
-    pub fn depress(&mut self, sys: &mut System, host: &mut dyn Host, alternate: bool, forced: bool, motion: Vec3) -> (bool, bool) {
+    pub fn depress(
+        &mut self,
+        sys: &mut System,
+        host: &mut dyn Host,
+        alternate: bool,
+        forced: bool,
+        motion: Vec3,
+    ) -> (bool, bool) {
         if self.chamber > 0 || self.reload_time > 0 {
             return (false, false);
         }
@@ -611,7 +703,12 @@ impl Weapon {
         } else {
             0
         };
-        let Some(i) = self.class.attachments.iter().position(|a| a.ammo_used > 0 && a.shooter == group) else {
+        let Some(i) = self
+            .class
+            .attachments
+            .iter()
+            .position(|a| a.ammo_used > 0 && a.shooter == group)
+        else {
             return (false, false);
         };
         let a = self.class.attachments[i].clone();
@@ -639,7 +736,8 @@ impl Weapon {
     pub fn release_trigger(&mut self, sys: &mut System, host: &mut dyn Host, force: bool) {
         if !force {
             let wait = self.must_fire > 0
-                || (self.class.has(flag::DONT_STOP_WHILE_FIRING) && self.chamber > self.class.stop_chamber_threshold);
+                || (self.class.has(flag::DONT_STOP_WHILE_FIRING)
+                    && self.chamber > self.class.stop_chamber_threshold);
             if wait {
                 self.delay_release = true;
                 return;
@@ -706,8 +804,9 @@ impl Weapon {
                 if self.class.has(flag::RESTART_EACH_SHOT) {
                     self.release_trigger(sys, host, false);
                 } else if self.class.has(flag::USE_AMMO_CONTINUOUSLY) {
-                    let started = (0..self.class.attachments.len())
-                        .find(|&i| self.class.attachments[i].ammo_used > 0 && self.started & (1 << i) != 0);
+                    let started = (0..self.class.attachments.len()).find(|&i| {
+                        self.class.attachments[i].ammo_used > 0 && self.started & (1 << i) != 0
+                    });
                     if let Some(i) = started {
                         let a = self.class.attachments[i].clone();
                         if self.ammo < a.ammo_used {
@@ -750,7 +849,11 @@ impl Weapon {
     /// fading. Returns the surfaces it met hard enough for an impact
     /// (`WPiWeaponPhysics_PostCollision_Callback`: faster than 0.35 along a
     /// surface's normal; each surface each pass).
-    pub fn tick_free(&mut self, quads: &crate::quads::Quads, others: &[crate::objphys::Obstacle]) -> Vec<crate::objphys::Contact> {
+    pub fn tick_free(
+        &mut self,
+        quads: &crate::quads::Quads,
+        others: &[crate::objphys::Obstacle],
+    ) -> Vec<crate::objphys::Contact> {
         let mut impacts = Vec::new();
         if let Some(mut b) = self.body.filter(|_| !self.resting) {
             let mut touched = false;
@@ -774,7 +877,10 @@ impl Weapon {
             self.velocity = b.velocity;
             self.body = Some(b);
         }
-        self.matrix.set(Mat4::from_rotation_translation(glam::Quat::from_rotation_y(self.yaw), self.position));
+        self.matrix.set(Mat4::from_rotation_translation(
+            glam::Quat::from_rotation_y(self.yaw),
+            self.position,
+        ));
         if self.free_time > 0 {
             self.free_time -= 1;
             if self.free_time == 0 {
@@ -805,16 +911,32 @@ mod tests {
     impl Host for Range {
         fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
             let to = from + ray;
-            (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 0, quad: None })
+            (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit {
+                fraction: from.y / (from.y - to.y),
+                normal: Vec3::Y,
+                surface: 0,
+                quad: None,
+            })
         }
-        fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, owner: Option<usize>) -> Option<CharHit> {
+        fn ray_chars(
+            &mut self,
+            from: Vec3,
+            ray: Vec3,
+            radius: f32,
+            owner: Option<usize>,
+        ) -> Option<CharHit> {
             if owner == Some(1) {
                 return None;
             }
             let r = 6.0 + radius;
             let oc = from - self.at;
             if oc.length() <= r {
-                return Some(CharHit { fraction: 0.0, who: 1, normal: Vec3::Y, part: 0 });
+                return Some(CharHit {
+                    fraction: 0.0,
+                    who: 1,
+                    normal: Vec3::Y,
+                    part: 0,
+                });
             }
             let a = ray.length_squared();
             if a < 1e-12 {
@@ -826,19 +948,52 @@ mod tests {
                 return None;
             }
             let t = (-b - disc.sqrt()) / a;
-            (0.0..=1.0).contains(&t).then(|| CharHit { fraction: t, who: 1, normal: (oc + ray * t).normalize(), part: 0 })
+            (0.0..=1.0).contains(&t).then(|| CharHit {
+                fraction: t,
+                who: 1,
+                normal: (oc + ray * t).normalize(),
+                part: 0,
+            })
         }
-        fn hit_char(&mut self, _w: usize, _p: Vec3, _d: Vec3, _k: u32, _dm: f32, _s: f32, _kb: f32, _o: u32, _st: Option<u64>, _si: bool) -> bool {
+        fn hit_char(
+            &mut self,
+            _w: usize,
+            _p: Vec3,
+            _d: Vec3,
+            _k: u32,
+            _dm: f32,
+            _s: f32,
+            _kb: f32,
+            _o: u32,
+            _st: Option<u64>,
+            _si: bool,
+        ) -> bool {
             self.hits += 1;
             false
         }
-        fn blast(&mut self, c: Vec3, _k: u32, _d: f32, _s: f32, _kb: f32, r: f32, _f: u32, _o: u32, _st: u64, _si: bool) {
+        fn blast(
+            &mut self,
+            c: Vec3,
+            _k: u32,
+            _d: f32,
+            _s: f32,
+            _kb: f32,
+            r: f32,
+            _f: u32,
+            _o: u32,
+            _st: u64,
+            _si: bool,
+        ) {
             if c.distance(self.at) <= r + 6.0 {
                 self.blasts += 1;
             }
         }
         fn targets(&self) -> Vec<Target> {
-            vec![Target { who: 1, position: self.at, velocity: Vec3::ZERO }]
+            vec![Target {
+                who: 1,
+                position: self.at,
+                velocity: Vec3::ZERO,
+            }]
         }
         fn hostile(&self, _a: usize, _b: usize) -> bool {
             true
@@ -863,11 +1018,20 @@ mod tests {
         names.sort();
         for name in names {
             let mut sys = System::new(particles.clone());
-            let mut host = Range { at: Vec3::new(0.0, 10.0, 60.0), hits: 0, blasts: 0 };
+            let mut host = Range {
+                at: Vec3::new(0.0, 10.0, 60.0),
+                hits: 0,
+                blasts: 0,
+            };
             let mut gun = Weapon::new(classes.get(&name).unwrap(), Vec3::ZERO, 0.0, false);
             gun.assign(0);
             // Barrel (+X) along +Z, top (+Z) up.
-            let hand = Mat4::from_cols(Vec3::Z.extend(0.0), Vec3::X.extend(0.0), Vec3::Y.extend(0.0), Vec3::new(0.0, 10.0, 0.0).extend(1.0));
+            let hand = Mat4::from_cols(
+                Vec3::Z.extend(0.0),
+                Vec3::X.extend(0.0),
+                Vec3::Y.extend(0.0),
+                Vec3::new(0.0, 10.0, 0.0).extend(1.0),
+            );
             let mut fired = false;
             for tick in 1..=600u32 {
                 gun.tick_held(&mut sys, &mut host, hand, Vec3::ZERO);
@@ -878,14 +1042,26 @@ mod tests {
                     gun.release_trigger(&mut sys, &mut host, false);
                 }
                 sys.update(tick, &mut host);
-                if std::env::var("ONI_DEBUG_GUN").ok().as_deref() == Some(name.as_str()) && tick % 30 == 0 {
+                if std::env::var("ONI_DEBUG_GUN").ok().as_deref() == Some(name.as_str())
+                    && tick % 30 == 0
+                {
                     for (_, p) in sys.iter() {
                         let c = sys.class(p.class);
-                        eprintln!("  t{tick} {} at {:?} v {:?} attr {:?} life {}", c.name, sys.world_position(p), p.velocity, p.attractor, p.lifetime);
+                        eprintln!(
+                            "  t{tick} {} at {:?} v {:?} attr {:?} life {}",
+                            c.name,
+                            sys.world_position(p),
+                            p.velocity,
+                            p.attractor,
+                            p.lifetime
+                        );
                     }
                 }
             }
-            eprintln!("{name}: fired {fired}, ammo {}, hits {}, blasts {}", gun.ammo, host.hits, host.blasts);
+            eprintln!(
+                "{name}: fired {fired}, ammo {}, hits {}, blasts {}",
+                gun.ammo, host.hits, host.blasts
+            );
             assert!(fired, "{name} fires");
             // (w12_ba2's own particles never receive the events that would
             // make them do anything; w10_sni's homing rounds orbit a still

@@ -21,7 +21,12 @@ pub struct HypoSettings {
 
 impl Default for HypoSettings {
     fn default() -> Self {
-        HypoSettings { amount: 0.25, boost_amount: 1.0, overhypo_base: 1.5, overhypo_max: 2.3 }
+        HypoSettings {
+            amount: 0.25,
+            boost_amount: 1.0,
+            overhypo_base: 1.5,
+            overhypo_max: 2.3,
+        }
     }
 }
 
@@ -47,7 +52,9 @@ impl World {
     pub fn use_hypo(&mut self, who: usize) -> bool {
         let h = self.hypo;
         let boosted_most = self.game_sounds.boosted_health;
-        let Some(f) = self.fighters.get_mut(who) else { return false };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return false;
+        };
         let max = f.max_hp.max(1) as u32;
         let inv = &mut f.inventory;
         let mut target = f.hp.max(0) as u32 + u32::from(inv.hypo_remaining);
@@ -114,7 +121,9 @@ impl World {
     /// super-hypo class above full health, from the base to the most at
     /// double health; else 1.
     pub(super) fn potency(&self, who: usize) -> f32 {
-        let Some(f) = self.fighters.get(who) else { return 1.0 };
+        let Some(f) = self.fighters.get(who) else {
+            return 1.0;
+        };
         if !f.motion.tuning.super_hypo || f.hp <= f.max_hp {
             return 1.0;
         }

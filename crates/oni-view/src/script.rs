@@ -143,9 +143,16 @@ impl ScriptHost {
             world.set_quirks(Quirks::FAITHFUL);
         }
         world.difficulty = classes.difficulty(&cast.difficulty);
-        world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
+        world.nav = crate::nav::Navigation::load(&cast.level_dir)
+            .ok()
+            .map(Rc::new);
         world.load_level(&cast.level_dir);
-        world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(&gpu, ch)).ok().map(|k| k.model));
+        world.attach_corpse_models(|c| {
+            classes
+                .kind(c, |ch| renderer.add_character(&gpu, ch))
+                .ok()
+                .map(|k| k.model)
+        });
         world.attach_doors(crate::door_meshes(&scene));
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
@@ -185,7 +192,8 @@ impl ScriptHost {
     /// The spawnable kind for class `name` (loaded on first use).
     fn kind(&mut self, name: &str) -> Result<CharKind, String> {
         let (renderer, gpu) = (&mut self.renderer, &self.gpu);
-        self.classes.kind(name, |ch| renderer.add_character(gpu, ch))
+        self.classes
+            .kind(name, |ch| renderer.add_character(gpu, ch))
     }
 
     /// Advances `n` ticks: drive the player from the held controls (plus any
@@ -227,7 +235,11 @@ impl ScriptHost {
     fn screenshot(&mut self, path: &Path, w: u32, h: u32) {
         let aspect = w as f32 / h as f32;
         // (What the player sees: the game camera — once it is placed.)
-        let mut cam = if self.world.camera.placed { self.world.camera.render_camera(aspect) } else { crate::default_camera(&self.scene, aspect) };
+        let mut cam = if self.world.camera.placed {
+            self.world.camera.render_camera(aspect)
+        } else {
+            crate::default_camera(&self.scene, aspect)
+        };
         match (self.eye, self.target) {
             (Some(e), Some(tg)) => cam.look_at(e, tg),
             (Some(e), None) => cam.look_at(e, self.scene.center()),
@@ -236,7 +248,11 @@ impl ScriptHost {
         self.renderer.door_motion = self.world.door_motions();
         self.renderer.beams = self.world.beams.clone();
         self.renderer.sprites = self.world.sprites();
-        self.renderer.decals = if self.show_decals { self.world.decal_draws(cam.eye) } else { Vec::new() };
+        self.renderer.decals = if self.show_decals {
+            self.world.decal_draws(cam.eye)
+        } else {
+            Vec::new()
+        };
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.env_shades = self.world.env_shades.clone();
         self.renderer.door_shades = self.world.door_shades.clone();
@@ -249,8 +265,22 @@ impl ScriptHost {
         self.renderer.overlay = match (&self.loading, &self.menu) {
             (Some((data, d)), _) => {
                 let (w, h) = (w as f32, h as f32);
-                let black = crate::render::OverlayDraw { texture: None, tris: vec![[0.0, 0.0, 0.0, 0.0], [w, 0.0, 1.0, 0.0], [w, h, 1.0, 1.0], [0.0, 0.0, 0.0, 0.0], [w, h, 1.0, 1.0], [0.0, h, 0.0, 1.0]], color: [0.0, 0.0, 0.0, 1.0], additive: false };
-                std::iter::once(black).chain(d.draw(&data.look, w, h)).collect()
+                let black = crate::render::OverlayDraw {
+                    texture: None,
+                    tris: vec![
+                        [0.0, 0.0, 0.0, 0.0],
+                        [w, 0.0, 1.0, 0.0],
+                        [w, h, 1.0, 1.0],
+                        [0.0, 0.0, 0.0, 0.0],
+                        [w, h, 1.0, 1.0],
+                        [0.0, h, 0.0, 1.0],
+                    ],
+                    color: [0.0, 0.0, 0.0, 1.0],
+                    additive: false,
+                };
+                std::iter::once(black)
+                    .chain(d.draw(&data.look, w, h))
+                    .collect()
             }
             (None, Some((data, m))) => m.draw(data, w as f32, h as f32),
             (None, None) => self.world.hud_draw(w as f32, h as f32),
@@ -265,9 +295,16 @@ impl ScriptHost {
             .into_iter()
             .chain(self.world.particle_models())
             .chain(self.world.turret_draws())
-            
             .chain(self.world.powerup_draws())
-            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0, None)))
+            .filter_map(|(path, m)| {
+                Some((
+                    self.renderer.model_from(&self.gpu, &path)?,
+                    vec![m],
+                    false,
+                    1.0,
+                    None,
+                ))
+            })
             .collect();
         // (Placed objects, some lit flat.)
         for (path, m, shade) in self.world.object_draws() {
@@ -300,7 +337,16 @@ impl ScriptHost {
             .zip(&bones)
             .map(|(f, b)| f.draw(b))
             .chain(self.world.corpse_draws())
-            .chain(guns.iter().map(|(m, b, see_through, alpha, shade)| CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha, shade: *shade }))
+            .chain(
+                guns.iter()
+                    .map(|(m, b, see_through, alpha, shade)| CharDraw {
+                        model: *m,
+                        bones: b,
+                        see_through: *see_through,
+                        alpha: *alpha,
+                        shade: *shade,
+                    }),
+            )
             .collect();
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
@@ -379,7 +425,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "feet_offset",
         lua.create_function(move |_, ()| {
             let host = h.borrow();
-            let Some(f) = host.world.player() else { return Ok(0.0) };
+            let Some(f) = host.world.player() else {
+                return Ok(0.0);
+            };
             Ok(f.feet_offset())
         })?,
     )?;
@@ -485,7 +533,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         // faithful(on) sets the mode; faithful() tells it.
         lua.create_function(move |_, on: Option<bool>| {
             if let Some(on) = on {
-                h.borrow_mut().world.set_quirks(if on { Quirks::FAITHFUL } else { Quirks::FIXED });
+                h.borrow_mut()
+                    .world
+                    .set_quirks(if on { Quirks::FAITHFUL } else { Quirks::FIXED });
             }
             Ok(h.borrow().world.quirks.faithful)
         })?,
@@ -507,7 +557,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "present",
-        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).is_some_and(|f| !f.gone)))?,
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).is_some_and(|f| !f.gone))
+        })?,
     )?;
 
     // Deals damage to fighter `id` (no reaction unless it dies), with a
@@ -515,13 +567,17 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "damage",
-        lua.create_function(move |_, (id, n, dx, dz): (usize, i32, Option<f32>, Option<f32>)| {
-            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
-                let shove = Vec3::new(dx.unwrap_or(0.0), 0.0, dz.unwrap_or(0.0)).normalize_or_zero() * 0.01;
-                f.take_damage(n, shove);
-            }
-            Ok(())
-        })?,
+        lua.create_function(
+            move |_, (id, n, dx, dz): (usize, i32, Option<f32>, Option<f32>)| {
+                if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                    let shove = Vec3::new(dx.unwrap_or(0.0), 0.0, dz.unwrap_or(0.0))
+                        .normalize_or_zero()
+                        * 0.01;
+                    f.take_damage(n, shove);
+                }
+                Ok(())
+            },
+        )?,
     )?;
     // lift(id, by, ticks): fighter `id` is lifted toward `by` as a weapon's
     // "picked up" damage does, for `ticks` (at most 60).
@@ -553,7 +609,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "patrol",
         lua.create_function(
-            move |_, (id, points, pace, looping): (usize, mlua::Table, Option<String>, Option<bool>)| {
+            move |_,
+                  (id, points, pace, looping): (
+                usize,
+                mlua::Table,
+                Option<String>,
+                Option<bool>,
+            )| {
                 let mut pts = Vec::new();
                 for p in points.sequence_values::<mlua::Table>() {
                     let p = p?;
@@ -595,7 +657,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 };
                 let face = face.map(f32::to_radians);
                 if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
-                    f.brain = Some(Brain::Hold(Orders { direction, pace, face }));
+                    f.brain = Some(Brain::Hold(Orders {
+                        direction,
+                        pace,
+                        face,
+                    }));
                 }
                 Ok(())
             },
@@ -614,7 +680,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             // The class's melee AI; the stand-in sparring partner if it has none.
             if !host.world.fight(id, target) {
                 if let Some(f) = host.world.fighters.get_mut(id) {
-                    f.brain = Some(crate::ai::Brain::Spar(crate::ai::Spar::new(target, id as u32 + 1)));
+                    f.brain = Some(crate::ai::Brain::Spar(crate::ai::Spar::new(
+                        target,
+                        id as u32 + 1,
+                    )));
                 }
             }
             Ok(())
@@ -625,10 +694,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "route_done",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow().world.fighters.get(id).is_some_and(|f| match &f.brain {
-                Some(crate::ai::Brain::Route(r)) => r.finished(),
-                _ => true,
-            }))
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .is_some_and(|f| match &f.brain {
+                    Some(crate::ai::Brain::Route(r)) => r.finished(),
+                    _ => true,
+                }))
         })?,
     )?;
 
@@ -662,7 +735,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "type_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow().world.fighters.get(id).map(|f| f.motion.kind).unwrap_or(0))
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.motion.kind)
+                .unwrap_or(0))
         })?,
     )?;
 
@@ -670,7 +748,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "state_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow().world.fighters.get(id).map(|f| f.motion.state).unwrap_or(0))
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.motion.state)
+                .unwrap_or(0))
         })?,
     )?;
 
@@ -678,24 +761,27 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // mean colour over a region (fractions of its width and height).
     g.set(
         "image_mean",
-        lua.create_function(move |_, (path, x0, y0, x1, y1): (String, f32, f32, f32, f32)| {
-            let (w, h, rgba) = crate::render::load_png(std::path::Path::new(&path)).map_err(mlua::Error::external)?;
-            let (ax, bx) = ((x0 * w as f32) as u32, ((x1 * w as f32) as u32).min(w));
-            let (ay, by) = ((y0 * h as f32) as u32, ((y1 * h as f32) as u32).min(h));
-            let mut sum = [0.0f64; 3];
-            let mut n = 0.0;
-            for y in ay..by {
-                for x in ax..bx {
-                    let k = ((y * w + x) * 4) as usize;
-                    for c in 0..3 {
-                        sum[c] += f64::from(rgba[k + c]) / 255.0;
+        lua.create_function(
+            move |_, (path, x0, y0, x1, y1): (String, f32, f32, f32, f32)| {
+                let (w, h, rgba) = crate::render::load_png(std::path::Path::new(&path))
+                    .map_err(mlua::Error::external)?;
+                let (ax, bx) = ((x0 * w as f32) as u32, ((x1 * w as f32) as u32).min(w));
+                let (ay, by) = ((y0 * h as f32) as u32, ((y1 * h as f32) as u32).min(h));
+                let mut sum = [0.0f64; 3];
+                let mut n = 0.0;
+                for y in ay..by {
+                    for x in ax..bx {
+                        let k = ((y * w + x) * 4) as usize;
+                        for c in 0..3 {
+                            sum[c] += f64::from(rgba[k + c]) / 255.0;
+                        }
+                        n += 1.0;
                     }
-                    n += 1.0;
                 }
-            }
-            let n = f64::max(n, 1.0);
-            Ok((sum[0] / n, sum[1] / n, sum[2] / n))
-        })?,
+                let n = f64::max(n, 1.0);
+                Ok((sum[0] / n, sum[1] / n, sum[2] / n))
+            },
+        )?,
     )?;
     // fog() → r, g, b, start, end: the fog now (screen depth: −1 near, 1 far).
     let h = host.clone();
@@ -715,7 +801,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             let names = w.object_states();
-            Ok(w.jello_objects.iter().filter_map(|&k| names.get(k).map(|n| n.0.clone())).collect::<Vec<_>>())
+            Ok(w.jello_objects
+                .iter()
+                .filter_map(|&k| names.get(k).map(|n| n.0.clone()))
+                .collect::<Vec<_>>())
         })?,
     )?;
     // jello_doors() → {quads, leaves}: how many of the see-through quads this
@@ -728,8 +817,28 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             let t = lua.create_table()?;
-            t.set("quads", w.jello.iter().filter(|&&q| w.quads.quads.get(q as usize).is_some_and(|q| q.object_tag >> 24 == 3)).count())?;
-            let leaves: Vec<String> = w.jello_doors.iter().filter_map(|&(o, l)| w.doors.iter().find(|d| d.object_id == o).map(|d| format!("{}:{l}", d.id))).collect();
+            t.set(
+                "quads",
+                w.jello
+                    .iter()
+                    .filter(|&&q| {
+                        w.quads
+                            .quads
+                            .get(q as usize)
+                            .is_some_and(|q| q.object_tag >> 24 == 3)
+                    })
+                    .count(),
+            )?;
+            let leaves: Vec<String> = w
+                .jello_doors
+                .iter()
+                .filter_map(|&(o, l)| {
+                    w.doors
+                        .iter()
+                        .find(|d| d.object_id == o)
+                        .map(|d| format!("{}:{l}", d.id))
+                })
+                .collect();
             t.set("leaves", leaves)?;
             Ok(t)
         })?,
@@ -740,26 +849,40 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "object_in_way",
-        lua.create_function(move |_, (ax, ay, az, bx, by, bz): (f32, f32, f32, f32, f32, f32)| Ok(h.borrow().world.segment_meets_object(Vec3::new(ax, ay, az), Vec3::new(bx, by, bz))))?,
+        lua.create_function(
+            move |_, (ax, ay, az, bx, by, bz): (f32, f32, f32, f32, f32, f32)| {
+                Ok(h.borrow()
+                    .world
+                    .segment_meets_object(Vec3::new(ax, ay, az), Vec3::new(bx, by, bz)))
+            },
+        )?,
     )?;
     // overall_volume() → the sound's overall volume now (0–1).
     let h = host.clone();
-    g.set("overall_volume", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.volume()))?)?;
+    g.set(
+        "overall_volume",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.audio.volume()))?,
+    )?;
     // pause_toggle(): F1 (the pause screen opened, or closed once up a
     // second). pause_screen() → {tab, page (from 1), pages, lines, hint,
     // previous, next} or nil. pause_press(button): "objective", "items",
     // "weapons", "diary", "help", "previous", "next" or "close".
     let h = host.clone();
-    g.set("pause_toggle", lua.create_function(move |_, ()| {
-        h.borrow_mut().world.pause_toggle();
-        Ok(())
-    })?)?;
+    g.set(
+        "pause_toggle",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().world.pause_toggle();
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "pause_screen",
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
-            let Some(s) = host.world.hud.pause_state() else { return Ok(None) };
+            let Some(s) = host.world.hud.pause_state() else {
+                return Ok(None);
+            };
             let t = lua.create_table()?;
             t.set("tab", format!("{:?}", s.tab).to_ascii_lowercase())?;
             t.set("page", s.page + 1)?;
@@ -774,10 +897,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // cheats(on): typing the cheat codes allowed (as once the game is won).
     // type_keys(s) → the last message: letters typed on the pause screen.
     let h = host.clone();
-    g.set("cheats", lua.create_function(move |_, on: bool| {
-        h.borrow_mut().world.cheats.allowed = on;
-        Ok(())
-    })?)?;
+    g.set(
+        "cheats",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().world.cheats.allowed = on;
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "type_keys",
@@ -801,7 +927,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "effects",
         lua.create_function(move |lua, id: usize| {
             let host = h.borrow();
-            let f = host.world.fighters.get(id).ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
+            let f = host
+                .world
+                .fighters
+                .get(id)
+                .ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
             let t = lua.create_table()?;
             t.set("shield", f.inventory.shield)?;
             t.set("shield_shown", f.inventory.shield_display)?;
@@ -815,7 +945,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             t.set("seen", host.world.can_be_seen(id))?;
             t.set("super", f.super_amount)?;
             t.set("super_shield", f.has_super_shield())?;
-            t.set("super_particles", f.super_handles.as_ref().map_or(0, Vec::len))?;
+            t.set(
+                "super_particles",
+                f.super_handles.as_ref().map_or(0, Vec::len),
+            )?;
             t.set("boss_shield", f.boss_shield)?;
             Ok(t)
         })?,
@@ -825,23 +958,43 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // or nil; obj_shades() → each live object's flat shade ({r, g, b} or
     // false).
     let h = host.clone();
-    g.set("frame_ticks", lua.create_function(move |_, n: u32| Ok(h.borrow_mut().world.frame_ticks(n)))?)?;
+    g.set(
+        "frame_ticks",
+        lua.create_function(move |_, n: u32| Ok(h.borrow_mut().world.frame_ticks(n)))?,
+    )?;
     let h = host.clone();
-    g.set("time_scale", lua.create_function(move |_, ()| Ok(h.borrow().world.time_scale()))?)?;
+    g.set(
+        "time_scale",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.time_scale()))?,
+    )?;
     let h = host.clone();
     g.set(
         "env_shade_of",
-        lua.create_function(move |_, r: u32| Ok(h.borrow().world.env_shades.get(&r).map(|c| c.to_vec())))?,
+        lua.create_function(move |_, r: u32| {
+            Ok(h.borrow().world.env_shades.get(&r).map(|c| c.to_vec()))
+        })?,
     )?;
     // door_shade_of(object id) → {r, g, b}: the door's flat shade (0–1).
     let h = host.clone();
     g.set(
         "door_shade_of",
-        lua.create_function(move |_, id: u32| Ok(h.borrow().world.door_shades.get(&id).map(|c| c.to_vec())))?,
+        lua.create_function(move |_, id: u32| {
+            Ok(h.borrow().world.door_shades.get(&id).map(|c| c.to_vec()))
+        })?,
     )?;
     // door_ids() → {object id, …}: the level's doors.
     let h = host.clone();
-    g.set("door_ids", lua.create_function(move |_, ()| Ok(h.borrow().world.doors.iter().map(|d| d.object_id).collect::<Vec<_>>()))?)?;
+    g.set(
+        "door_ids",
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow()
+                .world
+                .doors
+                .iter()
+                .map(|d| d.object_id)
+                .collect::<Vec<_>>())
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "obj_shades",
@@ -863,16 +1016,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "boss_of",
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
-            Ok(match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
-                Some(crate::ai::Brain::Agent(a)) => a.boss_mode().map(|m| format!("{m:?}")),
-                _ => None,
-            })
+            Ok(
+                match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                    Some(crate::ai::Brain::Agent(a)) => a.boss_mode().map(|m| format!("{m:?}")),
+                    _ => None,
+                },
+            )
         })?,
     )?;
     // magic_drawn() → how many magic effects the last screenshot drew
     // (shields, invisibility's shimmer).
     let h = host.clone();
-    g.set("magic_drawn", lua.create_function(move |_, ()| Ok(h.borrow().magic_drawn))?)?;
+    g.set(
+        "magic_drawn",
+        lua.create_function(move |_, ()| Ok(h.borrow().magic_drawn))?,
+    )?;
     let h = host.clone();
     g.set(
         "pause_press",
@@ -886,7 +1044,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 "previous" => 106,
                 "next" => 107,
                 "close" => 2,
-                _ => return Err(mlua::Error::runtime(format!("no pause screen button {button}"))),
+                _ => {
+                    return Err(mlua::Error::runtime(format!(
+                        "no pause screen button {button}"
+                    )))
+                }
             };
             h.borrow_mut().world.pause_press(id, true);
             Ok(())
@@ -903,13 +1065,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "text_console",
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
-            let Some(c) = host.world.hud.text_console.as_ref() else { return Ok(None) };
+            let Some(c) = host.world.hud.text_console.as_ref() else {
+                return Ok(None);
+            };
             let t = lua.create_table()?;
             t.set("name", c.name.clone())?;
             t.set("page", c.page + 1)?;
             t.set("pages", c.pages.len())?;
             t.set("last", c.last())?;
-            t.set("lines", c.pages.get(c.page).map(|p| p.text.iter().map(|l| l.text.clone()).collect::<Vec<_>>()).unwrap_or_default())?;
+            t.set(
+                "lines",
+                c.pages
+                    .get(c.page)
+                    .map(|p| p.text.iter().map(|l| l.text.clone()).collect::<Vec<_>>())
+                    .unwrap_or_default(),
+            )?;
             if let Some(b) = host.world.hud.text_console_button(640.0, 480.0) {
                 t.set("button", b.to_vec())?;
             }
@@ -943,13 +1113,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // lock_of(id) → the frames fighter `id`'s scripted animation still holds
     // it (`animationLockFrames`; 0: free).
     let h = host.clone();
-    g.set("lock_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0, |f| f.motion.lock_frames)))?)?;
+    g.set(
+        "lock_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map_or(0, |f| f.motion.lock_frames))
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "facing_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .fighters
                 .get(id)
@@ -962,7 +1140,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "dead",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow().world.fighters.get(id).is_some_and(|f| f.motion.dying))
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .is_some_and(|f| f.motion.dying))
         })?,
     )?;
 
@@ -970,7 +1152,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "state",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow().world.player().map(|p| p.motion.state).unwrap_or(0))
+            Ok(h.borrow()
+                .world
+                .player()
+                .map(|p| p.motion.state)
+                .unwrap_or(0))
         })?,
     )?;
 
@@ -978,7 +1164,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "anim_type",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow().world.player().map(|p| p.motion.kind).unwrap_or(0))
+            Ok(h.borrow()
+                .world
+                .player()
+                .map(|p| p.motion.kind)
+                .unwrap_or(0))
         })?,
     )?;
 
@@ -996,7 +1186,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "airborne",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow().world.player().map(|p| p.airborne()).unwrap_or(false))
+            Ok(h.borrow()
+                .world
+                .player()
+                .map(|p| p.airborne())
+                .unwrap_or(false))
         })?,
     )?;
 
@@ -1048,8 +1242,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "facing_deg",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .map(|p| p.facing.facing.to_degrees())
@@ -1063,8 +1256,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "aim_deg",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .map(|p| p.facing.aim().to_degrees())
@@ -1076,8 +1268,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "desired_deg",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .map(|p| p.facing.desired_facing.to_degrees())
@@ -1122,7 +1313,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let kind = host.kind(&placed.class).map_err(mlua::Error::runtime)?;
             // (A placed position is the feet; spawning takes the pelvis:
             // start it a little above and let it settle.)
-            let id = host.world.spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
+            let id = host
+                .world
+                .spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
             let melee = placed.melee_id.and_then(|m| host.classes.melee_by_id(m));
             host.world.give_goals(id, Some(&placed), melee);
             host.class_names.push(placed.class.clone());
@@ -1138,10 +1331,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "mission_begin",
         lua.create_function(move |_, (run, save_point): (Option<bool>, Option<i64>)| {
             let mut host = h.borrow_mut();
-            let mut m = crate::mission::Mission::load(&host.world.level_dir).map_err(mlua::Error::runtime)?;
+            let mut m = crate::mission::Mission::load(&host.world.level_dir)
+                .map_err(mlua::Error::runtime)?;
             // (`mission_begin(true, n)`: from the level's save point n.)
             if let Some(n) = save_point {
-                m.state.vars.insert("save_point".into(), mlua::Value::Integer(n));
+                m.state
+                    .vars
+                    .insert("save_point".into(), mlua::Value::Integer(n));
             }
             // (A level begun afresh flags its new moves.)
             if save_point.unwrap_or(0) == 0 && run != Some(false) {
@@ -1190,9 +1386,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "play_film",
-        lua.create_function(move |_, (id, name, mode): (usize, String, Option<String>)| {
-            Ok(h.borrow_mut().world.play_film(id, &name, mode.as_deref().unwrap_or(""), 30))
-        })?,
+        lua.create_function(
+            move |_, (id, name, mode): (usize, String, Option<String>)| {
+                Ok(h.borrow_mut()
+                    .world
+                    .play_film(id, &name, mode.as_deref().unwrap_or(""), 30))
+            },
+        )?,
     )?;
 
     // Sends an AI to raise the alarm at console `console` (nil: the nearest).
@@ -1210,7 +1410,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "console_reset",
         lua.create_function(move |_, id: u16| {
-            for k in h.borrow_mut().world.consoles.iter_mut().filter(|k| k.id == id) {
+            for k in h
+                .borrow_mut()
+                .world
+                .consoles
+                .iter_mut()
+                .filter(|k| k.id == id)
+            {
                 k.triggered = false;
                 k.active = k.initial_active;
             }
@@ -1225,7 +1431,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "collisions",
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
-            let Some(f) = host.world.fighters.get(id) else { return Ok((0, 0, 0, 0, 0)) };
+            let Some(f) = host.world.fighters.get(id) else {
+                return Ok((0, 0, 0, 0, 0));
+            };
             let (r, s) = f.avoid.count();
             Ok((f.collisions.0, f.collisions.1, f.collisions.2, r, s))
         })?,
@@ -1238,7 +1446,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
             let t = lua.create_table()?;
-            for (k, (name, at, frame, animating)) in host.world.object_states().into_iter().enumerate() {
+            for (k, (name, at, frame, animating)) in
+                host.world.object_states().into_iter().enumerate()
+            {
                 let o = lua.create_table()?;
                 o.set("name", name)?;
                 o.set("at", vec![at.x, at.y, at.z])?;
@@ -1257,7 +1467,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, id: u16| {
             let host = h.borrow();
             let t = lua.create_table()?;
-            for (k, (at, half, solid, paused)) in host.world.door_leaves(id).into_iter().enumerate() {
+            for (k, (at, half, solid, paused)) in host.world.door_leaves(id).into_iter().enumerate()
+            {
                 let l = lua.create_table()?;
                 l.set("at", vec![at.x, at.y, at.z])?;
                 l.set("half", vec![half.x, half.y, half.z])?;
@@ -1302,7 +1513,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "give_weapon",
-        lua.create_function(move |_, (id, class): (usize, String)| Ok(h.borrow_mut().world.give_weapon(id, &class)))?,
+        lua.create_function(move |_, (id, class): (usize, String)| {
+            Ok(h.borrow_mut().world.give_weapon(id, &class))
+        })?,
     )?;
     let h = host.clone();
     g.set(
@@ -1310,8 +1523,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
             let w = &host.world;
-            let gun = w.fighters.get(id).and_then(|f| f.hand).map(|k| &w.weapons()[k]);
-            Ok((gun.map(|g| g.class.name.clone()), gun.map(|g| g.ammo), gun.map(|g| g.firing)))
+            let gun = w
+                .fighters
+                .get(id)
+                .and_then(|f| f.hand)
+                .map(|k| &w.weapons()[k]);
+            Ok((
+                gun.map(|g| g.class.name.clone()),
+                gun.map(|g| g.ammo),
+                gun.map(|g| g.firing),
+            ))
         })?,
     )?;
     let h = host.clone();
@@ -1335,7 +1556,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let hud = &host.world.hud;
             let t = lua.create_table()?;
-            let lines = |a: &crate::hud::text::TextArea| a.entries.iter().map(|e| e.text.clone()).collect::<Vec<_>>();
+            let lines = |a: &crate::hud::text::TextArea| {
+                a.entries.iter().map(|e| e.text.clone()).collect::<Vec<_>>()
+            };
             t.set("messages", lines(&hud.messages))?;
             t.set("subtitles", lines(&hud.subtitles))?;
             t.set("console", lines(&hud.console))?;
@@ -1349,7 +1572,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             t.set("filled", hud.filled)?;
             t.set("flashing", hud.flashing)?;
             t.set("show", vec![hud.show[0], hud.show[1]])?;
-            t.set("hits", host.world.fighters.first().map(|p| p.hits.to_vec()).unwrap_or_default())?;
+            t.set(
+                "hits",
+                host.world
+                    .fighters
+                    .first()
+                    .map(|p| p.hits.to_vec())
+                    .unwrap_or_default(),
+            )?;
             Ok(t)
         })?,
     )?;
@@ -1389,33 +1619,61 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let w = &host.world;
             let sys = &w.armory.particles;
             let at = Vec3::new(x, y, z);
-            Ok(w.lens.iter().filter_map(|(h, v)| sys.get(*h).map(|p| (sys.world_position(p).distance(at), v.1))).min_by(|a, b| a.0.total_cmp(&b.0)).map(|v| v.1))
+            Ok(w.lens
+                .iter()
+                .filter_map(|(h, v)| {
+                    sys.get(*h)
+                        .map(|p| (sys.world_position(p).distance(at), v.1))
+                })
+                .min_by(|a, b| a.0.total_cmp(&b.0))
+                .map(|v| v.1))
         })?,
     )?;
     // use_hypo(id) → whether fighter `id` used a hypo (as Tab does);
     // hypo_left(id) → the health its hypo still has to give.
     let h = host.clone();
-    g.set("use_hypo", lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.use_hypo(id)))?)?;
+    g.set(
+        "use_hypo",
+        lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.use_hypo(id)))?,
+    )?;
     let h = host.clone();
-    g.set("hypo_left", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0, |f| f.inventory.hypo_remaining)))?)?;
+    g.set(
+        "hypo_left",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map_or(0, |f| f.inventory.hypo_remaining))
+        })?,
+    )?;
     // The player reads the objective (F1).
     let h = host.clone();
-    g.set("read_objective", lua.create_function(move |_, ()| {
-        h.borrow_mut().world.hud.read_objective();
-        Ok(())
-    })?)?;
+    g.set(
+        "read_objective",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().world.hud.read_objective();
+            Ok(())
+        })?,
+    )?;
     // Dialogue subtitles on or off (the game's option).
     let h = host.clone();
-    g.set("subtitles", lua.create_function(move |_, on: bool| {
-        h.borrow_mut().world.hud.subtitles_on = on;
-        Ok(())
-    })?)?;
+    g.set(
+        "subtitles",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().world.hud.subtitles_on = on;
+            Ok(())
+        })?,
+    )?;
     // How many overlay triangles the HUD draws now (on a 640 × 480 screen).
     let h = host.clone();
-    g.set("hud_triangles", lua.create_function(move |_, ()| {
-        let draws = h.borrow_mut().world.hud_draw(640.0, 480.0);
-        Ok(draws.iter().map(|d| d.tris.len() / 3).sum::<usize>())
-    })?)?;
+    g.set(
+        "hud_triangles",
+        lua.create_function(move |_, ()| {
+            let draws = h.borrow_mut().world.hud_draw(640.0, 480.0);
+            Ok(draws.iter().map(|d| d.tris.len() / 3).sum::<usize>())
+        })?,
+    )?;
     // The game camera: where it is, which way it looks, whether a script
     // waits on it, and how many walls it makes see-through.
     let h = host.clone();
@@ -1429,7 +1687,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     let h = host.clone();
-    g.set("jello", lua.create_function(move |_, ()| Ok(h.borrow().world.jello.len()))?)?;
+    g.set(
+        "jello",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.jello.len()))?,
+    )?;
     // Holds (or lets go of) the look-mode key.
     let h = host.clone();
     g.set(
@@ -1445,7 +1706,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "aim_lr",
         lua.create_function(move |_, v: Option<f32>| {
             let mut host = h.borrow_mut();
-            let Some(p) = host.world.fighters.first_mut() else { return Ok(0.0) };
+            let Some(p) = host.world.fighters.first_mut() else {
+                return Ok(0.0);
+            };
             if let Some(v) = v {
                 p.aiming_lr = v;
             }
@@ -1455,10 +1718,19 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "aim_of",
-        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map_or(0.0, |f| f.aiming_ud)))?,
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map_or(0.0, |f| f.aiming_ud))
+        })?,
     )?;
     let h = host.clone();
-    g.set("reload", lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.reload(id)))?)?;
+    g.set(
+        "reload",
+        lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.reload(id)))?,
+    )?;
     let h = host.clone();
     g.set(
         "drop_weapon",
@@ -1503,7 +1775,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     let h = host.clone();
-    g.set("shots", lua.create_function(move |_, ()| Ok(h.borrow().world.particles().iter().count()))?)?;
+    g.set(
+        "shots",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.particles().iter().count()))?,
+    )?;
     let h = host.clone();
     g.set(
         "swap",
@@ -1515,9 +1790,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "spawn_weapon",
-        lua.create_function(move |_, (class, x, y, z, falling): (String, f32, f32, f32, Option<bool>)| {
-            Ok(h.borrow_mut().world.spawn_weapon(&class, Vec3::new(x, y, z), 0.0, !falling.unwrap_or(false)).is_some())
-        })?,
+        lua.create_function(
+            move |_, (class, x, y, z, falling): (String, f32, f32, f32, Option<bool>)| {
+                Ok(h.borrow_mut()
+                    .world
+                    .spawn_weapon(&class, Vec3::new(x, y, z), 0.0, !falling.unwrap_or(false))
+                    .is_some())
+            },
+        )?,
     )?;
     // loose_guns() → {{class, at={x,y,z}, falling}, …}: the guns no one holds.
     let h = host.clone();
@@ -1526,7 +1806,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
             let t = lua.create_table()?;
-            for (k, g) in host.world.weapons().iter().filter(|g| g.owner.is_none() && !g.gone).enumerate() {
+            for (k, g) in host
+                .world
+                .weapons()
+                .iter()
+                .filter(|g| g.owner.is_none() && !g.gone)
+                .enumerate()
+            {
                 let o = lua.create_table()?;
                 o.set("class", g.class.name.clone())?;
                 o.set("at", vec![g.position.x, g.position.y, g.position.z])?;
@@ -1542,7 +1828,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
             let w = &host.world;
-            Ok(w.fighters.get(id).and_then(|f| f.holster).map(|k| w.weapons()[k].class.name.clone()))
+            Ok(w.fighters
+                .get(id)
+                .and_then(|f| f.holster)
+                .map(|k| w.weapons()[k].class.name.clone()))
         })?,
     )?;
     // Sound: sounds() → the playing ambients, each {name, stage ("in",
@@ -1573,15 +1862,24 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "impulse",
-        lua.create_function(move |_, (name, x, y, z, volume): (String, Option<f32>, Option<f32>, Option<f32>, Option<f32>)| {
-            let mut host = h.borrow_mut();
-            let at = match (x, y, z) {
-                (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
-                _ => None,
-            };
-            let w = &mut host.world;
-            Ok(w.audio.impulse_play(&name, at, volume, Some(&w.quads)))
-        })?,
+        lua.create_function(
+            move |_,
+                  (name, x, y, z, volume): (
+                String,
+                Option<f32>,
+                Option<f32>,
+                Option<f32>,
+                Option<f32>,
+            )| {
+                let mut host = h.borrow_mut();
+                let at = match (x, y, z) {
+                    (Some(x), Some(y), Some(z)) => Some(Vec3::new(x, y, z)),
+                    _ => None,
+                };
+                let w = &mut host.world;
+                Ok(w.audio.impulse_play(&name, at, volume, Some(&w.quads)))
+            },
+        )?,
     )?;
     let h = host.clone();
     g.set(
@@ -1610,7 +1908,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
             let list = lua.create_table()?;
-            for (i, (ambient, at, is_box, state, volume, playing)) in host.world.audio.sound_objects().into_iter().enumerate() {
+            for (i, (ambient, at, is_box, state, volume, playing)) in
+                host.world.audio.sound_objects().into_iter().enumerate()
+            {
                 let t = lua.create_table()?;
                 t.set("ambient", ambient)?;
                 t.set("x", at.x)?;
@@ -1638,13 +1938,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "powerup",
-        lua.create_function(move |_, (id, kind, amount): (usize, String, Option<u16>)| Ok(h.borrow_mut().world.give_powerup(id, &kind, amount, false)))?,
+        lua.create_function(move |_, (id, kind, amount): (usize, String, Option<u16>)| {
+            Ok(h.borrow_mut().world.give_powerup(id, &kind, amount, false))
+        })?,
     )?;
     // env_particles(tag) → how many of the level's environmental particles
     // tagged `tag` are alive; particle(tag, command [, event]) sends them a
     // command as scripts do.
     let h = host.clone();
-    g.set("env_particles", lua.create_function(move |_, tag: String| Ok(h.borrow().world.env_particles_alive(&tag)))?)?;
+    g.set(
+        "env_particles",
+        lua.create_function(move |_, tag: String| Ok(h.borrow().world.env_particles_alive(&tag)))?,
+    )?;
     // decals([class]) → { {class, static, alpha, vertices, triangles,
     // positions = {{x,y,z}…}, quad}, … }: the live decals (of a class),
     // static first, oldest first.
@@ -1657,7 +1962,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let out = lua.create_table()?;
             let fixed = particles.decals.fixed.len();
             for (k, d) in particles.decals.iter().enumerate() {
-                let Some(p) = particles.get(d.particle) else { continue };
+                let Some(p) = particles.get(d.particle) else {
+                    continue;
+                };
                 let name = &particles.classes.list[p.class].name;
                 if class.as_ref().is_some_and(|c| c != name) {
                     continue;
@@ -1689,7 +1996,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "health_shade",
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
-            let f = host.world.fighters.get(id).ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
+            let f = host
+                .world
+                .fighters
+                .get(id)
+                .ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
             Ok(host.world.health_shade(f.hp, f.max_hp))
         })?,
     )?;
@@ -1705,7 +2016,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                     continue;
                 }
                 let (at, o) = (sys.world_position(p), sys.world_orientation(p).y_axis);
-                let mut v = vec![f64::from(at.x), f64::from(at.y), f64::from(at.z), f64::from(o.x), f64::from(o.y), f64::from(o.z)];
+                let mut v = vec![
+                    f64::from(at.x),
+                    f64::from(at.y),
+                    f64::from(at.z),
+                    f64::from(o.x),
+                    f64::from(o.y),
+                    f64::from(o.z),
+                ];
                 if let crate::p3::class::Value::Var(k) = sys.classes.list[p.class].tint {
                     if let Some(crate::p3::Val::U(t)) = p.vars.get(k) {
                         v.push(f64::from(*t));
@@ -1745,7 +2063,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(sys
                 .iter()
                 .filter(|(_, p)| sys.classes.list[p.class].name == class)
-                .map(|(_, p)| host.world.particle_texture(p).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default())
+                .map(|(_, p)| {
+                    host.world
+                        .particle_texture(p)
+                        .file_stem()
+                        .map(|s| s.to_string_lossy().into_owned())
+                        .unwrap_or_default()
+                })
                 .collect::<Vec<String>>())
         })?,
     )?;
@@ -1756,7 +2080,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "shadow",
         lua.create_function(move |lua, id: usize| {
             let host = h.borrow();
-            let Some((mesh, alpha, _)) = host.world.shadow(id) else { return Ok(None) };
+            let Some((mesh, alpha, _)) = host.world.shadow(id) else {
+                return Ok(None);
+            };
             let t = lua.create_table()?;
             t.set("alpha", alpha)?;
             t.set("quad", mesh.quad)?;
@@ -1773,7 +2099,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // fighter's posed bone k, or the gun in its hand (nil without one).
     let mat = |lua: &mlua::Lua, m: glam::Mat4| -> mlua::Result<mlua::Table> {
         let t = lua.create_table()?;
-        for (k, c) in [("x", m.x_axis), ("y", m.y_axis), ("z", m.z_axis), ("at", m.w_axis)] {
+        for (k, c) in [
+            ("x", m.x_axis),
+            ("y", m.y_axis),
+            ("z", m.z_axis),
+            ("at", m.w_axis),
+        ] {
             t.set(k, vec![c.x, c.y, c.z])?;
         }
         Ok(t)
@@ -1783,7 +2114,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "bone",
         lua.create_function(move |lua, (id, k): (usize, usize)| {
             let host = h.borrow();
-            let Some(m) = host.world.fighters.get(id).and_then(|f| f.bones().get(k).copied()) else { return Ok(None) };
+            let Some(m) = host
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.bones().get(k).copied())
+            else {
+                return Ok(None);
+            };
             mat(lua, m).map(Some)
         })?,
     )?;
@@ -1793,7 +2131,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, id: usize| {
             let host = h.borrow();
             let w = &host.world;
-            let Some(k) = w.fighters.get(id).and_then(|f| f.hand) else { return Ok(None) };
+            let Some(k) = w.fighters.get(id).and_then(|f| f.hand) else {
+                return Ok(None);
+            };
             mat(lua, w.armory.weapons[k].matrix.get()).map(Some)
         })?,
     )?;
@@ -1806,34 +2146,53 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "sight",
         lua.create_function(move |lua, id: usize| {
             let host = h.borrow();
-            let Some(s) = host.world.gun_sight(id) else { return Ok(None) };
+            let Some(s) = host.world.gun_sight(id) else {
+                return Ok(None);
+            };
             let t = lua.create_table()?;
             t.set("from", vec![s.from.x, s.from.y, s.from.z])?;
             t.set("to", vec![s.to.x, s.to.y, s.to.z])?;
-            t.set("target", match s.target {
-                crate::world::SightTarget::None => "none",
-                crate::world::SightTarget::Object => "object",
-                crate::world::SightTarget::Environment => "environment",
-                crate::world::SightTarget::Character => "character",
-            })?;
+            t.set(
+                "target",
+                match s.target {
+                    crate::world::SightTarget::None => "none",
+                    crate::world::SightTarget::Object => "object",
+                    crate::world::SightTarget::Environment => "environment",
+                    crate::world::SightTarget::Character => "character",
+                },
+            )?;
             t.set("laser", s.laser.map(|c| c.to_vec()))?;
             t.set("tunnel", s.tunnel.len())?;
             Ok(Some(t))
         })?,
     )?;
     let h = host.clone();
-    g.set("gun_through_wall", lua.create_function(move |_, id: usize| Ok(h.borrow().world.gun_through_wall(id)))?)?;
+    g.set(
+        "gun_through_wall",
+        lua.create_function(move |_, id: usize| Ok(h.borrow().world.gun_through_wall(id)))?,
+    )?;
     // show_decals(on): whether screenshots draw the decals (to compare).
     let h = host.clone();
-    g.set("show_decals", lua.create_function(move |_, on: bool| {
-        h.borrow_mut().show_decals = on;
-        Ok(())
-    })?)?;
+    g.set(
+        "show_decals",
+        lua.create_function(move |_, on: bool| {
+            h.borrow_mut().show_decals = on;
+            Ok(())
+        })?,
+    )?;
     // quad_plane(q) → a, b, c, d: a level quad's plane.
     // jello_drawn() → how many see-through (jello) triangles the last
     // screenshot drew, and how many of them were doors'.
     let h = host.clone();
-    g.set("jello_drawn", lua.create_function(move |_, ()| Ok((h.borrow().renderer.jello_triangles(), h.borrow().renderer.jello_door_triangles())))?)?;
+    g.set(
+        "jello_drawn",
+        lua.create_function(move |_, ()| {
+            Ok((
+                h.borrow().renderer.jello_triangles(),
+                h.borrow().renderer.jello_door_triangles(),
+            ))
+        })?,
+    )?;
     // decals_drawn(x, y, z) → {{quad, alpha}, …}: the decals drawn from
     // that eye this frame (alpha 0..1, as drawn).
     let h = host.clone();
@@ -1842,7 +2201,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, (x, y, z): (f32, f32, f32)| {
             let host = h.borrow();
             let out = lua.create_table()?;
-            for (k, d) in host.world.decal_draws(Vec3::new(x, y, z)).iter().enumerate() {
+            for (k, d) in host
+                .world
+                .decal_draws(Vec3::new(x, y, z))
+                .iter()
+                .enumerate()
+            {
                 let t = lua.create_table()?;
                 t.set("quad", d.positions.quad)?;
                 t.set("alpha", d.alpha)?;
@@ -1874,20 +2238,24 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "ray",
-        lua.create_function(move |lua, (x1, y1, z1, x2, y2, z2): (f32, f32, f32, f32, f32, f32)| {
-            let host = h.borrow();
-            let w = &host.world;
-            let (a, b) = (Vec3::new(x1, y1, z1), Vec3::new(x2, y2, z2));
-            let Some(hit) = w.quads.ray(a, b - a, 0) else { return Ok(None) };
-            let q = &w.quads.quads[hit.quad as usize];
-            let t = lua.create_table()?;
-            t.set("quad", hit.quad)?;
-            t.set("at", vec![hit.point.x, hit.point.y, hit.point.z])?;
-            t.set("flags", q.flags)?;
-            t.set("object_tag", q.object_tag)?;
-            t.set("jello", w.jello.contains(&hit.quad))?;
-            Ok(Some(t))
-        })?,
+        lua.create_function(
+            move |lua, (x1, y1, z1, x2, y2, z2): (f32, f32, f32, f32, f32, f32)| {
+                let host = h.borrow();
+                let w = &host.world;
+                let (a, b) = (Vec3::new(x1, y1, z1), Vec3::new(x2, y2, z2));
+                let Some(hit) = w.quads.ray(a, b - a, 0) else {
+                    return Ok(None);
+                };
+                let q = &w.quads.quads[hit.quad as usize];
+                let t = lua.create_table()?;
+                t.set("quad", hit.quad)?;
+                t.set("at", vec![hit.point.x, hit.point.y, hit.point.z])?;
+                t.set("flags", q.flags)?;
+                t.set("object_tag", q.object_tag)?;
+                t.set("jello", w.jello.contains(&hit.quad))?;
+                Ok(Some(t))
+            },
+        )?,
     )?;
     let h = host.clone();
     g.set(
@@ -1902,9 +2270,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "particle",
-        lua.create_function(move |_, (tag, command, event): (String, String, Option<String>)| {
-            Ok(h.borrow_mut().world.env_particle_command(&tag, &command, event.as_deref()))
-        })?,
+        lua.create_function(
+            move |_, (tag, command, event): (String, String, Option<String>)| {
+                Ok(h.borrow_mut()
+                    .world
+                    .env_particle_command(&tag, &command, event.as_deref()))
+            },
+        )?,
     )?;
     // console_screen(id) → the texture console `id`'s screen shows now (by
     // its state), or nil.
@@ -1913,20 +2285,37 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "console_screen",
         lua.create_function(move |_, id: u16| {
             let host = h.borrow();
-            Ok(host.world.consoles.iter().find(|c| c.id == id).map(crate::world::World::screen_of))
+            Ok(host
+                .world
+                .consoles
+                .iter()
+                .find(|c| c.id == id)
+                .map(crate::world::World::screen_of))
         })?,
     )?;
     // dialog() → whether a scripted dialogue line is on.
     let h = host.clone();
-    g.set("dialog", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.dialog_playing()))?)?;
+    g.set(
+        "dialog",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.audio.dialog_playing()))?,
+    )?;
     // sounds_playing() → {name, …}: the sounds playing now, in start order.
     let h = host.clone();
-    g.set("sounds_playing", lua.create_function(move |_, ()| Ok(h.borrow().world.audio.playing_names()))?)?;
+    g.set(
+        "sounds_playing",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.audio.playing_names()))?,
+    )?;
     // saying(id) → the line a character is saying (an ambient's name) or nil.
     let h = host.clone();
     g.set(
         "saying",
-        lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).and_then(|f| f.speech.saying().map(str::to_string))))?,
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.speech.saying().map(str::to_string)))
+        })?,
     )?;
     // Turrets: turret(id, "activate" | "deactivate" | "reset");
     // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
@@ -1944,7 +2333,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "turret_state",
         lua.create_function(move |lua, id: u16| {
             let host = h.borrow();
-            let Some(t) = host.world.turrets.iter().find(|t| t.id == id) else { return Ok(mlua::Value::Nil) };
+            let Some(t) = host.world.turrets.iter().find(|t| t.id == id) else {
+                return Ok(mlua::Value::Nil);
+            };
             let r = lua.create_table()?;
             r.set("active", t.active)?;
             r.set("yaw", t.yaw.to_degrees())?;
@@ -1971,7 +2362,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "gun_chance",
         lua.create_function(move |_, (id, percent): (usize, u32)| {
-            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+            if let Some(crate::ai::Brain::Agent(a)) = h
+                .borrow_mut()
+                .world
+                .fighters
+                .get_mut(id)
+                .and_then(|f| f.brain.as_mut())
+            {
                 a.class.gun_pickup_percent = percent;
             }
             Ok(())
@@ -1983,7 +2380,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "running_pickup_chance",
         lua.create_function(move |_, (id, percent): (usize, u32)| {
-            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+            if let Some(crate::ai::Brain::Agent(a)) = h
+                .borrow_mut()
+                .world
+                .fighters
+                .get_mut(id)
+                .and_then(|f| f.brain.as_mut())
+            {
                 a.class.gun_running_pickup_percent = percent;
             }
             Ok(())
@@ -2000,19 +2403,29 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "env_broken",
-        lua.create_function(move |_, (from, to): (u32, Option<u32>)| Ok(h.borrow().world.env_broken(from, to.unwrap_or(from))))?,
+        lua.create_function(move |_, (from, to): (u32, Option<u32>)| {
+            Ok(h.borrow().world.env_broken(from, to.unwrap_or(from)))
+        })?,
     )?;
     let h = host.clone();
     g.set(
         "inventory",
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
-            let i = host.world.fighters.get(id).map(|f| f.inventory).unwrap_or_default();
+            let i = host
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.inventory)
+                .unwrap_or_default();
             Ok((i.ammo, i.cells, i.hypos))
         })?,
     )?;
     let h = host.clone();
-    g.set("powerups_lying", lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?)?;
+    g.set(
+        "powerups_lying",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.powerups().len()))?,
+    )?;
     // powerups() → {{kind, at={x,y,z}, falling}, …}: the powerups lying
     // about (falling: still with physics).
     let h = host.clone();
@@ -2034,7 +2447,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "weapons_lying",
-        lua.create_function(move |_, ()| Ok(h.borrow().world.weapons().iter().filter(|g| g.owner.is_none()).count()))?,
+        lua.create_function(move |_, ()| {
+            Ok(h.borrow()
+                .world
+                .weapons()
+                .iter()
+                .filter(|g| g.owner.is_none())
+                .count())
+        })?,
     )?;
 
     // Orders laser trigger `id` ("activate", "deactivate", "reset", "hide",
@@ -2044,7 +2464,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "laser",
         lua.create_function(move |_, (id, what, factor): (i64, String, Option<f32>)| {
-            h.borrow_mut().world.laser_set(id, &what, factor.unwrap_or(1.0));
+            h.borrow_mut()
+                .world
+                .laser_set(id, &what, factor.unwrap_or(1.0));
             Ok(())
         })?,
     )?;
@@ -2054,7 +2476,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: u16| {
             let host = h.borrow();
             let l = host.world.lasers.iter().find(|l| l.id == id);
-            Ok((l.map(|l| l.active), l.map(|l| l.laser_on), l.map(|l| l.triggered), l.map(|l| if l.beaming() { l.emitters.len() } else { 0 })))
+            Ok((
+                l.map(|l| l.active),
+                l.map(|l| l.laser_on),
+                l.map(|l| l.triggered),
+                l.map(|l| if l.beaming() { l.emitters.len() } else { 0 }),
+            ))
         })?,
     )?;
     // Laser beams out now: a list of {x1, y1, z1, x2, y2, z2}.
@@ -2062,7 +2489,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "beams",
         lua.create_function(move |_, ()| {
-            Ok(h.borrow().world.beams.iter().map(|(a, b, _)| vec![a.x, a.y, a.z, b.x, b.y, b.z]).collect::<Vec<_>>())
+            Ok(h.borrow()
+                .world
+                .beams
+                .iter()
+                .map(|(a, b, _)| vec![a.x, a.y, a.z, b.x, b.y, b.z])
+                .collect::<Vec<_>>())
         })?,
     )?;
 
@@ -2083,7 +2515,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "console_state",
         lua.create_function(move |_, id: u16| {
-            Ok(h.borrow().world.consoles.iter().find(|k| k.id == id).map(|k| k.screen()))
+            Ok(h.borrow()
+                .world
+                .consoles
+                .iter()
+                .find(|k| k.id == id)
+                .map(|k| k.screen()))
         })?,
     )?;
 
@@ -2105,7 +2542,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             match host.mission.as_ref() {
                 Some(m) => m.exec(&code).map_err(mlua::Error::external),
-                None => Err(mlua::Error::external("no mission (call mission_begin first)")),
+                None => Err(mlua::Error::external(
+                    "no mission (call mission_begin first)",
+                )),
             }
         })?,
     )?;
@@ -2130,30 +2569,39 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // cutscene_skip() → "idle" / "starting" / "black" / "skipping" /
     // "fading in", and the screen's black (0–1; nil: none).
     let h = host.clone();
-    g.set("skip_cutscene", lua.create_function(move |_, ()| {
-        h.borrow_mut().world.skip_cutscene();
-        Ok(())
-    })?)?;
+    g.set(
+        "skip_cutscene",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().world.skip_cutscene();
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
-    g.set("cutscene_skip", lua.create_function(move |_, ()| {
-        use crate::world::skip::Skip;
-        let host = h.borrow();
-        let w = &host.world;
-        let mode = match w.skip {
-            Skip::Idle => "idle",
-            Skip::Starting(_) => "starting",
-            Skip::Black => "black",
-            Skip::Skipping => "skipping",
-            Skip::FadingIn(_) => "fading in",
-        };
-        Ok((mode, w.skip_blanket()))
-    })?)?;
+    g.set(
+        "cutscene_skip",
+        lua.create_function(move |_, ()| {
+            use crate::world::skip::Skip;
+            let host = h.borrow();
+            let w = &host.world;
+            let mode = match w.skip {
+                Skip::Idle => "idle",
+                Skip::Starting(_) => "starting",
+                Skip::Black => "black",
+                Skip::Skipping => "skipping",
+                Skip::FadingIn(_) => "fading in",
+            };
+            Ok((mode, w.skip_blanket()))
+        })?,
+    )?;
     // set_gamma(g): the gamma option for frames drawn (0–1; 0.5 as drawn).
     let h = host.clone();
-    g.set("set_gamma", lua.create_function(move |_, v: f32| {
-        h.borrow_mut().renderer.gamma = v;
-        Ok(())
-    })?)?;
+    g.set(
+        "set_gamma",
+        lua.create_function(move |_, v: f32| {
+            h.borrow_mut().renderer.gamma = v;
+            Ok(())
+        })?,
+    )?;
     // The main menu (docs/MENU.md): menu_open([in_game]) brings it up;
     // menu_state() → {dialog, depth, rows, selected, checks = {id = on},
     // sliders = {id = value}, popups = {id = item}} of the dialog on top (nil:
@@ -2162,56 +2610,89 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // returning what the menu asks for ("new_game", "new_game faithful",
     // "load L S", "resume", "quit", "options"; nil: nothing); menu_close().
     let h = host.clone();
-    g.set("menu_open", lua.create_function(move |_, in_game: Option<bool>| {
-        let mut host = h.borrow_mut();
-        let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
-        if !data.has("mainmenu") {
-            return Err(mlua::Error::external("no menus (common/menus.json)"));
-        }
-        let mut m = crate::hud::menu::MainMenu::open(&data, in_game.unwrap_or(false), crate::settings::Settings::default());
-        m.quirks = host.world.quirks;
-        host.menu = Some((data, m));
-        Ok(())
-    })?)?;
-    let h = host.clone();
-    g.set("menu_close", lua.create_function(move |_, ()| {
-        h.borrow_mut().menu = None;
-        Ok(())
-    })?)?;
-    let h = host.clone();
-    g.set("menu_state", lua.create_function(move |lua, ()| {
-        let host = h.borrow();
-        let Some((_, m)) = &host.menu else { return Ok(None) };
-        let Some(w) = m.top() else { return Ok(None) };
-        let t = lua.create_table()?;
-        t.set("dialog", w.name.clone())?;
-        t.set("depth", m.stack.len())?;
-        let (checks, sliders, popups, visible) = (lua.create_table()?, lua.create_table()?, lua.create_table()?, lua.create_table()?);
-        for c in &w.controls {
-            if c.visible {
-                visible.set(c.def.id, c.def.title.clone())?;
+    g.set(
+        "menu_open",
+        lua.create_function(move |_, in_game: Option<bool>| {
+            let mut host = h.borrow_mut();
+            let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
+            if !data.has("mainmenu") {
+                return Err(mlua::Error::external("no menus (common/menus.json)"));
             }
-            match &c.ctl {
-                crate::hud::menu::Ctl::Check(on) => checks.set(c.def.id, *on)?,
-                crate::hud::menu::Ctl::Slider { value, .. } => sliders.set(c.def.id, *value)?,
-                crate::hud::menu::Ctl::Popup { .. } => popups.set(c.def.id, w.popup(c.def.id))?,
-                crate::hud::menu::Ctl::List { .. } => {
-                    t.set("rows", w.rows(c.def.id))?;
-                    t.set("selected", w.selected_data(c.def.id).map(|d| (d & 0xFF, d >> 8)).map(|(l, s)| format!("{l} {s}")))?;
+            let mut m = crate::hud::menu::MainMenu::open(
+                &data,
+                in_game.unwrap_or(false),
+                crate::settings::Settings::default(),
+            );
+            m.quirks = host.world.quirks;
+            host.menu = Some((data, m));
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "menu_close",
+        lua.create_function(move |_, ()| {
+            h.borrow_mut().menu = None;
+            Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "menu_state",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let Some((_, m)) = &host.menu else {
+                return Ok(None);
+            };
+            let Some(w) = m.top() else { return Ok(None) };
+            let t = lua.create_table()?;
+            t.set("dialog", w.name.clone())?;
+            t.set("depth", m.stack.len())?;
+            let (checks, sliders, popups, visible) = (
+                lua.create_table()?,
+                lua.create_table()?,
+                lua.create_table()?,
+                lua.create_table()?,
+            );
+            for c in &w.controls {
+                if c.visible {
+                    visible.set(c.def.id, c.def.title.clone())?;
                 }
-                _ => {}
+                match &c.ctl {
+                    crate::hud::menu::Ctl::Check(on) => checks.set(c.def.id, *on)?,
+                    crate::hud::menu::Ctl::Slider { value, .. } => sliders.set(c.def.id, *value)?,
+                    crate::hud::menu::Ctl::Popup { .. } => {
+                        popups.set(c.def.id, w.popup(c.def.id))?
+                    }
+                    crate::hud::menu::Ctl::List { .. } => {
+                        t.set("rows", w.rows(c.def.id))?;
+                        t.set(
+                            "selected",
+                            w.selected_data(c.def.id)
+                                .map(|d| (d & 0xFF, d >> 8))
+                                .map(|(l, s)| format!("{l} {s}")),
+                        )?;
+                    }
+                    _ => {}
+                }
             }
-        }
-        t.set("visible", visible)?;
-        t.set("checks", checks)?;
-        t.set("sliders", sliders)?;
-        t.set("popups", popups)?;
-        Ok(Some(t))
-    })?)?;
+            t.set("visible", visible)?;
+            t.set("checks", checks)?;
+            t.set("sliders", sliders)?;
+            t.set("popups", popups)?;
+            Ok(Some(t))
+        })?,
+    )?;
     fn act(a: Option<crate::hud::menu::Action>) -> Option<String> {
         use crate::hud::menu::Action;
         a.map(|a| match a {
-            Action::NewGame { faithful } => if faithful { "new_game faithful".into() } else { "new_game".into() },
+            Action::NewGame { faithful } => {
+                if faithful {
+                    "new_game faithful".into()
+                } else {
+                    "new_game".into()
+                }
+            }
             Action::Load { level, save_point } => format!("load {level} {save_point}"),
             Action::Resume => "resume".into(),
             Action::Quit => "quit".into(),
@@ -2229,121 +2710,179 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         out
     }
     let h = host.clone();
-    g.set("menu_click", lua.create_function(move |_, id: i64| {
-        let mut host = h.borrow_mut();
-        let (w, hh) = (640.0, 480.0);
-        let cmds = {
-            let Some((data, m)) = host.menu.as_mut() else { return Ok(None) };
-            let Some(win) = m.top_mut() else { return Ok(None) };
-            let Some(c) = win.control(id).filter(|c| c.visible) else { return Err(mlua::Error::external(format!("no control {id} showing"))) };
-            let at = win.at(w, hh);
-            let [x, y, cw, ch] = c.def.rect;
-            let (px, py) = (at[0] + x + (cw * 0.5).min(20.0), at[1] + y + ch * 0.5);
-            let mut cmds = win.mouse_down(&data.look, w, hh, px, py);
-            cmds.extend(win.mouse_up(&data.look, w, hh, px, py));
-            cmds
-        };
-        Ok(run(&mut host, cmds))
-    })?)?;
+    g.set(
+        "menu_click",
+        lua.create_function(move |_, id: i64| {
+            let mut host = h.borrow_mut();
+            let (w, hh) = (640.0, 480.0);
+            let cmds = {
+                let Some((data, m)) = host.menu.as_mut() else {
+                    return Ok(None);
+                };
+                let Some(win) = m.top_mut() else {
+                    return Ok(None);
+                };
+                let Some(c) = win.control(id).filter(|c| c.visible) else {
+                    return Err(mlua::Error::external(format!("no control {id} showing")));
+                };
+                let at = win.at(w, hh);
+                let [x, y, cw, ch] = c.def.rect;
+                let (px, py) = (at[0] + x + (cw * 0.5).min(20.0), at[1] + y + ch * 0.5);
+                let mut cmds = win.mouse_down(&data.look, w, hh, px, py);
+                cmds.extend(win.mouse_up(&data.look, w, hh, px, py));
+                cmds
+            };
+            Ok(run(&mut host, cmds))
+        })?,
+    )?;
     // menu_press(id, f): the left button down on a control, a fraction `f`
     // of the way across it (held: menu_timer(n) fires the window manager's
     // timer n times, a slider pressing on); menu_release() lets go. Each
     // returns what the menu asks for, as menu_click.
     let h = host.clone();
-    g.set("menu_press", lua.create_function(move |_, (id, f): (i64, f32)| {
-        let mut host = h.borrow_mut();
-        let (w, hh) = (640.0, 480.0);
-        let (cmds, at) = {
-            let Some((data, m)) = host.menu.as_mut() else { return Ok(None) };
-            let Some(win) = m.top_mut() else { return Ok(None) };
-            let Some(c) = win.control(id).filter(|c| c.visible) else { return Err(mlua::Error::external(format!("no control {id} showing"))) };
-            let o = win.at(w, hh);
-            let [x, y, cw, ch] = c.def.rect;
-            let at = [o[0] + x + cw * f, o[1] + y + ch * 0.5];
-            (win.mouse_down(&data.look, w, hh, at[0], at[1]), at)
-        };
-        host.menu_held = Some((at, std::time::Instant::now()));
-        Ok(run(&mut host, cmds))
-    })?)?;
+    g.set(
+        "menu_press",
+        lua.create_function(move |_, (id, f): (i64, f32)| {
+            let mut host = h.borrow_mut();
+            let (w, hh) = (640.0, 480.0);
+            let (cmds, at) = {
+                let Some((data, m)) = host.menu.as_mut() else {
+                    return Ok(None);
+                };
+                let Some(win) = m.top_mut() else {
+                    return Ok(None);
+                };
+                let Some(c) = win.control(id).filter(|c| c.visible) else {
+                    return Err(mlua::Error::external(format!("no control {id} showing")));
+                };
+                let o = win.at(w, hh);
+                let [x, y, cw, ch] = c.def.rect;
+                let at = [o[0] + x + cw * f, o[1] + y + ch * 0.5];
+                (win.mouse_down(&data.look, w, hh, at[0], at[1]), at)
+            };
+            host.menu_held = Some((at, std::time::Instant::now()));
+            Ok(run(&mut host, cmds))
+        })?,
+    )?;
     let h = host.clone();
-    g.set("menu_timer", lua.create_function(move |_, n: u32| {
-        let mut host = h.borrow_mut();
-        let Some((at, mut clock)) = host.menu_held else { return Ok(None) };
-        let mut cmds = Vec::new();
-        if let Some((data, m)) = host.menu.as_mut() {
-            if let Some(win) = m.top_mut() {
-                for _ in 0..n {
-                    clock += std::time::Duration::from_millis(200);
-                    cmds.extend(win.tick(&data.look, 640.0, 480.0, at[0], at[1], clock));
+    g.set(
+        "menu_timer",
+        lua.create_function(move |_, n: u32| {
+            let mut host = h.borrow_mut();
+            let Some((at, mut clock)) = host.menu_held else {
+                return Ok(None);
+            };
+            let mut cmds = Vec::new();
+            if let Some((data, m)) = host.menu.as_mut() {
+                if let Some(win) = m.top_mut() {
+                    for _ in 0..n {
+                        clock += std::time::Duration::from_millis(200);
+                        cmds.extend(win.tick(&data.look, 640.0, 480.0, at[0], at[1], clock));
+                    }
                 }
             }
-        }
-        host.menu_held = Some((at, clock));
-        Ok(run(&mut host, cmds))
-    })?)?;
+            host.menu_held = Some((at, clock));
+            Ok(run(&mut host, cmds))
+        })?,
+    )?;
     let h = host.clone();
-    g.set("menu_release", lua.create_function(move |_, ()| {
-        let mut host = h.borrow_mut();
-        let Some((at, _)) = host.menu_held.take() else { return Ok(None) };
-        let cmds = host.menu.as_mut().and_then(|(data, m)| Some(m.top_mut()?.mouse_up(&data.look, 640.0, 480.0, at[0], at[1]))).unwrap_or_default();
-        Ok(run(&mut host, cmds))
-    })?)?;
+    g.set(
+        "menu_release",
+        lua.create_function(move |_, ()| {
+            let mut host = h.borrow_mut();
+            let Some((at, _)) = host.menu_held.take() else {
+                return Ok(None);
+            };
+            let cmds = host
+                .menu
+                .as_mut()
+                .and_then(|(data, m)| {
+                    Some(
+                        m.top_mut()?
+                            .mouse_up(&data.look, 640.0, 480.0, at[0], at[1]),
+                    )
+                })
+                .unwrap_or_default();
+            Ok(run(&mut host, cmds))
+        })?,
+    )?;
     // menu_loading(percent): the level-load dialog alone over black, its
     // bar at `percent` (screenshots draw it); menu_loading() hides it.
     let h = host.clone();
-    g.set("menu_loading", lua.create_function(move |_, percent: Option<u32>| {
-        let mut host = h.borrow_mut();
-        let Some(p) = percent else {
-            host.loading = None;
-            return Ok(());
-        };
-        if host.loading.is_none() {
-            let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
-            if !data.has("Progress") {
-                return Err(mlua::Error::external("no level-load dialog (common/menus.json); reconvert the assets"));
+    g.set(
+        "menu_loading",
+        lua.create_function(move |_, percent: Option<u32>| {
+            let mut host = h.borrow_mut();
+            let Some(p) = percent else {
+                host.loading = None;
+                return Ok(());
+            };
+            if host.loading.is_none() {
+                let data = crate::hud::menu::Data::load(&host.oni_root.join("common"));
+                if !data.has("Progress") {
+                    return Err(mlua::Error::external(
+                        "no level-load dialog (common/menus.json); reconvert the assets",
+                    ));
+                }
+                let w = crate::hud::menu::Window::new(&data, "Progress");
+                host.loading = Some((data, w));
             }
-            let w = crate::hud::menu::Window::new(&data, "Progress");
-            host.loading = Some((data, w));
-        }
-        if let Some((_, w)) = host.loading.as_mut() {
-            w.set_progress(100, p);
-        }
-        Ok(())
-    })?)?;
+            if let Some((_, w)) = host.loading.as_mut() {
+                w.set_progress(100, p);
+            }
+            Ok(())
+        })?,
+    )?;
     let h = host.clone();
-    g.set("menu_key", lua.create_function(move |_, name: String| {
-        use crate::hud::menu::Key;
-        let key = match name.as_str() {
-            "enter" => Key::Enter,
-            "escape" => Key::Escape,
-            "up" => Key::Up,
-            "down" => Key::Down,
-            "left" => Key::Left,
-            "right" => Key::Right,
-            "home" => Key::Home,
-            "end" => Key::End,
-            "pageup" => Key::PageUp,
-            "pagedown" => Key::PageDown,
-            _ => return Err(mlua::Error::external(format!("no key {name}"))),
-        };
-        let mut host = h.borrow_mut();
-        let cmds = host.menu.as_mut().and_then(|(_, m)| m.top_mut()).map(|w| w.key(key)).unwrap_or_default();
-        Ok(run(&mut host, cmds))
-    })?)?;
+    g.set(
+        "menu_key",
+        lua.create_function(move |_, name: String| {
+            use crate::hud::menu::Key;
+            let key = match name.as_str() {
+                "enter" => Key::Enter,
+                "escape" => Key::Escape,
+                "up" => Key::Up,
+                "down" => Key::Down,
+                "left" => Key::Left,
+                "right" => Key::Right,
+                "home" => Key::Home,
+                "end" => Key::End,
+                "pageup" => Key::PageUp,
+                "pagedown" => Key::PageDown,
+                _ => return Err(mlua::Error::external(format!("no key {name}"))),
+            };
+            let mut host = h.borrow_mut();
+            let cmds = host
+                .menu
+                .as_mut()
+                .and_then(|(_, m)| m.top_mut())
+                .map(|w| w.key(key))
+                .unwrap_or_default();
+            Ok(run(&mut host, cmds))
+        })?,
+    )?;
     // look_at(id, x, y, z): an agent looks at a point (as `ai2_lookatme`);
     // look_at(id): it stops looking.
     let h = host.clone();
     g.set(
         "look_at",
-        lua.create_function(move |_, (id, x, y, z): (usize, Option<f32>, Option<f32>, Option<f32>)| {
-            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
-                match (x, y, z) {
-                    (Some(x), Some(y), Some(z)) => a.look_at(glam::Vec3::new(x, y, z)),
-                    _ => a.stop_looking(),
+        lua.create_function(
+            move |_, (id, x, y, z): (usize, Option<f32>, Option<f32>, Option<f32>)| {
+                if let Some(crate::ai::Brain::Agent(a)) = h
+                    .borrow_mut()
+                    .world
+                    .fighters
+                    .get_mut(id)
+                    .and_then(|f| f.brain.as_mut())
+                {
+                    match (x, y, z) {
+                        (Some(x), Some(y), Some(z)) => a.look_at(glam::Vec3::new(x, y, z)),
+                        _ => a.stop_looking(),
+                    }
                 }
-            }
-            Ok(())
-        })?,
+                Ok(())
+            },
+        )?,
     )?;
     // aim_off(id) → its aim off the body, left-right and up-down (degrees).
     let h = host.clone();
@@ -2352,7 +2891,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, id: usize| {
             let host = h.borrow();
             let f = host.world.fighters.get(id);
-            Ok((f.map(|f| f.aiming_lr.to_degrees()), f.map(|f| f.aiming_ud.to_degrees())))
+            Ok((
+                f.map(|f| f.aiming_lr.to_degrees()),
+                f.map(|f| f.aiming_ud.to_degrees()),
+            ))
         })?,
     )?;
     // Where an agent's eyes look (degrees; nil: along its body).
@@ -2360,10 +2902,20 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "eye_of",
         lua.create_function(move |_, id: usize| {
-            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
-                Some(crate::ai::Brain::Agent(a)) => a.eye.map(|e| e.to_degrees().rem_euclid(360.0)),
-                _ => None,
-            })
+            Ok(
+                match h
+                    .borrow()
+                    .world
+                    .fighters
+                    .get(id)
+                    .and_then(|f| f.brain.as_ref())
+                {
+                    Some(crate::ai::Brain::Agent(a)) => {
+                        a.eye.map(|e| e.to_degrees().rem_euclid(360.0))
+                    }
+                    _ => None,
+                },
+            )
         })?,
     )?;
     // cinematics() → the cutscene inserts showing: a list of {name, x, y,
@@ -2418,7 +2970,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             Ok(match w.timer.as_ref() {
-                Some(t) => (w.timer_text(), Some(t.ticks), Some(if t.mode == crate::world::timer::Mode::On { "on" } else { "fail" })),
+                Some(t) => (
+                    w.timer_text(),
+                    Some(t.ticks),
+                    Some(if t.mode == crate::world::timer::Mode::On {
+                        "on"
+                    } else {
+                        "fail"
+                    }),
+                ),
                 None => (None, None, None),
             })
         })?,
@@ -2427,18 +2987,42 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // cutscene); script_id_of(id) → the id the scripts know it by (the
     // player 0, a `chr_create`d character its setup's; nil for the rest).
     let h = host.clone();
-    g.set("passive_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).map(|f| f.passive)))?)?;
+    g.set(
+        "passive_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).map(|f| f.passive))
+        })?,
+    )?;
     let h = host.clone();
-    g.set("script_id_of", lua.create_function(move |_, id: usize| Ok(h.borrow().world.fighters.get(id).and_then(|f| if id == 0 { Some(0) } else { f.script_id })))?)?;
+    g.set(
+        "script_id_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow().world.fighters.get(id).and_then(|f| {
+                if id == 0 {
+                    Some(0)
+                } else {
+                    f.script_id
+                }
+            }))
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "goal_of",
         lua.create_function(move |_, id: usize| {
-            Ok(match h.borrow().world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
-                Some(crate::ai::Brain::Agent(a)) => a.describe(),
-                Some(_) => "other".to_string(),
-                None => "none".to_string(),
-            })
+            Ok(
+                match h
+                    .borrow()
+                    .world
+                    .fighters
+                    .get(id)
+                    .and_then(|f| f.brain.as_ref())
+                {
+                    Some(crate::ai::Brain::Agent(a)) => a.describe(),
+                    Some(_) => "other".to_string(),
+                    None => "none".to_string(),
+                },
+            )
         })?,
     )?;
 
@@ -2452,7 +3036,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, id: usize| {
             let host = h.borrow();
             let w = &host.world;
-            let Some(f) = w.fighters.get(id) else { return Ok(None) };
+            let Some(f) = w.fighters.get(id) else {
+                return Ok(None);
+            };
             if f.neutral.behavior.is_none() && f.neutral_with.is_none() {
                 return Ok(None);
             }
@@ -2478,11 +3064,24 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "probe",
         lua.create_function(move |_, (id, deg, dist): (usize, f32, f32)| {
             let host = h.borrow();
-            let Some(f) = host.world.fighters.get(id) else { return Ok((0.0, None)) };
+            let Some(f) = host.world.fighters.get(id) else {
+                return Ok((0.0, None));
+            };
             let a = deg.to_radians();
             let env = crate::chrphys::Env::new(&host.world.quads, &[]);
-            let radius = if f.player { crate::chrphys::PLAYER_LEAF } else { crate::chrphys::AI_LEAF };
-            let p = crate::chrphys::probe(&env, f.feet(), radius, Vec3::new(a.sin(), 0.0, a.cos()), dist, 10.0);
+            let radius = if f.player {
+                crate::chrphys::PLAYER_LEAF
+            } else {
+                crate::chrphys::AI_LEAF
+            };
+            let p = crate::chrphys::probe(
+                &env,
+                f.feet(),
+                radius,
+                Vec3::new(a.sin(), 0.0, a.cos()),
+                dist,
+                10.0,
+            );
             Ok((p.free, p.ledge))
         })?,
     )?;
@@ -2493,18 +3092,20 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "go_to",
-        lua.create_function(move |_, (id, x, y, z, pace): (usize, f32, f32, f32, Option<String>)| {
-            let pace = match pace.as_deref() {
-                Some("walk") => crate::ai::Pace::Walk,
-                _ => crate::ai::Pace::Run,
-            };
-            if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
-                f.passive = false;
-                let n = crate::ai::navigate::Navigator::new(Vec3::new(x, y, z), 3.0, pace);
-                f.brain = Some(crate::ai::Brain::GoTo(Box::new(n)));
-            }
-            Ok(())
-        })?,
+        lua.create_function(
+            move |_, (id, x, y, z, pace): (usize, f32, f32, f32, Option<String>)| {
+                let pace = match pace.as_deref() {
+                    Some("walk") => crate::ai::Pace::Walk,
+                    _ => crate::ai::Pace::Run,
+                };
+                if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
+                    f.passive = false;
+                    let n = crate::ai::navigate::Navigator::new(Vec3::new(x, y, z), 3.0, pace);
+                    f.brain = Some(crate::ai::Brain::GoTo(Box::new(n)));
+                }
+                Ok(())
+            },
+        )?,
     )?;
     let h = host.clone();
     g.set(
@@ -2571,7 +3172,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "alert_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow().world.fighters.get(id).and_then(|f| f.perception.as_ref()).map(|p| p.alert.name()))
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.perception.as_ref())
+                .map(|p| p.alert.name()))
         })?,
     )?;
     let h = host.clone();
@@ -2591,7 +3197,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "team",
         lua.create_function(move |_, (id, name): (usize, String)| {
-            if let Some(p) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.perception.as_mut()) {
+            if let Some(p) = h
+                .borrow_mut()
+                .world
+                .fighters
+                .get_mut(id)
+                .and_then(|f| f.perception.as_mut())
+            {
                 p.team = crate::ai::perception::Team::from_name(&name);
             }
             Ok(())
@@ -2631,7 +3243,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "technique",
         lua.create_function(move |_, (id, name): (usize, String)| {
-            if let Some(crate::ai::Brain::Melee(m)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+            if let Some(crate::ai::Brain::Melee(m)) = h
+                .borrow_mut()
+                .world
+                .fighters
+                .get_mut(id)
+                .and_then(|f| f.brain.as_mut())
+            {
                 m.force = Some(name);
             }
             Ok(())
@@ -2677,8 +3295,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "anim_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .fighters
                 .get(id)
@@ -2713,7 +3330,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "pos",
         lua.create_function(move |_, ()| {
-            let f = h.borrow().world.player().map(|p| p.feet()).unwrap_or(Vec3::ZERO);
+            let f = h
+                .borrow()
+                .world
+                .player()
+                .map(|p| p.feet())
+                .unwrap_or(Vec3::ZERO);
             Ok((f.x, f.y, f.z))
         })?,
     )?;
@@ -2722,8 +3344,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "grounded",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .map(|p| p.physics.grounded)
@@ -2736,8 +3357,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "stitch",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .and_then(|p| p.motion.blend_pose())
@@ -2750,8 +3370,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "anim",
         lua.create_function(move |_, ()| {
-            Ok(h
-                .borrow()
+            Ok(h.borrow()
                 .world
                 .player()
                 .map(|p| p.motion.name().to_string())

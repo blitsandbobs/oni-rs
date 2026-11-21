@@ -75,28 +75,45 @@ impl<'a> Records<'a> {
                 (name, k)
             })
             .collect();
-        Records { dat, registry, by_ref }
+        Records {
+            dat,
+            registry,
+            by_ref,
+        }
     }
 
     /// The instance a `{"$ref": …}` names: its tag and decoded fields.
     pub(crate) fn get(&self, link: &Value) -> Option<(FourCc, Value)> {
         let inst = &self.dat.instances[*self.by_ref.get(link["$ref"].as_str()?)?];
         let layout = self.registry.get(inst.tag)?;
-        let rec = oni_template::decode(layout, self.dat.instance_data(inst)?, self.dat.header.endian).ok()?;
+        let rec = oni_template::decode(
+            layout,
+            self.dat.instance_data(inst)?,
+            self.dat.header.endian,
+        )
+        .ok()?;
         Some((inst.tag, crate::level_json::record_to_json(&rec, self.dat)))
     }
 }
 
 /// A C string from its bytes.
 pub(crate) fn text(v: &Value) -> String {
-    let bytes: Vec<u8> = v.as_array().into_iter().flatten().map(|b| b.as_i64().unwrap_or(0) as u8).take_while(|&b| b != 0).collect();
+    let bytes: Vec<u8> = v
+        .as_array()
+        .into_iter()
+        .flatten()
+        .map(|b| b.as_i64().unwrap_or(0) as u8)
+        .take_while(|&b| b != 0)
+        .collect();
     // (Mac Roman in the data; the shipped consoles' text is ASCII.)
     bytes.iter().map(|&b| b as char).collect()
 }
 
 /// A string array's strings, each with its font pushed over `font`.
 fn strings(r: &Records<'_>, link: &Value, font: Font) -> Vec<Value> {
-    let Some((_, sa)) = r.get(link) else { return Vec::new() };
+    let Some((_, sa)) = r.get(link) else {
+        return Vec::new();
+    };
     sa["string"]
         .as_array()
         .into_iter()
@@ -135,19 +152,37 @@ pub(crate) fn page(r: &Records<'_>, link: &Value, base: Font) -> Option<Value> {
 
 /// A page array's (`IGPA`) pages.
 pub(crate) fn page_array(r: &Records<'_>, link: &Value, base: Font) -> Vec<Value> {
-    let Some((_, pa)) = r.get(link) else { return Vec::new() };
-    pa["pages"].as_array().into_iter().flatten().filter_map(|p| page(r, p, base)).collect()
+    let Some((_, pa)) = r.get(link) else {
+        return Vec::new();
+    };
+    pa["pages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|p| page(r, p, base))
+        .collect()
 }
 
 /// The text consoles in `dat` (by name), their fonts resolved over `base`
 /// (the dialog's text font).
-pub fn consoles(dat: &Dat<'_>, registry: &oni_template::Registry, base: Font) -> serde_json::Map<String, Value> {
+pub fn consoles(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    base: Font,
+) -> serde_json::Map<String, Value> {
     let r = Records::new(dat, registry);
     let mut out = serde_json::Map::new();
     for inst in dat.instances.iter().filter(|i| i.tag.to_string() == "TxtC") {
-        let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else { continue };
-        let Some((_, txtc)) = r.get(&json!({ "$ref": name })) else { continue };
-        out.insert(name.to_string(), json!({ "pages": page_array(&r, &txtc["console_data"], base) }));
+        let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        let Some((_, txtc)) = r.get(&json!({ "$ref": name })) else {
+            continue;
+        };
+        out.insert(
+            name.to_string(),
+            json!({ "pages": page_array(&r, &txtc["console_data"], base) }),
+        );
     }
     out
 }
@@ -160,7 +195,11 @@ pub fn dialog(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value
 
 /// A dialog (`WMDD`) by name: its size and controls, and its main text
 /// area's (110) font.
-pub(crate) fn named_dialog(dat: &Dat<'_>, registry: &oni_template::Registry, name: &str) -> Option<(Value, Font)> {
+pub(crate) fn named_dialog(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    name: &str,
+) -> Option<(Value, Font)> {
     let r = Records::new(dat, registry);
     let (_, d) = r.get(&json!({ "$ref": name }))?;
     let mut base = None;
@@ -183,20 +222,29 @@ pub(crate) fn named_dialog(dat: &Dat<'_>, registry: &oni_template::Registry, nam
             })
         })
         .collect();
-    Some((json!({ "size": [d["width"], d["height"]], "items": items }), base?))
+    Some((
+        json!({ "size": [d["width"], d["height"]], "items": items }),
+        base?,
+    ))
 }
 
 /// Writes `common/text_console.json` (the dialog).
 pub fn write_dialog(dialog: &Value, common: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(common)?;
-    std::fs::write(common.join("text_console.json"), serde_json::to_string_pretty(dialog)?)
+    std::fs::write(
+        common.join("text_console.json"),
+        serde_json::to_string_pretty(dialog)?,
+    )
 }
 
 /// Writes a level's `text_consoles.json`.
 pub fn write(consoles: serde_json::Map<String, Value>, root: &Path) -> std::io::Result<usize> {
     let n = consoles.len();
     if n > 0 {
-        std::fs::write(root.join("text_consoles.json"), serde_json::to_string_pretty(&json!({ "consoles": consoles }))?)?;
+        std::fs::write(
+            root.join("text_consoles.json"),
+            serde_json::to_string_pretty(&json!({ "consoles": consoles }))?,
+        )?;
     }
     Ok(n)
 }

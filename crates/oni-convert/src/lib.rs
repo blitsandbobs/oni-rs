@@ -22,30 +22,30 @@
 
 #![forbid(unsafe_code)]
 
-mod level_json;
-mod characters;
-mod fonts;
-mod melee;
+mod anim_sounds;
 mod bsl;
+mod characters;
 mod consoles;
-mod neutrals;
 mod corpses;
 mod doors;
-mod lasers;
-mod objects;
-mod patrols;
-mod placed;
-mod particles;
-mod materials;
-mod particle_defs;
-mod weapons;
-mod anim_sounds;
+mod fonts;
 mod impacts;
-mod sounds;
+mod lasers;
+mod level_json;
+mod materials;
+mod melee;
 mod menus;
+mod neutrals;
+mod objects;
+mod particle_defs;
+mod particles;
+mod patrols;
 mod pause_pages;
+mod placed;
+mod sounds;
 mod text_consoles;
 mod turrets;
+mod weapons;
 
 use std::collections::BTreeMap;
 use std::io::Write;
@@ -127,35 +127,58 @@ fn default_scripts_dir(input_dir: &Path) -> Option<PathBuf> {
 
 /// The level's name (its `ONLV` descriptor), which names its script folder.
 fn level_name(dat: &Dat<'_>) -> Option<String> {
-    dat.instances.iter().find(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONLV")))?.name.clone()
+    dat.instances
+        .iter()
+        .find(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONLV")))?
+        .name
+        .clone()
 }
 
 /// Translates the level's scripts (`scripts_dir/<level name>/*.bsl`, any
 /// case) to `scripts.lua` (`scripting/PORT.md`). Returns the number of
 /// lines that couldn't be translated.
 fn convert_scripts(dat: &Dat<'_>, scripts_dir: &Path, root: &Path) -> std::io::Result<usize> {
-    let Some(name) = level_name(dat) else { return Ok(0) };
+    let Some(name) = level_name(dat) else {
+        return Ok(0);
+    };
     let Some(folder) = std::fs::read_dir(scripts_dir)?
         .flatten()
         .map(|e| e.path())
-        .find(|p| p.file_name().and_then(|f| f.to_str()).is_some_and(|f| f.eq_ignore_ascii_case(&name)))
+        .find(|p| {
+            p.file_name()
+                .and_then(|f| f.to_str())
+                .is_some_and(|f| f.eq_ignore_ascii_case(&name))
+        })
     else {
         return Ok(0);
     };
     let mut files: Vec<PathBuf> = std::fs::read_dir(&folder)?
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().and_then(|x| x.to_str()).is_some_and(|x| x.eq_ignore_ascii_case("bsl")))
+        .filter(|p| {
+            p.extension()
+                .and_then(|x| x.to_str())
+                .is_some_and(|x| x.eq_ignore_ascii_case("bsl"))
+        })
         .collect();
     files.sort();
     let mut texts = Vec::new();
     for f in &files {
         let bytes = std::fs::read(f)?;
-        let name = f.file_name().and_then(|n| n.to_str()).unwrap_or("?").to_string();
+        let name = f
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("?")
+            .to_string();
         texts.push((name, String::from_utf8_lossy(&bytes).into_owned()));
     }
     let t = bsl::translate(&texts);
-    println!("  scripts: {} files, {} functions from {}", texts.len(), t.functions, folder.display());
+    println!(
+        "  scripts: {} files, {} functions from {}",
+        texts.len(),
+        t.functions,
+        folder.display()
+    );
     for e in &t.errors {
         eprintln!("  script: {e}");
     }
@@ -166,7 +189,11 @@ fn convert_scripts(dat: &Dat<'_>, scripts_dir: &Path, root: &Path) -> std::io::R
 
 /// [`convert`], with the level scripts taken from `scripts_dir` (none: no
 /// scripts).
-pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Path>) -> std::io::Result<Report> {
+pub fn convert_with(
+    input_dir: &Path,
+    output_dir: &Path,
+    scripts_dir: Option<&Path>,
+) -> std::io::Result<Report> {
     std::fs::create_dir_all(output_dir)?;
     let mut dats: Vec<PathBuf> = std::fs::read_dir(input_dir)?
         .flatten()
@@ -234,7 +261,6 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                                 fl & oni_texture::FLAG_BLEND_ADDITIVE != 0,
                                 fl & oni_texture::FLAG_SELF_ILLUMINENT != 0,
                             ));
-
                         }
                     }
                 }
@@ -259,9 +285,17 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
     // The text console dialog's text font (level 0's), the pages' base.
-    let mut console_font = text_consoles::Font { size: 7, style: 0, shade: Some(0xFFFF_FFFF) };
+    let mut console_font = text_consoles::Font {
+        size: 7,
+        style: 0,
+        shade: Some(0xFFFF_FFFF),
+    };
     // The pause screen's main area font (level 0's), its pages' base.
-    let mut pause_font = text_consoles::Font { size: 10, style: 1, shade: Some(0xFFFF_7F00) };
+    let mut pause_font = text_consoles::Font {
+        size: 10,
+        style: 1,
+        shade: Some(0xFFFF_7F00),
+    };
     // The animated textures (by file stem), from every file.
     let mut texture_anims: BTreeMap<String, serde_json::Value> = BTreeMap::new();
 
@@ -311,7 +345,14 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         )?;
         convert_characters(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
         convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
-        let env_objects = convert_environment(&dat, &f.root, &root, &texture_flags, &glass_textures, &mut stats)?;
+        let env_objects = convert_environment(
+            &dat,
+            &f.root,
+            &root,
+            &texture_flags,
+            &glass_textures,
+            &mut stats,
+        )?;
         if let Some(raw) = raw.as_deref() {
             convert_messages(&dat, raw, &root)?;
             convert_navigation(&dat, raw, &root)?;
@@ -331,7 +372,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 if let Some(dir) = scripts_dir {
                     let bad = convert_scripts(&dat, dir, &root)?;
                     if bad > 0 {
-                        stats.warnings.push(format!("{bad} script lines not translated"));
+                        stats
+                            .warnings
+                            .push(format!("{bad} script lines not translated"));
                     }
                 }
             } else {
@@ -344,13 +387,17 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 anim_sounds::write(&dat, raw, &root)?;
                 std::fs::write(
                     root.join("laser_classes.json"),
-                    serde_json::to_string_pretty(&serde_json::json!({ "classes": lasers::class_sounds(&dat) }))?,
+                    serde_json::to_string_pretty(
+                        &serde_json::json!({ "classes": lasers::class_sounds(&dat) }),
+                    )?,
                 )?;
                 let door_classes = doors::class_sounds(&dat);
                 if !door_classes.is_empty() {
                     std::fs::write(
                         root.join("door_classes.json"),
-                        serde_json::to_string_pretty(&serde_json::json!({ "classes": door_classes }))?,
+                        serde_json::to_string_pretty(
+                            &serde_json::json!({ "classes": door_classes }),
+                        )?,
                     )?;
                 }
                 let profiles = patrols::combat_profiles(&dat, raw);
@@ -370,7 +417,14 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
         stats.films = convert_films(&dat, &root)?;
         stats.fonts = fonts::convert(&dat, &root)?;
-        collect_character_classes(&dat, &f.root, fi, &global_named, &registry, &mut character_classes);
+        collect_character_classes(
+            &dat,
+            &f.root,
+            fi,
+            &global_named,
+            &registry,
+            &mut character_classes,
+        );
         for (k, v) in collect_part_specs(&dat, &registry) {
             part_specs.entry(k).or_insert(v);
         }
@@ -399,7 +453,10 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
                 menus::write(&doc, &root_to_common(&root).join("menus.json"))?;
             }
         } else {
-            if let Err(e) = text_consoles::write(text_consoles::consoles(&dat, &registry, console_font), &root) {
+            if let Err(e) = text_consoles::write(
+                text_consoles::consoles(&dat, &registry, console_font),
+                &root,
+            ) {
                 stats.warnings.push(format!("text_consoles.json: {e}"));
             }
             if let Some(doc) = pause_pages::level(&dat, &registry, pause_font) {
@@ -442,7 +499,10 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             let doc = serde_json::json!({
                 "profiles": melee_profiles.iter().map(|p| &p.json).collect::<Vec<_>>(),
             });
-            std::fs::write(dir.join("melee_profiles.json"), serde_json::to_string_pretty(&doc)?)?;
+            std::fs::write(
+                dir.join("melee_profiles.json"),
+                serde_json::to_string_pretty(&doc)?,
+            )?;
         }
         let doc = serde_json::json!({
             "count": character_classes.len(),
@@ -457,7 +517,10 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     if !part_specs.is_empty() {
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("part_specs.json"), serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?)?;
+        std::fs::write(
+            dir.join("part_specs.json"),
+            serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?,
+        )?;
     }
     if let Some(mut gs) = game_settings {
         // (A geometry no level holds: drawn as its glow alone.)
@@ -466,19 +529,28 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         }
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
-        std::fs::write(dir.join("game_settings.json"), serde_json::to_string_pretty(&gs)?)?;
+        std::fs::write(
+            dir.join("game_settings.json"),
+            serde_json::to_string_pretty(&gs)?,
+        )?;
     }
 
     // The textures drawn additively / self-lit (by file name).
     {
         let pick = |k: usize| -> Vec<String> {
-            texture_flags.iter().filter(|(_, f)| if k == 0 { f.0 } else { f.1 }).map(|(n, _)| sanitize(n)).collect()
+            texture_flags
+                .iter()
+                .filter(|(_, f)| if k == 0 { f.0 } else { f.1 })
+                .map(|(n, _)| sanitize(n))
+                .collect()
         };
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(
             dir.join("texture_flags.json"),
-            serde_json::to_string_pretty(&serde_json::json!({ "additive": pick(0), "selfIlluminated": pick(1) }))?,
+            serde_json::to_string_pretty(
+                &serde_json::json!({ "additive": pick(0), "selfIlluminated": pick(1) }),
+            )?,
         )?;
     }
 
@@ -489,7 +561,10 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
     )?;
 
     // Every particle class, decoded in full (`particle_defs`).
-    let defs: BTreeMap<String, &[u8]> = particle_classes.iter().map(|(n, c)| (n.clone(), c.def.as_slice())).collect();
+    let defs: BTreeMap<String, &[u8]> = particle_classes
+        .iter()
+        .map(|(n, c)| (n.clone(), c.def.as_slice()))
+        .collect();
     particle_defs::write(&defs, &output_dir.join("common"))?;
 
     write_manifest(output_dir, &report, &source_files)?;
@@ -503,18 +578,34 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
 /// frames on a texture — by name, the texture, and each slice's texel
 /// corners (`tl` / `br`, nine `[x, y]` each, column by column: left column
 /// top, middle, bottom, then the middle column, then the right).
-fn collect_part_specs(dat: &Dat<'_>, registry: &oni_template::Registry) -> serde_json::Map<String, serde_json::Value> {
+fn collect_part_specs(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+) -> serde_json::Map<String, serde_json::Value> {
     const TAG_PSPC: FourCc = FourCc(0x5053_7063);
     let mut out = serde_json::Map::new();
-    let Some(layout) = registry.get(TAG_PSPC) else { return out };
+    let Some(layout) = registry.get(TAG_PSPC) else {
+        return out;
+    };
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_PSPC) {
-        let (Some(name), Some(data)) = (inst.name.as_deref(), dat.instance_data(inst)) else { continue };
-        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else { continue };
+        let (Some(name), Some(data)) = (inst.name.as_deref(), dat.instance_data(inst)) else {
+            continue;
+        };
+        let Ok(rec) = oni_template::decode(layout, data, dat.header.endian) else {
+            continue;
+        };
         let fields = level_json::record_to_json(&rec, dat);
         let points = |k: &str| -> Vec<[i64; 2]> {
-            fields[k].as_array().into_iter().flatten().map(|p| [p["x"].as_i64().unwrap_or(0), p["y"].as_i64().unwrap_or(0)]).collect()
+            fields[k]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|p| [p["x"].as_i64().unwrap_or(0), p["y"].as_i64().unwrap_or(0)])
+                .collect()
         };
-        let Some(texture) = fields["texture"]["$ref"].as_str() else { continue };
+        let Some(texture) = fields["texture"]["$ref"].as_str() else {
+            continue;
+        };
         out.insert(
             name.to_string(),
             serde_json::json!({ "texture": sanitize(texture), "tl": points("part_matrix_tl"), "br": points("part_matrix_br") }),
@@ -529,9 +620,20 @@ fn collect_part_specs(dat: &Dat<'_>, registry: &oni_template::Registry) -> serde
 /// point + 0.1, `WPrPowerup_Draw`).
 fn powerup_model(dat: &Dat<'_>, v: &mut serde_json::Value) {
     const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
-    let Some(geom) = v["geometry"].as_str().map(str::to_string) else { return };
-    let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_M3GM && i.name.as_deref().is_some_and(|n| n == geom || n.trim_start_matches("M3GM") == geom)) else { return };
-    let Some(mesh) = oni_geom::extract_mesh(dat, inst) else { return };
+    let Some(geom) = v["geometry"].as_str().map(str::to_string) else {
+        return;
+    };
+    let Some(inst) = dat.instances.iter().find(|i| {
+        i.tag == TAG_M3GM
+            && i.name
+                .as_deref()
+                .is_some_and(|n| n == geom || n.trim_start_matches("M3GM") == geom)
+    }) else {
+        return;
+    };
+    let Some(mesh) = oni_geom::extract_mesh(dat, inst) else {
+        return;
+    };
     let low = mesh.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
     v["model"] = serde_json::json!(format!("models/{}.glb", asset_name(dat, inst)));
     v["radius"] = serde_json::json!(low.abs().max(1.0));
@@ -546,10 +648,18 @@ fn powerup_models(dat: &Dat<'_>, settings: &mut serde_json::Value) {
     }
 }
 
-fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<serde_json::Value> {
+fn collect_game_settings(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+) -> Option<serde_json::Value> {
     const TAG_ONGS: FourCc = FourCc(0x4F4E_4753);
     let inst = dat.instances.iter().find(|i| i.tag == TAG_ONGS)?;
-    let rec = oni_template::decode(registry.get(TAG_ONGS)?, dat.instance_data(inst)?, dat.header.endian).ok()?;
+    let rec = oni_template::decode(
+        registry.get(TAG_ONGS)?,
+        dat.instance_data(inst)?,
+        dat.header.endian,
+    )
+    .ok()?;
     let floats = |name: &str| -> Vec<f32> {
         match rec.get(name).map(|e| &e.value) {
             Some(oni_template::Value::Array(items)) => items
@@ -567,15 +677,43 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
     // @2576.
     let d = dat.instance_data(inst)?;
     const EVENTS: [&str; 18] = [
-        "doorSuccess", "doorFail", "doorLock", "doorUnlock", "useHypo", "healthFull", "inventoryFail", "receiveAmmo",
-        "receiveCell", "receiveHypo", "receiveLsi", "compass", "objectiveNew", "objectivePrompt", "objectiveComplete",
-        "autosave", "timerTick", "timerSuccess",
+        "doorSuccess",
+        "doorFail",
+        "doorLock",
+        "doorUnlock",
+        "useHypo",
+        "healthFull",
+        "inventoryFail",
+        "receiveAmmo",
+        "receiveCell",
+        "receiveHypo",
+        "receiveLsi",
+        "compass",
+        "objectiveNew",
+        "objectivePrompt",
+        "objectiveComplete",
+        "autosave",
+        "timerTick",
+        "timerSuccess",
     ];
-    const CONDITIONS: [&str; 5] = ["healthLow", "healthOver", "shield", "invis", "timerCritical"];
+    const CONDITIONS: [&str; 5] = [
+        "healthLow",
+        "healthOver",
+        "shield",
+        "invis",
+        "timerCritical",
+    ];
     let names = |at: usize, keys: &[&str]| -> serde_json::Map<String, serde_json::Value> {
-        keys.iter().enumerate().map(|(k, n)| (n.to_string(), serde_json::json!(cstr(d, at + k * 32, 32)))).collect()
+        keys.iter()
+            .enumerate()
+            .map(|(k, n)| (n.to_string(), serde_json::json!(cstr(d, at + k * 32, 32))))
+            .collect()
     };
-    let (events, conditions) = if d.len() >= 2576 + 5 * 32 { (names(2000, &EVENTS), names(2576, &CONDITIONS)) } else { Default::default() };
+    let (events, conditions) = if d.len() >= 2576 + 5 * 32 {
+        (names(2000, &EVENTS), names(2576, &CONDITIONS))
+    } else {
+        Default::default()
+    };
     // The colour ramp of a character's health (melee flashes, the HUD):
     // health fractions and their colours (ARGB hex).
     let fl = |name: &str| match rec.get(name).map(|e| &e.value) {
@@ -584,9 +722,11 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
     };
     let points = rec.int("healthcolor_numpoints").unwrap_or(0).clamp(0, 16) as usize;
     let colors: Vec<String> = match rec.get("healthcolor_colors").map(|e| &e.value) {
-        Some(oni_template::Value::Array(items)) => {
-            items.iter().filter_map(|r| r.entries.first()?.value.as_int()).map(|c| format!("#{:08x}", c as u32)).collect()
-        }
+        Some(oni_template::Value::Array(items)) => items
+            .iter()
+            .filter_map(|r| r.entries.first()?.value.as_int())
+            .map(|c| format!("#{:08x}", c as u32))
+            .collect(),
         _ => Vec::new(),
     };
     let health_color: Vec<serde_json::Value> = floats("healthcolor_values")
@@ -601,7 +741,14 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
     // (`WPrPowerup_AddPhysics`: down to the geometry's lowest point, at
     // least 1; 2 without geometry). A model only the levels hold (the LSI's)
     // is filled in from the first level that has it (`powerup_models`).
-    const POWERUPS: [&str; 6] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility", "lsi"];
+    const POWERUPS: [&str; 6] = [
+        "ammoBallistic",
+        "ammoEnergy",
+        "hypo",
+        "shieldBelt",
+        "invisibility",
+        "lsi",
+    ];
     let powerups: serde_json::Map<String, serde_json::Value> = POWERUPS
         .iter()
         .enumerate()
@@ -739,7 +886,8 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
 /// A class's shooting skill per weapon slot (`AI2tShootingSkill` ×13; a
 /// gun picks its slot by `shootSkillIndex`).
 fn shooting_skill(rec: &oni_template::Record) -> Vec<serde_json::Value> {
-    let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value) else {
+    let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value)
+    else {
         return Vec::new();
     };
     slots
@@ -769,11 +917,25 @@ fn shooting_skill(rec: &oni_template::Record) -> Vec<serde_json::Value> {
 fn aiming_screens(dat: &Dat<'_>, name: &str) -> Vec<serde_json::Value> {
     const TAG_TRSC: FourCc = FourCc(u32::from_be_bytes(*b"TRSC"));
     const TAG_TRAS: FourCc = FourCc(u32::from_be_bytes(*b"TRAS"));
-    let named = |i: &&oni_dat::Instance| i.name.as_deref().is_some_and(|n| n == name || n.strip_prefix("TRSC") == Some(name));
-    let Some(d) = dat.instances.iter().filter(|i| i.tag == TAG_TRSC).find(named).and_then(|i| dat.instance_data(i)) else {
+    let named = |i: &&oni_dat::Instance| {
+        i.name
+            .as_deref()
+            .is_some_and(|n| n == name || n.strip_prefix("TRSC") == Some(name))
+    };
+    let Some(d) = dat
+        .instances
+        .iter()
+        .filter(|i| i.tag == TAG_TRSC)
+        .find(named)
+        .and_then(|i| dat.instance_data(i))
+    else {
         return Vec::new();
     };
-    let at = |r: u32| (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten();
+    let at = |r: u32| {
+        (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+    };
     let n = le_u16(d, 22) as usize;
     (0..n)
         .filter_map(|k| {
@@ -865,7 +1027,12 @@ fn collect_character_classes(
         // (`ONtCharacterVariant`: `name[32]` @4, `upgrade_name[32]` @36) —
         // what random costumes and upgraded difficulty choose among.
         let variant_data = cc.variant.as_deref().and_then(|v| {
-            let i = dat.instances.iter().find(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONCV")) && i.name.as_deref().is_some_and(|n| n.trim_start_matches("ONCV") == v))?;
+            let i = dat.instances.iter().find(|i| {
+                i.tag == FourCc(u32::from_be_bytes(*b"ONCV"))
+                    && i.name
+                        .as_deref()
+                        .is_some_and(|n| n.trim_start_matches("ONCV") == v)
+            })?;
             let d = dat.instance_data(i)?;
             Some((cstr(d, 4, 32), cstr(d, 36, 32)))
         });
@@ -919,7 +1086,10 @@ fn collect_character_classes(
             "air": air,
         }));
         if let (Some(d), Some(entry)) = (dat.instance_data(inst), out.last_mut()) {
-            if let (Some(e), Some(f)) = (entry.as_object_mut(), impacts::class_fields(dat, d).as_object()) {
+            if let (Some(e), Some(f)) = (
+                entry.as_object_mut(),
+                impacts::class_fields(dat, d).as_object(),
+            ) {
                 e.extend(f.clone());
             }
         }
@@ -938,7 +1108,8 @@ fn collect_character_classes(
             }
             entry["perception"] = perception_json(&rec);
             // A hypo heals a point every this many ticks (`inventoryConstants`).
-            entry["hypoTime"] = serde_json::json!(rec.int("inventoryConstants.hypoTime").unwrap_or(0));
+            entry["hypoTime"] =
+                serde_json::json!(rec.int("inventoryConstants.hypoTime").unwrap_or(0));
             // Its shadow (`ONtShadowConstants`): texture, heights (fade
             // begins, none above), sizes (half-widths: on the ground, at the
             // fade, at the top), opacities (0–255: on the ground, at the
@@ -948,7 +1119,10 @@ fn collect_character_classes(
                 _ => 0.0,
             };
             let texture = match rec.get("shadowConstants.shadow_texture").map(|e| &e.value) {
-                Some(oni_template::Value::Ref(_, r)) if r & 1 != 0 => dat.instances.get((r >> 8) as usize).map(|i| asset_name(dat, i)),
+                Some(oni_template::Value::Ref(_, r)) if r & 1 != 0 => dat
+                    .instances
+                    .get((r >> 8) as usize)
+                    .map(|i| asset_name(dat, i)),
                 _ => None,
             };
             entry["shadow"] = serde_json::json!({
@@ -1072,8 +1246,12 @@ fn convert_textures(
     }
     // Big textures (`TXMB`: the splash screens), assembled from their tiles.
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_TXMB) {
-        let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else { continue };
-        let Some(d) = dat.instance_data(inst) else { continue };
+        let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else {
+            continue;
+        };
+        let Some(d) = dat.instance_data(inst) else {
+            continue;
+        };
         if let Some((w, h, rgba)) = big_texture(dat, raw, sep, d) {
             // (Each level has its own: `win_splash_screen` differs by level.)
             let dir = root.join("textures");
@@ -1101,7 +1279,12 @@ fn texture_animations(
     global_named: &BTreeMap<(FourCc, String), usize>,
     out: &mut BTreeMap<String, serde_json::Value>,
 ) {
-    const FLAGS: [(u32, &str); 4] = [(1 << 6, "pingPong"), (1 << 7, "randomFrame"), (1 << 8, "randomStart"), (1 << 14, "dontAnimate")];
+    const FLAGS: [(u32, &str); 4] = [
+        (1 << 6, "pingPong"),
+        (1 << 7, "randomFrame"),
+        (1 << 8, "randomStart"),
+        (1 << 14, "dontAnimate"),
+    ];
     let frame_path = |inst: &Instance| match &inst.name {
         Some(n) if !n.is_empty() => format!("common/textures/{}.png", asset_name(dat, inst)),
         _ => format!("{this_root}/textures/{}.png", asset_name(dat, inst)),
@@ -1110,10 +1293,19 @@ fn texture_animations(
         if export_root(inst, dat, this_root, fi, global_named) != Some("common") {
             continue;
         }
-        let Some(d) = dat.instance_data(inst).filter(|d| d.len() >= 144) else { continue };
+        let Some(d) = dat.instance_data(inst).filter(|d| d.len() >= 144) else {
+            continue;
+        };
         let link = le_u32(d, 140);
-        let Some(anim) = (link & 1 != 0).then(|| dat.instances.get((link >> 8) as usize)).flatten() else { continue };
-        let Some(a) = dat.instance_data(anim).filter(|a| a.len() >= 24) else { continue };
+        let Some(anim) = (link & 1 != 0)
+            .then(|| dat.instances.get((link >> 8) as usize))
+            .flatten()
+        else {
+            continue;
+        };
+        let Some(a) = dat.instance_data(anim).filter(|a| a.len() >= 24) else {
+            continue;
+        };
         let count = le_u32(a, 20) as usize;
         if count == 0 || a.len() < 24 + count * 4 {
             continue;
@@ -1121,13 +1313,20 @@ fn texture_animations(
         let mut frames = vec![frame_path(inst)];
         for k in 1..count {
             let r = le_u32(a, 24 + k * 4);
-            match (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() {
+            match (r & 1 != 0)
+                .then(|| dat.instances.get((r >> 8) as usize))
+                .flatten()
+            {
                 Some(t) => frames.push(frame_path(t)),
                 None => frames.push(frame_path(inst)),
             }
         }
         let flags = le_u32(d, 128);
-        let names: Vec<&str> = FLAGS.iter().filter(|(b, _)| flags & b != 0).map(|(_, n)| *n).collect();
+        let names: Vec<&str> = FLAGS
+            .iter()
+            .filter(|(b, _)| flags & b != 0)
+            .map(|(_, n)| *n)
+            .collect();
         let mut entry = serde_json::json!({ "timePerFrame": le_u16(a, 12), "frames": frames });
         if !names.is_empty() {
             entry["flags"] = serde_json::json!(names);
@@ -1141,7 +1340,12 @@ fn texture_animations(
 /// worked out at load as the 256-pixel tiles the size needs — tile
 /// count@20, tiles@24), its tiles laid row by row 256 apart, each's
 /// top-left part (`M3rDraw_BigBitmap`).
-fn big_texture(dat: &Dat<'_>, raw: &[u8], sep: Option<&[u8]>, d: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
+fn big_texture(
+    dat: &Dat<'_>,
+    raw: &[u8],
+    sep: Option<&[u8]>,
+    d: &[u8],
+) -> Option<(u32, u32, Vec<u8>)> {
     const TILE: usize = 256;
     let (w, h) = (le_u16(d, 8) as usize, le_u16(d, 10) as usize);
     let (nx, ny) = (w.div_ceil(TILE), h.div_ceil(TILE));
@@ -1152,9 +1356,18 @@ fn big_texture(dat: &Dat<'_>, raw: &[u8], sep: Option<&[u8]>, d: &[u8]) -> Optio
     for y in 0..ny {
         for x in 0..nx {
             let r = le_u32(d, 24 + (x + y * nx) * 4);
-            let Some(t) = (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten() else { continue };
-            let Ok(tex) = oni_texture::TextureMap::from_instance(dat, t) else { continue };
-            let Ok(rgba) = tex.decode_top_level_with(raw, sep) else { continue };
+            let Some(t) = (r & 1 != 0)
+                .then(|| dat.instances.get((r >> 8) as usize))
+                .flatten()
+            else {
+                continue;
+            };
+            let Ok(tex) = oni_texture::TextureMap::from_instance(dat, t) else {
+                continue;
+            };
+            let Ok(rgba) = tex.decode_top_level_with(raw, sep) else {
+                continue;
+            };
             let (tw, th) = (tex.width as usize, tex.height as usize);
             let (ox, oy) = (x * TILE, y * TILE);
             for row in 0..th.min(h.saturating_sub(oy)) {
@@ -1287,7 +1500,11 @@ fn env_texture_flags(
 /// with its corners, flags, plane, corner shades and texture — what decals
 /// are built on and particles hit.
 fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
-    let Some(akev) = dat.instances.iter().find(|i| i.tag == oni_geom::level::TAG_AKEV) else {
+    let Some(akev) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == oni_geom::level::TAG_AKEV)
+    else {
         return Ok(());
     };
     let Some(q) = oni_geom::gq::extract_quads(dat, akev) else {
@@ -1295,19 +1512,33 @@ fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
     };
     let mut b: Vec<u8> = b"ONIQ".to_vec();
     let u = |b: &mut Vec<u8>, v: u32| b.extend_from_slice(&v.to_le_bytes());
-    for n in [q.points.len(), q.planes.len(), q.textures.len(), q.quads.len()] {
+    for n in [
+        q.points.len(),
+        q.planes.len(),
+        q.textures.len(),
+        q.quads.len(),
+    ] {
         u(&mut b, n as u32);
     }
     for v in q.points.iter().flatten().chain(q.planes.iter().flatten()) {
         b.extend_from_slice(&v.to_le_bytes());
     }
     for t in &q.textures {
-        let name = t.and_then(|i| dat.instances.get(i)).map(|i| asset_name(dat, i)).unwrap_or_default();
+        let name = t
+            .and_then(|i| dat.instances.get(i))
+            .map(|i| asset_name(dat, i))
+            .unwrap_or_default();
         b.push(name.len().min(255) as u8);
         b.extend_from_slice(&name.as_bytes()[..name.len().min(255)]);
     }
     for g in &q.quads {
-        for v in g.points.iter().chain([g.flags, g.plane].iter()).chain(g.shades.iter()).chain([g.texture as u32, g.object_tag].iter()) {
+        for v in g
+            .points
+            .iter()
+            .chain([g.flags, g.plane].iter())
+            .chain(g.shades.iter())
+            .chain([g.texture as u32, g.object_tag].iter())
+        {
             u(&mut b, *v);
         }
         for v in g.bbox.iter().flatten() {
@@ -1325,7 +1556,11 @@ fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
 fn convert_navigation(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
     use oni_geom::nav;
     use oni_schema as sc;
-    let Some(akev) = dat.instances.iter().find(|i| i.tag == oni_geom::level::TAG_AKEV) else {
+    let Some(akev) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == oni_geom::level::TAG_AKEV)
+    else {
         return Ok(());
     };
     let Some(rooms) = nav::extract_navigation(dat, akev, raw) else {
@@ -1388,7 +1623,12 @@ fn convert_environment(
     let mut object_infos: Vec<EnvObjectInfo> = Vec::new();
 
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_AKEV) {
-        let breakable = |ti: usize| dat.instances.get(ti).and_then(|i| i.name.as_ref()).is_some_and(|n| glass_textures.contains(n));
+        let breakable = |ti: usize| {
+            dat.instances
+                .get(ti)
+                .and_then(|i| i.name.as_ref())
+                .is_some_and(|n| glass_textures.contains(n))
+        };
         let Some(level) = extract_level_with(dat, inst, &breakable) else {
             continue;
         };
@@ -1605,8 +1845,15 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
     let mut out = serde_json::Map::new();
     let mut n = 0;
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_SUBT) {
-        let Some(d) = dat.instance_data(inst) else { continue };
-        let name = inst.name.as_deref().unwrap_or("").trim_start_matches("SUBT").to_string();
+        let Some(d) = dat.instance_data(inst) else {
+            continue;
+        };
+        let name = inst
+            .name
+            .as_deref()
+            .unwrap_or("")
+            .trim_start_matches("SUBT")
+            .to_string();
         let (base, count) = (le_u32(d, 16) as usize, le_u32(d, 20) as usize);
         // (Messages are found by exact name; subtitles by the first entry, in
         // the table's order, whose key the line's name starts with — so they
@@ -1627,13 +1874,23 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
             }
         }
         n += table.len() + pairs.len();
-        out.insert(name, if ordered { serde_json::Value::Array(pairs) } else { serde_json::Value::Object(table) });
+        out.insert(
+            name,
+            if ordered {
+                serde_json::Value::Array(pairs)
+            } else {
+                serde_json::Value::Object(table)
+            },
+        );
     }
     if n == 0 {
         return Ok(0);
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("messages.json"), serde_json::to_string_pretty(&serde_json::Value::Object(out))?)?;
+    std::fs::write(
+        root.join("messages.json"),
+        serde_json::to_string_pretty(&serde_json::Value::Object(out))?,
+    )?;
     Ok(n)
 }
 
@@ -1683,7 +1940,6 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
     )?;
     Ok(films.len())
 }
-
 
 /// Emits `<root>/object_animations.json` — every `OBAN` scripted object
 /// animation (sliding doors, lifts, driving vehicles) as keyframed transforms.
@@ -1815,10 +2071,16 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     put("fromState", json!(state_name(clip.from_state)));
     put("toState", json!(state_name(clip.to_state)));
     if clip.varient != 0 {
-        put("variant", json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient))));
+        put(
+            "variant",
+            json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient))),
+        );
     }
     if clip.varient_end != 0 {
-        put("variantEnd", json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient_end))));
+        put(
+            "variantEnd",
+            json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient_end))),
+        );
     }
     if clip.flags != 0 {
         put("flags", json!(sc::bit_names(&sc::ANIM_FLAGS, clip.flags)));
@@ -1833,7 +2095,10 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
         put("finalRotation", json!(clip.final_rotation));
     }
     if clip.move_direction != 0 {
-        put("moveDirection", json!(sc::name(&sc::DIRECTIONS, clip.move_direction).unwrap_or("none")));
+        put(
+            "moveDirection",
+            json!(sc::name(&sc::DIRECTIONS, clip.move_direction).unwrap_or("none")),
+        );
     }
     if clip.aiming_type != 0 {
         put("aimingType", json!(type_name(clip.aiming_type)));
@@ -1916,7 +2181,11 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
                 if a.flags != 0 {
                     o["flags"] = json!(sc::bit_names(&sc::ATTACK_FLAGS, a.flags));
                 }
-                for (k, v) in [("hitStun", a.hit_stun), ("blockStun", a.block_stun), ("stagger", a.stagger)] {
+                for (k, v) in [
+                    ("hitStun", a.hit_stun),
+                    ("blockStun", a.block_stun),
+                    ("stagger", a.stagger),
+                ] {
                     if v != 0 {
                         o[k] = json!(v);
                     }
@@ -1990,7 +2259,16 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
         put("footstepKinds", json!(clip.footstep_kinds));
     }
     if !clip.particles.is_empty() {
-        put("particles", json!(clip.particles.iter().map(|p| json!({ "start": p.start, "stop": p.stop, "part": p.part, "name": p.name })).collect::<Vec<_>>()));
+        put(
+            "particles",
+            json!(clip
+                .particles
+                .iter()
+                .map(
+                    |p| json!({ "start": p.start, "stop": p.stop, "part": p.part, "name": p.name })
+                )
+                .collect::<Vec<_>>()),
+        );
     }
     if !clip.attack_name.is_empty() {
         put("attackName", json!(clip.attack_name));
@@ -1999,7 +2277,14 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
         put("soundFrame", json!(clip.sound_frame));
     }
     if !clip.sounds.is_empty() {
-        put("sounds", json!(clip.sounds.iter().map(|(n, f)| json!({ "impulse": n, "frame": f })).collect::<Vec<_>>()));
+        put(
+            "sounds",
+            json!(clip
+                .sounds
+                .iter()
+                .map(|(n, f)| json!({ "impulse": n, "frame": f }))
+                .collect::<Vec<_>>()),
+        );
     }
     serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
 }
@@ -2308,17 +2593,25 @@ pub(crate) fn rel_path(from_dir: &str, to_path: &str) -> String {
 /// name's (`left` and `Left` are different textures, but one file on a
 /// case-insensitive disk), with the suffix each takes (`~1`, `~2`, …; the
 /// one written in lowercase, else the first, keeps its plain name).
-static CASE_SHADOWED: std::sync::RwLock<BTreeMap<String, usize>> = std::sync::RwLock::new(BTreeMap::new());
+static CASE_SHADOWED: std::sync::RwLock<BTreeMap<String, usize>> =
+    std::sync::RwLock::new(BTreeMap::new());
 
 /// Works out [`CASE_SHADOWED`] from every asset name in the game.
 fn set_case_shadowed<'a>(names: impl Iterator<Item = &'a str>) {
     let mut groups: BTreeMap<String, std::collections::BTreeSet<&str>> = BTreeMap::new();
     for n in names {
-        groups.entry(sanitize_plain(n).to_ascii_lowercase()).or_default().insert(n);
+        groups
+            .entry(sanitize_plain(n).to_ascii_lowercase())
+            .or_default()
+            .insert(n);
     }
     let mut shadowed = BTreeMap::new();
     for (folded, group) in groups.into_iter().filter(|(_, g)| g.len() > 1) {
-        let plain = group.iter().copied().find(|n| sanitize_plain(n) == folded).or_else(|| group.iter().copied().next());
+        let plain = group
+            .iter()
+            .copied()
+            .find(|n| sanitize_plain(n) == folded)
+            .or_else(|| group.iter().copied().next());
         let mut k = 0;
         for n in group {
             if Some(n) != plain {

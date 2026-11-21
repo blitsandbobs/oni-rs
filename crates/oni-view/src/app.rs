@@ -97,7 +97,8 @@ fn mission_level(
     progress(20);
     let mut renderer = Renderer::new(gpu, &scene, &[], format);
     progress(28);
-    let mut classes = crate::classes::Classes::open(oni_root, level).map_err(|e| format!("classes: {e}"))?;
+    let mut classes =
+        crate::classes::Classes::open(oni_root, level).map_err(|e| format!("classes: {e}"))?;
     let kind = classes.kind(&set.player, |ch| renderer.add_character(gpu, ch))?;
     // (A level begun: the place last played, the level unlocked.)
     crate::game::level_begun(level);
@@ -107,11 +108,18 @@ fn mission_level(
     }
     world.difficulty = classes.difficulty(&set.difficulty);
     progress(30);
-    world.nav = crate::nav::Navigation::load(&level_dir).ok().map(std::rc::Rc::new);
+    world.nav = crate::nav::Navigation::load(&level_dir)
+        .ok()
+        .map(std::rc::Rc::new);
     progress(35);
     world.spawn(&kind, Vec3::ZERO, 0.0, false);
     world.load_level(&level_dir);
-    world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(gpu, ch)).ok().map(|k| k.model));
+    world.attach_corpse_models(|c| {
+        classes
+            .kind(c, |ch| renderer.add_character(gpu, ch))
+            .ok()
+            .map(|k| k.model)
+    });
     progress(55);
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
@@ -134,9 +142,16 @@ fn mission_level(
     renderer.attach_texture_anims(gpu, world.texture_anims());
     progress(70);
     let mut m = crate::mission::Mission::load(&level_dir)?;
-    m.state.vars.insert("save_point".into(), mlua::Value::Integer(save_point));
+    m.state
+        .vars
+        .insert("save_point".into(), mlua::Value::Integer(save_point));
     {
-        let mut host = PlayHost { world: &mut world, classes: &mut classes, renderer: &mut renderer, gpu };
+        let mut host = PlayHost {
+            world: &mut world,
+            classes: &mut classes,
+            renderer: &mut renderer,
+            gpu,
+        };
         m.begin(&mut host);
     }
     progress(85);
@@ -156,7 +171,12 @@ fn mission_level(
             audio_accum: 0.0,
             mission: Some((m, classes)),
             _audio: audio,
-            flow: Some(Flow { oni_root: oni_root.to_path_buf(), level, splash: None, key: false }),
+            flow: Some(Flow {
+                oni_root: oni_root.to_path_buf(),
+                level,
+                splash: None,
+                key: false,
+            }),
         },
     ))
 }
@@ -175,7 +195,8 @@ impl crate::mission::Host for PlayHost<'_> {
     }
     fn kind(&mut self, class: &str) -> Result<crate::world::CharKind, String> {
         let (renderer, gpu) = (&mut *self.renderer, self.gpu);
-        self.classes.kind(class, |ch| renderer.add_character(gpu, ch))
+        self.classes
+            .kind(class, |ch| renderer.add_character(gpu, ch))
     }
     fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
         self.classes.melee_by_id(id)
@@ -375,27 +396,57 @@ impl ApplicationHandler for App {
         let user = crate::settings::Settings::load();
         let settings = Settings {
             player: self.cast.player.clone(),
-            difficulty: if self.front_end.is_some() { user.difficulty.clone() } else { self.cast.difficulty.clone() },
+            difficulty: if self.front_end.is_some() {
+                user.difficulty.clone()
+            } else {
+                self.cast.difficulty.clone()
+            },
             faithful: self.faithful,
             subtitles: self.subtitles || (self.front_end.is_some() && user.subtitles),
             sound_law: self.sound_law,
             volume: user.overall_volume,
         };
-        let mut front = self.front_end.clone().map(|root| front::Front::new(root, user.clone(), true));
+        let mut front = self
+            .front_end
+            .clone()
+            .map(|root| front::Front::new(root, user.clone(), true));
         // Mission play: the level as the game plays it (its scripts, its
         // flow from level to level).
         let mission_play = if self.play && self.mission {
             let level_dir = self.cast.level_dir.clone();
-            let level = level_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
-            let oni_root = level_dir.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_default();
+            let level = level_dir
+                .file_name()
+                .and_then(|n| n.to_str())
+                .and_then(|n| n.parse().ok())
+                .unwrap_or(1);
+            let oni_root = level_dir
+                .parent()
+                .and_then(|p| p.parent())
+                .map(std::path::Path::to_path_buf)
+                .unwrap_or_default();
             // (Started at a save point: its continue, if one was kept.)
-            let saved = (self.save_point > 0).then(|| crate::game::load_continue(level, self.save_point)).flatten();
+            let saved = (self.save_point > 0)
+                .then(|| crate::game::load_continue(level, self.save_point))
+                .flatten();
             if self.save_point > 0 && saved.is_none() {
-                eprintln!("game: no continue kept for save point {} (the level's start)", self.save_point);
+                eprintln!(
+                    "game: no continue kept for save point {} (the level's start)",
+                    self.save_point
+                );
             }
             // (The game's mode kept with it, for its continues.)
             crate::game::set_game_faithful(settings.faithful);
-            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, saved, &mut |_| {}) {
+            match mission_level(
+                &gpu,
+                format,
+                &oni_root,
+                level,
+                Some(scene.clone()),
+                &settings,
+                self.save_point,
+                saved,
+                &mut |_| {},
+            ) {
                 Ok((r, pw)) => {
                     renderer = r;
                     charview = None;
@@ -415,7 +466,8 @@ impl ApplicationHandler for App {
             (None, Some(pw))
         } else if self.play {
             let kinds = self.classes.as_mut().map(|classes| {
-                let mut kind = |name: &str| classes.kind(name, |ch| renderer.add_character(&gpu, ch));
+                let mut kind =
+                    |name: &str| classes.kind(name, |ch| renderer.add_character(&gpu, ch));
                 let player = kind(&self.cast.player);
                 let opponent = match &self.cast.opponent {
                     Some(o) => kind(o),
@@ -433,14 +485,21 @@ impl ApplicationHandler for App {
                     if let Some(c) = self.classes.as_ref() {
                         world.difficulty = c.difficulty(&self.cast.difficulty);
                     }
-                    world.nav = crate::nav::Navigation::load(&self.cast.level_dir).ok().map(std::rc::Rc::new);
+                    world.nav = crate::nav::Navigation::load(&self.cast.level_dir)
+                        .ok()
+                        .map(std::rc::Rc::new);
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
                     if let Some(classes) = self.classes.as_mut() {
-                        world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(&gpu, ch)).ok().map(|k| k.model));
+                        world.attach_corpse_models(|c| {
+                            classes
+                                .kind(c, |ch| renderer.add_character(&gpu, ch))
+                                .ok()
+                                .map(|k| k.model)
+                        });
                     }
                     world.hud.subtitles_on = self.subtitles;
                     world.attach_doors(crate::door_meshes(&scene));
@@ -451,9 +510,15 @@ impl ApplicationHandler for App {
                     renderer.attach_texture_anims(&gpu, world.texture_anims());
                     if self.mission {
                         // The level's own scripts populate it.
-                        match (crate::mission::Mission::load(&self.cast.level_dir), self.classes.take()) {
+                        match (
+                            crate::mission::Mission::load(&self.cast.level_dir),
+                            self.classes.take(),
+                        ) {
                             (Ok(mut m), Some(mut classes)) => {
-                                m.state.vars.insert("save_point".into(), mlua::Value::Integer(self.save_point));
+                                m.state.vars.insert(
+                                    "save_point".into(),
+                                    mlua::Value::Integer(self.save_point),
+                                );
                                 let mut host = PlayHost {
                                     world: &mut world,
                                     classes: &mut classes,
@@ -471,8 +536,12 @@ impl ApplicationHandler for App {
                         }
                     } else {
                         let dummy_pos = spawn_pos + Vec3::new(0.0, 0.0, 14.0);
-                        let opponent =
-                            world.spawn(&opponent_kind, dummy_pos, std::f32::consts::PI, !self.spar);
+                        let opponent = world.spawn(
+                            &opponent_kind,
+                            dummy_pos,
+                            std::f32::consts::PI,
+                            !self.spar,
+                        );
                         if self.spar && !world.fight(opponent, 0) {
                             world.fighters[opponent].brain =
                                 Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
@@ -540,7 +609,10 @@ impl ApplicationHandler for App {
             captured: self.play,
             mouse: mouse::Mouse::new(focused),
             bindings: oni_config::Bindings::oni_defaults(),
-            tuning: oni_config::InputTuning { invert_y: user.invert_mouse, ..oni_config::InputTuning::default() },
+            tuning: oni_config::InputTuning {
+                invert_y: user.invert_mouse,
+                ..oni_config::InputTuning::default()
+            },
             move_speed,
             last: now,
             start: now,
@@ -583,8 +655,16 @@ impl ApplicationHandler for App {
                     }
                     // Esc over mission play: the main menu (not in a
                     // cutscene, nor over a splash: `ONiGameState_ProcessMiscActions`).
-                    if code == KeyCode::Escape && event.state == ElementState::Pressed && !event.repeat && st.front.is_some() {
-                        let free = st.play.as_ref().is_some_and(|p| !p.world.in_cutscene && !p.world.hud.modal() && p.flow.as_ref().is_some_and(|f| f.splash.is_none()));
+                    if code == KeyCode::Escape
+                        && event.state == ElementState::Pressed
+                        && !event.repeat
+                        && st.front.is_some()
+                    {
+                        let free = st.play.as_ref().is_some_and(|p| {
+                            !p.world.in_cutscene
+                                && !p.world.hud.modal()
+                                && p.flow.as_ref().is_some_and(|f| f.splash.is_none())
+                        });
                         if free {
                             st.open_menu();
                         }
@@ -592,7 +672,11 @@ impl ApplicationHandler for App {
                     }
                     // A data console's text up (modal: `ONiTC_HandleKeyDown`):
                     // Space for the next page, Esc to close; nothing else.
-                    if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.text_console.is_some()) {
+                    if let Some(pw) = st
+                        .play
+                        .as_mut()
+                        .filter(|p| p.world.hud.text_console.is_some())
+                    {
                         if event.state == ElementState::Pressed && !event.repeat {
                             match code {
                                 KeyCode::Space => pw.world.hud.text_console_next(),
@@ -612,7 +696,11 @@ impl ApplicationHandler for App {
                                 KeyCode::Escape => pw.world.pause_press(2, false),
                                 // (Letters typed: the cheat codes.)
                                 _ => {
-                                    if let Some(c) = format!("{code:?}").strip_prefix("Key").and_then(|k| k.chars().next()).filter(|_| format!("{code:?}").len() == 4) {
+                                    if let Some(c) = format!("{code:?}")
+                                        .strip_prefix("Key")
+                                        .and_then(|k| k.chars().next())
+                                        .filter(|_| format!("{code:?}").len() == 4)
+                                    {
                                         pw.world.cheat_key(c.to_ascii_lowercase());
                                     }
                                 }
@@ -623,13 +711,21 @@ impl ApplicationHandler for App {
                     }
                     // Space in a cutscene skips it (restored: as shipped the
                     // call is commented out, Q18).
-                    if code == KeyCode::Space && event.state == ElementState::Pressed && !event.repeat {
-                        if let Some(pw) = st.play.as_mut().filter(|p| p.world.in_cutscene && !p.world.quirks.faithful) {
+                    if code == KeyCode::Space
+                        && event.state == ElementState::Pressed
+                        && !event.repeat
+                    {
+                        if let Some(pw) = st
+                            .play
+                            .as_mut()
+                            .filter(|p| p.world.in_cutscene && !p.world.quirks.faithful)
+                        {
                             pw.world.skip_cutscene();
                         }
                     }
                     // F1: the pause screen (the cursor freed for its buttons).
-                    if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
+                    if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat
+                    {
                         if let Some(pw) = st.play.as_mut() {
                             pw.world.pause_toggle();
                         }
@@ -676,7 +772,9 @@ impl ApplicationHandler for App {
                 if st.menu_open() {
                     let lines = match delta {
                         winit::event::MouseScrollDelta::LineDelta(_, y) => y.round() as i32,
-                        winit::event::MouseScrollDelta::PixelDelta(p) => (p.y / 16.0).round() as i32,
+                        winit::event::MouseScrollDelta::PixelDelta(p) => {
+                            (p.y / 16.0).round() as i32
+                        }
                     };
                     st.menu_wheel(lines);
                 }
@@ -694,7 +792,10 @@ impl ApplicationHandler for App {
                 if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
                     if pressed && button == MouseButton::Left {
                         let scale = st.window.scale_factor() as f32;
-                        let (w, h) = (st.config.width as f32 / scale, st.config.height as f32 / scale);
+                        let (w, h) = (
+                            st.config.width as f32 / scale,
+                            st.config.height as f32 / scale,
+                        );
                         if let Some(id) = pw.world.hud.pause_hit(w, h, st.cursor[0], st.cursor[1]) {
                             pw.world.pause_press(id, true);
                         }
@@ -703,11 +804,22 @@ impl ApplicationHandler for App {
                 }
                 // A console's text up: a click is on its button, Next or
                 // Close (`ONcTC_Btn_Next`, `_Close`).
-                if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.text_console.is_some()) {
+                if let Some(pw) = st
+                    .play
+                    .as_mut()
+                    .filter(|p| p.world.hud.text_console.is_some())
+                {
                     if pressed && button == MouseButton::Left {
                         let scale = st.window.scale_factor() as f32;
-                        let (w, h) = (st.config.width as f32 / scale, st.config.height as f32 / scale);
-                        if pw.world.hud.text_console_hit(w, h, st.cursor[0], st.cursor[1]) {
+                        let (w, h) = (
+                            st.config.width as f32 / scale,
+                            st.config.height as f32 / scale,
+                        );
+                        if pw
+                            .world
+                            .hud
+                            .text_console_hit(w, h, st.cursor[0], st.cursor[1])
+                        {
                             pw.world.text_console_click();
                         }
                     }
@@ -832,7 +944,10 @@ impl State {
                 .iter()
                 .filter_map(|&k| to_config_key(k))
                 .any(|k| self.bindings.key_action(k) == Some(a))
-                || self.mouse_held.iter().any(|&b| self.bindings.mouse_action(b) == Some(a))
+                || self
+                    .mouse_held
+                    .iter()
+                    .any(|&b| self.bindings.mouse_action(b) == Some(a))
         };
         use crate::anim::input::key;
         let mut controls = 0u32;
@@ -865,14 +980,23 @@ impl State {
 
         // A splash screen up: the game stands still until it is over, then
         // goes on as the splash says (its sound still running).
-        if let Some(pw) = self.play.as_mut().filter(|p| p.flow.as_ref().is_some_and(|f| f.splash.is_some())) {
+        if let Some(pw) = self
+            .play
+            .as_mut()
+            .filter(|p| p.flow.as_ref().is_some_and(|f| f.splash.is_some()))
+        {
             audio_only(pw, dt);
         }
         if let Some(after) = self.splash_tick(dt) {
             self.after_splash(after);
             return;
         }
-        if self.play.as_ref().and_then(|p| p.flow.as_ref()).is_some_and(|f| f.splash.is_some()) {
+        if self
+            .play
+            .as_ref()
+            .and_then(|p| p.flow.as_ref())
+            .is_some_and(|f| f.splash.is_some())
+        {
             return;
         }
         let Some(pw) = self.play.as_mut() else {
@@ -898,7 +1022,8 @@ impl State {
             let turn = (-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI);
             if look {
                 // Look mode: the mouse turns the aim off the facing.
-                player.aiming_lr = (player.aiming_lr + turn).clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+                player.aiming_lr = (player.aiming_lr + turn)
+                    .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
             } else {
                 player.facing.adjust_desired(turn);
             }
@@ -975,13 +1100,25 @@ impl State {
                     Some(n) if flow.level != 19 => After::Next(n),
                     _ => After::End,
                 };
-                flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "win_splash_screen").unwrap_or_default(), after));
+                flow.splash = Some(Splash::new(
+                    splash_texture(&flow.oni_root, flow.level, "win_splash_screen")
+                        .unwrap_or_default(),
+                    after,
+                ));
                 splash_music(&mut pw.world.audio, flow.splash.as_mut(), "main_menu_win");
             }
             Some(false) => {
                 eprintln!("game: level {} lost", flow.level);
-                flow.splash = Some(Splash::new(splash_texture(&flow.oni_root, flow.level, "fail_splash_screen").unwrap_or_default(), After::Restart));
-                splash_music(&mut pw.world.audio, flow.splash.as_mut(), "loss_screen_music");
+                flow.splash = Some(Splash::new(
+                    splash_texture(&flow.oni_root, flow.level, "fail_splash_screen")
+                        .unwrap_or_default(),
+                    After::Restart,
+                ));
+                splash_music(
+                    &mut pw.world.audio,
+                    flow.splash.as_mut(),
+                    "loss_screen_music",
+                );
             }
             None => {}
         }
@@ -1068,21 +1205,43 @@ impl State {
             // The HUD, in the window's logical pixels (its size on a 640 × 480
             // screen of the time on a high-density display).
             let scale = self.window.scale_factor() as f32;
-            let (w, h) = (self.config.width as f32 / scale, self.config.height as f32 / scale);
-            self.renderer.overlay = if pw.world.skipping() { Vec::new() } else { pw.world.hud_draw(w, h) };
+            let (w, h) = (
+                self.config.width as f32 / scale,
+                self.config.height as f32 / scale,
+            );
+            self.renderer.overlay = if pw.world.skipping() {
+                Vec::new()
+            } else {
+                pw.world.hud_draw(w, h)
+            };
             self.renderer.overlay_size = [w, h];
             // A cutscene skip's fade (black while it skips).
             if let Some(a) = pw.world.skip_blanket() {
-                self.renderer.overlay.push(crate::render::OverlayDraw { texture: None, tris: quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, a], additive: false });
+                self.renderer.overlay.push(crate::render::OverlayDraw {
+                    texture: None,
+                    tris: quad([0.0, 0.0, w, h]),
+                    color: [0.0, 0.0, 0.0, a],
+                    additive: false,
+                });
             }
             pw.world.skip_drawn();
             // A splash screen over everything: black, its picture in the
             // middle (640 × 480), the fade's black over it.
             if let Some(sp) = pw.flow.as_ref().and_then(|f| f.splash.as_ref()) {
-                let black = |a: f32| crate::render::OverlayDraw { texture: None, tris: quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, a], additive: false };
+                let black = |a: f32| crate::render::OverlayDraw {
+                    texture: None,
+                    tris: quad([0.0, 0.0, w, h]),
+                    color: [0.0, 0.0, 0.0, a],
+                    additive: false,
+                };
                 self.renderer.overlay.push(black(1.0));
                 let (x, y) = ((w - 640.0) * 0.5, (h - 480.0) * 0.5);
-                self.renderer.overlay.push(crate::render::OverlayDraw { texture: Some(sp.texture.clone()), tris: quad([x, y, x + 640.0, y + 480.0]), color: [1.0; 4], additive: false });
+                self.renderer.overlay.push(crate::render::OverlayDraw {
+                    texture: Some(sp.texture.clone()),
+                    tris: quad([x, y, x + 640.0, y + 480.0]),
+                    color: [1.0; 4],
+                    additive: false,
+                });
                 self.renderer.overlay.push(black(sp.blanket()));
             }
             self.renderer.door_motion = pw.world.door_motions();
@@ -1104,7 +1263,10 @@ impl State {
         if let Some(o) = self.menu_overlay() {
             let scale = self.window.scale_factor() as f32;
             self.renderer.overlay = o;
-            self.renderer.overlay_size = [self.config.width as f32 / scale, self.config.height as f32 / scale];
+            self.renderer.overlay_size = [
+                self.config.width as f32 / scale,
+                self.config.height as f32 / scale,
+            ];
         }
         // The pointer over the game's own screens: the original's arrow.
         self.sync_mouse();
@@ -1119,11 +1281,31 @@ impl State {
             (None, None) => Vec::new(),
         };
         // The magic effects over the bodies (shields, invisibility).
-        self.renderer.magic = self.play.as_ref().map(|pw| pw.world.magic_draws(&bones)).unwrap_or_default();
+        self.renderer.magic = self
+            .play
+            .as_ref()
+            .map(|pw| pw.world.magic_draws(&bones))
+            .unwrap_or_default();
         // Guns: one-bone models placed by their matrices.
         let guns: Vec<crate::render::ModelDraw> = match &self.play {
             Some(pw) => {
-                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0, None))).collect();
+                let mut v: Vec<_> = pw
+                    .world
+                    .gun_draws()
+                    .into_iter()
+                    .chain(pw.world.particle_models())
+                    .chain(pw.world.turret_draws())
+                    .chain(pw.world.powerup_draws())
+                    .filter_map(|(path, m)| {
+                        Some((
+                            self.renderer.model_from(&self.gpu, &path)?,
+                            vec![m],
+                            false,
+                            1.0,
+                            None,
+                        ))
+                    })
+                    .collect();
                 // (Placed objects, some lit flat.)
                 for (path, m, shade) in pw.world.object_draws() {
                     if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
@@ -1160,7 +1342,15 @@ impl State {
                 .zip(&bones)
                 .map(|(f, b)| f.draw(b))
                 .chain(pw.world.corpse_draws())
-                .chain(guns.iter().map(|(m, b, see_through, alpha, shade)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha, shade: *shade }))
+                .chain(guns.iter().map(|(m, b, see_through, alpha, shade)| {
+                    crate::render::CharDraw {
+                        model: *m,
+                        bones: b,
+                        see_through: *see_through,
+                        alpha: *alpha,
+                        shade: *shade,
+                    }
+                }))
                 .collect(),
             (None, Some(m)) => bones
                 .first()
@@ -1195,12 +1385,23 @@ impl State {
 /// A screen rectangle's two triangles (x, y, u, v).
 fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
     let [l, t, rr, b] = r;
-    vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]]
+    vec![
+        [l, t, 0.0, 0.0],
+        [rr, t, 1.0, 0.0],
+        [rr, b, 1.0, 1.0],
+        [l, t, 0.0, 0.0],
+        [rr, b, 1.0, 1.0],
+        [l, b, 0.0, 1.0],
+    ]
 }
 
 /// The win or fail splash's music (`ONrGameState_SplashScreen`): every
 /// other sound stopped, `music` started silent and faded in over a second.
-fn splash_music(audio: &mut crate::audio::Audio, splash: Option<&mut crate::game::Splash>, music: &'static str) {
+fn splash_music(
+    audio: &mut crate::audio::Audio,
+    splash: Option<&mut crate::game::Splash>,
+    music: &'static str,
+) {
     let Some(splash) = splash else { return };
     audio.stop_all();
     if audio.script_start(music, 0.0) {
@@ -1218,7 +1419,6 @@ fn audio_only(pw: &mut PlayWorld, dt: f32) {
         pw.world.audio.tick(Some(&pw.world.quads));
     }
 }
-
 
 /// Maps a `winit` physical key to the portable `oni_config::Key` the bindings
 /// are keyed on (variant names mirror `winit`'s). Unmapped keys return `None`.

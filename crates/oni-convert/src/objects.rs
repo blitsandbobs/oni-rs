@@ -26,7 +26,10 @@ pub struct Object<'a> {
 /// they were saved with.
 pub fn read<'a>(dat: &Dat<'_>, raw: &'a [u8], group: &str) -> (u32, Vec<Object<'a>>) {
     let name = format!("CJBO{group}");
-    let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_BINA && i.name.as_deref() == Some(name.as_str()))
+    let Some(inst) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_BINA && i.name.as_deref() == Some(name.as_str()))
     else {
         return (0, Vec::new());
     };
@@ -47,7 +50,10 @@ pub fn read<'a>(dat: &Dat<'_>, raw: &'a [u8], group: &str) -> (u32, Vec<Object<'
         if size == 0 {
             break;
         }
-        if let Some(c) = payload.get(at + 4..at + 4 + size).filter(|c| c.len() >= HEADER) {
+        if let Some(c) = payload
+            .get(at + 4..at + 4 + size)
+            .filter(|c| c.len() >= HEADER)
+        {
             out.push(Object {
                 id: le_u32(c, 4),
                 position: [le_f32(c, 12), le_f32(c, 16), le_f32(c, 20)],

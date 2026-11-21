@@ -17,8 +17,21 @@ pub use tables::{ANIM_STATES, ANIM_TYPES};
 
 /// Variant bits a clip can require (`ONcAnimVarientMask_*`), by bit.
 pub const VARIANTS: [&str; 16] = [
-    "", "", "", "", "", "", "", "", // bits 0–7 unused
-    "sprint", "fight", "shoulder", "rightyPistol", "leftyPistol", "rightyRifle", "leftyRifle",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "", // bits 0–7 unused
+    "sprint",
+    "fight",
+    "shoulder",
+    "rightyPistol",
+    "leftyPistol",
+    "rightyRifle",
+    "leftyRifle",
     "panic",
 ];
 
@@ -109,49 +122,189 @@ pub const BODY_PARTS: [&str; 19] = [
 
 /// Attack moves, by index.
 pub const MELEE_ATTACKS: [&str; 84] = [
-    "P", "P P", "P P P", "P P P P", "PF", "PL", "PR", "PB", "PD", "PF PF", "PF PF PF", "PL PL",
-    "PL PL PL", "PR PR", "PR PR PR", "PB PB", "PB PB PB", "PD PD", "PD PD PD", "K", "K K",
-    "K K K", "K K KF", "KF", "KL", "KR", "KB", "KD", "KF KF", "KF KF KF", "KL KL", "KL KL KL",
-    "KR KR", "KR KR KR", "KB KB", "KB KB KB", "KD KD", "KD KD KD", "P P K", "P K K", "P K P",
-    "K P K", "K P P", "K K P", "P K", "K P", "P P K K", "P P K K K", "P P K K K K", "HP", "HPF",
-    "HK", "HKF", "CS-P", "CS-K", "C-P", "C-P (low)", "C-PF", "C-K", "C-K (low)", "C-KF",
-    "GETUP-KF", "GETUP-KB", "R-P", "R-K", "RB-P", "RB-K", "RL-P", "RL-K", "RR-P", "RR-K",
-    "R-SLIDE", "J-P", "J-K", "JF-P", "JF-PB", "JF-K", "JF-KB", "JB-P", "JB-K", "JL-P", "JL-K",
-    "JR-P", "JR-K",
+    "P",
+    "P P",
+    "P P P",
+    "P P P P",
+    "PF",
+    "PL",
+    "PR",
+    "PB",
+    "PD",
+    "PF PF",
+    "PF PF PF",
+    "PL PL",
+    "PL PL PL",
+    "PR PR",
+    "PR PR PR",
+    "PB PB",
+    "PB PB PB",
+    "PD PD",
+    "PD PD PD",
+    "K",
+    "K K",
+    "K K K",
+    "K K KF",
+    "KF",
+    "KL",
+    "KR",
+    "KB",
+    "KD",
+    "KF KF",
+    "KF KF KF",
+    "KL KL",
+    "KL KL KL",
+    "KR KR",
+    "KR KR KR",
+    "KB KB",
+    "KB KB KB",
+    "KD KD",
+    "KD KD KD",
+    "P P K",
+    "P K K",
+    "P K P",
+    "K P K",
+    "K P P",
+    "K K P",
+    "P K",
+    "K P",
+    "P P K K",
+    "P P K K K",
+    "P P K K K K",
+    "HP",
+    "HPF",
+    "HK",
+    "HKF",
+    "CS-P",
+    "CS-K",
+    "C-P",
+    "C-P (low)",
+    "C-PF",
+    "C-K",
+    "C-K (low)",
+    "C-KF",
+    "GETUP-KF",
+    "GETUP-KB",
+    "R-P",
+    "R-K",
+    "RB-P",
+    "RB-K",
+    "RL-P",
+    "RL-K",
+    "RR-P",
+    "RR-K",
+    "R-SLIDE",
+    "J-P",
+    "J-K",
+    "JF-P",
+    "JF-PB",
+    "JF-K",
+    "JF-KB",
+    "JB-P",
+    "JB-K",
+    "JL-P",
+    "JL-K",
+    "JR-P",
+    "JR-K",
 ];
 
 /// Position moves (get into the state an attack starts from), by index.
 pub const MELEE_POSITIONS: [&str; 20] = [
-    "runForward", "runLeft", "runRight", "runBack", "jumpUp", "jumpForward", "jumpLeft",
-    "jumpRight", "jumpBack", "startToCrouch", "crouch", "stand", "closeForward", "closeLeft",
-    "closeRight", "closeBack", "runJumpForward", "runJumpLeft", "runJumpRight", "runJumpBack",
+    "runForward",
+    "runLeft",
+    "runRight",
+    "runBack",
+    "jumpUp",
+    "jumpForward",
+    "jumpLeft",
+    "jumpRight",
+    "jumpBack",
+    "startToCrouch",
+    "crouch",
+    "stand",
+    "closeForward",
+    "closeLeft",
+    "closeRight",
+    "closeBack",
+    "runJumpForward",
+    "runJumpLeft",
+    "runJumpRight",
+    "runJumpBack",
 ];
 
 /// Maneuvers (movement and pauses within a technique), by index.
 pub const MELEE_MANEUVERS: [&str; 14] = [
-    "advance", "retreat", "circleLeft", "circleRight", "pause", "crouch", "jump", "taunt",
-    "randomStop", "getUpForward", "getUpBack", "getUpRollLeft", "getUpRollRight",
+    "advance",
+    "retreat",
+    "circleLeft",
+    "circleRight",
+    "pause",
+    "crouch",
+    "jump",
+    "taunt",
+    "randomStop",
+    "getUpForward",
+    "getUpBack",
+    "getUpRollLeft",
+    "getUpRollRight",
     "barabbasWave",
 ];
 
 /// Evasions, by index (an `…Alt` asks for the direction-specific jump clip).
 pub const MELEE_EVADES: [&str; 24] = [
-    "jumpForward", "jumpForwardAlt", "jumpBack", "jumpBackAlt", "jumpLeft", "jumpLeftAlt",
-    "jumpRight", "jumpRightAlt", "runJumpForward", "runJumpForwardAlt", "runJumpBack",
-    "runJumpBackAlt", "runJumpLeft", "runJumpLeftAlt", "runJumpRight", "runJumpRightAlt",
-    "rollForward", "rollBack", "rollLeft", "rollRight", "slideForward", "slideBack", "slideLeft",
+    "jumpForward",
+    "jumpForwardAlt",
+    "jumpBack",
+    "jumpBackAlt",
+    "jumpLeft",
+    "jumpLeftAlt",
+    "jumpRight",
+    "jumpRightAlt",
+    "runJumpForward",
+    "runJumpForwardAlt",
+    "runJumpBack",
+    "runJumpBackAlt",
+    "runJumpLeft",
+    "runJumpLeftAlt",
+    "runJumpRight",
+    "runJumpRightAlt",
+    "rollForward",
+    "rollBack",
+    "rollLeft",
+    "rollRight",
+    "slideForward",
+    "slideBack",
+    "slideLeft",
     "slideRight",
 ];
 
 /// Throws, by index.
 pub const MELEE_THROWS: [&str; 25] = [
-    "punchFront", "kickFront", "punchBehind", "kickBehind", "runPunchFront", "runKickFront",
-    "runPunchBehind", "runKickBehind", "punchFrontDisarm", "kickFrontDisarm",
-    "punchBehindDisarm", "kickBehindDisarm", "runPunchFrontDisarm", "runKickFrontDisarm",
-    "runPunchBehindDisarm", "runKickBehindDisarm", "punchFrontRifleDisarm",
-    "kickFrontRifleDisarm", "punchBehindRifleDisarm", "kickBehindRifleDisarm",
-    "runPunchFrontRifleDisarm", "runKickFrontRifleDisarm", "runPunchBehindRifleDisarm",
-    "runKickBehindRifleDisarm", "tackle",
+    "punchFront",
+    "kickFront",
+    "punchBehind",
+    "kickBehind",
+    "runPunchFront",
+    "runKickFront",
+    "runPunchBehind",
+    "runKickBehind",
+    "punchFrontDisarm",
+    "kickFrontDisarm",
+    "punchBehindDisarm",
+    "kickBehindDisarm",
+    "runPunchFrontDisarm",
+    "runKickFrontDisarm",
+    "runPunchBehindDisarm",
+    "runKickBehindDisarm",
+    "punchFrontRifleDisarm",
+    "kickFrontRifleDisarm",
+    "punchBehindRifleDisarm",
+    "kickBehindRifleDisarm",
+    "runPunchFrontRifleDisarm",
+    "runKickFrontRifleDisarm",
+    "runPunchBehindRifleDisarm",
+    "runKickBehindRifleDisarm",
+    "tackle",
 ];
 
 /// Technique flags, by bit.
@@ -160,7 +313,13 @@ pub const TECHNIQUE_FLAGS: [&str; 3] = ["interruptible", "generousDirection", "f
 // --- Level navigation (`levels/NN/navigation.json`) -------------------------
 
 /// Room flags, by bit.
-pub const ROOM_FLAGS: [&str; 5] = ["stairs", "spiralStairs", "room", "nonAi", "simplePathfinding"];
+pub const ROOM_FLAGS: [&str; 5] = [
+    "stairs",
+    "spiralStairs",
+    "room",
+    "nonAi",
+    "simplePathfinding",
+];
 
 /// Portal quad flags that matter to pathfinding, by bit.
 pub const PORTAL_FLAGS: [&str; 4] = ["door", "ghost", "stairsUp", "stairsDown"];
@@ -211,23 +370,47 @@ pub const CHARACTER_FLAGS: [&str; 13] = [
 ];
 
 /// AI jobs (goals), by value.
-pub const JOBS: [&str; 10] =
-    ["none", "idle", "guard", "patrol", "teamBattle", "combat", "pursuit", "alarm", "neutral", "panic"];
+pub const JOBS: [&str; 10] = [
+    "none",
+    "idle",
+    "guard",
+    "patrol",
+    "teamBattle",
+    "combat",
+    "pursuit",
+    "alarm",
+    "neutral",
+    "panic",
+];
 
 /// AI alert levels, by value.
 pub const ALERT_LEVELS: [&str; 5] = ["lull", "low", "medium", "high", "combat"];
 
 /// What an AI does about a contact it pursues, by value.
-pub const PURSUIT_MODES: [&str; 8] = ["none", "forget", "goTo", "wait", "look", "move", "hunt", "glance"];
+pub const PURSUIT_MODES: [&str; 8] = [
+    "none", "forget", "goTo", "wait", "look", "move", "hunt", "glance",
+];
 
 /// What an AI does when it loses its contact, by value.
 pub const PURSUIT_LOST: [&str; 3] = ["return", "keepLooking", "alarm"];
 
 /// Inventory kinds a placed character starts with, by index.
-pub const INVENTORY: [&str; 5] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility"];
+pub const INVENTORY: [&str; 5] = [
+    "ammoBallistic",
+    "ammoEnergy",
+    "hypo",
+    "shieldBelt",
+    "invisibility",
+];
 
 /// AI behaviour flags (class), by bit.
-pub const AI_FLAGS: [&str; 5] = ["neverStartle", "dodge", "dodgeWhileFiring", "dodgeStopsFiring", "runningPickup"];
+pub const AI_FLAGS: [&str; 5] = [
+    "neverStartle",
+    "dodge",
+    "dodgeWhileFiring",
+    "dodgeStopsFiring",
+    "runningPickup",
+];
 
 // --- Patrol paths, combat profiles (`levels/NN/patrols.json`,
 // `common/combat_profiles.json`) ----------------------------------------------
@@ -261,8 +444,16 @@ pub const PATROL_WAYPOINTS: [&str; 24] = [
 ];
 
 /// Movement modes (paces), by value ("stop" and "crouch" are obsolete).
-pub const MOVEMENT_MODES: [&str; 8] =
-    ["byAlertLevel", "stop", "crouch", "creep", "walkNoAim", "walk", "runNoAim", "run"];
+pub const MOVEMENT_MODES: [&str; 8] = [
+    "byAlertLevel",
+    "stop",
+    "crouch",
+    "creep",
+    "walkNoAim",
+    "walk",
+    "runNoAim",
+    "run",
+];
 
 /// Which way a body faces relative to its movement, by value.
 pub const MOVE_DIRECTIONS: [&str; 5] = ["forward", "backpedal", "left", "right", "stopped"];
@@ -286,8 +477,14 @@ pub const COMBAT_BEHAVIORS: [&str; 14] = [
 ];
 
 /// When a gunman fights hand to hand, by value.
-pub const MELEE_WHEN: [&str; 6] =
-    ["never", "ifPunched", "ifAttackOpportunity", "ifShortRange", "ifMediumRange", "always"];
+pub const MELEE_WHEN: [&str; 6] = [
+    "never",
+    "ifPunched",
+    "ifAttackOpportunity",
+    "ifShortRange",
+    "ifMediumRange",
+    "always",
+];
 
 /// What an unarmed character does, by value.
 pub const NO_GUN: [&str; 3] = ["melee", "retreat", "alarm"];
@@ -342,7 +539,8 @@ pub const OBJECT_FLAGS: [&str; 16] = [
 pub const PHYSICS_LEVELS: [&str; 5] = ["none", "static", "linear", "animate", "newton"];
 
 /// `OBcAnimFlags_*` (`BFW_Object.h`): an object animation's flags.
-pub const OBJECT_ANIMATION_FLAGS: [&str; 5] = ["loop", "pingpong", "random", "autostart", "localized"];
+pub const OBJECT_ANIMATION_FLAGS: [&str; 5] =
+    ["loop", "pingpong", "random", "autostart", "localized"];
 
 pub const DOOR_FLAGS: [&str; 13] = [
     "initialLocked",
@@ -378,7 +576,10 @@ pub const EVENT_TYPES: [&str; 12] = [
 
 /// The name of `value` in a by-value table.
 pub fn name(table: &[&'static str], value: u16) -> Option<&'static str> {
-    table.get(usize::from(value)).copied().filter(|n| !n.is_empty())
+    table
+        .get(usize::from(value))
+        .copied()
+        .filter(|n| !n.is_empty())
 }
 
 /// The value named `name` in a by-value table.
@@ -436,7 +637,10 @@ mod tests {
         }
         let mask = 0x0200 | 0x0100 | 0x8000;
         assert_eq!(bits(&VARIANTS, bit_names(&VARIANTS, mask)), mask);
-        assert_eq!(bits(&BODY_PARTS, bit_names(&BODY_PARTS, 0x6_0000)), 0x6_0000);
+        assert_eq!(
+            bits(&BODY_PARTS, bit_names(&BODY_PARTS, 0x6_0000)),
+            0x6_0000
+        );
     }
 
     #[test]

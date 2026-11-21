@@ -184,7 +184,10 @@ fn sound_type(kind: &str) -> Option<(&'static str, u8)> {
         ("fallingFlail", "Falling Flail", ANY),
         ("hitOverlayAi", "Getting Hit", ANY),
     ];
-    TABLE.iter().find(|(k, _, _)| *k == kind).map(|&(_, t, w)| (t, w))
+    TABLE
+        .iter()
+        .find(|(k, _, _)| *k == kind)
+        .map(|&(_, t, w)| (t, w))
 }
 
 struct Row {
@@ -205,11 +208,23 @@ pub struct AnimSounds {
 
 impl AnimSounds {
     pub fn load(common: &Path) -> Option<AnimSounds> {
-        let j: Value = serde_json::from_str(&std::fs::read_to_string(common.join("anim_sounds.json")).ok()?).ok()?;
+        let j: Value =
+            serde_json::from_str(&std::fs::read_to_string(common.join("anim_sounds.json")).ok()?)
+                .ok()?;
         let s = |v: &Value| v.as_str().map(str::to_string);
         let mut a = AnimSounds {
-            parents: j["variants"].as_object().into_iter().flatten().map(|(k, v)| (k.clone(), s(v))).collect(),
-            instances: j["instances"].as_object().into_iter().flatten().filter_map(|(k, v)| Some((k.clone(), s(v)?))).collect(),
+            parents: j["variants"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .map(|(k, v)| (k.clone(), s(v)))
+                .collect(),
+            instances: j["instances"]
+                .as_object()
+                .into_iter()
+                .flatten()
+                .filter_map(|(k, v)| Some((k.clone(), s(v)?)))
+                .collect(),
             rows: HashMap::new(),
             clips: HashMap::new(),
         };
@@ -218,7 +233,10 @@ impl AnimSounds {
                 let impulse = r["impulse"].as_str().unwrap_or("").to_string();
                 if let Some(clip) = r["clip"].as_str() {
                     // (Bound to the clip itself, for everyone.)
-                    a.clips.insert(clip.to_string(), (impulse, r["frame"].as_u64().unwrap_or(0) as u16));
+                    a.clips.insert(
+                        clip.to_string(),
+                        (impulse, r["frame"].as_u64().unwrap_or(0) as u16),
+                    );
                 } else {
                     a.rows.entry(variant.clone()).or_default().push(Row {
                         kind: r["type"].as_str().unwrap_or("").to_string(),
@@ -249,7 +267,14 @@ impl AnimSounds {
     /// The sound clip `clip` (of animation type `kind`, its blows up to
     /// `damage`) plays on `frame` for a character of variant `variant`
     /// (its instance name), if any.
-    pub fn sound(&self, variant: Option<&str>, clip: &str, kind: &str, damage: u16, frame: u16) -> Option<&str> {
+    pub fn sound(
+        &self,
+        variant: Option<&str>,
+        clip: &str,
+        kind: &str,
+        damage: u16,
+        frame: u16,
+    ) -> Option<&str> {
         if let Some((impulse, at)) = self.clips.get(clip) {
             return (*at == frame).then_some(impulse.as_str());
         }
@@ -311,17 +336,32 @@ mod tests {
     fn by_variant_type_and_weight() {
         let s = sounds();
         // Konoko's own punch; a cop inherits it.
-        assert_eq!(s.sound(Some("konoko"), "x", "punchForward", 8, 0), Some("kon_pnch_lt"));
-        assert_eq!(s.sound(Some("copfem"), "x", "punch", 8, 0), Some("kon_pnch_lt"));
+        assert_eq!(
+            s.sound(Some("konoko"), "x", "punchForward", 8, 0),
+            Some("kon_pnch_lt")
+        );
+        assert_eq!(
+            s.sound(Some("copfem"), "x", "punch", 8, 0),
+            Some("kon_pnch_lt")
+        );
         // Kicks come from Any, by the clip's damage.
-        assert_eq!(s.sound(Some("konoko"), "x", "kickHeavy", 20, 0), Some("heavy_leg"));
+        assert_eq!(
+            s.sound(Some("konoko"), "x", "kickHeavy", 20, 0),
+            Some("heavy_leg")
+        );
         assert_eq!(s.sound(Some("konoko"), "x", "kick", 12, 0), Some("med_leg"));
         // A roll (crouch weight) from Any's any-weight row.
-        assert_eq!(s.sound(Some("konoko"), "x", "crouchForward", 0, 0), Some("kon_roll"));
+        assert_eq!(
+            s.sound(Some("konoko"), "x", "crouchForward", 0, 0),
+            Some("kon_roll")
+        );
         // Only on frame 0; silent types stay silent.
         assert_eq!(s.sound(Some("konoko"), "x", "punch", 8, 3), None);
         assert_eq!(s.sound(Some("konoko"), "x", "stand", 0, 0), None);
         // A clip with its own sound, for anyone.
-        assert_eq!(s.sound(None, "KONOKOidle_spec2", "idle", 0, 0), Some("kon_yawn"));
+        assert_eq!(
+            s.sound(None, "KONOKOidle_spec2", "idle", 0, 0),
+            Some("kon_yawn")
+        );
     }
 }

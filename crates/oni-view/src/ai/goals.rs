@@ -15,7 +15,9 @@ const SHOOT: u32 = crate::quads::flag::LOS_SHOOT_AI;
 
 use glam::Vec3;
 
-use super::level::{CombatProfile, LevelAi, PatrolPath, Pursue as PursueSettings, Target, Waypoint};
+use super::level::{
+    CombatProfile, LevelAi, PatrolPath, Pursue as PursueSettings, Target, Waypoint,
+};
 use super::melee::brain::Melee;
 use super::melee::fight::Fights;
 use super::melee::profile::Profile;
@@ -143,7 +145,11 @@ impl ClassCombat {
     pub fn from_json(p: &serde_json::Value) -> ClassCombat {
         let c = &p["combat"];
         let u = |k: &str, d: u32| c[k].as_u64().map_or(d, |v| v as u32);
-        let has = |f: &str| p["flags"].as_array().is_some_and(|a| a.iter().any(|x| x.as_str() == Some(f)));
+        let has = |f: &str| {
+            p["flags"]
+                .as_array()
+                .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(f)))
+        };
         let d = ClassCombat::default();
         ClassCombat {
             investigate_body: u("investigateBodyTicks", d.investigate_body),
@@ -237,7 +243,11 @@ impl Rng {
     }
     /// `min ..= min + delta`.
     fn range(&mut self, (min, delta): (u32, u32)) -> u32 {
-        min + if delta > 0 { self.next() % (delta + 1) } else { 0 }
+        min + if delta > 0 {
+            self.next() % (delta + 1)
+        } else {
+            0
+        }
     }
 }
 
@@ -265,10 +275,19 @@ pub struct Scan {
 
 impl Scan {
     fn reset(initial: Option<f32>) -> Scan {
-        Scan { initial, ..Scan::default() }
+        Scan {
+            initial,
+            ..Scan::default()
+        }
     }
 
-    fn new_direction(&mut self, facing: f32, around: Option<(f32, f32)>, rng: &mut Rng, clear: &dyn Fn(f32) -> bool) {
+    fn new_direction(
+        &mut self,
+        facing: f32,
+        around: Option<(f32, f32)>,
+        rng: &mut Rng,
+        clear: &dyn Fn(f32) -> bool,
+    ) {
         let avoid = self.has_dir.then_some(self.dir);
         let mut first = !self.has_dir;
         let mut tries = 0;
@@ -299,7 +318,9 @@ impl Scan {
     fn update(&mut self, facing: f32, rng: &mut Rng, clear: &dyn Fn(f32) -> bool) -> f32 {
         let mut changed = false;
         if !self.has_dir || self.dir_timer == 0 {
-            let around = self.stay_facing.then(|| (self.stay_dir.unwrap_or(facing), self.stay_range));
+            let around = self
+                .stay_facing
+                .then(|| (self.stay_dir.unwrap_or(facing), self.stay_range));
             self.new_direction(facing, around, rng, clear);
             changed = true;
             self.dir_timer = rng.range(self.dir_times);
@@ -317,7 +338,11 @@ impl Scan {
             }
         }
         if changed {
-            self.look = if self.angle_range == 0.0 { self.dir } else { self.dir + self.offset };
+            self.look = if self.angle_range == 0.0 {
+                self.dir
+            } else {
+                self.dir + self.offset
+            };
         }
         self.look
     }
@@ -440,7 +465,8 @@ pub struct Ctx<'a> {
     pub path_length: &'a dyn Fn(Vec3, Vec3) -> Option<f32>,
     /// The local probe ([`crate::nav::Navigation::probe`]): from, direction,
     /// distance, stop square (None: no navigation data).
-    pub probe: &'a dyn Fn(Vec3, glam::Vec2, f32, crate::nav::Square) -> Option<crate::nav::LocalProbe>,
+    pub probe:
+        &'a dyn Fn(Vec3, glam::Vec2, f32, crate::nav::Square) -> Option<crate::nav::LocalProbe>,
     pub others: &'a [Other],
     pub fights: &'a mut Fights,
     pub melee_profile: Option<Rc<Profile>>,
@@ -505,7 +531,13 @@ impl crate::ai::ranged::Random for Rng {
 
 impl Ctx<'_> {
     fn clear_toward(&self) -> impl Fn(f32) -> bool + '_ {
-        move |yaw: f32| (self.sight)(self.eye, self.eye + Vec3::new(yaw.sin(), 0.0, yaw.cos()) * LOOK_CLEAR, SEE)
+        move |yaw: f32| {
+            (self.sight)(
+                self.eye,
+                self.eye + Vec3::new(yaw.sin(), 0.0, yaw.cos()) * LOOK_CLEAR,
+                SEE,
+            )
+        }
     }
     fn alert(&self) -> Alert {
         self.perception.alert
@@ -756,7 +788,9 @@ pub enum Primary {
 fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     let Some(g) = cx.gun else { return true };
     let from = g.matrix.w_axis.truncate();
-    let Some(t) = cx.others.iter().find(|o| o.feet == target_feet) else { return true };
+    let Some(t) = cx.others.iter().find(|o| o.feet == target_feet) else {
+        return true;
+    };
     let to = t.pelvis;
     if g.ai.max_range > 0.0 && from.distance(to) > g.ai.max_range {
         return false;
@@ -773,26 +807,30 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     }
     let d = to - from;
     let flat = Vec3::new(d.x, 0.0, d.z);
-    cx.others.iter().enumerate().filter(|(i, o)| *i != cx.me && o.alive && o.friend && o.feet != target_feet).all(|(_, o)| {
-        // The segment against a vertical cylinder of radius 4.
-        let rel = Vec3::new(from.x - o.feet.x, 0.0, from.z - o.feet.z);
-        let a = flat.length_squared();
-        if a < 1e-6 {
-            return true;
-        }
-        let b = 2.0 * rel.dot(flat);
-        let c = rel.length_squared() - 16.0;
-        let disc = b * b - 4.0 * a * c;
-        if disc < 0.0 {
-            return true;
-        }
-        let s = (-b - disc.sqrt()) / (2.0 * a);
-        if !(0.0..=1.0).contains(&s) {
-            return true;
-        }
-        let y = from.y + d.y * s;
-        !(o.feet.y..=o.feet.y + o.height + 8.0).contains(&y)
-    })
+    cx.others
+        .iter()
+        .enumerate()
+        .filter(|(i, o)| *i != cx.me && o.alive && o.friend && o.feet != target_feet)
+        .all(|(_, o)| {
+            // The segment against a vertical cylinder of radius 4.
+            let rel = Vec3::new(from.x - o.feet.x, 0.0, from.z - o.feet.z);
+            let a = flat.length_squared();
+            if a < 1e-6 {
+                return true;
+            }
+            let b = 2.0 * rel.dot(flat);
+            let c = rel.length_squared() - 16.0;
+            let disc = b * b - 4.0 * a * c;
+            if disc < 0.0 {
+                return true;
+            }
+            let s = (-b - disc.sqrt()) / (2.0 * a);
+            if !(0.0..=1.0).contains(&s) {
+                return true;
+            }
+            let y = from.y + d.y * s;
+            !(o.feet.y..=o.feet.y + o.height + 8.0).contains(&y)
+        })
 }
 
 /// Dodging: a body's reach, and how far a dodge goes at a time.
@@ -848,7 +886,12 @@ fn fan(heading: f32, from: Vec3, cx: &Ctx) -> Option<(f32, crate::nav::Square)> 
         .chain((1..=4).flat_map(|k| [k as f32 * STEP, -(k as f32) * STEP]))
         .map(|off| heading + off)
         .find_map(|h| {
-            let p = (cx.probe)(from, glam::Vec2::new(h.sin(), h.cos()), LOCAL_DISTANCE, crate::nav::Square::Border3)?;
+            let p = (cx.probe)(
+                from,
+                glam::Vec2::new(h.sin(), h.cos()),
+                LOCAL_DISTANCE,
+                crate::nav::Square::Border3,
+            )?;
             p.stopped.is_none().then_some((h, p.worst))
         })
 }
@@ -990,7 +1033,13 @@ pub struct Agent {
 }
 
 impl Agent {
-    pub fn new(name: String, job: Job, profile: Rc<CombatProfile>, class: ClassCombat, seed: u32) -> Agent {
+    pub fn new(
+        name: String,
+        job: Job,
+        profile: Rc<CombatProfile>,
+        class: ClassCombat,
+        seed: u32,
+    ) -> Agent {
         Agent {
             name,
             job,
@@ -1042,7 +1091,9 @@ impl Agent {
     /// The melee AI, when combat has it fighting hand to hand.
     pub fn melee_mut(&mut self) -> Option<&mut Melee> {
         match &mut self.goal {
-            Goal::Combat(c) if c.primary == Primary::Melee && !c.target_dead => c.melee.as_deref_mut(),
+            Goal::Combat(c) if c.primary == Primary::Melee && !c.target_dead => {
+                c.melee.as_deref_mut()
+            }
             _ => None,
         }
     }
@@ -1102,7 +1153,8 @@ impl Agent {
 
     /// Whether it is following a patrol path (its job's or a script's).
     fn patrolling(&self) -> bool {
-        matches!(self.goal, Goal::Path(_)) || (matches!(self.goal, Goal::Job) && matches!(self.job, Job::Patrol(_)))
+        matches!(self.goal, Goal::Path(_))
+            || (matches!(self.goal, Goal::Job) && matches!(self.job, Job::Patrol(_)))
     }
 
     /// Follows patrol path `path` now (a script's order); back to the job
@@ -1161,7 +1213,12 @@ impl Agent {
 
     fn go_to(&mut self, at: Vec3, within: f32, stop: bool, face: Option<f32>, cx: &Ctx) {
         self.steer = None;
-        self.dest = Some(Dest { at, within, stop, face });
+        self.dest = Some(Dest {
+            at,
+            within,
+            stop,
+            face,
+        });
         self.nav = Some(Navigator::new(at, within, self.pace(cx)));
         self.turning_to = None;
     }
@@ -1170,8 +1227,20 @@ impl Agent {
     /// and the like): go to `at` (within `within`), then face `face`; it
     /// looks at `look` meanwhile. Carried out even while passive (the goals
     /// don't run; the movement does).
-    pub fn script_move(&mut self, at: Vec3, within: f32, face: Option<f32>, look: Option<Vec3>, alert: Alert) {
-        self.dest = Some(Dest { at, within, stop: true, face });
+    pub fn script_move(
+        &mut self,
+        at: Vec3,
+        within: f32,
+        face: Option<f32>,
+        look: Option<Vec3>,
+        alert: Alert,
+    ) {
+        self.dest = Some(Dest {
+            at,
+            within,
+            stop: true,
+            face,
+        });
         self.nav = Some(Navigator::new(at, within, self.mode.pace(alert, false)));
         self.turning_to = None;
         if let Some(p) = look {
@@ -1206,7 +1275,14 @@ impl Agent {
     /// route, the first of the target's direction and ±15°…±60° clear for
     /// 15 short of border 3. The walk's worst square scales the weight
     /// (clear 1 … semi-passable 0.3); below the second choice, no.
-    fn check_advance(&mut self, target: Vec3, dist: f32, weight: f32, second: f32, cx: &Ctx) -> (f32, Option<AdvanceWay>) {
+    fn check_advance(
+        &mut self,
+        target: Vec3,
+        dist: f32,
+        weight: f32,
+        second: f32,
+        cx: &Ctx,
+    ) -> (f32, Option<AdvanceWay>) {
         use crate::nav::Square;
         const LOCAL_TRY: f32 = 50.0;
         let (min, max) = self.combat().advance;
@@ -1224,7 +1300,16 @@ impl Agent {
         // (`AI2rManeuver_CheckBlockage`: the level, characters skipped).
         let target_mid = target + Vec3::Y * (cx.pelvis.y - cx.feet.y);
         let blocked = || !(cx.sight)(cx.pelvis, target_mid, crate::quads::flag::CHR_COL_SKIP);
-        let straight = if dist < LOCAL_TRY { (cx.probe)(from, glam::Vec2::new(heading.sin(), heading.cos()), dist, Square::Danger) } else { None };
+        let straight = if dist < LOCAL_TRY {
+            (cx.probe)(
+                from,
+                glam::Vec2::new(heading.sin(), heading.cos()),
+                dist,
+                Square::Danger,
+            )
+        } else {
+            None
+        };
         let mut reached = straight.is_some_and(|p| p.stopped.is_none());
         if reached && straight.is_some_and(|p| p.escaped) {
             reached = !blocked();
@@ -1246,7 +1331,11 @@ impl Agent {
         let worst = straight.map_or(Square::Impassable, |p| p.worst);
         if reached && worst < Square::Border3 {
             let weight = weight * local_weight(worst);
-            return if weight < second { (weight, None) } else { (weight, Some(AdvanceWay::Steer(heading))) };
+            return if weight < second {
+                (weight, None)
+            } else {
+                (weight, Some(AdvanceWay::Steer(heading)))
+            };
         }
         // A route — if there is one and it isn't simple.
         let simple = reached;
@@ -1256,7 +1345,11 @@ impl Agent {
         match fan(heading, from, cx) {
             Some((h, worst)) => {
                 let weight = weight * local_weight(worst);
-                if weight < second { (weight, None) } else { (weight, Some(AdvanceWay::Steer(h))) }
+                if weight < second {
+                    (weight, None)
+                } else {
+                    (weight, Some(AdvanceWay::Steer(h)))
+                }
             }
             None => (0.0, None),
         }
@@ -1274,9 +1367,15 @@ impl Agent {
             self.nav = None;
             self.dest = None;
         }
-        let may_route = self.combat().route_failed.is_none_or(|t| cx.now >= t + RETRY);
+        let may_route = self
+            .combat()
+            .route_failed
+            .is_none_or(|t| cx.now >= t + RETRY);
         if may_route {
-            let stale = self.combat().advance_goal.is_none_or(|g| g.distance(target) > 10.0);
+            let stale = self
+                .combat()
+                .advance_goal
+                .is_none_or(|g| g.distance(target) > 10.0);
             if stale || self.nav.is_none() {
                 self.combat().advance_goal = Some(target);
                 self.combat().route_failed = None;
@@ -1314,7 +1413,12 @@ impl Agent {
     pub fn neutral_halt(&mut self, feet: Vec3, face: Option<f32>) {
         self.halt();
         if let Some(f) = face {
-            self.dest = Some(Dest { at: feet, within: 0.0, stop: true, face: Some(f) });
+            self.dest = Some(Dest {
+                at: feet,
+                within: 0.0,
+                stop: true,
+                face: Some(f),
+            });
         }
     }
 
@@ -1328,9 +1432,9 @@ impl Agent {
         self.path_failed()
     }
 
-
     fn pace(&self, cx: &Ctx) -> Pace {
-        let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
+        let hurry =
+            matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
         self.mode.pace(cx.alert(), hurry)
     }
 
@@ -1338,7 +1442,9 @@ impl Agent {
         let Some(d) = self.dest else { return true };
         let there = matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Arrived))
             || self.distance_to_dest(cx) <= d.within.max(3.0);
-        there && d.face.is_none_or(|f| relative(f - cx.facing).abs() <= MAX_TURN)
+        there
+            && d.face
+                .is_none_or(|f| relative(f - cx.facing).abs() <= MAX_TURN)
     }
 
     fn distance_to_dest(&self, cx: &Ctx) -> f32 {
@@ -1349,7 +1455,10 @@ impl Agent {
     }
 
     fn path_failed(&self) -> bool {
-        matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Failed(_)))
+        matches!(
+            self.nav.as_ref().map(|n| &n.state),
+            Some(NavState::Failed(_))
+        )
     }
 
     fn glance_at(&mut self, at: Vec3, ticks: u32, cx: &Ctx) {
@@ -1438,7 +1547,9 @@ impl Agent {
     pub fn notice(&mut self, n: Notice, cx: &mut Ctx) {
         match n {
             Notice::Combat(who) => {
-                if !matches!(self.goal, Goal::Combat(_)) && cx.others.get(who).is_some_and(|o| o.alive) {
+                if !matches!(self.goal, Goal::Combat(_))
+                    && cx.others.get(who).is_some_and(|o| o.alive)
+                {
                     self.enter_combat(who, cx);
                 }
             }
@@ -1487,7 +1598,10 @@ impl Agent {
             self.return_to_job(true, false, cx);
         }
         // Fighting on the way to an alarm: back to the alarm in time.
-        if self.alarm_console.is_some() && !matches!(self.goal, Goal::Alarm(_)) && self.fight_timer > 0 {
+        if self.alarm_console.is_some()
+            && !matches!(self.goal, Goal::Alarm(_))
+            && self.fight_timer > 0
+        {
             self.fight_timer -= 1;
             if self.fight_timer == 0 {
                 self.alarm_setup(None, cx);
@@ -1514,7 +1628,8 @@ impl Agent {
             Goal::Alarm(_) => self.alarm_update(cx),
             Goal::Idle | Goal::None | Goal::Neutral => {}
         }
-        let hurry = matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
+        let hurry =
+            matches!(&self.goal, Goal::Pursuit(p) if p.mode == PursuitMode::GoTo && p.running);
         let pace = self.mode.pace(cx.perception.alert, hurry);
         if let Some(n) = self.nav.as_mut() {
             n.set_pace(pace);
@@ -1531,15 +1646,24 @@ impl Agent {
     pub fn orders(&mut self, feet: Vec3, facing: f32, now: u64) -> (Orders, u32) {
         let mut o = match (self.nav.as_mut(), self.steer) {
             (Some(n), _) => n.orders(feet, facing, now),
-            (None, Some((heading, pace))) => Orders { direction: Direction::Forward, pace, face: Some(heading) },
+            (None, Some((heading, pace))) => Orders {
+                direction: Direction::Forward,
+                pace,
+                face: Some(heading),
+            },
             (None, None) => Orders::default(),
         };
         // (Turning on the spot to set off belongs to the walk.)
-        let walking = self.nav.as_ref().is_some_and(|n| matches!(n.state, NavState::Following | NavState::Planning));
+        let walking = self
+            .nav
+            .as_ref()
+            .is_some_and(|n| matches!(n.state, NavState::Following | NavState::Planning));
         if o.direction == Direction::Stopped && !walking {
             let arrived_facing = self.dest.and_then(|d| d.face).filter(|_| {
                 matches!(self.nav.as_ref().map(|n| &n.state), Some(NavState::Arrived))
-                    || self.dest.is_some_and(|d| (d.at - feet).with_y_zero().length() <= d.within.max(3.0))
+                    || self
+                        .dest
+                        .is_some_and(|d| (d.at - feet).with_y_zero().length() <= d.within.max(3.0))
             });
             if let Some(f) = arrived_facing {
                 o.face = Some(f);
@@ -1568,7 +1692,9 @@ impl Agent {
             self.turning_to = None;
             // On the move it looks where it goes (glancing aside a little).
             let range = STANDING_LOOK_RANGE;
-            self.eye = self.glance.map(|(g, _)| facing + relative(g - facing).clamp(-range, range));
+            self.eye = self
+                .glance
+                .map(|(g, _)| facing + relative(g - facing).clamp(-range, range));
         }
         (o, self.press)
     }
@@ -1582,7 +1708,11 @@ impl Agent {
         if let Some(dir) = self.aim {
             return Some((dir, self.aim_speed));
         }
-        let speed = if matches!(self.goal, Goal::Pursuit(_)) { 0.5 } else { 1.0 };
+        let speed = if matches!(self.goal, Goal::Pursuit(_)) {
+            0.5
+        } else {
+            1.0
+        };
         let yaw = |y: f32| Vec3::new(y.sin(), 0.0, y.cos());
         let dir = match (self.glance, self.look) {
             (Some((g, _)), _) => yaw(g),
@@ -1626,8 +1756,12 @@ impl Agent {
                 let path = p.path.clone();
                 let mut best: Option<(usize, f32)> = None;
                 for (i, w) in path.waypoints.iter().enumerate() {
-                    let Some(flag) = movement_flag(w) else { continue };
-                    let Some(f) = level.flags.get(&flag) else { continue };
+                    let Some(flag) = movement_flag(w) else {
+                        continue;
+                    };
+                    let Some(f) = level.flags.get(&flag) else {
+                        continue;
+                    };
                     if let Some(d) = (cx.path_length)(cx.feet, f.at) {
                         if best.is_none_or(|(_, b)| d < b) {
                             best = Some((i, d));
@@ -1662,13 +1796,28 @@ impl Agent {
             self.go_to(back, RETURN_TO_PATH, false, None, cx);
             return;
         }
-        let Some(w) = self.patrol().path.waypoints.get(index).cloned() else { return };
-        if movement_flag(&w).is_some() || matches!(w, Waypoint::MoveTo { at: Target::Point(_), .. }) {
+        let Some(w) = self.patrol().path.waypoints.get(index).cloned() else {
+            return;
+        };
+        if movement_flag(&w).is_some()
+            || matches!(
+                w,
+                Waypoint::MoveTo {
+                    at: Target::Point(_),
+                    ..
+                }
+            )
+        {
             self.patrol().movement_waypoint = Some(index);
         }
         let flag = |id: i16| level.flags.get(&id).copied();
         match w {
-            Waypoint::MoveTo { at, stop, face, within } => {
+            Waypoint::MoveTo {
+                at,
+                stop,
+                face,
+                within,
+            } => {
                 let facing = match (face, at) {
                     (true, Target::Flag(id)) => flag(id).map(|f| f.facing),
                     _ => None,
@@ -1753,7 +1902,11 @@ impl Agent {
                     }
                 }
             }
-            Waypoint::ShootAt { at, ticks, inaccuracy } => {
+            Waypoint::ShootAt {
+                at,
+                ticks,
+                inaccuracy,
+            } => {
                 // Shoots at the spot for its time (no gun: just waits).
                 let point = match at {
                     crate::ai::level::Target::Flag(id) => cx.level.flags.get(&id).map(|f| f.at),
@@ -1838,7 +1991,10 @@ impl Agent {
             p.failed = false;
             p.fails += 1;
             if p.fails >= PATROL_FAILS {
-                eprintln!("ai: {name}: patrol {}: giving up on waypoint {}", p.path.name, p.current);
+                eprintln!(
+                    "ai: {name}: patrol {}: giving up on waypoint {}",
+                    p.path.name, p.current
+                );
                 skip = true;
             } else if let Some(m) = p.movement_waypoint {
                 self.do_waypoint(m, true, true, cx);
@@ -1862,7 +2018,11 @@ impl Agent {
         }
         let clear = cx.clear_toward();
         let facing = cx.facing;
-        let course = self.nav.as_ref().filter(|n| n.state == NavState::Following).map(|_| facing);
+        let course = self
+            .nav
+            .as_ref()
+            .filter(|n| n.state == NavState::Following)
+            .map(|_| facing);
         let p = match (&mut self.goal, &mut self.job) {
             (Goal::Path(p), _) => p,
             (Goal::Job, Job::Patrol(p)) => p,
@@ -1870,7 +2030,9 @@ impl Agent {
         };
         if p.scanning {
             if let Some(c) = course {
-                if p.scan_course.is_none_or(|old| relative(c - old).abs() > SCAN_RECALC) {
+                if p.scan_course
+                    .is_none_or(|old| relative(c - old).abs() > SCAN_RECALC)
+                {
                     p.scan_course = Some(c);
                     p.scan.has_dir = true;
                     p.scan.dir = c;
@@ -1900,7 +2062,9 @@ impl Agent {
             self.do_waypoint(i, true, false, cx);
         }
         let i = self.patrol().current;
-        let Some(w) = self.patrol().path.waypoints.get(i).cloned() else { return true };
+        let Some(w) = self.patrol().path.waypoints.get(i).cloned() else {
+            return true;
+        };
         match w {
             Waypoint::MoveTo { face, .. } => {
                 if self.arrived(cx) {
@@ -1919,7 +2083,11 @@ impl Agent {
                 if self.patrol().done_glance == Some(i) {
                     let glancing = self.glance.is_some();
                     let p = self.patrol();
-                    return if p.stationary_glance { !glancing && !p.scanning } else { true };
+                    return if p.stationary_glance {
+                        !glancing && !p.scanning
+                    } else {
+                        true
+                    };
                 }
                 if self.glance.is_some() || self.patrol().scanning {
                     return false;
@@ -1984,7 +2152,9 @@ impl Agent {
     // --- pursuit (`docs/GOALS.md`, *Pursuit*) ---------------------------------
 
     fn enter_pursuit(&mut self, id: u32, cx: &mut Ctx) {
-        let Some(c) = cx.perception.contact(id).cloned() else { return };
+        let Some(c) = cx.perception.contact(id).cloned() else {
+            return;
+        };
         self.exit(cx);
         let danger = cx.alert() >= Alert::Medium;
         let mut p = Pursuit {
@@ -2023,7 +2193,9 @@ impl Agent {
     }
 
     fn desire_pursuit(&self, p: &Pursuit, check: Check, cx: &Ctx) -> bool {
-        let Some(c) = cx.perception.contact(p.target) else { return false };
+        let Some(c) = cx.perception.contact(p.target) else {
+            return false;
+        };
         if check != Check::Initial && c.priority == Priority::Friendly {
             return false;
         }
@@ -2050,7 +2222,10 @@ impl Agent {
         let alerted = cx.alert() >= Alert::Medium;
         let settings = self.pursue.clone();
         let investigate = self.class.investigate_body;
-        let strength = cx.perception.contact(self.pursuit().target).map_or(Strength::Forgotten, |c| c.strength);
+        let strength = cx
+            .perception
+            .contact(self.pursuit().target)
+            .map_or(Strength::Forgotten, |c| c.strength);
         let p = self.pursuit();
         if p.delay > 0 {
             return false;
@@ -2065,11 +2240,17 @@ impl Agent {
                     if strength == Strength::Definite {
                         p.certain = true;
                     }
-                    PursuitMode::from_name(if alerted { &settings.strong_seen } else { &settings.strong_unseen })
+                    PursuitMode::from_name(if alerted {
+                        &settings.strong_seen
+                    } else {
+                        &settings.strong_unseen
+                    })
                 }
-                Strength::Weak => {
-                    PursuitMode::from_name(if alerted { &settings.weak_seen } else { &settings.weak_unseen })
-                }
+                Strength::Weak => PursuitMode::from_name(if alerted {
+                    &settings.weak_seen
+                } else {
+                    &settings.weak_unseen
+                }),
                 Strength::Forgotten => {
                     if settings.lost == "keepLooking" {
                         PursuitMode::None
@@ -2176,7 +2357,11 @@ impl Agent {
             PursuitMode::Glance => {
                 let p = self.pursuit().clone();
                 let go = self.desire_pursuit(&p, Check::PostGlance, cx);
-                self.pursuit().mode = if go { PursuitMode::GoTo } else { PursuitMode::Forget };
+                self.pursuit().mode = if go {
+                    PursuitMode::GoTo
+                } else {
+                    PursuitMode::Forget
+                };
             }
             PursuitMode::Look => {
                 let p = self.pursuit().clone();
@@ -2197,7 +2382,12 @@ impl Agent {
         }
         if self.pursuit().mode != prev {
             let mode = self.pursuit().mode;
-            eprintln!("ai: {}: pursuit {} → {}", self.name, prev.name(), mode.name());
+            eprintln!(
+                "ai: {}: pursuit {} → {}",
+                self.name,
+                prev.name(),
+                mode.name()
+            );
             self.begin_mode(cx);
         }
     }
@@ -2218,7 +2408,11 @@ impl Agent {
         // Actively pursuing, now and then it says so.
         let next = 720 + self.rng.next() % 180;
         let p = self.pursuit();
-        if matches!(p.mode, PursuitMode::Look | PursuitMode::Hunt | PursuitMode::Move | PursuitMode::Wait) && p.say_timer > 0 {
+        if matches!(
+            p.mode,
+            PursuitMode::Look | PursuitMode::Hunt | PursuitMode::Move | PursuitMode::Wait
+        ) && p.say_timer > 0
+        {
             p.say_timer -= 1;
             if p.say_timer == 0 {
                 p.say_timer = next;
@@ -2230,7 +2424,9 @@ impl Agent {
             PursuitMode::GoTo => self.goto_update(cx),
             PursuitMode::Look | PursuitMode::Glance => {
                 let clear = cx.clear_toward();
-                let Goal::Pursuit(p) = &mut self.goal else { return };
+                let Goal::Pursuit(p) = &mut self.goal else {
+                    return;
+                };
                 let look = p.scan.update(facing, &mut self.rng, &clear);
                 self.look = Look::Dir(look);
             }
@@ -2241,7 +2437,9 @@ impl Agent {
     fn goto_update(&mut self, cx: &mut Ctx) {
         let target = self.pursuit().target;
         cx.perception.hold(target);
-        let Some(location) = cx.perception.contact(target).map(|c| c.location) else { return };
+        let Some(location) = cx.perception.contact(target).map(|c| c.location) else {
+            return;
+        };
         let dist = self.distance_to_dest(cx);
         let mut finished = false;
         let mut scan = false;
@@ -2299,7 +2497,9 @@ impl Agent {
         if scan {
             let facing = cx.facing;
             let clear = cx.clear_toward();
-            let Goal::Pursuit(p) = &mut self.goal else { return };
+            let Goal::Pursuit(p) = &mut self.goal else {
+                return;
+            };
             if !p.scanning {
                 p.scan = Scan::reset(Some(yaw_toward(cx.feet, location)));
                 p.scanning = true;
@@ -2353,10 +2553,15 @@ impl Agent {
     // --- combat (`docs/GOALS.md`, *Combat*) -----------------------------------
 
     fn enter_combat(&mut self, who: usize, cx: &mut Ctx) {
-        let Some(c) = cx.perception.about(who).cloned() else { return };
+        let Some(c) = cx.perception.about(who).cloned() else {
+            return;
+        };
         self.exit(cx);
         self.mode = MoveMode::ByAlert;
-        let melee = cx.melee_profile.clone().map(|p| Box::new(Melee::new(p, who, cx.daze, cx.me as u32 * 7919 + 1)));
+        let melee = cx
+            .melee_profile
+            .clone()
+            .map(|p| Box::new(Melee::new(p, who, cx.daze, cx.me as u32 * 7919 + 1)));
         let mut combat = Combat {
             target: who,
             contact: c.id,
@@ -2395,7 +2600,10 @@ impl Agent {
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
-        eprintln!("ai: {} → combat with {who} (profile {})", self.name, self.profile.name);
+        eprintln!(
+            "ai: {} → combat with {who} (profile {})",
+            self.name, self.profile.name
+        );
     }
 
     pub(super) fn combat(&mut self) -> &mut Combat {
@@ -2423,8 +2631,9 @@ impl Agent {
                 .contacts
                 .iter()
                 .find(|c| {
-                    c.who.is_some_and(|w| w != target && w != me && cx.others.get(w).is_some_and(|o| o.alive))
-                        && c.priority >= Priority::HostileNoThreat
+                    c.who.is_some_and(|w| {
+                        w != target && w != me && cx.others.get(w).is_some_and(|o| o.alive)
+                    }) && c.priority >= Priority::HostileNoThreat
                         && c.strength >= Strength::Strong
                 })
                 .cloned();
@@ -2453,8 +2662,16 @@ impl Agent {
         eprintln!("ai: {}: target dead", self.name);
     }
 
-    fn combat_knowledge(&mut self, id: u32, degrade: bool, event: Option<(Stimulus, i32)>, cx: &mut Ctx) {
-        let Some(mut c) = cx.perception.contact(id).cloned() else { return };
+    fn combat_knowledge(
+        &mut self,
+        id: u32,
+        degrade: bool,
+        event: Option<(Stimulus, i32)>,
+        cx: &mut Ctx,
+    ) {
+        let Some(mut c) = cx.perception.contact(id).cloned() else {
+            return;
+        };
         // (What this news was, not what the contact last heard.)
         let damage = event.map_or(0, |e| e.1);
         if let Some((stimulus, _)) = event {
@@ -2528,7 +2745,9 @@ impl Agent {
         if c.priority == Priority::Friendly {
             return;
         }
-        let Some(who) = c.who.filter(|&w| cx.others.get(w).is_some_and(|o| o.alive)) else { return };
+        let Some(who) = c.who.filter(|&w| cx.others.get(w).is_some_and(|o| o.alive)) else {
+            return;
+        };
         if who == cx.me {
             return;
         }
@@ -2655,7 +2874,8 @@ impl Agent {
         }
 
         // Every 5 ticks: choose a primary movement.
-        if (cx.me as u64 + cx.now).is_multiple_of(COMBAT_PERIOD) || self.combat().band == Band::None {
+        if (cx.me as u64 + cx.now).is_multiple_of(COMBAT_PERIOD) || self.combat().band == Band::None
+        {
             self.choose_primary(target_feet, cx);
         }
 
@@ -2668,7 +2888,10 @@ impl Agent {
         self.look = Look::At(target_feet);
         // Dodging: a step away from the danger takes over from holding,
         // advancing, retreating or going for a gun (not from melee).
-        let dodge = self.combat().dodge.filter(|_| primary != Primary::Melee && primary != Primary::GetUp && !cx.fallen);
+        let dodge = self
+            .combat()
+            .dodge
+            .filter(|_| primary != Primary::Melee && primary != Primary::GetUp && !cx.fallen);
         if let Some((heading, _)) = dodge {
             let to = cx.feet + heading * DODGE_STEP;
             let fresh = self.dest.as_ref().is_none_or(|d| d.at.distance(to) > 6.0);
@@ -2718,7 +2941,10 @@ impl Agent {
             }
             Primary::Gun => {
                 let k = self.combat();
-                let gun = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).copied();
+                let gun = k
+                    .gun_target
+                    .and_then(|g| cx.guns.iter().find(|f| f.index == g))
+                    .copied();
                 // Rolling or sliding for it: no new clip, just aim at it
                 // (and take it when it is near).
                 if self.combat().gun_running && cx.body.can_pickup {
@@ -2729,23 +2955,25 @@ impl Agent {
                         }
                     }
                 } else {
-                match gun {
-                    Some(f) if f.at.with_y_zero().distance(cx.feet.with_y_zero()) <= GUN_REACH => {
-                        self.halt();
-                        self.want_pickup = Some(f.index);
-                    }
-                    Some(f) => {
-                        if self.path_failed() {
-                            // Out of reach: remember it, find another.
-                            let k = self.combat();
-                            k.unreachable.push(f.index);
-                            k.gun_target = None;
-                        } else if self.nav.is_none() || self.arrived(cx) {
-                            self.go_to(f.at, 8.0, true, None, cx);
+                    match gun {
+                        Some(f)
+                            if f.at.with_y_zero().distance(cx.feet.with_y_zero()) <= GUN_REACH =>
+                        {
+                            self.halt();
+                            self.want_pickup = Some(f.index);
                         }
+                        Some(f) => {
+                            if self.path_failed() {
+                                // Out of reach: remember it, find another.
+                                let k = self.combat();
+                                k.unreachable.push(f.index);
+                                k.gun_target = None;
+                            } else if self.nav.is_none() || self.arrived(cx) {
+                                self.go_to(f.at, 8.0, true, None, cx);
+                            }
+                        }
+                        None => self.halt(),
                     }
-                    None => self.halt(),
-                }
                 }
             }
         }
@@ -2775,7 +3003,8 @@ impl Agent {
     fn find_dodges(&mut self, cx: &mut Ctx) {
         let class = self.class;
         let firing = cx.gun.is_some_and(|g| g.firing);
-        let looking = class.dodge && (!firing || class.dodge_while_firing || class.dodge_stops_firing);
+        let looking =
+            class.dodge && (!firing || class.dodge_while_firing || class.dodge_stops_firing);
         let pelvis = cx.pelvis;
         let mut found: Vec<Dodge> = Vec::new();
         if looking {
@@ -2807,20 +3036,37 @@ impl Agent {
                 let heading = if off < 10.0 {
                     // Straight at it: sidestep, to a side with room.
                     let side = s.axis.cross(Vec3::Y).normalize_or(Vec3::X);
-                    let clear = |d: Vec3| (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP);
-                    if clear(side) || !clear(-side) { side } else { -side }
+                    let clear = |d: Vec3| {
+                        (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP)
+                    };
+                    if clear(side) || !clear(-side) {
+                        side
+                    } else {
+                        -side
+                    }
                 } else {
                     away.with_y_zero().normalize_or(Vec3::X)
                 };
                 let lifetime = (20.0 * class.dodge_time_scale).round() as u32;
-                found.push(Dodge { key: s.owner as u64, weight, lifetime, left: lifetime, age: 0, heading });
+                found.push(Dodge {
+                    key: s.owner as u64,
+                    weight,
+                    lifetime,
+                    left: lifetime,
+                    age: 0,
+                    heading,
+                });
             }
             for p in cx.projectiles {
                 // Its next 50 ticks against the body.
                 let path = p.velocity * (50.0 / 60.0);
                 let reach = BODY_RADIUS + p.radius;
                 let l2 = path.length_squared();
-                let t = if l2 > 0.0 { ((pelvis - p.at).dot(path) / l2).clamp(0.0, 1.0) } else { 0.0 };
+                let t = if l2 > 0.0 {
+                    ((pelvis - p.at).dot(path) / l2).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
                 let closest = p.at + path * t;
                 if closest.distance(pelvis) > reach {
                     continue;
@@ -2839,7 +3085,14 @@ impl Agent {
                 }
                 let lifetime = (45.0 * class.dodge_time_scale).round() as u32;
                 let heading = (pelvis - closest).with_y_zero().normalize_or(Vec3::X);
-                found.push(Dodge { key: p.id | (1 << 63), weight, lifetime, left: lifetime, age: 0, heading });
+                found.push(Dodge {
+                    key: p.id | (1 << 63),
+                    weight,
+                    lifetime,
+                    left: lifetime,
+                    age: 0,
+                    heading,
+                });
             }
         }
         let k = self.combat();
@@ -2891,16 +3144,23 @@ impl Agent {
         }
         let stops_firing = self.class.dodge_stops_firing;
         let k = self.combat();
-        let melee_kind = matches!(behavior.as_str(), "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee");
+        let melee_kind = matches!(
+            behavior.as_str(),
+            "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee"
+        );
         if k.target_dead || k.primary == Primary::Melee || melee_kind || cx.fallen {
             return;
         }
-        let Some(t) = cx.others.get(target) else { return };
+        let Some(t) = cx.others.get(target) else {
+            return;
+        };
         let (at, shoulder) = (t.pelvis, cx.pelvis);
         let first = std::mem::replace(&mut k.first_sight, false);
-        let targeting = k
-            .targeting
-            .get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(g.params, g.ai.aim, g.skill, first, at, shoulder)));
+        let targeting = k.targeting.get_or_insert_with(|| {
+            Box::new(crate::ai::ranged::Targeting::new(
+                g.params, g.ai.aim, g.skill, first, at, shoulder,
+            ))
+        });
         targeting.predict(at, shoulder);
         // (Staring, it looks with the gun lowered and never fires.)
         let shooting = behavior != "stare" && boss.is_none_or(|b| b.shoot);
@@ -2928,12 +3188,18 @@ impl Agent {
     fn shoot_at_spot(&mut self, cx: &mut Ctx) {
         let shoulder = cx.pelvis;
         let p = self.patrol();
-        let (Some(at), Some(g)) = (p.shoot_at, cx.gun.filter(|g| g.usable)) else { return };
+        let (Some(at), Some(g)) = (p.shoot_at, cx.gun.filter(|g| g.usable)) else {
+            return;
+        };
         if p.shooting == 0 {
             p.shot = None;
             return;
         }
-        let t = p.shot.get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(g.params, g.ai.aim, g.skill, false, at, shoulder)));
+        let t = p.shot.get_or_insert_with(|| {
+            Box::new(crate::ai::ranged::Targeting::new(
+                g.params, g.ai.aim, g.skill, false, at, shoulder,
+            ))
+        });
         t.predict(at, shoulder);
         let dir = t.aim(shoulder, g.matrix, true);
         let fire = t.execute(true, g.matrix);
@@ -2996,7 +3262,12 @@ impl Agent {
         } else {
             // The range band (a retreat band if it was closer before).
             let prev = k.band;
-            let closer_before = |p: Band| matches!(p, Band::Short | Band::MediumRetreat | Band::LongRetreat | Band::Medium);
+            let closer_before = |p: Band| {
+                matches!(
+                    p,
+                    Band::Short | Band::MediumRetreat | Band::LongRetreat | Band::Medium
+                )
+            };
             k.band = if dist < profile.short_range {
                 Band::Short
             } else if dist < profile.medium_range {
@@ -3029,7 +3300,10 @@ impl Agent {
             };
             let armed = cx.gun.is_some_and(|g| g.usable);
             // (A behaviour that isn't a boss's: no boss state.)
-            let boss = (behavior.starts_with("barabbas") || behavior.starts_with("superNinja") || behavior.starts_with("mutantMuro")).then(|| behavior.to_string());
+            let boss = (behavior.starts_with("barabbas")
+                || behavior.starts_with("superNinja")
+                || behavior.starts_with("mutantMuro"))
+            .then(|| behavior.to_string());
             if boss.is_none() && !matches!(k.boss, super::bosses::Boss::None) {
                 k.boss = super::bosses::Boss::None;
                 self.mode = MoveMode::ByAlert;
@@ -3085,8 +3359,13 @@ impl Agent {
             let k = self.combat();
             // Its gun put the target down: in to finish it hand to hand.
             let t = cx.others.get(k.target);
-            if let Some(g) = cx.gun.filter(|_| armed && has_melee && profile.melee_when != "never") {
-                let earned = t.is_some_and(|t| (g.stuns && (t.dizzy || t.fallen)) || (g.knocks_down && t.fallen));
+            if let Some(g) = cx
+                .gun
+                .filter(|_| armed && has_melee && profile.melee_when != "never")
+            {
+                let earned = t.is_some_and(|t| {
+                    (g.stuns && (t.dizzy || t.fallen)) || (g.knocks_down && t.fallen)
+                });
                 if earned && k.weapon_melee == 0 {
                     k.weapon_melee = g.ai.melee_assist / COMBAT_PERIOD as u32;
                 }
@@ -3138,10 +3417,11 @@ impl Agent {
         let gun_chance = self.class.gun_pickup_percent;
         let gun_roll = self.rng.next() % 100;
         let pick = loop {
-            let (best, &bw) = w
-                .iter()
-                .enumerate()
-                .fold((0, &w[0]), |(bi, bw), (i, v)| if *v > *bw { (i, v) } else { (bi, bw) });
+            let (best, &bw) =
+                w.iter().enumerate().fold(
+                    (0, &w[0]),
+                    |(bi, bw), (i, v)| if *v > *bw { (i, v) } else { (bi, bw) },
+                );
             if bw <= 0.0 {
                 break Primary::Hold;
             }
@@ -3160,8 +3440,14 @@ impl Agent {
             let k = self.combat();
             match best {
                 ADVANCE => {
-                    let second = w.iter().enumerate().filter(|&(i, _)| i != ADVANCE).map(|(_, v)| *v).fold(0.0, f32::max);
-                    let (weight, way) = self.check_advance(target_feet, dist, w[ADVANCE], second, cx);
+                    let second = w
+                        .iter()
+                        .enumerate()
+                        .filter(|&(i, _)| i != ADVANCE)
+                        .map(|(_, v)| *v)
+                        .fold(0.0, f32::max);
+                    let (weight, way) =
+                        self.check_advance(target_feet, dist, w[ADVANCE], second, cx);
                     w[ADVANCE] = weight;
                     self.combat().advance_way = way;
                 }
@@ -3171,7 +3457,11 @@ impl Agent {
                     if dist >= max {
                         w[RETREAT] = 0.0;
                     } else {
-                        let urgency = if dist <= min { 1.0 } else { 1.0 - (dist - min) / (max - min) };
+                        let urgency = if dist <= min {
+                            1.0
+                        } else {
+                            1.0 - (dist - min) / (max - min)
+                        };
                         w[RETREAT] *= urgency;
                     }
                 }
@@ -3183,7 +3473,10 @@ impl Agent {
                 GUN => {
                     // Once a fight it decides whether it goes for guns at all.
                     let goes = *k.gun_roll.get_or_insert(gun_roll < gun_chance);
-                    let still = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).filter(|f| f.usable);
+                    let still = k
+                        .gun_target
+                        .and_then(|g| cx.guns.iter().find(|f| f.index == g))
+                        .filter(|f| f.usable);
                     // (How far it looks: a boss's own radii, else these.)
                     let (near, far) = k.gun_search.take().unwrap_or((30.0, GUN_SEARCH));
                     let pick = still.or_else(|| {
@@ -3191,7 +3484,9 @@ impl Agent {
                             .iter()
                             .filter(|f| f.usable && !k.unreachable.contains(&f.index))
                             .filter(|f| f.at.distance(cx.feet) <= far)
-                            .min_by(|a, b| a.at.distance(cx.feet).total_cmp(&b.at.distance(cx.feet)))
+                            .min_by(|a, b| {
+                                a.at.distance(cx.feet).total_cmp(&b.at.distance(cx.feet))
+                            })
                     });
                     match pick.filter(|_| goes) {
                         Some(f) => {
@@ -3206,7 +3501,8 @@ impl Agent {
                     }
                 }
                 MELEE => {
-                    let clear = (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0, SHOOT);
+                    let clear =
+                        (cx.sight)(cx.feet + Vec3::Y * 5.0, target_feet + Vec3::Y * 5.0, SHOOT);
                     if !has_melee || dist > MELEE_RANGE || k.try_advance > 0 || !clear {
                         w[MELEE] = 0.0;
                         w[ADVANCE] = w[ADVANCE].max(1.0);
@@ -3232,7 +3528,10 @@ impl Agent {
         let name = self.name.clone();
         let k = self.combat();
         if pick != k.primary {
-            eprintln!("ai: {name}: combat {:?} → {pick:?} (at {dist:.0})", k.primary);
+            eprintln!(
+                "ai: {name}: combat {:?} → {pick:?} (at {dist:.0})",
+                k.primary
+            );
             k.primary = pick;
             k.advance_goal = None;
         }
@@ -3265,7 +3564,14 @@ impl Agent {
         const VERTICAL: f32 = 5.0;
         const DELTA: f32 = 20.0 * PI / 180.0;
         const RADIUS: f32 = 16.0;
-        let Some(gun) = self.combat().gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).copied() else { return false };
+        let Some(gun) = self
+            .combat()
+            .gun_target
+            .and_then(|g| cx.guns.iter().find(|f| f.index == g))
+            .copied()
+        else {
+            return false;
+        };
         let b = cx.body;
         let d = gun.at - cx.feet;
         let dist = d.with_y_zero().length();
@@ -3294,11 +3600,19 @@ impl Agent {
         } else {
             return false;
         };
-        let Some((kind, end)) = b.escapes[way] else { return false };
+        let Some((kind, end)) = b.escapes[way] else {
+            return false;
+        };
         // The way must be clear.
         let flat = end.with_y_zero();
         let clear = match (flat.try_normalize(), self.nav.is_some()) {
-            (Some(dir), true) => (cx.probe)(cx.feet, glam::Vec2::new(dir.x, dir.z), flat.length(), crate::nav::Square::Border3).is_some_and(|p| p.stopped.is_none()),
+            (Some(dir), true) => (cx.probe)(
+                cx.feet,
+                glam::Vec2::new(dir.x, dir.z),
+                flat.length(),
+                crate::nav::Square::Border3,
+            )
+            .is_some_and(|p| p.stopped.is_none()),
             _ => true,
         };
         if !clear {
@@ -3331,7 +3645,11 @@ impl Agent {
             .iter()
             .enumerate()
             .filter(|(_, k)| k.is_alarm && k.active && !k.triggered)
-            .filter_map(|(i, k)| (cx.path_length)(cx.feet, k.stand()).filter(|&d| d <= limit).map(|d| (i, d)))
+            .filter_map(|(i, k)| {
+                (cx.path_length)(cx.feet, k.stand())
+                    .filter(|&d| d <= limit)
+                    .map(|d| (i, d))
+            })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|(i, _)| i)
     }
@@ -3339,14 +3657,18 @@ impl Agent {
     /// Sets off for alarm console `console` (None: the one it was going
     /// for). False if there is none.
     pub fn alarm_setup(&mut self, console: Option<usize>, cx: &mut Ctx) -> bool {
-        let Some(c) = console.or(self.alarm_console) else { return false };
+        let Some(c) = console.or(self.alarm_console) else {
+            return false;
+        };
         self.alarm_console = Some(c);
         self.fight_timer = 0;
         if self.last_alarm_console != Some(c) {
             self.alarm_repaths = 0;
             self.last_alarm_console = Some(c);
         }
-        let Some(k) = cx.consoles.get(c) else { return false };
+        let Some(k) = cx.consoles.get(c) else {
+            return false;
+        };
         let dest = k.marker - Vec3::new(k.facing.sin(), 0.0, k.facing.cos()) * ALARM_OFFSET;
         let dest = Vec3::new(dest.x, k.position.y, dest.z);
         let facing = k.facing;
@@ -3356,7 +3678,10 @@ impl Agent {
             c.damage = 0;
         }
         self.mode = MoveMode::RunNoAim;
-        self.goal = Goal::Alarm(Box::new(AlarmRun { dest, stand_wait: 0 }));
+        self.goal = Goal::Alarm(Box::new(AlarmRun {
+            dest,
+            stand_wait: 0,
+        }));
         self.go_to(dest, MARKER_REACH - ALARM_OFFSET, true, Some(facing), cx);
         eprintln!("ai: {} → alarm (console {})", self.name, k.id);
         true
@@ -3431,7 +3756,9 @@ impl Agent {
                 .perception
                 .contacts
                 .iter()
-                .filter(|t| t.priority >= Priority::HostileThreat && t.strength >= Strength::Definite)
+                .filter(|t| {
+                    t.priority >= Priority::HostileThreat && t.strength >= Strength::Definite
+                })
                 .map(|t| (t.id, t.location.distance(cx.feet)))
                 .filter(|&(_, d)| d <= a.ignore_distance)
                 .min_by(|x, y| x.1.total_cmp(&y.1));
@@ -3473,7 +3800,9 @@ impl Agent {
             }
         } else {
             self.halt();
-            let Goal::Alarm(run) = &mut self.goal else { return };
+            let Goal::Alarm(run) = &mut self.goal else {
+                return;
+            };
             if run.stand_wait == 0 {
                 run.stand_wait = ALARM_STAND_WAIT;
             }
@@ -3503,18 +3832,35 @@ impl Agent {
 
     /// A non-combatant's reaction to news: a danger panics it; anything
     /// else it glances at.
-    fn noncombatant_knowledge(&mut self, id: u32, degrade: bool, event: Option<(Stimulus, i32)>, cx: &mut Ctx) {
-        let Some(mut c) = cx.perception.contact(id).cloned() else { return };
+    fn noncombatant_knowledge(
+        &mut self,
+        id: u32,
+        degrade: bool,
+        event: Option<(Stimulus, i32)>,
+        cx: &mut Ctx,
+    ) {
+        let Some(mut c) = cx.perception.contact(id).cloned() else {
+            return;
+        };
         // (What this news was, not what the contact last heard.)
         if let Some((stimulus, _)) = event {
             c.stimulus = stimulus;
         }
         if degrade {
             let Goal::Panic(p) = &self.goal else { return };
-            if p.cause == Some(id) && (c.strength <= Strength::Forgotten || c.priority < Priority::HostileThreat) {
+            if p.cause == Some(id)
+                && (c.strength <= Strength::Forgotten || c.priority < Priority::HostileThreat)
+            {
                 let by_hostile = p.by_hostile;
-                let other = cx.perception.contacts.iter().find(|o| self.dangerous(o, by_hostile, cx)).map(|o| o.id);
-                let Goal::Panic(p) = &mut self.goal else { return };
+                let other = cx
+                    .perception
+                    .contacts
+                    .iter()
+                    .find(|o| self.dangerous(o, by_hostile, cx))
+                    .map(|o| o.id);
+                let Goal::Panic(p) = &mut self.goal else {
+                    return;
+                };
                 match other {
                     Some(o) => p.cause = Some(o),
                     None => {
@@ -3544,13 +3890,17 @@ impl Agent {
         if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
             return true;
         }
-        if !matches!(c.stimulus, Stimulus::SoundMelee | Stimulus::SoundGunshot | Stimulus::SightDefinite) {
+        if !matches!(
+            c.stimulus,
+            Stimulus::SoundMelee | Stimulus::SoundGunshot | Stimulus::SightDefinite
+        ) {
             return false;
         }
         if c.who.is_none_or(|w| w == cx.me) {
             return false;
         }
-        let hostile = c.priority >= Priority::HostileThreat || (!only_hostiles && c.stimulus.combat_sound());
+        let hostile =
+            c.priority >= Priority::HostileThreat || (!only_hostiles && c.stimulus.combat_sound());
         hostile && cx.feet.distance(c.location) <= PANIC_ENEMY_RANGE
     }
 
@@ -3572,7 +3922,10 @@ impl Agent {
             self.exit(cx);
             self.halt();
             self.mode = MoveMode::RunNoAim;
-            self.goal = Goal::Panic(Box::new(Panic { say_timer: 45, ..Default::default() }));
+            self.goal = Goal::Panic(Box::new(Panic {
+                say_timer: 45,
+                ..Default::default()
+            }));
             eprintln!("ai: {} → panic", self.name);
         }
         let extra = self.rng.range((0, time / 2));
@@ -3590,7 +3943,9 @@ impl Agent {
             Goal::Panic(p) => p.cause.and_then(|id| cx.perception.contact(id)).cloned(),
             _ => None,
         };
-        let Goal::Panic(p) = &mut self.goal else { return };
+        let Goal::Panic(p) = &mut self.goal else {
+            return;
+        };
         if c.priority >= Priority::HostileNoThreat {
             p.by_hostile = true;
         }
@@ -3617,15 +3972,23 @@ impl Agent {
             Goal::Panic(p) => p.cause.and_then(|id| cx.perception.contact(id)).cloned(),
             _ => None,
         };
-        let enemy = cause.as_ref().and_then(|c| c.who).and_then(|w| cx.others.get(w)).map(|o| o.feet);
+        let enemy = cause
+            .as_ref()
+            .and_then(|c| c.who)
+            .and_then(|w| cx.others.get(w))
+            .map(|o| o.feet);
         let daze_roll = {
             let (lo, hi) = cx.daze;
             lo + self.rng.next() % hi.saturating_sub(lo).max(1)
         };
-        let Goal::Panic(p) = &mut self.goal else { return };
+        let Goal::Panic(p) = &mut self.goal else {
+            return;
+        };
         let mut stop_looking = false;
         if !p.kneeling {
-            let close = cause.as_ref().is_some_and(|c| cx.feet.distance(c.location) < PANIC_KNEEL);
+            let close = cause
+                .as_ref()
+                .is_some_and(|c| cx.feet.distance(c.location) < PANIC_KNEEL);
             if cx.crouching || close {
                 p.kneeling = true;
                 stop_looking = true;
@@ -3635,7 +3998,8 @@ impl Agent {
                 p.dazed = (n > 0).then(|| n - 1);
             } else if p.done_daze {
                 // Get up: away from the enemy if it is in front, crouched.
-                let behind = enemy.is_some_and(|e| relative(yaw_toward(cx.feet, e) - cx.facing).abs() > PI / 2.0);
+                let behind = enemy
+                    .is_some_and(|e| relative(yaw_toward(cx.feet, e) - cx.facing).abs() > PI / 2.0);
                 self.press |= if behind { key::FORWARD } else { key::BACKWARD } | key::CROUCH;
             } else {
                 p.dazed = Some(daze_roll);
@@ -3688,7 +4052,11 @@ fn set_new_target(c: &mut Combat, contact: &super::perception::Contact) {
 /// may rejoin at).
 fn movement_flag(w: &Waypoint) -> Option<i16> {
     match w {
-        Waypoint::MoveTo { at: Target::Flag(f), .. } | Waypoint::LookAt(Target::Flag(f)) => Some(*f),
+        Waypoint::MoveTo {
+            at: Target::Flag(f),
+            ..
+        }
+        | Waypoint::LookAt(Target::Flag(f)) => Some(*f),
         Waypoint::Guard { flag, .. } => Some(*flag),
         _ => None,
     }
@@ -3731,10 +4099,16 @@ mod tests {
         s.angle_range = GUARD_ANGLE_RANGE;
         let clear = |_: f32| true;
         let first = s.update(0.0, &mut rng, &clear);
-        assert!(relative(first - 1.0).abs() <= GUARD_ANGLE_RANGE + 1e-4, "starts looking where it faces");
+        assert!(
+            relative(first - 1.0).abs() <= GUARD_ANGLE_RANGE + 1e-4,
+            "starts looking where it faces"
+        );
         for _ in 0..5000 {
             let l = s.update(0.0, &mut rng, &clear);
-            assert!(relative(l - 1.0).abs() <= 0.5 + GUARD_ANGLE_RANGE + 1e-3, "{l}");
+            assert!(
+                relative(l - 1.0).abs() <= 0.5 + GUARD_ANGLE_RANGE + 1e-3,
+                "{l}"
+            );
         }
     }
 

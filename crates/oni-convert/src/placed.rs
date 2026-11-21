@@ -19,7 +19,9 @@ const STRIDE: usize = 240;
 
 /// The instance a local reference names.
 fn local<'a>(dat: &'a Dat<'_>, r: u32) -> Option<&'a oni_dat::Instance> {
-    (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten()
+    (r & 1 != 0)
+        .then(|| dat.instances.get((r >> 8) as usize))
+        .flatten()
 }
 
 /// The placed objects: `geometry_array` @0 (`M3GA`: count @20, `M3GM` refs
@@ -27,7 +29,14 @@ fn local<'a>(dat: &'a Dat<'_>, r: u32) -> Option<&'a oni_dat::Instance> {
 /// @24, `scriptID` @28, `position` @32, `orientation` @44 (x, y, z, w),
 /// `scale` @60, `debugOrigMatrix` @64, `objName` @112.
 pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
-    let Some(d) = dat.instances.iter().find(|i| i.tag == TAG_OBOA).and_then(|i| dat.instance_data(i)) else { return Vec::new() };
+    let Some(d) = dat
+        .instances
+        .iter()
+        .find(|i| i.tag == TAG_OBOA)
+        .and_then(|i| dat.instance_data(i))
+    else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for k in 0..le_u16(d, 22) as usize {
         let o = 24 + k * STRIDE;
@@ -40,9 +49,16 @@ pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
         let parts: Vec<&oni_dat::Instance> = local(dat, le_u32(d, o))
             .filter(|g| g.tag == TAG_M3GA)
             .and_then(|g| dat.instance_data(g))
-            .map(|g| (0..le_u32(g, 20) as usize).filter_map(|i| local(dat, le_u32(g, 24 + 4 * i))).collect())
+            .map(|g| {
+                (0..le_u32(g, 20) as usize)
+                    .filter_map(|i| local(dat, le_u32(g, 24 + 4 * i)))
+                    .collect()
+            })
             .unwrap_or_default();
-        let geometry: Vec<String> = parts.iter().map(|m| format!("models/{}.glb", crate::asset_name(dat, m))).collect();
+        let geometry: Vec<String> = parts
+            .iter()
+            .map(|m| format!("models/{}.glb", crate::asset_name(dat, m)))
+            .collect();
         // Its collision sphere's radius (`OBiMakeSphereTree`): the largest
         // coordinate of its geometry's points (local). As shipped, each test
         // is against the point less the world position, so the last point
@@ -73,7 +89,10 @@ pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
             "radius": { "shipped": shipped.max(1.0), "fixed": fixed.max(1.0) },
         });
         // Its particles (`particleArray` @8, an `ENVP`): in its own space.
-        if let Some(p) = local(dat, le_u32(d, o + 8)).filter(|p| p.tag == TAG_ENVP).and_then(|p| dat.instance_data(p)) {
+        if let Some(p) = local(dat, le_u32(d, o + 8))
+            .filter(|p| p.tag == TAG_ENVP)
+            .and_then(|p| dat.instance_data(p))
+        {
             let p = crate::particles::envp_entries(p, "object");
             if !p.is_empty() {
                 obj["particles"] = json!(p);
@@ -94,5 +113,8 @@ pub fn write(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
-    std::fs::write(root.join("objects.json"), serde_json::to_string_pretty(&json!({ "objects": o }))?)
+    std::fs::write(
+        root.join("objects.json"),
+        serde_json::to_string_pretty(&json!({ "objects": o }))?,
+    )
 }

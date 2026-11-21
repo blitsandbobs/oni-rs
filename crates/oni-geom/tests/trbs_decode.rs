@@ -103,17 +103,27 @@ fn movement_metadata_decodes() {
         clip.atomic_end,
         clip.direct
     );
-    assert!(!clip.shortcuts.is_empty(), "jump punch has shortcut entry states");
+    assert!(
+        !clip.shortcuts.is_empty(),
+        "jump punch has shortcut entry states"
+    );
     for s in &clip.shortcuts {
         assert_ne!(s.state, 0, "shortcut state is never None");
-        assert_ne!(s.state, clip.from_state, "shortcut state differs from fromState");
+        assert_ne!(
+            s.state, clip.from_state,
+            "shortcut state differs from fromState"
+        );
         assert!(s.length > 0, "shortcut has a blend length");
     }
 
     // Across the whole set, some clips carry direct follow-ups and atomic ranges.
     let mut with_direct = 0;
     let mut atomic = 0;
-    for inst in dat.instances.iter().filter(|i| i.tag == oni_geom::character::TAG_TRAM) {
+    for inst in dat
+        .instances
+        .iter()
+        .filter(|i| i.tag == oni_geom::character::TAG_TRAM)
+    {
         if let Some(c) = decode_animation(&dat, inst, &raw) {
             with_direct += usize::from(!c.direct.is_empty());
             atomic += usize::from(c.atomic_start <= c.atomic_end);
@@ -142,7 +152,10 @@ fn movement_metadata_decodes() {
         .find(|c| c.name.as_deref() == Some("konoko_generic"))
         .expect("konoko_generic class");
     let air = konoko.air.expect("air constants");
-    eprintln!("konoko air: {air:?}, trac {:?}", konoko.animation_collection);
+    eprintln!(
+        "konoko air: {air:?}, trac {:?}",
+        konoko.animation_collection
+    );
     assert!(air.num_jump_accel_frames > 0 && air.jump_accel_amount > 0.0);
     assert!(air.damage_end > air.damage_start && air.damage_start > 0.0);
 }
@@ -287,7 +300,11 @@ fn animation_decodes_all_frames() {
             atk.damage_animation != 0,
             "a heavy kick forces a reaction clip (damageAnimation set)"
         );
-        assert!(atk.precedence < 256, "precedence rank, got {}", atk.precedence);
+        assert!(
+            atk.precedence < 256,
+            "precedence rank, got {}",
+            atk.precedence
+        );
         eprintln!(
             "kick attack: dmg {} window [{},{}] reaction-type {} precedence {}",
             atk.damage,
@@ -491,9 +508,15 @@ fn throw_data_decodes() {
     let src = find_animation(&dat, "KONCOMthrow_fw_p").expect("KONCOMthrow_fw_p");
     let clip = decode_animation(&dat, src, &raw).expect("decode throw");
     let t = clip.throw.expect("a throw clip has throw data");
-    assert_eq!(t.target_anim_type, 96, "the forward punch throw's victim plays thrown 1");
+    assert_eq!(
+        t.target_anim_type, 96,
+        "the forward punch throw's victim plays thrown 1"
+    );
     assert!((t.range - 12.0).abs() < 1e-3);
-    assert!((t.target_facing - std::f32::consts::PI).abs() < 1e-3, "front throw: victim faces the thrower");
+    assert!(
+        (t.target_facing - std::f32::consts::PI).abs() < 1e-3,
+        "front throw: victim faces the thrower"
+    );
     assert!(t.target_offset[2] > 9.0, "the victim stands in front");
     assert!(clip.self_damage.is_empty());
 

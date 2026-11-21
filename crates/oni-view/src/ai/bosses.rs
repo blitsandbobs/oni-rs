@@ -227,7 +227,8 @@ impl Agent {
     fn barabbas_hurt_disable(&mut self, cx: &Ctx) {
         let (hp, max) = (cx.body.hp.max(0) as u32, cx.body.max_hp.max(1) as u32);
         let b = self.barabbas();
-        b.regen_disable = REGEN_HURT_DISABLE_MIN + hp * (REGEN_HURT_DISABLE_MAX - REGEN_HURT_DISABLE_MIN) / max;
+        b.regen_disable =
+            REGEN_HURT_DISABLE_MIN + hp * (REGEN_HURT_DISABLE_MAX - REGEN_HURT_DISABLE_MIN) / max;
     }
 
     /// `AI2iBehavior_BarabbasCheckRegen`: does he want to flee and
@@ -269,7 +270,11 @@ impl Agent {
         if health > REGEN_HEALTH || b.regen_disable > 0 {
             return false;
         }
-        let required = if b.mode == BarabbasMode::Flee { REGEN_FLEE_REQ_DISTANCE } else { REGEN_MIN_DISTANCE };
+        let required = if b.mode == BarabbasMode::Flee {
+            REGEN_FLEE_REQ_DISTANCE
+        } else {
+            REGEN_MIN_DISTANCE
+        };
         if dist < required || !upright {
             b.mode = BarabbasMode::Flee;
             return true;
@@ -285,16 +290,40 @@ impl Agent {
     /// (`barabbasAdvance`), melee (`barabbasMelee`) — overridden by waiting
     /// for his beam to finish, fleeing to regenerate, or going for his gun;
     /// its weights into `w`.
-    pub(super) fn barabbas_primary(&mut self, behavior: &str, dist: f32, w: &mut [f32; 7], cx: &mut Ctx) {
+    pub(super) fn barabbas_primary(
+        &mut self,
+        behavior: &str,
+        dist: f32,
+        w: &mut [f32; 7],
+        cx: &mut Ctx,
+    ) {
         use pm::*;
         let firing = cx.gun.is_some_and(|g| g.firing);
         let alternate = self.alt_fire;
         let b = self.barabbas();
         // The specific behaviour's mode.
         match behavior {
-            "barabbasShoot" => b.mode = if b.disable_beam > 0 { BarabbasMode::WaitForWeapon } else { BarabbasMode::ShootBeam },
-            "barabbasAdvance" => b.mode = if b.disable_beam > 0 { BarabbasMode::AdvanceGrenading } else { BarabbasMode::ShootBeam },
-            _ => b.mode = if firing { BarabbasMode::WaitForWeapon } else { BarabbasMode::Melee },
+            "barabbasShoot" => {
+                b.mode = if b.disable_beam > 0 {
+                    BarabbasMode::WaitForWeapon
+                } else {
+                    BarabbasMode::ShootBeam
+                }
+            }
+            "barabbasAdvance" => {
+                b.mode = if b.disable_beam > 0 {
+                    BarabbasMode::AdvanceGrenading
+                } else {
+                    BarabbasMode::ShootBeam
+                }
+            }
+            _ => {
+                b.mode = if firing {
+                    BarabbasMode::WaitForWeapon
+                } else {
+                    BarabbasMode::Melee
+                }
+            }
         }
         b.disable_beam = b.disable_beam.saturating_sub(UPDATE);
         b.regen_disable = b.regen_disable.saturating_sub(UPDATE);
@@ -352,7 +381,8 @@ impl Agent {
             BarabbasMode::Regenerate => {
                 w[HOLD] = 1.0;
                 if cx.body.powering_up {
-                    let heal = cx.body.max_hp * REGEN_HEAL_PER_SECOND / (100 * (60 / UPDATE as i32));
+                    let heal =
+                        cx.body.max_hp * REGEN_HEAL_PER_SECOND / (100 * (60 / UPDATE as i32));
                     self.heal += heal;
                     self.regenerated += heal;
                 }
@@ -374,7 +404,13 @@ impl Agent {
     pub(super) fn barabbas_ignores_too_close(&self) -> bool {
         matches!(
             self.boss_mode(),
-            Some(BarabbasMode::WaitForWeapon | BarabbasMode::GetGun | BarabbasMode::Regenerate | BarabbasMode::Flee | BarabbasMode::Melee)
+            Some(
+                BarabbasMode::WaitForWeapon
+                    | BarabbasMode::GetGun
+                    | BarabbasMode::Regenerate
+                    | BarabbasMode::Flee
+                    | BarabbasMode::Melee
+            )
         )
     }
 
@@ -391,10 +427,26 @@ impl Agent {
     pub(super) fn barabbas_targeting(&self) -> Option<BossTargeting> {
         let mode = self.boss_mode()?;
         Some(match mode {
-            BarabbasMode::Melee | BarabbasMode::Regenerate | BarabbasMode::Flee => BossTargeting { aim: false, shoot: false, alternate: false },
-            BarabbasMode::ShootBeam => BossTargeting { aim: true, shoot: true, alternate: false },
-            BarabbasMode::AdvanceGrenading => BossTargeting { aim: true, shoot: true, alternate: true },
-            _ => BossTargeting { aim: true, shoot: false, alternate: false },
+            BarabbasMode::Melee | BarabbasMode::Regenerate | BarabbasMode::Flee => BossTargeting {
+                aim: false,
+                shoot: false,
+                alternate: false,
+            },
+            BarabbasMode::ShootBeam => BossTargeting {
+                aim: true,
+                shoot: true,
+                alternate: false,
+            },
+            BarabbasMode::AdvanceGrenading => BossTargeting {
+                aim: true,
+                shoot: true,
+                alternate: true,
+            },
+            _ => BossTargeting {
+                aim: true,
+                shoot: false,
+                alternate: false,
+            },
         })
     }
 
@@ -432,7 +484,15 @@ impl Agent {
 /// The point near `start` toward `direction` (`AI2rFindNearbyPoint`): a walk
 /// `distance` out that gets there, trying `attempts` turns of `vary` each
 /// side; else the longest walk if longer than `min` — none otherwise.
-fn nearby_point(start: glam::Vec3, distance: f32, min: f32, direction: f32, vary: f32, attempts: u32, cx: &Ctx) -> Option<glam::Vec3> {
+fn nearby_point(
+    start: glam::Vec3,
+    distance: f32,
+    min: f32,
+    direction: f32,
+    vary: f32,
+    attempts: u32,
+    cx: &Ctx,
+) -> Option<glam::Vec3> {
     let mut best: Option<(f32, glam::Vec3)> = None;
     for attempt in 0..=attempts {
         for side in [1.0f32, -1.0] {
@@ -488,7 +548,15 @@ fn edge_flag(at: glam::Vec3, base: i16, cx: &Ctx) -> Option<(glam::Vec3, f32)> {
 /// A retreat flag (`AI2iBehavior_FindRetreatFlag`): of flags `base`, … the
 /// one best placed `range` (± `range_delta`) from the enemy along `facing`
 /// (± `facing_delta`).
-fn retreat_flag(enemy: glam::Vec3, facing: f32, facing_delta: f32, range: f32, range_delta: f32, base: i16, cx: &Ctx) -> Option<glam::Vec3> {
+fn retreat_flag(
+    enemy: glam::Vec3,
+    facing: f32,
+    facing_delta: f32,
+    range: f32,
+    range_delta: f32,
+    base: i16,
+    cx: &Ctx,
+) -> Option<glam::Vec3> {
     use std::f32::consts::PI;
     let mut best: Option<(f32, glam::Vec3)> = None;
     let mut id = base;
@@ -496,8 +564,16 @@ fn retreat_flag(enemy: glam::Vec3, facing: f32, facing_delta: f32, range: f32, r
         let d = f.at - enemy;
         let angle = (d.x.atan2(d.z) - facing + PI).rem_euclid(2.0 * PI) - PI;
         let rd = (d.length() - range).abs();
-        let mut score = if rd > range_delta { 0.2 } else { 1.0 - 0.8 * rd / range_delta };
-        score *= if angle.abs() > facing_delta { 0.2 } else { 1.0 - 0.8 * angle.abs() / facing_delta };
+        let mut score = if rd > range_delta {
+            0.2
+        } else {
+            1.0 - 0.8 * rd / range_delta
+        };
+        score *= if angle.abs() > facing_delta {
+            0.2
+        } else {
+            1.0 - 0.8 * angle.abs() / facing_delta
+        };
         if best.is_none_or(|(s, _)| score > s) {
             best = Some((score, f.at));
         }
@@ -587,7 +663,12 @@ impl Agent {
     /// flags), visible, straight into his teleport-out clip. True while it
     /// takes over his update.
     pub(super) fn ninja_fell(&mut self, cx: &Ctx) -> bool {
-        if cx.feet.y >= SN_FALL_HEIGHT || !matches!(self.combat_ref().map(|k| &k.boss), Some(Boss::SuperNinja(_))) {
+        if cx.feet.y >= SN_FALL_HEIGHT
+            || !matches!(
+                self.combat_ref().map(|k| &k.boss),
+                Some(Boss::SuperNinja(_))
+            )
+        {
             return false;
         }
         let n = self.ninja();
@@ -596,11 +677,23 @@ impl Agent {
             self.hold_height = Some(SN_FALL_HEIGHT);
             return true;
         }
-        let Some((edge, facing)) = edge_flag(cx.feet, SN_EDGE_FLAG_BASE, cx) else { return false };
+        let Some((edge, facing)) = edge_flag(cx.feet, SN_EDGE_FLAG_BASE, cx) else {
+            return false;
+        };
         let roll = (self.rng.next() % 65536) as f32 / 65536.0;
         let theta = facing + (roll * 2.0 - 1.0) * SN_EDGE_RANDOM_ANGLE;
-        let dest = nearby_point(edge, SN_EDGE_MOVE_DISTANCE, 0.0, theta, std::f32::consts::FRAC_PI_4 / 4.0, 4, cx)
-            .unwrap_or(edge + glam::Vec3::new(facing.sin(), 0.0, facing.cos()) * (2.0 * SN_EDGE_MOVE_DISTANCE));
+        let dest = nearby_point(
+            edge,
+            SN_EDGE_MOVE_DISTANCE,
+            0.0,
+            theta,
+            std::f32::consts::FRAC_PI_4 / 4.0,
+            4,
+            cx,
+        )
+        .unwrap_or(
+            edge + glam::Vec3::new(facing.sin(), 0.0, facing.cos()) * (2.0 * SN_EDGE_MOVE_DISTANCE),
+        );
         self.teleport_now = Some((dest, facing));
         self.ninja().fall_timer = 0;
         true
@@ -611,12 +704,24 @@ impl Agent {
     /// (`superNinjaAdvance`), melee (`superNinjaMelee`) — overridden by a
     /// teleport under way, a teleport away when beaten about close in, a
     /// teleport in behind his enemy (or invisibility) when advancing.
-    pub(super) fn ninja_primary(&mut self, behavior: &str, dist: f32, w: &mut [f32; 7], cx: &mut Ctx) {
+    pub(super) fn ninja_primary(
+        &mut self,
+        behavior: &str,
+        dist: f32,
+        w: &mut [f32; 7],
+        cx: &mut Ctx,
+    ) {
         use pm::*;
         let b = cx.body;
         let n = self.ninja();
         match behavior {
-            "superNinjaFireball" => n.mode = if n.disable_fireball == 0 && b.inactive_upright { NinjaMode::Fireball } else { NinjaMode::Advance },
+            "superNinjaFireball" => {
+                n.mode = if n.disable_fireball == 0 && b.inactive_upright {
+                    NinjaMode::Fireball
+                } else {
+                    NinjaMode::Advance
+                }
+            }
             "superNinjaAdvance" => n.mode = NinjaMode::Advance,
             _ => n.mode = NinjaMode::Melee,
         }
@@ -637,17 +742,31 @@ impl Agent {
         // (As shipped this tests the mode just set by the behaviour above —
         // never a teleport — so a teleport under way is never "continued";
         // the teleport clips see it through.)
-        let teleporting = matches!(n.mode, NinjaMode::TeleportFlee | NinjaMode::TeleportAdvance) && !b.fallen && !b.victim;
-        let flee = !invisible && n.flee_damage >= SN_FLEE_DAMAGE && dist < SN_FLEE_RANGE && b.inactive_upright;
+        let teleporting = matches!(n.mode, NinjaMode::TeleportFlee | NinjaMode::TeleportAdvance)
+            && !b.fallen
+            && !b.victim;
+        let flee = !invisible
+            && n.flee_damage >= SN_FLEE_DAMAGE
+            && dist < SN_FLEE_RANGE
+            && b.inactive_upright;
         let advancing = n.mode == NinjaMode::Advance;
         let fireball = n.mode == NinjaMode::Fireball;
-        let invis_ok = !invisible && n.disable_invis == 0 && b.inactive_upright && !fireball && dist >= SN_INVIS_MIN_DISTANCE;
+        let invis_ok = !invisible
+            && n.disable_invis == 0
+            && b.inactive_upright
+            && !fireball
+            && dist >= SN_INVIS_MIN_DISTANCE;
         if teleporting {
             let n = self.ninja();
             n.mode = n.prev;
         } else if flee {
             self.ninja().mode = NinjaMode::TeleportFlee;
-        } else if !invisible && advancing && dist >= SN_ADVANCE_RANGE && b.inactive_upright && self.ninja_medium_teleport() {
+        } else if !invisible
+            && advancing
+            && dist >= SN_ADVANCE_RANGE
+            && b.inactive_upright
+            && self.ninja_medium_teleport()
+        {
             self.ninja().mode = NinjaMode::TeleportAdvance;
         } else if invis_ok && !self.ninja_medium_teleport() {
             self.ninja().mode = NinjaMode::Invisible;
@@ -665,15 +784,45 @@ impl Agent {
             }
             match (n.mode, enemy) {
                 (NinjaMode::TeleportFlee, Some((at, facing))) => {
-                    match retreat_flag(at, facing, SN_RETREAT_ANGLE_DELTA, SN_RETREAT_RANGE, SN_RETREAT_RANGE_DELTA, SN_RETREAT_FLAG_BASE, cx) {
-                        Some(dest) => self.teleport_to = Some((dest, (at.x - dest.x).atan2(at.z - dest.z).rem_euclid(std::f32::consts::TAU))),
+                    match retreat_flag(
+                        at,
+                        facing,
+                        SN_RETREAT_ANGLE_DELTA,
+                        SN_RETREAT_RANGE,
+                        SN_RETREAT_RANGE_DELTA,
+                        SN_RETREAT_FLAG_BASE,
+                        cx,
+                    ) {
+                        Some(dest) => {
+                            self.teleport_to = Some((
+                                dest,
+                                (at.x - dest.x)
+                                    .atan2(at.z - dest.z)
+                                    .rem_euclid(std::f32::consts::TAU),
+                            ))
+                        }
                         None => self.ninja().mode = NinjaMode::Melee,
                     }
                 }
                 (NinjaMode::TeleportAdvance, Some((at, facing))) => {
                     let behind = facing + std::f32::consts::PI;
-                    match nearby_point(at, SN_BEHIND_DISTANCE, SN_BEHIND_MIN_DISTANCE, behind, std::f32::consts::FRAC_PI_2 / 6.0, 6, cx) {
-                        Some(dest) => self.teleport_to = Some((dest, (at.x - dest.x).atan2(at.z - dest.z).rem_euclid(std::f32::consts::TAU))),
+                    match nearby_point(
+                        at,
+                        SN_BEHIND_DISTANCE,
+                        SN_BEHIND_MIN_DISTANCE,
+                        behind,
+                        std::f32::consts::FRAC_PI_2 / 6.0,
+                        6,
+                        cx,
+                    ) {
+                        Some(dest) => {
+                            self.teleport_to = Some((
+                                dest,
+                                (at.x - dest.x)
+                                    .atan2(at.z - dest.z)
+                                    .rem_euclid(std::f32::consts::TAU),
+                            ))
+                        }
                         None => self.ninja().mode = NinjaMode::Advance,
                     }
                 }
@@ -685,7 +834,10 @@ impl Agent {
         let mode = n.mode;
         use crate::anim::types::ty;
         match mode {
-            NinjaMode::Fireball | NinjaMode::Invisible | NinjaMode::TeleportFlee | NinjaMode::TeleportAdvance => {
+            NinjaMode::Fireball
+            | NinjaMode::Invisible
+            | NinjaMode::TeleportFlee
+            | NinjaMode::TeleportAdvance => {
                 w[HOLD] = 1.0;
                 let (started, kind) = match mode {
                     NinjaMode::Fireball => (n.fireball_started, ty::NINJA_FIREBALL),
@@ -748,14 +900,19 @@ impl Agent {
     }
 
     pub(super) fn is_muro(&self) -> bool {
-        matches!(self.combat_ref().map(|k| &k.boss), Some(Boss::MutantMuro(_)))
+        matches!(
+            self.combat_ref().map(|k| &k.boss),
+            Some(Boss::MutantMuro(_))
+        )
     }
 
     /// His thunderbolt holds him in it (`AI2cCombatMessage_SwitchBehavior`):
     /// no change of range band while it goes on.
     pub(super) fn muro_locked(&self, behavior: &str) -> bool {
         match self.combat_ref().map(|k| &k.boss) {
-            Some(Boss::MutantMuro(m)) => behavior == "mutantMuroThunderbolt" && m.beam_continue > 0 && m.beam_disable == 0,
+            Some(Boss::MutantMuro(m)) => {
+                behavior == "mutantMuroThunderbolt" && m.beam_continue > 0 && m.beam_disable == 0
+            }
             _ => false,
         }
     }
@@ -794,7 +951,13 @@ impl Agent {
     /// (`AI2iBehavior_MutantMuro{,Zeus,Melee}`): his shield's course, then
     /// the thunderbolt from afar (`mutantMuroThunderbolt`) or melee — turtling
     /// when hurt close in without his shield (`mutantMuroMelee`).
-    pub(super) fn muro_primary(&mut self, behavior: &str, dist: f32, w: &mut [f32; 7], cx: &mut Ctx) {
+    pub(super) fn muro_primary(
+        &mut self,
+        behavior: &str,
+        dist: f32,
+        w: &mut [f32; 7],
+        cx: &mut Ctx,
+    ) {
         use crate::anim::types::ty;
         use pm::*;
         let b = cx.body;
@@ -864,7 +1027,9 @@ impl Agent {
                 return;
             }
             w[HOLD] = 1.0;
-            if b.queued == ty::MURO_THUNDERBOLT || (!b.standing_still && b.anim_type != ty::MURO_THUNDERBOLT) {
+            if b.queued == ty::MURO_THUNDERBOLT
+                || (!b.standing_still && b.anim_type != ty::MURO_THUNDERBOLT)
+            {
                 return;
             }
             if !b.has_thunderbolt {

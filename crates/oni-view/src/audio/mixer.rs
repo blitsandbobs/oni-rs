@@ -38,7 +38,14 @@ impl Clip {
             let len = u32_at(at + 4) as usize;
             let body = at + 8..(at + 8 + len).min(b.len());
             match &b[at..at + 4] {
-                b"fmt " if len >= 16 => fmt = Some((u16_at(at + 8), u16_at(at + 10), u32_at(at + 12), u16_at(at + 22))),
+                b"fmt " if len >= 16 => {
+                    fmt = Some((
+                        u16_at(at + 8),
+                        u16_at(at + 10),
+                        u32_at(at + 12),
+                        u16_at(at + 22),
+                    ))
+                }
                 b"data" => data = Some(body),
                 _ => {}
             }
@@ -48,8 +55,16 @@ impl Clip {
         if format != 1 || bits != 16 || !(1..=2).contains(&channels) {
             return None;
         }
-        let samples = b[data?].chunks_exact(2).map(|s| f32::from(i16::from_le_bytes([s[0], s[1]])) / 32768.0).collect();
-        Some(Clip { name: name.to_string(), rate: rate as f32, channels: channels as usize, samples })
+        let samples = b[data?]
+            .chunks_exact(2)
+            .map(|s| f32::from(i16::from_le_bytes([s[0], s[1]])) / 32768.0)
+            .collect();
+        Some(Clip {
+            name: name.to_string(),
+            rate: rate as f32,
+            channels: channels as usize,
+            samples,
+        })
     }
 
     pub fn frames(&self) -> usize {
@@ -101,8 +116,16 @@ impl Law {
         let (g, far) = match self {
             Law::Pc => {
                 // (Above 1 DirectSound refuses the value: taken as 1.)
-                let g = if v <= 0.05 { 0.0 } else { centibels((3333.0 * v.min(1.0)) as i32 - 3333) };
-                let far = if p <= 0.05 { 0.0 } else { centibels((3333.0 * p.min(1.0)) as i32 - 3333) };
+                let g = if v <= 0.05 {
+                    0.0
+                } else {
+                    centibels((3333.0 * v.min(1.0)) as i32 - 3333)
+                };
+                let far = if p <= 0.05 {
+                    0.0
+                } else {
+                    centibels((3333.0 * p.min(1.0)) as i32 - 3333)
+                };
                 (g, far)
             }
             Law::Mac => (v.max(0.0), p),
@@ -145,7 +168,15 @@ pub struct Voice {
 
 impl Voice {
     pub fn new(now: Play, level: f32, pan: (Side, f32)) -> Voice {
-        Voice { now, next: None, level, pan, heard: None, pos: 0.0, paused: false }
+        Voice {
+            now,
+            next: None,
+            level,
+            pan,
+            heard: None,
+            pos: 0.0,
+            paused: false,
+        }
     }
 
     /// The composed (linear) volume — what stealing compares.
@@ -164,7 +195,11 @@ pub struct Mixer {
 
 impl Mixer {
     pub fn new(rate: f32) -> Mixer {
-        Mixer { voices: Default::default(), rate, law: Law::Pc }
+        Mixer {
+            voices: Default::default(),
+            rate,
+            law: Law::Pc,
+        }
     }
 
     /// Channel `c`'s voice, while it plays.
@@ -194,7 +229,8 @@ impl Mixer {
 
     /// The output gains channel `c` is heading for.
     pub fn gains(&self, c: usize) -> [f32; 2] {
-        self.voice(c).map_or([0.0; 2], |v| self.law.gains(v.volume(), v.pan.0, v.pan.1))
+        self.voice(c)
+            .map_or([0.0; 2], |v| self.law.gains(v.volume(), v.pan.0, v.pan.1))
     }
 
     /// Mixes `frames` stereo frames into `out` (interleaved, added to), or
@@ -212,7 +248,10 @@ impl Mixer {
             let mut ended = false;
             for f in 0..frames {
                 let t = (f + 1) as f32 / frames as f32;
-                let g = [start[0] + (target[0] - start[0]) * t, start[1] + (target[1] - start[1]) * t];
+                let g = [
+                    start[0] + (target[0] - start[0]) * t,
+                    start[1] + (target[1] - start[1]) * t,
+                ];
                 let clip = &v.now.clip;
                 let n = clip.frames();
                 if n == 0 {
@@ -257,11 +296,22 @@ mod tests {
     use super::*;
 
     fn clip(name: &str, frames: usize) -> Arc<Clip> {
-        Arc::new(Clip { name: name.into(), rate: 100.0, channels: 1, samples: vec![0.5; frames] })
+        Arc::new(Clip {
+            name: name.into(),
+            rate: 100.0,
+            channels: 1,
+            samples: vec![0.5; frames],
+        })
     }
 
     fn play(c: &Arc<Clip>, looping: bool, part: u8) -> Play {
-        Play { clip: c.clone(), pitch: 1.0, volume: 1.0, looping, part }
+        Play {
+            clip: c.clone(),
+            pitch: 1.0,
+            volume: 1.0,
+            looping,
+            part,
+        }
     }
 
     #[test]
@@ -273,7 +323,10 @@ mod tests {
         m.start(3, v);
         let mut out = vec![0.0; 2 * 15];
         m.mix(Some(&mut out), 15);
-        assert!(out.iter().all(|s| (*s - 0.5).abs() < 1e-6), "no silent frame between in and loop");
+        assert!(
+            out.iter().all(|s| (*s - 0.5).abs() < 1e-6),
+            "no silent frame between in and loop"
+        );
         assert_eq!(m.voice(3).unwrap().now.part, 1);
         m.mix(None, 100);
         assert_eq!(m.voice(3).unwrap().now.part, 1, "the loop keeps going");
@@ -281,7 +334,11 @@ mod tests {
         v.now.looping = false;
         v.next = Some(play(&c, false, 2));
         m.mix(None, 10);
-        assert_eq!(m.voice(3).unwrap().now.part, 2, "the loop's pass ends, the out sound follows");
+        assert_eq!(
+            m.voice(3).unwrap().now.part,
+            2,
+            "the loop's pass ends, the out sound follows"
+        );
         m.mix(None, 10);
         assert!(m.voice(3).is_none(), "and then the channel is free");
     }
@@ -291,8 +348,15 @@ mod tests {
         let pc = Law::Pc;
         assert_eq!(pc.gains(1.0, Side::Centre, 1.0), [1.0, 1.0]);
         let half = pc.gains(0.5, Side::Centre, 1.0)[0];
-        assert!((half - 0.1468).abs() < 1e-3, "half volume is −16.7 dB: {half}");
-        assert_eq!(pc.gains(0.05, Side::Centre, 1.0), [0.0, 0.0], "silent at 0.05");
+        assert!(
+            (half - 0.1468).abs() < 1e-3,
+            "half volume is −16.7 dB: {half}"
+        );
+        assert_eq!(
+            pc.gains(0.05, Side::Centre, 1.0),
+            [0.0, 0.0],
+            "silent at 0.05"
+        );
         // Straight to the left: the right ear loses 16.7 dB.
         let g = pc.gains(1.0, Side::Left, 0.5);
         assert!(g[0] == 1.0 && (g[1] - 0.1468).abs() < 1e-3, "{g:?}");

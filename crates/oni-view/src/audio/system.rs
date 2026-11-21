@@ -89,18 +89,33 @@ impl Audio {
     pub(super) fn acquire(&mut self, stereo: bool, priority: u8) -> Option<usize> {
         let (playing, volume): (Vec<bool>, Vec<f32>) = {
             let m = self.mixer.lock().unwrap();
-            (0..CHANNELS).map(|c| (m.voice(c).is_some(), m.voice(c).map_or(0.0, Voice::volume))).unzip()
+            (0..CHANNELS)
+                .map(|c| (m.voice(c).is_some(), m.voice(c).map_or(0.0, Voice::volume)))
+                .unzip()
         };
         let range = pool(stereo);
         let free = |c: &usize| !self.chans[*c].locked;
         let found = range
             .clone()
             .find(|c| free(c) && !playing[*c])
-            .or_else(|| (CHANNEL_PRIORITY < priority).then(|| range.clone().find(free)).flatten())
-            .or_else(|| (CHANNEL_PRIORITY <= priority).then(|| range.clone().find(|c| free(c) && volume[*c] <= 0.1)).flatten())
+            .or_else(|| {
+                (CHANNEL_PRIORITY < priority)
+                    .then(|| range.clone().find(free))
+                    .flatten()
+            })
             .or_else(|| {
                 (CHANNEL_PRIORITY <= priority)
-                    .then(|| range.clone().filter(|c| volume[*c] < 1.0).min_by(|a, b| volume[*a].total_cmp(&volume[*b])))
+                    .then(|| range.clone().find(|c| free(c) && volume[*c] <= 0.1))
+                    .flatten()
+            })
+            .or_else(|| {
+                (CHANNEL_PRIORITY <= priority)
+                    .then(|| {
+                        range
+                            .clone()
+                            .filter(|c| volume[*c] < 1.0)
+                            .min_by(|a, b| volume[*a].total_cmp(&volume[*b]))
+                    })
                     .flatten()
             })?;
         if self.chans[found].owner.is_some() {
@@ -138,8 +153,16 @@ impl Audio {
 
     /// Distance volume and pan of a sound at `at` (`None`: not placed — full,
     /// centred).
-    pub(super) fn spatialize(&self, at: Option<Vec3>, max: f32, min: f32, can_pan: bool) -> (f32, (Side, f32)) {
-        let Some(p) = at else { return (1.0, (Side::Centre, 1.0)) };
+    pub(super) fn spatialize(
+        &self,
+        at: Option<Vec3>,
+        max: f32,
+        min: f32,
+        can_pan: bool,
+    ) -> (f32, (Side, f32)) {
+        let Some(p) = at else {
+            return (1.0, (Side::Centre, 1.0));
+        };
         let (ear, facing) = self.listener;
         let d = p.distance(ear) * FOOT_TO_DIST;
         let v = if d < max {
@@ -157,7 +180,9 @@ impl Audio {
             return (v, (Side::Centre, 1.0));
         }
         let dot = Vec3::new(-facing.z, facing.y, facing.x).dot(p - ear);
-        let theta = Vec3::new(facing.x, 0.0, facing.z).angle_between(flat).clamp(0.0, std::f32::consts::PI);
+        let theta = Vec3::new(facing.x, 0.0, facing.z)
+            .angle_between(flat)
+            .clamp(0.0, std::f32::consts::PI);
         let pan = 0.5 + ((theta - std::f32::consts::FRAC_PI_2) / std::f32::consts::PI).abs();
         let side = if dot < 0.0 {
             Side::Left
@@ -210,7 +235,13 @@ impl Audio {
         let volume = self.range(vol) * gv;
         let pitch = self.range(pitch) * gp;
         let clip = self.clip(&sound)?;
-        Some(Play { clip, pitch, volume, looping, part })
+        Some(Play {
+            clip,
+            pitch,
+            volume,
+            looping,
+            part,
+        })
     }
 
     /// Starts `play` (then `next`) on channel `c`, of group `group`.
@@ -240,31 +271,70 @@ impl Audio {
         if dv <= 0.0 {
             return None;
         }
-        self.chans[c] =
-            Chan { locked: false, owner: None, group: None, channel_volume: volume.clamp(0.0, 2.0), distance_volume: dv, can_pan: true, pan };
+        self.chans[c] = Chan {
+            locked: false,
+            owner: None,
+            group: None,
+            channel_volume: volume.clamp(0.0, 2.0),
+            distance_volume: dv,
+            can_pan: true,
+            pan,
+        };
         self.play_on(c, name, play, None);
         Some(c)
     }
 
     /// The sound system's side of an impulse: past its alt threshold, its
     /// alt impulse instead (keeping this one's volume).
-    pub(super) fn impulse_system(&mut self, name: &str, at: Option<Vec3>, volume: f32, depth: u8) -> Option<usize> {
+    pub(super) fn impulse_system(
+        &mut self,
+        name: &str,
+        at: Option<Vec3>,
+        volume: f32,
+        depth: u8,
+    ) -> Option<usize> {
         let imp = self.defs.impulses.get(name)?.clone();
         if let Some((threshold, alt)) = &imp.alt {
-            let stereo = self.defs.groups.get(&imp.group).is_some_and(|g| g.channels == 2);
+            let stereo = self
+                .defs
+                .groups
+                .get(&imp.group)
+                .is_some_and(|g| g.channels == 2);
             let busy = {
                 let m = self.mixer.lock().unwrap();
-                pool(stereo).filter(|c| m.voice(*c).is_some() && self.chans[*c].group.as_deref() == Some(&imp.group)).count()
+                pool(stereo)
+                    .filter(|c| {
+                        m.voice(*c).is_some() && self.chans[*c].group.as_deref() == Some(&imp.group)
+                    })
+                    .count()
             };
             if busy >= *threshold {
-                return if depth < 8 { self.impulse_system(alt, at, volume, depth + 1) } else { None };
+                return if depth < 8 {
+                    self.impulse_system(alt, at, volume, depth + 1)
+                } else {
+                    None
+                };
             }
         }
-        self.play_spatialized(&imp.group, imp.max_distance, imp.min_distance, at, volume, imp.priority)
+        self.play_spatialized(
+            &imp.group,
+            imp.max_distance,
+            imp.min_distance,
+            at,
+            volume,
+            imp.priority,
+        )
     }
 
     /// Reserves (and locks) a channel for ambient `id`'s group `group`.
-    fn reserve(&mut self, id: u32, group: &str, priority: u8, can_pan: bool, volume: f32) -> Option<usize> {
+    fn reserve(
+        &mut self,
+        id: u32,
+        group: &str,
+        priority: u8,
+        can_pan: bool,
+        volume: f32,
+    ) -> Option<usize> {
         let stereo = self.defs.groups.get(group).is_some_and(|g| g.channels == 2);
         let c = self.acquire(stereo, priority)?;
         self.chans[c] = Chan {
@@ -282,16 +352,34 @@ impl Audio {
     /// Starts a playing ambient, at `volume`, heard over its definition's
     /// distances or `distances` (`None`: its threshold of copies, or all 16
     /// slots, taken).
-    pub(super) fn start(&mut self, name: &str, position: Option<Vec3>, volume: f32, distances: Option<(f32, f32)>) -> Option<u32> {
+    pub(super) fn start(
+        &mut self,
+        name: &str,
+        position: Option<Vec3>,
+        volume: f32,
+        distances: Option<(f32, f32)>,
+    ) -> Option<u32> {
         let def = self.defs.ambients.get(name)?;
         let (max, min) = distances.unwrap_or((def.max_distance, def.min_distance));
-        let copies = self.playing.iter().filter(|p| p.name == name && p.stage < Stage::Out).count();
+        let copies = self
+            .playing
+            .iter()
+            .filter(|p| p.name == name && p.stage < Stage::Out)
+            .count();
         if copies >= def.threshold || self.playing.len() >= AMBIENT_SLOTS {
             return None;
         }
-        let first = def.base.clone().or_else(|| def.in_sound.clone()).or_else(|| def.out_sound.clone());
-        let (base2, detail, priority, can_pan) =
-            (def.base2.clone(), def.detail.is_some(), def.priority, def.flags & PAN != 0);
+        let first = def
+            .base
+            .clone()
+            .or_else(|| def.in_sound.clone())
+            .or_else(|| def.out_sound.clone());
+        let (base2, detail, priority, can_pan) = (
+            def.base2.clone(),
+            def.detail.is_some(),
+            def.priority,
+            def.flags & PAN != 0,
+        );
         let id = self.next_id;
         self.next_id += 1;
         let ch1 = first.and_then(|g| self.reserve(id, &g, priority, can_pan, volume));
@@ -326,7 +414,11 @@ impl Audio {
         let k = self.playing.len() - 1;
         if self.playing[k].stage == Stage::In {
             let def = &self.defs.ambients[name];
-            let (in_sound, base, looping) = (def.in_sound.clone(), def.base.clone(), def.flags & PLAY_ONCE == 0);
+            let (in_sound, base, looping) = (
+                def.in_sound.clone(),
+                def.base.clone(),
+                def.flags & PLAY_ONCE == 0,
+            );
             match (in_sound, ch1) {
                 (Some(g), Some(c)) => {
                     // In sound, then the body queued behind it.
@@ -347,10 +439,20 @@ impl Audio {
     fn body_start(&mut self, k: usize) {
         let p = &self.playing[k];
         let def = &self.defs.ambients[&p.name];
-        let (base, base2, looping, name) = (def.base.clone(), def.base2.clone(), def.flags & PLAY_ONCE == 0, p.name.clone());
+        let (base, base2, looping, name) = (
+            def.base.clone(),
+            def.base2.clone(),
+            def.flags & PLAY_ONCE == 0,
+            p.name.clone(),
+        );
         let (ch1, ch2) = (p.ch1, p.ch2);
         if let (Some(g), Some(c)) = (base, ch1) {
-            let playing_body = self.mixer.lock().unwrap().voice(c).is_some_and(|v| v.now.part == BODY);
+            let playing_body = self
+                .mixer
+                .lock()
+                .unwrap()
+                .voice(c)
+                .is_some_and(|v| v.now.part == BODY);
             if !playing_body {
                 if let Some(play) = self.roll(&g, looping, BODY) {
                     self.play_on(c, &g, play, None);
@@ -366,14 +468,20 @@ impl Audio {
         let due = self.detail_due(&name);
         let p = &mut self.playing[k];
         p.detail_at = due;
-        p.stage = if p.ch1.is_some() || p.ch2.is_some() { Stage::Body } else { Stage::Stopping };
+        p.stage = if p.ch1.is_some() || p.ch2.is_some() {
+            Stage::Body
+        } else {
+            Stage::Stopping
+        };
     }
 
     /// When ambient `name`'s next detail sound is due.
     pub(super) fn detail_due(&mut self, name: &str) -> Option<u64> {
         let def = &self.defs.ambients[name];
         let t = def.detail_time;
-        def.detail.is_some().then(|| self.tick + (self.range(t) * 60.0) as u64)
+        def.detail
+            .is_some()
+            .then(|| self.tick + (self.range(t) * 60.0) as u64)
     }
 
     /// Plays playing ambient `k`'s detail: somewhere around it (or the
@@ -381,7 +489,13 @@ impl Audio {
     fn detail(&mut self, k: usize) {
         let p = &self.playing[k];
         let def = &self.defs.ambients[&p.name];
-        let (r, max, min, detail, name) = (def.sphere_radius, def.max_distance, def.min_distance, def.detail.clone(), p.name.clone());
+        let (r, max, min, detail, name) = (
+            def.sphere_radius,
+            def.max_distance,
+            def.min_distance,
+            def.detail.clone(),
+            p.name.clone(),
+        );
         let base = p.position.unwrap_or(self.listener.0);
         let volume = p.channel_volume;
         let at = base + Vec3::new(self.range((-r, r)), 0.0, self.range((-r, r)));
@@ -394,7 +508,9 @@ impl Audio {
     /// Stops playing ambient `id`: it plays out (its loop's pass, then its
     /// out sound) unless it interrupts on stop.
     pub(super) fn stop(&mut self, id: u32) {
-        let Some(k) = self.playing.iter().position(|p| p.id == id) else { return };
+        let Some(k) = self.playing.iter().position(|p| p.id == id) else {
+            return;
+        };
         let p = &self.playing[k];
         if matches!(p.stage, Stage::Stopping | Stage::Out | Stage::Done) {
             return;
@@ -432,14 +548,22 @@ impl Audio {
 
     /// Whether playing ambient `id` still plays.
     pub(super) fn active(&self, id: u32) -> bool {
-        self.playing.iter().any(|p| p.id == id && p.stage != Stage::Done)
+        self.playing
+            .iter()
+            .any(|p| p.id == id && p.stage != Stage::Done)
     }
 
     /// Fades playing ambient `id` to `volume` over `seconds` (0: at once).
     /// Asked for the volume it already heads for, nothing changes.
     pub(super) fn ambient_volume(&mut self, id: u32, volume: f32, seconds: f32) {
         let volume = volume.clamp(0.0, 1.0);
-        let Some(p) = self.playing.iter_mut().find(|p| p.id == id && p.stage != Stage::Done) else { return };
+        let Some(p) = self
+            .playing
+            .iter_mut()
+            .find(|p| p.id == id && p.stage != Stage::Done)
+        else {
+            return;
+        };
         if p.final_volume == volume {
             return;
         }
@@ -520,8 +644,13 @@ impl Audio {
     fn step_stage(&mut self, k: usize) -> bool {
         let p = &self.playing[k];
         let def = &self.defs.ambients[&p.name];
-        let (base, base2, out, play_once, has_detail) =
-            (def.base.clone(), def.base2.clone(), def.out_sound.clone(), def.flags & PLAY_ONCE != 0, def.detail.is_some());
+        let (base, base2, out, play_once, has_detail) = (
+            def.base.clone(),
+            def.base2.clone(),
+            def.out_sound.clone(),
+            def.flags & PLAY_ONCE != 0,
+            def.detail.is_some(),
+        );
         let (ch1, ch2, stage, name, id) = (p.ch1, p.ch2, p.stage, p.name.clone(), p.id);
         let (p1, part1, loop1, _) = self.voice_state(ch1);
         let (p2, _, _, _) = self.voice_state(ch2);
@@ -601,7 +730,12 @@ impl Audio {
                 }
                 if self.playing[k].ch2_looping {
                     if let Some(c) = ch2 {
-                        let need = self.mixer.lock().unwrap().voice(c).is_some_and(|v| v.next.is_none() && v.now.looping);
+                        let need = self
+                            .mixer
+                            .lock()
+                            .unwrap()
+                            .voice(c)
+                            .is_some_and(|v| v.next.is_none() && v.now.looping);
                         if need {
                             let n = base2.as_deref().and_then(|g| self.roll(g, true, BODY));
                             if let Some(v) = self.mixer.lock().unwrap().voice_mut(c) {

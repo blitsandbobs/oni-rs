@@ -19,8 +19,17 @@ impl World {
                 self.hud.messages.print(&t, None, AUTOSAVE_MESSAGE);
             }
         }
-        let Some(p) = self.fighters.first() else { return };
-        let gun = |w: Option<usize>| w.map(|w| (self.armory.weapons[w].class.name.clone(), self.armory.weapons[w].ammo));
+        let Some(p) = self.fighters.first() else {
+            return;
+        };
+        let gun = |w: Option<usize>| {
+            w.map(|w| {
+                (
+                    self.armory.weapons[w].class.name.clone(),
+                    self.armory.weapons[w].ammo,
+                )
+            })
+        };
         let i = &p.inventory;
         self.saved = Some(Continue {
             save_point: n,
@@ -58,16 +67,23 @@ impl World {
         }
         {
             let p = &mut self.fighters[0];
-            p.hp = if p.max_hp == c.max_hp { c.hp } else { c.hp * p.max_hp / c.max_hp.max(1) };
+            p.hp = if p.max_hp == c.max_hp {
+                c.hp
+            } else {
+                c.hp * p.max_hp / c.max_hp.max(1)
+            };
         }
         self.teleport(0, c.position, Some(c.facing));
         self.reset_inventory(0);
         let i = &mut self.fighters[0].inventory;
-        (i.ammo, i.cells, i.hypos, i.shield, i.invisibility, i.lsi) = (c.ammo, c.cells, c.hypos, c.shield, c.invisibility, c.lsi);
+        (i.ammo, i.cells, i.hypos, i.shield, i.invisibility, i.lsi) =
+            (c.ammo, c.cells, c.hypos, c.shield, c.invisibility, c.lsi);
         // The guns: the one put away, then the holstered, then the one in
         // hand.
         for (slot, magic) in [(2, Some(true)), (1, Some(false)), (0, None)] {
-            let Some((class, ammo)) = &c.guns[slot] else { continue };
+            let Some((class, ammo)) = &c.guns[slot] else {
+                continue;
+            };
             if self.give_weapon(0, class) {
                 if let Some(w) = self.fighters[0].hand {
                     self.armory.weapons[w].ammo = *ammo;

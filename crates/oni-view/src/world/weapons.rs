@@ -70,7 +70,14 @@ const PICKUP_MID: f32 = 9.0;
 /// Powerup kinds (`WPtPowerupType`), by their script names.
 pub const POWERUPS: [&str; 6] = ["ammo", "cell", "hypo", "shield", "invis", "lsi"];
 /// The data's names for them (`items.json`).
-const POWERUP_DATA: [&str; 6] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility", "lsi"];
+const POWERUP_DATA: [&str; 6] = [
+    "ammoBallistic",
+    "ammoEnergy",
+    "hypo",
+    "shieldBelt",
+    "invisibility",
+    "lsi",
+];
 /// How much one gives by default, and the most one can carry (ammo, cells
 /// and hypos add up; shields and invisibility top up to the amount).
 const POWERUP_DEFAULT: [u16; 6] = [1, 1, 1, 100, 1800, 1];
@@ -92,7 +99,14 @@ pub struct Powerup {
 
 impl Powerup {
     fn new(kind: usize, amount: u16, position: Vec3) -> Powerup {
-        Powerup { kind, amount, position, rotation: 0.0, body: None, rest: 0 }
+        Powerup {
+            kind,
+            amount,
+            position,
+            rotation: 0.0,
+            body: None,
+            rest: 0,
+        }
     }
 }
 
@@ -185,10 +199,29 @@ impl<'a> ShotHost<'a> {
         self.turret_spread = turrets;
     }
 
-    pub(super) fn new(fighters: &'a mut [Fighter], sight: Option<&'a crate::quads::Quads>, now: u64) -> ShotHost<'a> {
+    pub(super) fn new(
+        fighters: &'a mut [Fighter],
+        sight: Option<&'a crate::quads::Quads>,
+        now: u64,
+    ) -> ShotHost<'a> {
         let teams = fighters.iter().map(|f| f.team()).collect();
         let n = fighters.len();
-        ShotHost { fighters, bones: vec![None; n], sight, teams, now, sounds: Vec::new(), pane_quads: Vec::new(), panes: Vec::new(), doors: &[], broke: Vec::new(), inaccuracy: Vec::new(), turret_spread: 0.0, quads: None, rng: (now as u32).wrapping_mul(0x9E37_79B9) | 1 }
+        ShotHost {
+            fighters,
+            bones: vec![None; n],
+            sight,
+            teams,
+            now,
+            sounds: Vec::new(),
+            pane_quads: Vec::new(),
+            panes: Vec::new(),
+            doors: &[],
+            broke: Vec::new(),
+            inaccuracy: Vec::new(),
+            turret_spread: 0.0,
+            quads: None,
+            rng: (now as u32).wrapping_mul(0x9E37_79B9) | 1,
+        }
     }
 
     fn bones_of(&mut self, i: usize) -> &[Mat4] {
@@ -202,13 +235,28 @@ impl<'a> ShotHost<'a> {
     /// `radius` across (a shot's 4, a blast's own). True when the particle
     /// already hit it (a duplicate).
     #[allow(clippy::too_many_arguments)]
-    fn inflict(&mut self, who: usize, at: Vec3, radius: f32, dir: Vec3, kind: u32, damage: i32, stun: i32, knockback: f32, stamp: Option<u64>, owner: u32) -> bool {
+    fn inflict(
+        &mut self,
+        who: usize,
+        at: Vec3,
+        radius: f32,
+        dir: Vec3,
+        kind: u32,
+        damage: i32,
+        stun: i32,
+        knockback: f32,
+        stamp: Option<u64>,
+        owner: u32,
+    ) -> bool {
         let attacker = p3::owner::character(owner)
             .and_then(|a| Some((a, self.fighters.get(a)?.feet(), self.teams.get(a).copied())));
         // A shield lights up where it is struck (`ONrCharacter_FindParts`:
         // the parts whose bounds come within reach).
         let shield_mask = match self.fighters.get(who) {
-            Some(f) if f.alive() && (f.inventory.shield > 0 || f.boss_shield || f.has_super_shield()) => {
+            Some(f)
+                if f.alive()
+                    && (f.inventory.shield > 0 || f.boss_shield || f.has_super_shield()) =>
+            {
                 let mut spheres = [None; crate::world::magic::PARTS];
                 for p in &f.character.parts {
                     if let (Some(s), Some(slot)) = (p.bound_sphere, spheres.get_mut(p.bone)) {
@@ -220,7 +268,9 @@ impl<'a> ShotHost<'a> {
             }
             _ => 0,
         };
-        let Some(f) = self.fighters.get_mut(who) else { return false };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return false;
+        };
         if !f.alive() {
             return false;
         }
@@ -261,11 +311,17 @@ impl<'a> ShotHost<'a> {
                 let whole = x.max(0.0).floor();
                 whole as i32 + i32::from((self.rng & 0xFFFF) as f32 / 65536.0 < x - whole)
             };
-            (chance(damage as f32 * keep), chance(stun as f32 * keep), knockback * keep)
+            (
+                chance(damage as f32 * keep),
+                chance(stun as f32 * keep),
+                knockback * keep,
+            )
         } else {
             (damage, stun, knockback)
         };
-        let Some(f) = self.fighters.get_mut(who) else { return false };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return false;
+        };
         if f.inventory.shield > 0 {
             // A shield belt soaks it all (the excess is lost): no hurt, no
             // reaction — only where it came from, on the hit ring.
@@ -292,7 +348,9 @@ impl<'a> ShotHost<'a> {
         // Facing the shot, or turned away from it: the reaction's side.
         let from = (-dir).x.atan2(-dir.z);
         let behind = {
-            let d = (from - f.facing.facing + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            let d = (from - f.facing.facing + std::f32::consts::PI)
+                .rem_euclid(std::f32::consts::TAU)
+                - std::f32::consts::PI;
             d.abs() > std::f32::consts::FRAC_PI_2
         };
         let side = |t: u16| if behind { reaction::from_behind(t) } else { t };
@@ -307,7 +365,11 @@ impl<'a> ShotHost<'a> {
                 }
                 damage::MAJOR_STUN if stun > 0 => {
                     if !matches!(current, ty::STAGGER | ty::STAGGER_BEHIND | ty::STUN) {
-                        f.pending_reaction = if behind { ty::STAGGER_BEHIND } else { ty::STAGGER };
+                        f.pending_reaction = if behind {
+                            ty::STAGGER_BEHIND
+                        } else {
+                            ty::STAGGER
+                        };
                     }
                     f.motion.stagger_stun = 30;
                     f.motion.dizzy_stun = f.motion.dizzy_stun.max(stun);
@@ -320,22 +382,43 @@ impl<'a> ShotHost<'a> {
                         }
                     } else if k > 2.2 {
                         if !reaction::is_victim(current) {
-                            f.pending_reaction = if behind { ty::STAGGER_BEHIND } else { ty::STAGGER };
+                            f.pending_reaction = if behind {
+                                ty::STAGGER_BEHIND
+                            } else {
+                                ty::STAGGER
+                            };
                         }
                         f.motion.stagger_stun = 22;
                     }
                 }
                 damage::MAJOR_KNOCKDOWN => f.pending_reaction = side(ty::KNOCKDOWN_HEAD),
-                damage::BLOWN_UP => f.pending_reaction = if behind { ty::BLOWNUP_BEHIND } else { ty::BLOWNUP },
+                damage::BLOWN_UP => {
+                    f.pending_reaction = if behind {
+                        ty::BLOWNUP_BEHIND
+                    } else {
+                        ty::BLOWNUP
+                    }
+                }
                 _ => {}
             }
         }
         if let (Some((a, feet, team)), Some(p)) = (attacker, f.perception.as_mut()) {
             use crate::ai::perception::{Stimulus, Strength};
-            p.perceive(Some(a), team, Stimulus::HitWeapon, Strength::Definite, feet, damage, self.now);
+            p.perceive(
+                Some(a),
+                team,
+                Stimulus::HitWeapon,
+                Strength::Definite,
+                feet,
+                damage,
+                self.now,
+            );
         }
         let f = &self.fighters[who];
-        eprintln!("shot: fighter {who} takes {physical} (kind {kind}, hp {}) reaction {}", f.hp, f.pending_reaction);
+        eprintln!(
+            "shot: fighter {who} takes {physical} (kind {kind}, hp {}) reaction {}",
+            f.hp, f.pending_reaction
+        );
         false
     }
 }
@@ -415,7 +498,11 @@ impl Host for ShotHost<'_> {
         super::particle_sounds::struck_quad(self.quads?, point, normal)
     }
 
-    fn build_decal(&mut self, quad: Option<u32>, params: &crate::decal::Params) -> Option<crate::decal::Mesh> {
+    fn build_decal(
+        &mut self,
+        quad: Option<u32>,
+        params: &crate::decal::Params,
+    ) -> Option<crate::decal::Mesh> {
         crate::decal::build(self.quads?, quad, params)
     }
 
@@ -427,14 +514,21 @@ impl Host for ShotHost<'_> {
             let at = from + ray * start;
             let h = crate::chrphys::level_ray(&env, at, ray * (1.0 - start))?;
             let fraction = start + h.fraction * (1.0 - start);
-            let pane = h.quad.and_then(|q| self.pane_quads.iter().position(|&p| p == q));
+            let pane = h
+                .quad
+                .and_then(|q| self.pane_quads.iter().position(|&p| p == q));
             if pane.is_some_and(|k| self.panes[k].0) {
                 start = (fraction + 1e-4).min(1.0);
                 continue;
             }
             // A glass pane: surface = its index + 1.
             let surface = pane.map_or(0, |k| k as u32 + 1);
-            return Some(EnvHit { fraction, normal: h.normal, surface, quad: h.quad });
+            return Some(EnvHit {
+                fraction,
+                normal: h.normal,
+                surface,
+                quad: h.quad,
+            });
         }
         None
     }
@@ -452,7 +546,13 @@ impl Host for ShotHost<'_> {
         true
     }
 
-    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32, damage: f32, blast: Option<p3::glass::Blast>) {
+    fn damage_surfaces_near(
+        &mut self,
+        centre: Vec3,
+        radius: f32,
+        damage: f32,
+        blast: Option<p3::glass::Blast>,
+    ) {
         for k in 0..self.panes.len() {
             let (broken, at, reach) = self.panes[k];
             if !broken && at.distance(centre) <= radius + reach {
@@ -461,7 +561,13 @@ impl Host for ShotHost<'_> {
         }
     }
 
-    fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, owner: Option<usize>) -> Option<CharHit> {
+    fn ray_chars(
+        &mut self,
+        from: Vec3,
+        ray: Vec3,
+        radius: f32,
+        owner: Option<usize>,
+    ) -> Option<CharHit> {
         let mut best: Option<CharHit> = None;
         for i in 0..self.fighters.len() {
             let f = &self.fighters[i];
@@ -478,16 +584,26 @@ impl Host for ShotHost<'_> {
             let character = f.character.clone();
             let bones = self.bones_of(i).to_vec();
             for part in &character.parts {
-                let Some(m) = bones.get(part.bone) else { continue };
+                let Some(m) = bones.get(part.bone) else {
+                    continue;
+                };
                 let hit = if radius > 0.0 {
-                    let Some((c, r)) = part.bound_sphere else { continue };
+                    let Some((c, r)) = part.bound_sphere else {
+                        continue;
+                    };
                     let wc = m.transform_point3(c);
-                    ray_sphere(from, ray, wc, r + radius).map(|t| (t, (from + ray * t - wc).normalize_or(Vec3::Y)))
+                    ray_sphere(from, ray, wc, r + radius)
+                        .map(|t| (t, (from + ray * t - wc).normalize_or(Vec3::Y)))
                 } else {
                     let inv = m.inverse();
                     let (lo, hi) = part.bound_box;
-                    ray_box(inv.transform_point3(from), inv.transform_vector3(ray), lo, hi)
-                        .map(|(t, n)| (t, Mat3::from_mat4(*m).mul_vec3(n).normalize_or(Vec3::Y)))
+                    ray_box(
+                        inv.transform_point3(from),
+                        inv.transform_vector3(ray),
+                        lo,
+                        hi,
+                    )
+                    .map(|(t, n)| (t, Mat3::from_mat4(*m).mul_vec3(n).normalize_or(Vec3::Y)))
                 };
                 let Some((t, normal)) = hit else { continue };
                 // A shot leaving its own shooter's body passes.
@@ -495,27 +611,77 @@ impl Host for ShotHost<'_> {
                     continue;
                 }
                 if best.is_none_or(|b| t < b.fraction) {
-                    best = Some(CharHit { fraction: t, who: i, normal, part: part.bone });
+                    best = Some(CharHit {
+                        fraction: t,
+                        who: i,
+                        normal,
+                        part: part.bone,
+                    });
                 }
             }
         }
         best
     }
 
-    fn hit_char(&mut self, who: usize, point: Vec3, dir: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, owner: u32, stamp: Option<u64>, self_immune: bool) -> bool {
-        let owner = if owner == 0 { p3::owner::ENVIRONMENTAL } else { owner };
+    fn hit_char(
+        &mut self,
+        who: usize,
+        point: Vec3,
+        dir: Vec3,
+        kind: u32,
+        damage: f32,
+        stun: f32,
+        knockback: f32,
+        owner: u32,
+        stamp: Option<u64>,
+        self_immune: bool,
+    ) -> bool {
+        let owner = if owner == 0 {
+            p3::owner::ENVIRONMENTAL
+        } else {
+            owner
+        };
         if self_immune && p3::owner::character(owner) == Some(who) {
             return false;
         }
         let dir = dir.try_normalize().unwrap_or_else(|| {
             let f = &self.fighters[who];
-            (f.feet() + Vec3::Y * f.motion.height() - point).try_normalize().unwrap_or(Vec3::Z)
+            (f.feet() + Vec3::Y * f.motion.height() - point)
+                .try_normalize()
+                .unwrap_or(Vec3::Z)
         });
-        self.inflict(who, point, 4.0, dir, kind, damage.round() as i32, stun.round() as i32, knockback, stamp, owner)
+        self.inflict(
+            who,
+            point,
+            4.0,
+            dir,
+            kind,
+            damage.round() as i32,
+            stun.round() as i32,
+            knockback,
+            stamp,
+            owner,
+        )
     }
 
-    fn blast(&mut self, centre: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, radius: f32, falloff: u32, owner: u32, stamp: u64, self_immune: bool) {
-        let owner = if owner == 0 { p3::owner::ENVIRONMENTAL } else { owner };
+    fn blast(
+        &mut self,
+        centre: Vec3,
+        kind: u32,
+        damage: f32,
+        stun: f32,
+        knockback: f32,
+        radius: f32,
+        falloff: u32,
+        owner: u32,
+        stamp: u64,
+        self_immune: bool,
+    ) {
+        let owner = if owner == 0 {
+            p3::owner::ENVIRONMENTAL
+        } else {
+            owner
+        };
         for who in 0..self.fighters.len() {
             let f = &self.fighters[who];
             if !f.alive() || (self_immune && p3::owner::character(owner) == Some(who)) {
@@ -538,9 +704,21 @@ impl Host for ShotHost<'_> {
                 _ => 1.0,
             };
             let dir = v.try_normalize().unwrap_or(Vec3::Y);
-            self.inflict(who, centre, radius, dir, kind, (p * damage).round() as i32, (p * stun).round() as i32, p * knockback, Some(stamp), owner);
+            self.inflict(
+                who,
+                centre,
+                radius,
+                dir,
+                kind,
+                (p * damage).round() as i32,
+                (p * stun).round() as i32,
+                p * knockback,
+                Some(stamp),
+                owner,
+            );
         }
-        self.sounds.push((centre, 400.0, p3::owner::character(owner)));
+        self.sounds
+            .push((centre, 400.0, p3::owner::character(owner)));
     }
 
     fn targets(&self) -> Vec<Target> {
@@ -548,7 +726,11 @@ impl Host for ShotHost<'_> {
             .iter()
             .enumerate()
             .filter(|(_, f)| f.alive())
-            .map(|(who, f)| Target { who, position: f.feet() + Vec3::Y * (f.motion.height() + 4.0), velocity: f.velocity * p3::HZ as f32 })
+            .map(|(who, f)| Target {
+                who,
+                position: f.feet() + Vec3::Y * (f.motion.height() + 4.0),
+                velocity: f.velocity * p3::HZ as f32,
+            })
             .collect()
     }
 
@@ -560,14 +742,18 @@ impl Host for ShotHost<'_> {
     }
 
     fn clear(&mut self, from: Vec3, to: Vec3) -> bool {
-        self.sight.is_none_or(|s| s.clear(from, to, crate::quads::flag::OBJ_COL_SKIP))
+        self.sight
+            .is_none_or(|s| s.clear(from, to, crate::quads::flag::OBJ_COL_SKIP))
     }
 
     fn inaccuracy(&self, owner: u32) -> f32 {
         if owner & p3::owner::TYPE_MASK == p3::owner::TURRET {
             return self.turret_spread;
         }
-        p3::owner::character(owner).and_then(|c| self.inaccuracy.get(c)).copied().unwrap_or(0.0)
+        p3::owner::character(owner)
+            .and_then(|c| self.inaccuracy.get(c))
+            .copied()
+            .unwrap_or(0.0)
     }
 }
 
@@ -587,7 +773,11 @@ fn hand_matrix(f: &Fighter, bones: &[Mat4]) -> Mat4 {
 /// hand, its barrel straight down the aim (`yaw`, `pitch` up positive), its
 /// top toward the world's up.
 fn aim_matrix(at: Vec3, yaw: f32, pitch: f32) -> Mat4 {
-    let d = Vec3::new(yaw.sin() * pitch.cos(), pitch.sin(), yaw.cos() * pitch.cos());
+    let d = Vec3::new(
+        yaw.sin() * pitch.cos(),
+        pitch.sin(),
+        yaw.cos() * pitch.cos(),
+    );
     let up = (Vec3::Y - d * d.y).try_normalize().unwrap_or(Vec3::Z);
     Mat4::from_mat3_translation(Mat3::from_cols(d, up.cross(d), up), at)
 }
@@ -642,7 +832,13 @@ pub(super) fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Op
             let m = bones.get(part.bone)?;
             let inv = m.inverse();
             let (lo, hi) = part.bound_box;
-            ray_box(inv.transform_point3(from), inv.transform_vector3(ray), lo, hi).map(|(t, _)| t)
+            ray_box(
+                inv.transform_point3(from),
+                inv.transform_vector3(ray),
+                lo,
+                hi,
+            )
+            .map(|(t, _)| t)
         })
         .min_by(f32::total_cmp)
 }
@@ -652,8 +848,12 @@ impl World {
     /// the impact on its material, at the point met.
     fn fall_impact_on(&mut self, c: crate::objphys::Contact, impact: &str) {
         use p3::effect::{Cause, Data};
-        let Some(impacts) = self.impacts.clone() else { return };
-        let Some(impact) = impacts.impact(impact) else { return };
+        let Some(impacts) = self.impacts.clone() else {
+            return;
+        };
+        let Some(impact) = impacts.impact(impact) else {
+            return;
+        };
         let material = self
             .quads
             .quads
@@ -674,7 +874,9 @@ impl World {
     /// attachments, or the gun's pivot. Such a gun neither fires nor shows
     /// its sight.
     pub fn gun_through_wall(&self, who: usize) -> bool {
-        let Some(f) = self.fighters.get(who) else { return false };
+        let Some(f) = self.fighters.get(who) else {
+            return false;
+        };
         let Some(w) = f.hand else { return false };
         let gun = &self.armory.weapons[w];
         let m = gun.matrix.get();
@@ -691,9 +893,17 @@ impl World {
         // known limit.)
         let blocked = |to: Vec3| {
             let v = to - pelvis;
-            crate::chrphys::level_ray(&env, pelvis, v).is_some() || (v.length() > 1e-3 && self.ray_to_object(pelvis, v.normalize(), v.length()).is_some())
+            crate::chrphys::level_ray(&env, pelvis, v).is_some()
+                || (v.length() > 1e-3
+                    && self
+                        .ray_to_object(pelvis, v.normalize(), v.length())
+                        .is_some())
         };
-        gun.class.attachments.iter().filter(|a| a.ammo_used > 0).any(|a| blocked(m.transform_point3(a.matrix.w_axis.truncate())))
+        gun.class
+            .attachments
+            .iter()
+            .filter(|a| a.ammo_used > 0)
+            .any(|a| blocked(m.transform_point3(a.matrix.w_axis.truncate())))
             || blocked(m.w_axis.truncate())
     }
 
@@ -724,7 +934,14 @@ impl World {
                 let d = t * max;
                 if hit.is_none_or(|(h, _)| d < h) {
                     // (A dead one is no target.)
-                    hit = Some((d, if o.alive() { SightTarget::Character } else { SightTarget::None }));
+                    hit = Some((
+                        d,
+                        if o.alive() {
+                            SightTarget::Character
+                        } else {
+                            SightTarget::None
+                        },
+                    ));
                 }
             }
         }
@@ -742,7 +959,10 @@ impl World {
         }
         let (to, target) = match hit {
             Some((d, _)) if d > max => (from + dir * max, SightTarget::None),
-            Some((d, t)) if d > 1.0 / 1024.0 => (from + dir * d * (1.0 - (SIGHT_SHORT / d).clamp(0.0, 1.0)), t),
+            Some((d, t)) if d > 1.0 / 1024.0 => (
+                from + dir * d * (1.0 - (SIGHT_SHORT / d).clamp(0.0, 1.0)),
+                t,
+            ),
             Some((d, t)) => (from + dir * d, t),
             None => (from + dir * max, SightTarget::None),
         };
@@ -760,19 +980,32 @@ impl World {
                 at += tn.spacing;
             }
         }
-        Some(GunSight { from, to, target, laser: class.has(flag::HAS_LASER).then_some(class.laser_color), tunnel })
+        Some(GunSight {
+            from,
+            to,
+            target,
+            laser: class.has(flag::HAS_LASER).then_some(class.laser_color),
+            tunnel,
+        })
     }
 
     /// Loads the weapon and particle classes (`common/`) and the level's
     /// placed guns (`items.json`).
     pub fn attach_weapons(&mut self, common: &Path) {
         let particles = Rc::new(p3::Classes::load(&common.join("particle_classes.json")));
-        let classes = Rc::new(WeaponClasses::load(&common.join("weapons.json"), &particles));
+        let classes = Rc::new(WeaponClasses::load(
+            &common.join("weapons.json"),
+            &particles,
+        ));
         self.armory.particles = p3::System::new(particles);
         self.armory.classes = classes;
         self.armory.weapons.clear();
         self.armory.powerups.clear();
-        self.turrets = super::turrets::load(&self.level_dir, common, &self.armory.particles.classes.clone());
+        self.turrets = super::turrets::load(
+            &self.level_dir,
+            common,
+            &self.armory.particles.classes.clone(),
+        );
         // (Keeping the mixer an output device may already play.)
         let (mixer, realtime) = (self.audio.mixer.clone(), self.audio.realtime);
         self.audio = crate::audio::Audio::load(common, &self.level_dir);
@@ -781,12 +1014,22 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
-        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         self.hypo = super::hypo::HypoSettings::load(&gs);
-        let settings: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let settings: serde_json::Value =
+            std::fs::read_to_string(common.join("game_settings.json"))
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
         // The magic effects' textures (shield, super shield, invisibility).
-        self.magic_textures = ["shield", "daodanShield", "invis"]
-            .map(|k| settings["magicTextures"][k].as_str().map(|t| common.join("textures").join(format!("{t}.png"))));
+        self.magic_textures = ["shield", "daodanShield", "invis"].map(|k| {
+            settings["magicTextures"][k]
+                .as_str()
+                .map(|t| common.join("textures").join(format!("{t}.png")))
+        });
         self.armory.powerup_looks = POWERUP_DATA
             .iter()
             .map(|k| {
@@ -795,22 +1038,38 @@ impl World {
                 PowerupLook {
                     model: p["model"].as_str().map(|m| common.join(m)),
                     radius: p["radius"].as_f64().unwrap_or(2.0) as f32,
-                    glow: p["glow"].as_str().map(|g| common.join("textures").join(format!("{g}.png"))),
+                    glow: p["glow"]
+                        .as_str()
+                        .map(|g| common.join("textures").join(format!("{g}.png"))),
                     glow_size: [size(0), size(1)],
                     glow_height: p["glowHeight"].as_f64().unwrap_or(0.0) as f32,
                 }
             })
             .collect();
-        self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
-        self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
+        self.env_particles =
+            super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
+        self.quads =
+            crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
         // (The doors' flat shades come from their quads.)
-        self.door_shades = self.doors.iter().map(|d| (d.object_id, self.door_shade(d.object_id))).collect();
+        self.door_shades = self
+            .doors
+            .iter()
+            .map(|d| (d.object_id, self.door_shade(d.object_id)))
+            .collect();
         // The object animations scripts name: the common ones, then the level's.
         self.object_anims.clear();
-        for path in [common.join("object_animations.json"), self.level_dir.join("object_animations.json")] {
-            let doc: serde_json::Value = std::fs::read_to_string(&path).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        for path in [
+            common.join("object_animations.json"),
+            self.level_dir.join("object_animations.json"),
+        ] {
+            let doc: serde_json::Value = std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|t| serde_json::from_str(&t).ok())
+                .unwrap_or_default();
             for a in doc["animations"].as_array().into_iter().flatten() {
-                if let (Some(name), Some(anim)) = (a["name"].as_str(), crate::doors::object_animation(a)) {
+                if let (Some(name), Some(anim)) =
+                    (a["name"].as_str(), crate::doors::object_animation(a))
+                {
                     self.object_anims.insert(name.to_string(), anim);
                 }
             }
@@ -831,24 +1090,44 @@ impl World {
             let quads = &self.quads;
             self.fighters[k].snap_to_floor(quads);
         }
-        let flags: serde_json::Value =
-            std::fs::read_to_string(common.join("texture_flags.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
-        self.additive_textures = flags["additive"].as_array().into_iter().flatten().filter_map(|t| t.as_str().map(str::to_string)).collect();
+        let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+        self.additive_textures = flags["additive"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|t| t.as_str().map(str::to_string))
+            .collect();
         self.texture_anims = crate::texanim::load(&common.join(".."));
         // The health colour ramp.
-        let gs: serde_json::Value =
-            std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
         self.health_color = gs["healthColor"]
             .as_array()
             .into_iter()
             .flatten()
-            .filter_map(|p| Some((p["health"].as_f64()? as f32, u32::from_str_radix(p["color"].as_str()?.trim_start_matches('#'), 16).ok()?)))
+            .filter_map(|p| {
+                Some((
+                    p["health"].as_f64()? as f32,
+                    u32::from_str_radix(p["color"].as_str()?.trim_start_matches('#'), 16).ok()?,
+                ))
+            })
             .collect();
         self.env_particles_started = false;
-        let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else { return };
-        let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else { return };
+        let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else {
+            return;
+        };
+        let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else {
+            return;
+        };
         for w in doc["weapons"].as_array().into_iter().flatten() {
-            let Some(class) = w["class"].as_str().and_then(|n| self.armory.classes.get(n)) else { continue };
+            let Some(class) = w["class"].as_str().and_then(|n| self.armory.classes.get(n)) else {
+                continue;
+            };
             let p = &w["position"];
             let at = Vec3::new(
                 p[0].as_f64().unwrap_or(0.0) as f32,
@@ -859,10 +1138,21 @@ impl World {
             self.armory.weapons.push(Weapon::new(class, at, yaw, true));
         }
         for p in doc["powerups"].as_array().into_iter().flatten() {
-            let Some(kind) = POWERUP_DATA.iter().position(|n| Some(*n) == p["type"].as_str()) else { continue };
+            let Some(kind) = POWERUP_DATA
+                .iter()
+                .position(|n| Some(*n) == p["type"].as_str())
+            else {
+                continue;
+            };
             let v = &p["position"];
-            let at = Vec3::new(v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32, v[2].as_f64().unwrap_or(0.0) as f32);
-            self.armory.powerups.push(Powerup::new(kind, POWERUP_DEFAULT[kind], at));
+            let at = Vec3::new(
+                v[0].as_f64().unwrap_or(0.0) as f32,
+                v[1].as_f64().unwrap_or(0.0) as f32,
+                v[2].as_f64().unwrap_or(0.0) as f32,
+            );
+            self.armory
+                .powerups
+                .push(Powerup::new(kind, POWERUP_DEFAULT[kind], at));
         }
     }
 
@@ -922,8 +1212,17 @@ impl World {
             v.z += (w.random() * 2.0 - 1.0) * by;
         };
         deviate(self, &mut at, 1.0);
-        let radius = self.armory.powerup_looks.get(kind).map_or(2.0, |l| l.radius);
-        let mut body = crate::objphys::Body::new(at, radius, POWERUP_STATIC_FRICTION, POWERUP_DYNAMIC_FRICTION);
+        let radius = self
+            .armory
+            .powerup_looks
+            .get(kind)
+            .map_or(2.0, |l| l.radius);
+        let mut body = crate::objphys::Body::new(
+            at,
+            radius,
+            POWERUP_STATIC_FRICTION,
+            POWERUP_DYNAMIC_FRICTION,
+        );
         deviate(self, &mut body.velocity, 1.5 / 60.0);
         let mut p = Powerup::new(kind, amount, at);
         p.rotation = self.random() * std::f32::consts::TAU;
@@ -937,9 +1236,17 @@ impl World {
     /// lying free with physics, the placed objects shown (their spheres) and
     /// — for a gun, `characters` — the characters' stacks, but not the dead
     /// once settled (their physics off).
-    pub(super) fn loose_obstacles(&self, me: Option<Loose>, characters: bool) -> Vec<crate::objphys::Obstacle> {
+    pub(super) fn loose_obstacles(
+        &self,
+        me: Option<Loose>,
+        characters: bool,
+    ) -> Vec<crate::objphys::Obstacle> {
         use crate::objphys::Obstacle;
-        let one = |c: Vec3, r: f32, character: bool| Obstacle { spheres: vec![(c, r)], whole: (c, r), character };
+        let one = |c: Vec3, r: f32, character: bool| Obstacle {
+            spheres: vec![(c, r)],
+            whole: (c, r),
+            character,
+        };
         let mut out = Vec::new();
         for (k, g) in self.armory.weapons.iter().enumerate() {
             if me == Some(Loose::Weapon(k)) || g.owner.is_some() || g.gone {
@@ -961,12 +1268,20 @@ impl World {
             if self.objects[k].flags & crate::world::objects::oflag::INVISIBLE != 0 {
                 continue;
             }
-            out.push(one(self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius, false));
+            out.push(one(
+                self.object_matrix(k).w_axis.truncate(),
+                self.object_setups[self.objects[k].setup].radius,
+                false,
+            ));
         }
         if characters {
             for f in self.fighters.iter().filter(|f| !f.gone && !f.settled) {
                 let t = f.tree();
-                out.push(Obstacle { spheres: t.leaves.iter().map(|s| (s.center, s.radius)).collect(), whole: (t.root.center, t.root.radius), character: true });
+                out.push(Obstacle {
+                    spheres: t.leaves.iter().map(|s| (s.center, s.radius)).collect(),
+                    whole: (t.root.center, t.root.radius),
+                    character: true,
+                });
             }
         }
         out
@@ -979,8 +1294,15 @@ impl World {
     fn powerups_tick(&mut self) {
         let mut impacts = Vec::new();
         // (What each moving one may meet: not characters.)
-        let others: Vec<Vec<crate::objphys::Obstacle>> =
-            (0..self.armory.powerups.len()).map(|k| if self.armory.powerups[k].body.is_some() { self.loose_obstacles(Some(Loose::Powerup(k)), false) } else { Vec::new() }).collect();
+        let others: Vec<Vec<crate::objphys::Obstacle>> = (0..self.armory.powerups.len())
+            .map(|k| {
+                if self.armory.powerups[k].body.is_some() {
+                    self.loose_obstacles(Some(Loose::Powerup(k)), false)
+                } else {
+                    Vec::new()
+                }
+            })
+            .collect();
         for (p, others) in self.armory.powerups.iter_mut().zip(&others) {
             let Some(mut b) = p.body else { continue };
             let mut on_ground = false;
@@ -1012,7 +1334,13 @@ impl World {
             .iter()
             .filter_map(|p| {
                 let model = self.armory.powerup_looks.get(p.kind)?.model.clone()?;
-                Some((model, Mat4::from_rotation_translation(glam::Quat::from_rotation_y(p.rotation), p.position)))
+                Some((
+                    model,
+                    Mat4::from_rotation_translation(
+                        glam::Quat::from_rotation_y(p.rotation),
+                        p.position,
+                    ),
+                ))
             })
             .collect()
     }
@@ -1046,8 +1374,14 @@ impl World {
     /// A powerup of `kind` (a script name) at `at`; `amount` defaults to
     /// the kind's.
     pub fn spawn_powerup(&mut self, kind: &str, at: Vec3, amount: Option<u16>) -> bool {
-        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return false };
-        self.armory.powerups.push(Powerup::new(kind, amount.unwrap_or(POWERUP_DEFAULT[kind]), at));
+        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else {
+            return false;
+        };
+        self.armory.powerups.push(Powerup::new(
+            kind,
+            amount.unwrap_or(POWERUP_DEFAULT[kind]),
+            at,
+        ));
         true
     }
 
@@ -1055,7 +1389,13 @@ impl World {
     fn could_receive(&self, who: usize, kind: usize, amount: u16) -> u16 {
         let f = &self.fighters[who];
         let inv = &f.inventory;
-        let add = |have: u16| if have >= CARRY_MAX { 0 } else { amount.min(CARRY_MAX - have) };
+        let add = |have: u16| {
+            if have >= CARRY_MAX {
+                0
+            } else {
+                amount.min(CARRY_MAX - have)
+            }
+        };
         match kind {
             0 => add(inv.ammo),
             1 => add(inv.cells),
@@ -1068,13 +1408,35 @@ impl World {
 
     /// Gives fighter `who` a powerup (`give_powerup`); with `ignore_max`
     /// the carrying limits don't apply. Returns how much it took.
-    pub fn give_powerup(&mut self, who: usize, kind: &str, amount: Option<u16>, ignore_max: bool) -> u16 {
-        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else { return 0 };
+    pub fn give_powerup(
+        &mut self,
+        who: usize,
+        kind: &str,
+        amount: Option<u16>,
+        ignore_max: bool,
+    ) -> u16 {
+        let Some(kind) = POWERUPS.iter().position(|n| *n == kind) else {
+            return 0;
+        };
         let amount = amount.unwrap_or(POWERUP_DEFAULT[kind]);
-        let give = if ignore_max { amount } else { self.could_receive(who, kind, amount) };
+        let give = if ignore_max {
+            amount
+        } else {
+            self.could_receive(who, kind, amount)
+        };
         // (The player hears what it got: ammo, cells, hypos, the LSI.)
         if give > 0 && self.fighters[who].player {
-            if let Some(event) = ["receiveAmmo", "receiveCell", "receiveHypo", "", "", "receiveLsi"].get(kind).filter(|e| !e.is_empty()) {
+            if let Some(event) = [
+                "receiveAmmo",
+                "receiveCell",
+                "receiveHypo",
+                "",
+                "",
+                "receiveLsi",
+            ]
+            .get(kind)
+            .filter(|e| !e.is_empty())
+            {
                 self.event_sound(event, None);
             }
         }
@@ -1112,7 +1474,8 @@ impl World {
             .filter_map(|(i, p)| {
                 let d = ((p.position - feet) * Vec3::new(1.0, 0.0, 1.0)).length();
                 let dy = p.position.y - feet.y;
-                (d < PICKUP_RADIUS && (-PICKUP_BELOW..=PICKUP_ABOVE).contains(&dy)).then_some((i, d))
+                (d < PICKUP_RADIUS && (-PICKUP_BELOW..=PICKUP_ABOVE).contains(&dy))
+                    .then_some((i, d))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|x| x.0)
@@ -1121,9 +1484,14 @@ impl World {
     /// Takes every gun from fighter `who` and empties its pockets
     /// (`chr_inv_reset`).
     pub fn reset_inventory(&mut self, who: usize) {
-        let Some(f) = self.fighters.get_mut(who) else { return };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return;
+        };
         f.inventory = crate::fighter::Inventory::default();
-        let guns: Vec<usize> = [f.hand.take(), f.holster.take(), f.magic.take()].into_iter().flatten().collect();
+        let guns: Vec<usize> = [f.hand.take(), f.holster.take(), f.magic.take()]
+            .into_iter()
+            .flatten()
+            .collect();
         for w in guns {
             self.delete_weapon(w);
         }
@@ -1132,7 +1500,9 @@ impl World {
 
     /// Removes gun `w` from the world (its particles go).
     fn delete_weapon(&mut self, w: usize) {
-        let Armory { particles, weapons, .. } = &mut self.armory;
+        let Armory {
+            particles, weapons, ..
+        } = &mut self.armory;
         let now = self.now as u64;
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         weapons[w].stow(particles, &mut host);
@@ -1144,7 +1514,9 @@ impl World {
     /// hidden slot — or onto the floor if that is taken; or giving it back
     /// (only into an empty hand). (`chr_forceholster`.)
     pub fn force_holster(&mut self, who: usize, on: bool) {
-        let Some(f) = self.fighters.get(who) else { return };
+        let Some(f) = self.fighters.get(who) else {
+            return;
+        };
         if on {
             if f.hand.is_some() && !self.holster(who, true) {
                 // (No clip: straight away.)
@@ -1159,7 +1531,9 @@ impl World {
     /// a forced holster, into the hidden slot — but never an unstorable gun,
     /// which `ONrCharacter_Holster` refuses even forced).
     pub fn cinematic_holster(&mut self, who: usize) {
-        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else { return };
+        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else {
+            return;
+        };
         if !self.armory.weapons[w].class.has(flag::UNSTORABLE) {
             self.holster(who, true);
         }
@@ -1168,7 +1542,9 @@ impl World {
     /// Holds a gun that is empty, with nothing to reload it and no reload
     /// under way (`chr_has_empty_weapon`).
     pub fn has_empty_weapon(&self, who: usize) -> bool {
-        let Some(f) = self.fighters.get(who) else { return false };
+        let Some(f) = self.fighters.get(who) else {
+            return false;
+        };
         let Some(w) = f.hand else { return false };
         self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !f.reloading()
     }
@@ -1201,11 +1577,17 @@ impl World {
             .filter_map(|g| {
                 let owner = g.owner?;
                 let m = g.matrix.get();
-                let shooter = g.class.attachments.iter().find(|a| a.ammo_used > 0 && a.shooter == 0)?;
+                let shooter = g
+                    .class
+                    .attachments
+                    .iter()
+                    .find(|a| a.ammo_used > 0 && a.shooter == 0)?;
                 Some(crate::ai::goals::Spread {
                     owner,
                     origin: m.transform_point3(shooter.matrix.w_axis.truncate()),
-                    axis: m.transform_vector3(shooter.matrix.y_axis.truncate()).normalize_or(Vec3::Z),
+                    axis: m
+                        .transform_vector3(shooter.matrix.y_axis.truncate())
+                        .normalize_or(Vec3::Z),
                     length: g.class.dodge_pattern[0],
                     base: g.class.dodge_pattern[1],
                     angle: g.class.dodge_pattern[2],
@@ -1246,7 +1628,8 @@ impl World {
                 crate::ai::goals::FreeGun {
                     index,
                     at: g.pickup_position(),
-                    usable: !g.class.has(flag::UNSTORABLE) && (g.ammo > 0 || clips || f.infinite_ammo),
+                    usable: !g.class.has(flag::UNSTORABLE)
+                        && (g.ammo > 0 || clips || f.infinite_ammo),
                 }
             })
             .collect()
@@ -1299,18 +1682,30 @@ impl World {
                 None => (facing, 0.0),
             };
             let (dy, dp) = (wrap(yaw - cy), pitch - cp);
-            let gun = f.hand.map_or(1.0, |w| self.armory.weapons[w].class.aiming_speed.max(0.01));
+            let gun = f
+                .hand
+                .map_or(1.0, |w| self.armory.weapons[w].class.aiming_speed.max(0.01));
             let step = TAU / 60.0 * speed * gun;
             let dist = (dy * dy + dp * dp).sqrt();
-            let now = if dist <= step { (yaw, pitch) } else { (cy + dy * step / dist, cp + dp * step / dist) };
+            let now = if dist <= step {
+                (yaw, pitch)
+            } else {
+                (cy + dy * step / dist, cp + dp * step / dist)
+            };
             // (Back in the middle with nothing wanted, it stops aiming.)
-            f.ai_aim = if want.is_none() && dist <= step { None } else { Some((wrap(now.0), now.1)) };
+            f.ai_aim = if want.is_none() && dist <= step {
+                None
+            } else {
+                Some((wrap(now.0), now.1))
+            };
             f.ai_aim_facing = facing;
-            (f.aiming_lr, f.aiming_ud) = f.ai_aim.map_or((0.0, 0.0), |(y, p)| (wrap(y - facing), p));
+            (f.aiming_lr, f.aiming_ud) =
+                f.ai_aim.map_or((0.0, 0.0), |(y, p)| (wrap(y - facing), p));
             let Some(w) = f.hand else { continue };
             // (A gun that fires one shot a press waits for its chamber.)
             let gun = &self.armory.weapons[w];
-            let single = gun.class.has(flag::AI_SINGLE_SHOT) && (gun.chamber > 0 || gun.reload_time > 0);
+            let single =
+                gun.class.has(flag::AI_SINGLE_SHOT) && (gun.chamber > 0 || gun.reload_time > 0);
             if trigger && !single {
                 out[i] = if alternate { key::FIRE2 } else { key::FIRE1 };
             }
@@ -1334,9 +1729,20 @@ impl World {
                     Some(crate::ai::Brain::Agent(a)) => a.extra_spread,
                     _ => 0.0,
                 };
-                let skill = f.shooting.get(self.armory.weapons[w].class.ai.skill_index).map_or(0.0, |s| s.gun_inaccuracy) + extra;
-                let hostile = player_team.is_some_and(|t| f.team().regards(t) == crate::ai::perception::Relation::Hostile);
-                skill * if hostile { self.difficulty.inaccuracy } else { 1.0 }
+                let skill = f
+                    .shooting
+                    .get(self.armory.weapons[w].class.ai.skill_index)
+                    .map_or(0.0, |s| s.gun_inaccuracy)
+                    + extra;
+                let hostile = player_team.is_some_and(|t| {
+                    f.team().regards(t) == crate::ai::perception::Relation::Hostile
+                });
+                skill
+                    * if hostile {
+                        self.difficulty.inaccuracy
+                    } else {
+                        1.0
+                    }
             })
             .collect()
     }
@@ -1350,13 +1756,25 @@ impl World {
     /// What to draw of the guns: each one's model and world matrix (guns
     /// in hands, and guns lying about; holstered ones are not shown).
     pub fn gun_draws(&self) -> Vec<(std::path::PathBuf, Mat4)> {
-        let holstered: std::collections::HashSet<usize> =
-            self.fighters.iter().flat_map(|f| [f.holster, f.magic]).flatten().collect();
+        let holstered: std::collections::HashSet<usize> = self
+            .fighters
+            .iter()
+            .flat_map(|f| [f.holster, f.magic])
+            .flatten()
+            .collect();
         self.armory
             .weapons
             .iter()
             .enumerate()
-            .filter(|(i, g)| !g.gone && !holstered.contains(i) && g.owner.is_none_or(|o| self.fighters.get(o).is_some_and(|f| f.hand == Some(*i) && f.effects.body_alpha() >= 1.0)))
+            .filter(|(i, g)| {
+                !g.gone
+                    && !holstered.contains(i)
+                    && g.owner.is_none_or(|o| {
+                        self.fighters
+                            .get(o)
+                            .is_some_and(|f| f.hand == Some(*i) && f.effects.body_alpha() >= 1.0)
+                    })
+            })
             .filter_map(|(_, g)| Some((g.class.model.clone()?, g.matrix.get())))
             .collect()
     }
@@ -1370,7 +1788,9 @@ impl World {
             .filter_map(|f| {
                 let alpha = f.effects.body_alpha();
                 let g = self.armory.weapons.get(f.hand?)?;
-                (alpha < 1.0 && alpha > 0.0 && !g.gone).then(|| Some((g.class.model.clone()?, g.matrix.get(), alpha))).flatten()
+                (alpha < 1.0 && alpha > 0.0 && !g.gone)
+                    .then(|| Some((g.class.model.clone()?, g.matrix.get(), alpha)))
+                    .flatten()
             })
             .collect()
     }
@@ -1393,7 +1813,10 @@ impl World {
                     Value::Float(x) if x > 0.0 => x,
                     _ => 1.0,
                 };
-                let m = Mat4::from_mat3_translation(sys.world_orientation(p) * scale, sys.world_position(p));
+                let m = Mat4::from_mat3_translation(
+                    sys.world_orientation(p) * scale,
+                    sys.world_position(p),
+                );
                 Some((models.join(format!("{}.glb", c.instance)), m))
             })
             .collect()
@@ -1415,14 +1838,20 @@ impl World {
         let quads = &self.quads;
         // The quad's opacity this frame; none while it isn't drawn.
         let quad_alpha = |quad: Option<u32>| -> Option<u32> {
-            let Some(q) = quad.and_then(|q| quads.quads.get(q as usize)) else { return Some(255) };
+            let Some(q) = quad.and_then(|q| quads.quads.get(q as usize)) else {
+                return Some(255);
+            };
             if q.flags & flag::AK_2SIDED == 0 {
                 let (n, _) = quads.plane(q.plane);
                 if (eye - quads.corner(q, 0)).dot(n) < 0.0 {
                     return None;
                 }
             }
-            Some(if q.flags & flag::JELLO != 0 { super::camera::JELLO_AMT } else { 255 })
+            Some(if q.flags & flag::JELLO != 0 {
+                super::camera::JELLO_AMT
+            } else {
+                255
+            })
         };
         let draw = |mesh: Rc<crate::decal::Mesh>, alpha: u16, texture: &str| {
             let shown = quad_alpha(mesh.quad)?;
@@ -1436,13 +1865,22 @@ impl World {
         let decals = &self.armory.particles.decals;
         // The level's, then the characters' shadows (laid again each frame,
         // so after them), then the rest.
-        let mut out: Vec<_> = decals.fixed.iter().filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)).collect();
+        let mut out: Vec<_> = decals
+            .fixed
+            .iter()
+            .filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture))
+            .collect();
         for k in 0..self.fighters.len() {
             if let Some((mesh, alpha, texture)) = self.shadow(k) {
                 out.extend(draw(Rc::new(mesh), alpha, &texture));
             }
         }
-        out.extend(decals.dynamic.iter().filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)));
+        out.extend(
+            decals
+                .dynamic
+                .iter()
+                .filter_map(|d| draw(d.mesh.clone(), d.alpha, &d.texture)),
+        );
         out
     }
 
@@ -1457,7 +1895,13 @@ impl World {
         let feet = f.feet();
         // Standing: on the floor underfoot.
         let floor = (!f.airborne())
-            .then(|| self.quads.ray(feet + Vec3::Y, Vec3::Y * -2.0, crate::quads::flag::OBJ_COL_SKIP))
+            .then(|| {
+                self.quads.ray(
+                    feet + Vec3::Y,
+                    Vec3::Y * -2.0,
+                    crate::quads::flag::OBJ_COL_SKIP,
+                )
+            })
             .flatten()
             .map(|h| h.quad);
         // (None for a body faded out; fading with it as it turns invisible.)
@@ -1466,7 +1910,11 @@ impl World {
             return None;
         }
         let (at, quad, size, alpha) = s.place(&self.quads, pelvis, feet.y, floor)?;
-        let alpha = if seen < 1.0 { (f32::from(alpha) * seen).round() as u16 } else { alpha };
+        let alpha = if seen < 1.0 {
+            (f32::from(alpha) * seen).round() as u16
+        } else {
+            alpha
+        };
         let mesh = crate::decal::Shadow::build(&self.quads, quad, at, size)?;
         Some((mesh, alpha, s.texture.clone()))
     }
@@ -1491,11 +1939,22 @@ impl World {
         let c = sys.class(p.class);
         match self.texture_anims.get(&c.instance) {
             Some(a) => {
-                let time = if c.has(cflag::TEXTURE_TIME) { sys.tick.wrapping_sub(p.texture_time) } else { sys.tick };
-                let instance = if c.has(cflag::TEXTURE_INDEX) { p.texture_index } else { 0 };
+                let time = if c.has(cflag::TEXTURE_TIME) {
+                    sys.tick.wrapping_sub(p.texture_time)
+                } else {
+                    sys.tick
+                };
+                let instance = if c.has(cflag::TEXTURE_INDEX) {
+                    p.texture_index
+                } else {
+                    0
+                };
                 a.file(time, instance).to_path_buf()
             }
-            None => self.level_dir.join("../../common/textures").join(format!("{}.png", c.instance)),
+            None => self
+                .level_dir
+                .join("../../common/textures")
+                .join(format!("{}.png", c.instance)),
         }
     }
 
@@ -1517,11 +1976,19 @@ impl World {
             .filter_map(|(h, p)| {
                 let c = sys.class(p.class);
                 // (Decals are drawn as decals.)
-                if c.has(cflag::INVISIBLE) || c.has(cflag::GEOMETRY) || c.has(cflag::DECAL) || c.instance.is_empty() {
+                if c.has(cflag::INVISIBLE)
+                    || c.has(cflag::GEOMETRY)
+                    || c.has(cflag::DECAL)
+                    || c.instance.is_empty()
+                {
                     return None;
                 }
                 let x = read(&c.scale, &p.vars)?;
-                let y = c.y_scale.as_ref().and_then(|v| read(v, &p.vars)).unwrap_or(x);
+                let y = c
+                    .y_scale
+                    .as_ref()
+                    .and_then(|v| read(v, &p.vars))
+                    .unwrap_or(x);
                 // How it lies (`MSrGeomContext_Method_Sprite_Draw`): its
                 // direction its orientation's Y, else its velocity; the
                 // fixed kinds from its orientation's axes.
@@ -1553,7 +2020,8 @@ impl World {
                 if lens == Some(0.0) {
                     return None;
                 }
-                let alpha = read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0) * lens.unwrap_or(1.0);
+                let alpha =
+                    read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0) * lens.unwrap_or(1.0);
                 let channel = |shift: u32| ((shade >> shift) & 0xFF) as f32 / 255.0 * alpha;
                 Some(crate::render::Sprite {
                     at: sys.world_position(p),
@@ -1566,9 +2034,11 @@ impl World {
                     no_depth: lens.is_some(),
                 })
             })
-            .chain((0..self.fighters.len()).filter_map(|who| self.gun_sight(who).map(|s| (who, s))).flat_map(|(who, s)| {
-                self.sight_sprites(who, &s, &textures)
-            }))
+            .chain(
+                (0..self.fighters.len())
+                    .filter_map(|who| self.gun_sight(who).map(|s| (who, s)))
+                    .flat_map(|(who, s)| self.sight_sprites(who, &s, &textures)),
+            )
             .chain(self.powerup_glows())
             .collect()
     }
@@ -1577,7 +2047,12 @@ impl World {
     /// `ONiDrawTunnel`): the laser, a camera-facing contrail 0.2 to each
     /// side in the laser's colour (`laser_contrail`, additive); the tunnel's
     /// sprites at 5 × their scale, in their shade.
-    fn sight_sprites(&self, who: usize, s: &GunSight, textures: &std::path::Path) -> Vec<crate::render::Sprite> {
+    fn sight_sprites(
+        &self,
+        who: usize,
+        s: &GunSight,
+        textures: &std::path::Path,
+    ) -> Vec<crate::render::Sprite> {
         let mut out = Vec::new();
         let along = s.to - s.from;
         if let Some(color) = s.laser.filter(|_| along.length() > 1e-3) {
@@ -1592,7 +2067,9 @@ impl World {
                 no_depth: false,
             });
         }
-        let class = self.fighters[who].hand.map(|w| &self.armory.weapons[w].class);
+        let class = self.fighters[who]
+            .hand
+            .map(|w| &self.armory.weapons[w].class);
         if let Some(t) = class.and_then(|c| c.tunnel.as_ref()) {
             for &at in &s.tunnel {
                 let size = 5.0 * t.scale;
@@ -1613,7 +2090,11 @@ impl World {
         // the class: a fixed 5, 0.7 × distance^0.3 (half scale), or 0.03 ×
         // distance (no scale), times its own scale.
         if let Some(c) = class.filter(|_| who == 0) {
-            let sprite = if s.target == SightTarget::Character { c.cursor_targeted.as_ref() } else { c.cursor.as_ref() };
+            let sprite = if s.target == SightTarget::Character {
+                c.cursor_targeted.as_ref()
+            } else {
+                c.cursor.as_ref()
+            };
             if let Some(sp) = sprite {
                 let d = self.camera.view.location.distance(s.to);
                 let size = if c.has(crate::weapons::flag::NO_SCALE) {
@@ -1657,8 +2138,12 @@ impl World {
     /// goes to the floor).
     /// (The gun it held is deleted, as `chr_giveweapon` does.)
     pub fn give_weapon(&mut self, who: usize, class: &str) -> bool {
-        let Some(at) = self.fighters.get(who).map(|f| f.feet()) else { return false };
-        let Some(w) = self.spawn_weapon(class, at, 0.0, true) else { return false };
+        let Some(at) = self.fighters.get(who).map(|f| f.feet()) else {
+            return false;
+        };
+        let Some(w) = self.spawn_weapon(class, at, 0.0, true) else {
+            return false;
+        };
         if let Some(old) = self.fighters[who].hand.take() {
             self.delete_weapon(old);
         }
@@ -1694,8 +2179,11 @@ impl World {
     /// Fighter `who` lets go of the gun in its hand (`knock`: thrown clear,
     /// as a knockdown does).
     pub fn drop_weapon(&mut self, who: usize, knock: bool) {
-        let Some(w) = self.fighters.get_mut(who).and_then(|f| f.hand.take()) else { return };
-        let kick = knock.then(|| self.fighters[who].last_impact * self.armory.weapons[w].kick_scale());
+        let Some(w) = self.fighters.get_mut(who).and_then(|f| f.hand.take()) else {
+            return;
+        };
+        let kick =
+            knock.then(|| self.fighters[who].last_impact * self.armory.weapons[w].kick_scale());
         self.drop_weapon_index(w, kick);
         self.set_weapon_varient(who);
     }
@@ -1706,7 +2194,9 @@ impl World {
     }
 
     fn drop_weapon_index(&mut self, w: usize, kick: Option<Vec3>) {
-        let Armory { particles, weapons, .. } = &mut self.armory;
+        let Armory {
+            particles, weapons, ..
+        } = &mut self.armory;
         let now = self.now as u64;
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         weapons[w].release(particles, &mut host, kick);
@@ -1715,9 +2205,12 @@ impl World {
     /// The pistol / rifle animation variant for what fighter `who` holds.
     pub(super) fn set_weapon_varient(&mut self, who: usize) {
         use crate::anim::types::var;
-        let rifle = self.fighters[who].hand.map(|w| self.armory.weapons[w].class.has(flag::TWO_HANDED));
+        let rifle = self.fighters[who]
+            .hand
+            .map(|w| self.armory.weapons[w].class.has(flag::TWO_HANDED));
         let f = &mut self.fighters[who];
-        f.motion.varient &= !(var::RIGHTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_PISTOL | var::LEFTY_RIFLE);
+        f.motion.varient &=
+            !(var::RIGHTY_PISTOL | var::RIGHTY_RIFLE | var::LEFTY_PISTOL | var::LEFTY_RIFLE);
         match rifle {
             Some(true) => f.motion.varient |= var::RIGHTY_RIFLE,
             Some(false) => f.motion.varient |= var::RIGHTY_PISTOL,
@@ -1728,7 +2221,10 @@ impl World {
     /// Whether fighter `who` holds a gun it can fire (loaded, or with
     /// something to reload it with).
     pub fn armed(&self, who: usize) -> bool {
-        self.fighters.get(who).and_then(|f| f.hand).is_some_and(|w| !self.fighters[who].weapon_empty || self.armory.weapons[w].ammo > 0)
+        self.fighters
+            .get(who)
+            .and_then(|f| f.hand)
+            .is_some_and(|w| !self.fighters[who].weapon_empty || self.armory.weapons[w].ammo > 0)
     }
 
     /// Fighter `who` has spare ammo for gun `w`.
@@ -1748,18 +2244,33 @@ impl World {
     /// fired, or with nothing to reload with; a clip is used at once, and
     /// the gun fills at the reload clip's action frame.
     pub fn reload(&mut self, who: usize) -> bool {
-        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else { return false };
+        let Some(w) = self.fighters.get(who).and_then(|f| f.hand) else {
+            return false;
+        };
         let gun = &self.armory.weapons[w];
         let f = &self.fighters[who];
-        if gun.ammo >= gun.class.max_ammo || gun.reload_delay > 0 || gun.chamber > 0 || f.overlays[crate::fighter::INVENTORY].is_some() {
+        if gun.ammo >= gun.class.max_ammo
+            || gun.reload_delay > 0
+            || gun.chamber > 0
+            || f.overlays[crate::fighter::INVENTORY].is_some()
+        {
             return false;
         }
-        if !self.has_reload(who, w) || !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
+        if !self.has_reload(who, w)
+            || !f.motion.current().attacks.is_empty()
+            || reaction::is_victim(f.motion.current().anim_type)
+        {
             return false;
         }
         let energy = gun.class.has(flag::ENERGY);
         let reload_type = oni_type(&gun.class.reload_anim);
-        if !self.start_overlay(who, crate::fighter::INVENTORY, reload_type, crate::anim::types::st::STANDING, false) {
+        if !self.start_overlay(
+            who,
+            crate::fighter::INVENTORY,
+            reload_type,
+            crate::anim::types::st::STANDING,
+            false,
+        ) {
             eprintln!("weapon: fighter {who} has no reload clip");
             return false;
         }
@@ -1777,10 +2288,23 @@ impl World {
 
     /// Starts clip type `kind` (looked up from state `from`) in overlay
     /// `slot`; false if the character has no such clip.
-    fn start_overlay(&mut self, who: usize, slot: usize, kind: u16, from: u16, magic: bool) -> bool {
+    fn start_overlay(
+        &mut self,
+        who: usize,
+        slot: usize,
+        kind: u16,
+        from: u16,
+        magic: bool,
+    ) -> bool {
         let f = &mut self.fighters[who];
-        let Some(clip) = f.motion.coll.lookup(kind, from, f.motion.varient) else { return false };
-        f.overlays[slot] = Some(crate::fighter::Overlay { clip, frame: 0, magic });
+        let Some(clip) = f.motion.coll.lookup(kind, from, f.motion.varient) else {
+            return false;
+        };
+        f.overlays[slot] = Some(crate::fighter::Overlay {
+            clip,
+            frame: 0,
+            magic,
+        });
         true
     }
 
@@ -1793,22 +2317,44 @@ impl World {
         if self.armory.weapons[w].class.has(flag::UNSTORABLE) && !magic {
             return false;
         }
-        if !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
+        if !f.motion.current().attacks.is_empty()
+            || reaction::is_victim(f.motion.current().anim_type)
+        {
             return false;
         }
-        self.start_overlay(who, crate::fighter::INVENTORY, clip::HOLSTER, crate::anim::types::st::STANDING, magic)
+        self.start_overlay(
+            who,
+            crate::fighter::INVENTORY,
+            clip::HOLSTER,
+            crate::anim::types::st::STANDING,
+            magic,
+        )
     }
 
     /// Draw the holstered gun (or the hidden slot's): the clip plays, the gun
     /// comes to hand at its action frame.
     fn draw(&mut self, who: usize) -> bool {
         let f = &self.fighters[who];
-        let Some(w) = f.magic.or(f.holster) else { return false };
-        if !f.motion.current().attacks.is_empty() || reaction::is_victim(f.motion.current().anim_type) {
+        let Some(w) = f.magic.or(f.holster) else {
+            return false;
+        };
+        if !f.motion.current().attacks.is_empty()
+            || reaction::is_victim(f.motion.current().anim_type)
+        {
             return false;
         }
-        let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) { clip::DRAW_RIFLE } else { clip::DRAW_PISTOL };
-        self.start_overlay(who, crate::fighter::INVENTORY, kind, crate::anim::types::st::STANDING, false)
+        let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) {
+            clip::DRAW_RIFLE
+        } else {
+            clip::DRAW_PISTOL
+        };
+        self.start_overlay(
+            who,
+            crate::fighter::INVENTORY,
+            kind,
+            crate::anim::types::st::STANDING,
+            false,
+        )
     }
 
     /// The gun from the holster (or the hidden slot) into the empty hand.
@@ -1817,7 +2363,11 @@ impl World {
         if f.hand.is_some() {
             return;
         }
-        f.hand = if f.magic.is_some() { f.magic.take() } else { f.holster.take() };
+        f.hand = if f.magic.is_some() {
+            f.magic.take()
+        } else {
+            f.holster.take()
+        };
         if let Some(w) = f.hand {
             self.armory.weapons[w].assign(who);
         }
@@ -1827,13 +2377,17 @@ impl World {
     /// The gun in hand into the holster — swapping with what was there —
     /// or (`magic`) into the hidden slot, or onto the floor if that is taken.
     pub(super) fn put_away(&mut self, who: usize, magic: bool) {
-        let Some(w) = self.fighters[who].hand else { return };
+        let Some(w) = self.fighters[who].hand else {
+            return;
+        };
         if magic && self.fighters[who].magic.is_some() {
             self.drop_weapon(who, false);
             return;
         }
         {
-            let Armory { particles, weapons, .. } = &mut self.armory;
+            let Armory {
+                particles, weapons, ..
+            } = &mut self.armory;
             let now = self.now as u64;
             let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             weapons[w].stow(particles, &mut host);
@@ -1857,10 +2411,16 @@ impl World {
     /// one.
     fn overlays_tick(&mut self, who: usize) {
         let f = &mut self.fighters[who];
-        if f.overlays[crate::fighter::INVENTORY].is_some() && reaction::is_knockdown(f.motion.current().anim_type) {
+        if f.overlays[crate::fighter::INVENTORY].is_some()
+            && reaction::is_knockdown(f.motion.current().anim_type)
+        {
             f.overlays[crate::fighter::INVENTORY] = None;
         }
-        for slot in [crate::fighter::RECOIL, crate::fighter::INVENTORY, crate::fighter::HIT_REACTION] {
+        for slot in [
+            crate::fighter::RECOIL,
+            crate::fighter::INVENTORY,
+            crate::fighter::HIT_REACTION,
+        ] {
             let f = &self.fighters[who];
             let Some(o) = f.overlays[slot] else { continue };
             // (An overlay's own animation sound, on its own frame.)
@@ -1871,7 +2431,9 @@ impl World {
             if action == Some(o.frame) && slot == crate::fighter::INVENTORY {
                 if clip::is_reload(kind) {
                     if let Some(w) = f.hand {
-                        let Armory { particles, weapons, .. } = &mut self.armory;
+                        let Armory {
+                            particles, weapons, ..
+                        } = &mut self.armory;
                         let now = self.now as u64;
                         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
                         weapons[w].reloaded(particles, &mut host);
@@ -1883,8 +2445,18 @@ impl World {
                     let f = &self.fighters[who];
                     if !o.magic {
                         if let Some(w) = f.hand {
-                            let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) { clip::DRAW_RIFLE } else { clip::DRAW_PISTOL };
-                            if self.start_overlay(who, crate::fighter::INVENTORY, kind, crate::anim::types::st::STANDING, false) {
+                            let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) {
+                                clip::DRAW_RIFLE
+                            } else {
+                                clip::DRAW_PISTOL
+                            };
+                            if self.start_overlay(
+                                who,
+                                crate::fighter::INVENTORY,
+                                kind,
+                                crate::anim::types::st::STANDING,
+                                false,
+                            ) {
                                 let f = &mut self.fighters[who];
                                 if let Some(n) = f.overlays[crate::fighter::INVENTORY].as_mut() {
                                     n.frame = f.motion.clip_of(n.clip).action_frame.unwrap_or(0);
@@ -1911,14 +2483,23 @@ impl World {
     /// taken, if still within the wider reach (`docs/WEAPONS.md`, *Pickup*).
     fn pickup_tick(&mut self, who: usize) {
         let f = &mut self.fighters[who];
-        let Some((item, started, waited)) = f.pickup else { return };
+        let Some((item, started, waited)) = f.pickup else {
+            return;
+        };
         let c = f.motion.current();
         if !clip::is_pickup(c.anim_type) {
-            f.pickup = if started || waited > 10 { None } else { Some((item, false, waited + 1)) };
+            f.pickup = if started || waited > 10 {
+                None
+            } else {
+                Some((item, false, waited + 1))
+            };
             return;
         }
         f.pickup = Some((item, true, waited));
-        let at = c.action_frame.unwrap_or(0).min(c.frames().saturating_sub(1));
+        let at = c
+            .action_frame
+            .unwrap_or(0)
+            .min(c.frames().saturating_sub(1));
         if f.motion.frame != at {
             return;
         }
@@ -1926,7 +2507,8 @@ impl World {
         let feet = f.feet();
         let near = |p: Vec3| {
             let d = ((p - feet) * Vec3::new(1.0, 0.0, 1.0)).length();
-            d < PICKUP_FINISH_RADIUS && (-PICKUP_FINISH_BELOW..=PICKUP_FINISH_ABOVE).contains(&(p.y - feet.y))
+            d < PICKUP_FINISH_RADIUS
+                && (-PICKUP_FINISH_BELOW..=PICKUP_FINISH_ABOVE).contains(&(p.y - feet.y))
         };
         match item {
             Item::Weapon(w) => {
@@ -1936,7 +2518,12 @@ impl World {
                 }
             }
             Item::Powerup(k) => {
-                if self.armory.powerups.get(k).is_some_and(|p| near(p.position)) {
+                if self
+                    .armory
+                    .powerups
+                    .get(k)
+                    .is_some_and(|p| near(p.position))
+                {
                     self.take(who, item);
                 }
             }
@@ -1947,7 +2534,10 @@ impl World {
     fn take(&mut self, who: usize, item: Item) {
         match item {
             Item::Weapon(w) => {
-                eprintln!("weapon: fighter {who} picks up {}", self.armory.weapons[w].class.name);
+                eprintln!(
+                    "weapon: fighter {who} picks up {}",
+                    self.armory.weapons[w].class.name
+                );
                 self.take_weapon(who, w);
             }
             Item::Powerup(k) => {
@@ -1969,7 +2559,12 @@ impl World {
         if self.fighters.get(who).is_none_or(|f| f.hand.is_some()) {
             return false;
         }
-        let Some(w) = self.armory.weapons.iter().position(|g| !g.gone && g.class.flags & flag::UNRELOADABLE != 0) else {
+        let Some(w) = self
+            .armory
+            .weapons
+            .iter()
+            .position(|g| !g.gone && g.class.flags & flag::UNRELOADABLE != 0)
+        else {
             eprintln!("### ai2_barabbas_retrievegun: can't find barabbas's weapon");
             return false;
         };
@@ -1999,7 +2594,8 @@ impl World {
                 let p = g.pickup_position();
                 let d = (p - feet) * Vec3::new(1.0, 0.0, 1.0);
                 let dy = p.y - feet.y;
-                (d.length() < PICKUP_RADIUS && (-PICKUP_BELOW..=PICKUP_ABOVE).contains(&dy)).then_some((i, d.length()))
+                (d.length() < PICKUP_RADIUS && (-PICKUP_BELOW..=PICKUP_ABOVE).contains(&dy))
+                    .then_some((i, d.length()))
             })
             .min_by(|a, b| a.1.total_cmp(&b.1))
             .map(|x| x.0)
@@ -2013,7 +2609,10 @@ impl World {
         if self.fighters[who].overlays[crate::fighter::INVENTORY].is_some() {
             return;
         }
-        let item = self.powerup_in_reach(who).map(Item::Powerup).or_else(|| self.weapon_in_reach(who).map(Item::Weapon));
+        let item = self
+            .powerup_in_reach(who)
+            .map(Item::Powerup)
+            .or_else(|| self.weapon_in_reach(who).map(Item::Weapon));
         if let Some(item) = item {
             self.start_pickup(who, item);
             return;
@@ -2032,12 +2631,18 @@ impl World {
     pub fn start_pickup(&mut self, who: usize, item: Item) -> bool {
         {
             let f = &self.fighters[who];
-            if f.motion.current().has_flag(crate::anim::types::flag::CAN_PICKUP) {
+            if f.motion
+                .current()
+                .has_flag(crate::anim::types::flag::CAN_PICKUP)
+            {
                 self.take(who, item);
                 return true;
             }
             let (at, rifle) = match item {
-                Item::Weapon(w) => (self.armory.weapons[w].pickup_position(), Some(self.armory.weapons[w].class.has(flag::TWO_HANDED))),
+                Item::Weapon(w) => (
+                    self.armory.weapons[w].pickup_position(),
+                    Some(self.armory.weapons[w].class.has(flag::TWO_HANDED)),
+                ),
                 Item::Powerup(k) => (self.armory.powerups[k].position, None),
             };
             let mid = at.y > f.feet().y + PICKUP_MID;
@@ -2051,7 +2656,10 @@ impl World {
             };
             let f = &mut self.fighters[who];
             let ch = f.character.clone();
-            if f.motion.request(&ch, crate::anim::motion::Urge::Appropriate, false, kind).is_some() {
+            if f.motion
+                .request(&ch, crate::anim::motion::Urge::Appropriate, false, kind)
+                .is_some()
+            {
                 f.pickup = Some((item, false, 0));
                 return true;
             }
@@ -2071,7 +2679,9 @@ impl World {
             return;
         };
         if held & !last & key::FIRE1 != 0 {
-            let empty = self.armory.weapons[w].ammo == 0 && !self.has_reload(who, w) && !self.fighters[who].reloading();
+            let empty = self.armory.weapons[w].ammo == 0
+                && !self.has_reload(who, w)
+                && !self.fighters[who].reloading();
             self.fighters[who].weapon_empty = empty;
         }
     }
@@ -2110,9 +2720,13 @@ impl World {
         let motion = Vec3::ZERO;
         let now = self.now as u64;
         // (A gun through a wall stops firing.)
-        let busy = self.fighters[who].weapon_empty || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some() || self.gun_through_wall(who);
+        let busy = self.fighters[who].weapon_empty
+            || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some()
+            || self.gun_through_wall(who);
         let inaccuracy = self.inaccuracies();
-        let Armory { particles, weapons, .. } = &mut self.armory;
+        let Armory {
+            particles, weapons, ..
+        } = &mut self.armory;
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.inaccuracy = inaccuracy;
         let gun = &mut weapons[w];
@@ -2137,7 +2751,13 @@ impl World {
         drop(host);
         if empty {
             // Out of ammo: a single press reloads; a held trigger just clicks.
-            gun_release(&mut self.armory, &mut self.fighters, Some(&self.quads), now, w);
+            gun_release(
+                &mut self.armory,
+                &mut self.fighters,
+                Some(&self.quads),
+                now,
+                w,
+            );
             let click = if single || !self.fighters[who].player {
                 let reloaded = self.reload(who);
                 if !reloaded {
@@ -2167,7 +2787,8 @@ impl World {
             }
         }
         let sound = gun.class.empty_sound.clone();
-        self.audio.impulse_play(&sound, Some(at), None, Some(&self.quads));
+        self.audio
+            .impulse_play(&sound, Some(at), None, Some(&self.quads));
     }
 
     /// The player's auto-aim (`docs/WEAPONS.md`, *Auto-aim*): the turn
@@ -2178,7 +2799,12 @@ impl World {
         use std::f32::consts::PI;
         let f = &self.fighters[who];
         let gun = &self.armory.weapons[w];
-        let Some(shooter) = gun.class.attachments.iter().find(|a| a.ammo_used > 0 && a.shooter == 0) else {
+        let Some(shooter) = gun
+            .class
+            .attachments
+            .iter()
+            .find(|a| a.ammo_used > 0 && a.shooter == 0)
+        else {
             return (0.0, 0.0);
         };
         let m = gun.matrix.get();
@@ -2193,7 +2819,10 @@ impl World {
         let wrap = |a: f32| (a + PI).rem_euclid(2.0 * PI) - PI;
         let mut found: Option<(f32, f32)> = None;
         for (i, t) in self.fighters.iter().enumerate() {
-            if i == who || !t.alive() || t.team().regards(me) != crate::ai::perception::Relation::Hostile {
+            if i == who
+                || !t.alive()
+                || t.team().regards(me) != crate::ai::perception::Relation::Hostile
+            {
                 continue;
             }
             let chest = t.feet() + Vec3::Y * (t.motion.height() + 4.0);
@@ -2203,7 +2832,10 @@ impl World {
                 continue;
             }
             let mid = t.feet() + Vec3::Y * t.motion.height();
-            if !self.quads.clear(mid, pelvis, crate::quads::flag::LOS_SEE_PLAYER) {
+            if !self
+                .quads
+                .clear(mid, pelvis, crate::quads::flag::LOS_SEE_PLAYER)
+            {
                 continue;
             }
             let d = to / dist;
@@ -2218,7 +2850,11 @@ impl World {
                 // Two candidates: no help at all.
                 return (0.0, 0.0);
             }
-            let weight = if worst <= 0.15 { 1.0 } else { (0.35 - worst) / 0.2 };
+            let weight = if worst <= 0.15 {
+                1.0
+            } else {
+                (0.35 - worst) / 0.2
+            };
             let fade = ((195.0 - dist) / 60.0).clamp(0.0, 1.0);
             found = Some((dy * weight * fade, dp * weight * fade));
         }
@@ -2231,7 +2867,9 @@ impl World {
         let now = self.now as u64;
         // Guns in hands: where the hand puts them.
         for who in 0..self.fighters.len() {
-            let Some(w) = self.fighters[who].hand else { continue };
+            let Some(w) = self.fighters[who].hand else {
+                continue;
+            };
             let f = &self.fighters[who];
             if !f.alive() {
                 continue;
@@ -2244,7 +2882,10 @@ impl World {
                 let (lr, ud) = self.auto_aim(who, w);
                 self.fighters[who].auto_aim = (lr, ud);
                 let f = &self.fighters[who];
-                Some((f.facing.aim() + f.aiming_lr + lr, f.aiming_ud + f.recoil + ud))
+                Some((
+                    f.facing.aim() + f.aiming_lr + lr,
+                    f.aiming_ud + f.recoil + ud,
+                ))
             } else {
                 f.ai_aim.map(|(y, p)| (y, p + f.recoil))
             };
@@ -2253,9 +2894,18 @@ impl World {
             let exact = aim.and_then(|a| f.gun_screen().map(|s| (a, s)));
             let m = match exact {
                 Some(((yaw, pitch), s)) => {
-                    let wrap = |a: f32| (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
-                    let rel = wrap(yaw - f.facing.facing).clamp(-s.yaw.0[0] * f32::from(s.yaw.1[0]), s.yaw.0[1] * f32::from(s.yaw.1[1]));
-                    let pitch = pitch.clamp(-s.pitch.0[0] * f32::from(s.pitch.1[0]), s.pitch.0[1] * f32::from(s.pitch.1[1]));
+                    let wrap = |a: f32| {
+                        (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
+                            - std::f32::consts::PI
+                    };
+                    let rel = wrap(yaw - f.facing.facing).clamp(
+                        -s.yaw.0[0] * f32::from(s.yaw.1[0]),
+                        s.yaw.0[1] * f32::from(s.yaw.1[1]),
+                    );
+                    let pitch = pitch.clamp(
+                        -s.pitch.0[0] * f32::from(s.pitch.1[0]),
+                        s.pitch.0[1] * f32::from(s.pitch.1[1]),
+                    );
                     let goal = aim_matrix(hand.w_axis.truncate(), f.facing.facing + rel, pitch);
                     let f = &mut self.fighters[who];
                     let since = now.saturating_sub(f.exact_aim_since);
@@ -2277,7 +2927,9 @@ impl World {
             };
             let before = self.armory.weapons[w].position;
             self.armory.weapons[w].infinite_ammo = self.fighters[who].infinite_ammo;
-            let Armory { particles, weapons, .. } = &mut self.armory;
+            let Armory {
+                particles, weapons, ..
+            } = &mut self.armory;
             let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             let motion = m.w_axis.truncate() - before;
             weapons[w].tick_held(particles, &mut host, m, motion);
@@ -2296,7 +2948,9 @@ impl World {
         // What the guns did: kicks and the noise of the shots.
         for w in 0..self.armory.weapons.len() {
             let reports = std::mem::take(&mut self.armory.weapons[w].reports);
-            let Some(who) = self.armory.weapons[w].owner else { continue };
+            let Some(who) = self.armory.weapons[w].owner else {
+                continue;
+            };
             for r in reports {
                 match r {
                     Report::Shot { recoil, volume } => {
@@ -2311,10 +2965,23 @@ impl World {
                             a.fired();
                         }
                         let kind = oni_type(&self.armory.weapons[w].class.recoil_anim);
-                        self.start_overlay(who, crate::fighter::RECOIL, kind, crate::anim::types::st::ANYTHING, false);
+                        self.start_overlay(
+                            who,
+                            crate::fighter::RECOIL,
+                            kind,
+                            crate::anim::types::st::ANYTHING,
+                            false,
+                        );
                         if volume > 0.0 {
-                            let at = self.fighters[who].feet() + Vec3::Y * self.fighters[who].motion.height();
-                            self.sound(crate::ai::perception::Stimulus::SoundGunshot, at, volume, Some(who), None);
+                            let at = self.fighters[who].feet()
+                                + Vec3::Y * self.fighters[who].motion.height();
+                            self.sound(
+                                crate::ai::perception::Stimulus::SoundGunshot,
+                                at,
+                                volume,
+                                Some(who),
+                                None,
+                            );
                         }
                     }
                     Report::Empty => eprintln!("weapon: fighter {who} *click*"),
@@ -2329,7 +2996,8 @@ impl World {
             }
             // Meeting a surface hard enough: its "Weapon" impact. (Other
             // bodies stop it too: characters, objects, loose things.)
-            let others = if self.armory.weapons[w].body.is_some() && !self.armory.weapons[w].resting {
+            let others = if self.armory.weapons[w].body.is_some() && !self.armory.weapons[w].resting
+            {
                 self.loose_obstacles(Some(Loose::Weapon(w)), true)
             } else {
                 Vec::new()
@@ -2342,7 +3010,11 @@ impl World {
         // The shots.
         let tick = self.now as u32;
         let pane_quads: Vec<u32> = self.glass.iter().map(|p| p.quad).collect();
-        let panes: Vec<(bool, Vec3, f32)> = self.glass.iter().map(|p| (p.broken, p.centre, p.radius)).collect();
+        let panes: Vec<(bool, Vec3, f32)> = self
+            .glass
+            .iter()
+            .map(|p| (p.broken, p.centre, p.radius))
+            .collect();
         let inaccuracy = self.inaccuracies();
         let spread = self.turret_spread();
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
@@ -2362,7 +3034,13 @@ impl World {
             self.shatter(k, damage, blast);
         }
         for (at, volume, maker) in sounds {
-            self.sound(crate::ai::perception::Stimulus::SoundGunshot, at, volume, maker, None);
+            self.sound(
+                crate::ai::perception::Stimulus::SoundGunshot,
+                at,
+                volume,
+                maker,
+                None,
+            );
         }
         // Recoil settling (`docs/WEAPONS.md`, *Recoil*).
         for f in &mut self.fighters {
@@ -2380,7 +3058,11 @@ impl World {
                     f.recoil_speed = 0.0;
                 }
             } else if f.recoil != 0.0 {
-                f.recoil -= if gun.chamber == 0 { r.return_speed } else { r.firing_return_speed };
+                f.recoil -= if gun.chamber == 0 {
+                    r.return_speed
+                } else {
+                    r.firing_return_speed
+                };
             }
             if f.player && gun.class.has(flag::RECOIL_DIRECT) {
                 // The player's kick stays in the aim: pull it back down.
@@ -2389,7 +3071,9 @@ impl World {
             } else {
                 f.recoil = f.recoil.clamp(0.0, r.max);
             }
-            f.aiming_ud = f.aiming_ud.clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
+            f.aiming_ud = f
+                .aiming_ud
+                .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
         // A throw's action frame takes the victim's gun
         // (`ONrCharacter_Update`'s throw swap): into the thrower's hand if
@@ -2397,10 +3081,14 @@ impl World {
         for who in 0..self.fighters.len() {
             let f = &self.fighters[who];
             let Some(victim) = f.throwing else { continue };
-            if f.motion.current().action_frame != Some(f.motion.frame) || f.motion.current().frames() == 0 {
+            if f.motion.current().action_frame != Some(f.motion.frame)
+                || f.motion.current().frames() == 0
+            {
                 continue;
             }
-            let Some(gun) = self.fighters.get(victim).and_then(|v| v.hand) else { continue };
+            let Some(gun) = self.fighters.get(victim).and_then(|v| v.hand) else {
+                continue;
+            };
             if f.hand.is_none() && f.holster.is_none() {
                 self.fighters[victim].hand = None;
                 self.set_weapon_varient(victim);
@@ -2414,7 +3102,13 @@ impl World {
         for who in 0..self.fighters.len() {
             let f = &self.fighters[who];
             let died = !f.alive() && f.motion.dying;
-            if f.hand.is_some() && (f.motion.current().has_flag(crate::anim::types::flag::DROP_WEAPON) || died) {
+            if f.hand.is_some()
+                && (f
+                    .motion
+                    .current()
+                    .has_flag(crate::anim::types::flag::DROP_WEAPON)
+                    || died)
+            {
                 self.drop_weapon(who, true);
             }
             if died {
@@ -2427,11 +3121,22 @@ impl World {
 
 /// An animation type by its name (`oni_schema::ANIM_TYPES`; 0 if unknown).
 fn oni_type(name: &str) -> u16 {
-    oni_schema::ANIM_TYPES.iter().position(|n| *n == name).unwrap_or(0) as u16
+    oni_schema::ANIM_TYPES
+        .iter()
+        .position(|n| *n == name)
+        .unwrap_or(0) as u16
 }
 
-fn gun_release(armory: &mut Armory, fighters: &mut [Fighter], sight: Option<&crate::quads::Quads>, now: u64, w: usize) {
-    let Armory { particles, weapons, .. } = armory;
+fn gun_release(
+    armory: &mut Armory,
+    fighters: &mut [Fighter],
+    sight: Option<&crate::quads::Quads>,
+    now: u64,
+    w: usize,
+) {
+    let Armory {
+        particles, weapons, ..
+    } = armory;
     let mut host = ShotHost::new(fighters, sight, now);
     weapons[w].release_trigger(particles, &mut host, false);
 }

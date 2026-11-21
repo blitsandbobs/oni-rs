@@ -33,8 +33,16 @@ impl World {
     /// `timer_start seconds script` (`AIiScript_Timer_Start`): `seconds`
     /// (held to an hour) counted down, then `script`.
     pub fn timer_start(&mut self, seconds: f32, script: &str) {
-        let ticks = (seconds * SECOND as f32).clamp(0.0, MAX_TICKS as f32).round() as u32;
-        self.timer = Some(Timer { mode: Mode::On, ticks, script: script.to_string(), drawn: 0, shown: true });
+        let ticks = (seconds * SECOND as f32)
+            .clamp(0.0, MAX_TICKS as f32)
+            .round() as u32;
+        self.timer = Some(Timer {
+            mode: Mode::On,
+            ticks,
+            script: script.to_string(),
+            drawn: 0,
+            shown: true,
+        });
     }
 
     /// `timer_stop`: off — a success, with its sound, if it was still running.
@@ -105,7 +113,11 @@ fn show(mode: Mode, ticks: u32) -> String {
     match mode {
         Mode::Fail => "0:00.0".to_string(),
         Mode::On => {
-            let (minutes, seconds, tenths) = (ticks / (SECOND * 60), (ticks / SECOND) % 60, (ticks / (SECOND / 10)) % 10);
+            let (minutes, seconds, tenths) = (
+                ticks / (SECOND * 60),
+                (ticks / SECOND) % 60,
+                (ticks / (SECOND / 10)) % 10,
+            );
             if minutes > 0 || seconds >= 10 {
                 format!("{minutes}:{seconds:02}")
             } else {

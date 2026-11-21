@@ -196,7 +196,14 @@ impl Kind {
         use Kind::*;
         matches!(
             self,
-            MoveLine | MoveGravity | MoveSpiral | MoveResistance | MoveDrift | SetVelocity | SpiralTangent | KillBeyondPoint
+            MoveLine
+                | MoveGravity
+                | MoveSpiral
+                | MoveResistance
+                | MoveDrift
+                | SetVelocity
+                | SpiralTangent
+                | KillBeyondPoint
         )
     }
 
@@ -205,8 +212,20 @@ impl Kind {
         use Kind::*;
         matches!(
             self,
-            SetLifetime | EmitParticles | ChangeClass | DamageHitChar | DamageBlast | Explode | DamageEnvironment
-                | GlassCharge | Stop | CollisionEffect | StickToWall | Bounce | Chop | ImpactEffect
+            SetLifetime
+                | EmitParticles
+                | ChangeClass
+                | DamageHitChar
+                | DamageBlast
+                | Explode
+                | DamageEnvironment
+                | GlassCharge
+                | Stop
+                | CollisionEffect
+                | StickToWall
+                | Bounce
+                | Chop
+                | ImpactEffect
         )
     }
 
@@ -214,7 +233,10 @@ impl Kind {
     /// would act on the pre-collision path).
     pub fn not_if_collision(self) -> bool {
         use Kind::*;
-        matches!(self, MoveGravity | MoveSpiral | MoveResistance | MoveDrift | SetVelocity | SpiralTangent)
+        matches!(
+            self,
+            MoveGravity | MoveSpiral | MoveResistance | MoveDrift | SetVelocity | SpiralTangent
+        )
     }
 }
 
@@ -341,7 +363,11 @@ pub enum Direction {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Orient {
     /// ±X, ±Y, ±Z of the parent (`world` = false) or the world.
-    Axis { world: bool, axis: usize, negative: bool },
+    Axis {
+        world: bool,
+        axis: usize,
+        negative: bool,
+    },
     Velocity,
     ReverseVelocity,
     TowardsEmitter,
@@ -501,7 +527,6 @@ impl Class {
     pub fn has(&self, flag: u32) -> bool {
         self.flags & flag != 0
     }
-
 }
 
 #[derive(Default)]
@@ -530,8 +555,15 @@ impl Classes {
         let Some(map) = doc["classes"].as_object() else {
             return Classes::default();
         };
-        let by_name: HashMap<String, ClassId> = map.keys().enumerate().map(|(i, k)| (k.clone(), i)).collect();
-        let list = map.iter().map(|(name, c)| class(name, c, &by_name)).collect();
+        let by_name: HashMap<String, ClassId> = map
+            .keys()
+            .enumerate()
+            .map(|(i, k)| (k.clone(), i))
+            .collect();
+        let list = map
+            .iter()
+            .map(|(name, c)| class(name, c, &by_name))
+            .collect();
         Classes { list, by_name }
     }
 }
@@ -541,7 +573,9 @@ fn f32_of(j: &Json) -> f32 {
 }
 
 fn shade_of(j: &Json) -> u32 {
-    j.as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0)
+    j.as_str()
+        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+        .unwrap_or(0)
 }
 
 /// A JSON value (see `docs/ASSET_FORMAT.md`), with `{"var"}` resolved
@@ -554,7 +588,9 @@ fn value(j: &Json, vars: &[VarDef]) -> Value {
         Json::String(s) => Value::Str(s.as_str().into()),
         Json::Object(o) => {
             if let Some(n) = o.get("var").and_then(Json::as_str) {
-                vars.iter().position(|v| v.name == n).map_or(Value::Null, Value::Var)
+                vars.iter()
+                    .position(|v| v.name == n)
+                    .map_or(Value::Null, Value::Var)
             } else if o.contains_key("range") {
                 let (a, b) = pair("range");
                 Value::Range(a, b)
@@ -599,14 +635,24 @@ fn orient(s: &str) -> Orient {
                 Some('Z') => 2,
                 _ => 1,
             };
-            Orient::Axis { world, axis, negative }
+            Orient::Axis {
+                world,
+                axis,
+                negative,
+            }
         }
     }
 }
 
 fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
     let names = |k: &str| -> Vec<String> {
-        c[k].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect()).unwrap_or_default()
+        c[k].as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(String::from))
+                    .collect()
+            })
+            .unwrap_or_default()
     };
     let mut flags = 0;
     for n in names("flags").iter().chain(names("flags2").iter()) {
@@ -652,13 +698,18 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
                     let mut slot = [None; 8];
                     if let Some(vs) = x["vars"].as_array() {
                         for (k, v) in vs.iter().take(8).enumerate() {
-                            slot[k] = v.as_str().and_then(|n| vars.iter().position(|d| d.name == n));
+                            slot[k] = v
+                                .as_str()
+                                .and_then(|n| vars.iter().position(|d| d.name == n));
                         }
                     }
                     Action {
                         kind: x["type"].as_str().map_or(Kind::Other, Kind::from_name),
                         vars: slot,
-                        params: x["params"].as_array().map(|p| p.iter().map(|v| value(v, &vars)).collect()).unwrap_or_default(),
+                        params: x["params"]
+                            .as_array()
+                            .map(|p| p.iter().map(|v| value(v, &vars)).collect())
+                            .unwrap_or_default(),
                     }
                 })
                 .collect()
@@ -674,7 +725,11 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
             a.iter()
                 .map(|e| {
                     let fl = e["flags"].as_array().map_or(0, |f| {
-                        f.iter().filter_map(|n| EMITTER_FLAGS.iter().position(|k| Some(*k) == n.as_str())).fold(0, |acc, b| acc | 1 << b)
+                        f.iter()
+                            .filter_map(|n| {
+                                EMITTER_FLAGS.iter().position(|k| Some(*k) == n.as_str())
+                            })
+                            .fold(0, |acc, b| acc | 1 << b)
                     });
                     let ty = |k: &str| e[k]["type"].as_str().unwrap_or("").to_string();
                     Emitter {
@@ -686,9 +741,9 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
                         link: match e["link"].as_str().unwrap_or("none") {
                             "emitter" => Link::Emitter,
                             "ourLink" => Link::Inherited,
-                            s if s.starts_with("lastEmission") => {
-                                Link::LastEmission(s.trim_start_matches("lastEmission").parse().unwrap_or(0))
-                            }
+                            s if s.starts_with("lastEmission") => Link::LastEmission(
+                                s.trim_start_matches("lastEmission").parse().unwrap_or(0),
+                            ),
                             _ => Link::None,
                         },
                         rate: (
@@ -726,7 +781,10 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
                             },
                             values(&e["direction"]["values"], &vars),
                         ),
-                        speed: (ty("speed") == "stratified", values(&e["speed"]["values"], &vars)),
+                        speed: (
+                            ty("speed") == "stratified",
+                            values(&e["speed"]["values"], &vars),
+                        ),
                         orient_dir: orient(e["orientDir"].as_str().unwrap_or("parentPosY")),
                         orient_up: orient(e["orientUp"].as_str().unwrap_or("parentPosZ")),
                     }
@@ -765,24 +823,39 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         collision_radius,
         dodge_radius: f32_of(&c["dodgeRadius"]),
         alert_radius: f32_of(&c["alertRadius"]),
-        flyby: c["flybySound"].as_str().filter(|s| !s.is_empty()).map(Rc::from),
+        flyby: c["flybySound"]
+            .as_str()
+            .filter(|s| !s.is_empty())
+            .map(Rc::from),
         scale: value(&c["appearance"]["scale"], &vars),
-        y_scale: names("flags").iter().any(|n| n == "separateYScale").then(|| value(&c["appearance"]["yScale"], &vars)),
+        y_scale: names("flags")
+            .iter()
+            .any(|n| n == "separateYScale")
+            .then(|| value(&c["appearance"]["yScale"], &vars)),
         sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,
         rotation: value(&c["appearance"]["rotation"], &vars),
         alpha: value(&c["appearance"]["alpha"], &vars),
         tint: value(&c["appearance"]["tint"], &vars),
-        instance: c["appearance"]["instance"].as_str().unwrap_or("").to_string(),
+        instance: c["appearance"]["instance"]
+            .as_str()
+            .unwrap_or("")
+            .to_string(),
         max_decals: c["appearance"]["maxDecals"].as_u64().unwrap_or(100) as u16,
         decal_fade_frames: c["appearance"]["decalFadeFrames"].as_u64().unwrap_or(60) as u16,
         decal_wrap: value(&c["appearance"]["decalWrap"], &vars),
-        lens: names("flags2").iter().any(|n| n == "lensFlare").then(|| Lens {
-            dist: value(&c["appearance"]["lensflareDist"], &vars),
-            fade: names("flags").iter().any(|n| n == "hasLensFrames").then(|| {
-                let f = |k: &str| c["appearance"][k].as_u64().unwrap_or(0) as u16;
-                (f("lensInFrames").max(1), f("lensOutFrames").max(1))
+        lens: names("flags2")
+            .iter()
+            .any(|n| n == "lensFlare")
+            .then(|| Lens {
+                dist: value(&c["appearance"]["lensflareDist"], &vars),
+                fade: names("flags")
+                    .iter()
+                    .any(|n| n == "hasLensFrames")
+                    .then(|| {
+                        let f = |k: &str| c["appearance"][k].as_u64().unwrap_or(0) as u16;
+                        (f("lensInFrames").max(1), f("lensOutFrames").max(1))
+                    }),
             }),
-        }),
         attractor,
         vars,
         actions,

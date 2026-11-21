@@ -52,7 +52,9 @@ pub fn from_original_buttons(b: u64) -> u32 {
         (39, key::FIRE2),
         (40, key::FIRE3),
     ];
-    MAP.iter().filter(|(bit, _)| b & (1u64 << bit) != 0).fold(0, |k, (_, ours)| k | ours)
+    MAP.iter()
+        .filter(|(bit, _)| b & (1u64 << bit) != 0)
+        .fold(0, |k, (_, ours)| k | ours)
 }
 
 /// What the fire buttons do without a usable weapon, as in the original:
@@ -120,12 +122,24 @@ mod tests {
 
     #[test]
     fn unarmed_fire_buttons_are_melee() {
-        assert_eq!(fire_as_melee(key::FIRE1, false, false), key::FIRE1 | key::PUNCH);
-        assert_eq!(fire_as_melee(key::FIRE2, false, false), key::FIRE2 | key::KICK);
-        assert_eq!(fire_as_melee(key::FIRE3, false, false), key::FIRE3 | key::CROUCH);
+        assert_eq!(
+            fire_as_melee(key::FIRE1, false, false),
+            key::FIRE1 | key::PUNCH
+        );
+        assert_eq!(
+            fire_as_melee(key::FIRE2, false, false),
+            key::FIRE2 | key::KICK
+        );
+        assert_eq!(
+            fire_as_melee(key::FIRE3, false, false),
+            key::FIRE3 | key::CROUCH
+        );
         // Armed: fire 1 shoots; fire 2 kicks only without an alternate fire.
         assert_eq!(fire_as_melee(key::FIRE1, true, true), key::FIRE1);
-        assert_eq!(fire_as_melee(key::FIRE2, true, false), key::FIRE2 | key::KICK);
+        assert_eq!(
+            fire_as_melee(key::FIRE2, true, false),
+            key::FIRE2 | key::KICK
+        );
         assert_eq!(fire_as_melee(key::FIRE2, true, true), key::FIRE2);
     }
 }

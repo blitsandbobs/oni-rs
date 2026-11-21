@@ -86,7 +86,11 @@ pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
         Pace::Creep => key::CROUCH,
     };
     if let Some(target) = orders.face {
-        let cap = if orders.pace == Pace::Run { MAX_TURN } else { MAX_TURN * 0.5 };
+        let cap = if orders.pace == Pace::Run {
+            MAX_TURN
+        } else {
+            MAX_TURN * 0.5
+        };
         let delta = relative(target - facing.facing);
         facing.rotate(delta.clamp(-cap, cap));
     }
@@ -145,7 +149,11 @@ fn ground_speed(pace: Pace) -> f32 {
 
 /// The tightest circle the character can run/walk around at `pace`.
 fn turning_radius(pace: Pace) -> f32 {
-    let turn = if pace == Pace::Run { MAX_TURN } else { MAX_TURN * 0.5 };
+    let turn = if pace == Pace::Run {
+        MAX_TURN
+    } else {
+        MAX_TURN * 0.5
+    };
     // A margin over the ideal circle: speed varies through start clips.
     1.25 * ground_speed(pace) / turn
 }
@@ -275,13 +283,19 @@ impl Brain {
                     } else {
                         Direction::SidestepLeft
                     };
-                    Orders { direction, ..orders }
+                    Orders {
+                        direction,
+                        ..orders
+                    }
                 }
                 _ => orders,
             }
         };
         match self {
-            Brain::Route(r) => execute(steer(r.orders(senses.feet, facing.facing), avoid, facing), facing),
+            Brain::Route(r) => execute(
+                steer(r.orders(senses.feet, facing.facing), avoid, facing),
+                facing,
+            ),
             Brain::Hold(o) => execute(*o, facing),
             Brain::Spar(s) => s.think(senses, facing),
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
@@ -306,7 +320,12 @@ impl Brain {
                         n.collision_stuck(now);
                     }
                 }
-                let walking = s.nav.as_ref().is_some_and(|n| matches!(n.state, navigate::State::Following | navigate::State::Planning));
+                let walking = s.nav.as_ref().is_some_and(|n| {
+                    matches!(
+                        n.state,
+                        navigate::State::Following | navigate::State::Planning
+                    )
+                });
                 if o.direction == Direction::Stopped && !walking {
                     o.face = s.face;
                 }
@@ -495,7 +514,13 @@ impl Spar {
         // each press registers) until its attack starts; then the next.
         if let Some(c) = &mut self.combo {
             let done = s.attacks_started.wrapping_sub(c.base) as usize;
-            let mut keys = execute(Orders { face: Some(face), ..Orders::default() }, facing);
+            let mut keys = execute(
+                Orders {
+                    face: Some(face),
+                    ..Orders::default()
+                },
+                facing,
+            );
             if done != c.seen {
                 c.seen = done;
                 c.idle = 0;
@@ -519,14 +544,35 @@ impl Spar {
 
         // Close in.
         if dist > ENGAGE_DISTANCE {
-            let direction = if off > TURN_FIRST { Direction::Stopped } else { Direction::Forward };
-            let pace = if dist > RUN_DISTANCE { Pace::Run } else { Pace::Walk };
-            return execute(Orders { direction, pace, face: Some(face) }, facing);
+            let direction = if off > TURN_FIRST {
+                Direction::Stopped
+            } else {
+                Direction::Forward
+            };
+            let pace = if dist > RUN_DISTANCE {
+                Pace::Run
+            } else {
+                Pace::Walk
+            };
+            return execute(
+                Orders {
+                    direction,
+                    pace,
+                    face: Some(face),
+                },
+                facing,
+            );
         }
 
         // In range: guard (stand facing the opponent) until it's time to strike.
         self.pause = self.pause.saturating_sub(1);
-        let guard = execute(Orders { face: Some(face), ..Orders::default() }, facing);
+        let guard = execute(
+            Orders {
+                face: Some(face),
+                ..Orders::default()
+            },
+            facing,
+        );
         if self.pause == 0 && dist <= STRIKE_DISTANCE && off < 0.35 {
             let pick = self.random(0, PATTERNS.len() as u32 - 1) as usize;
             self.combo = Some(Combo {
@@ -547,9 +593,19 @@ mod tests {
     #[test]
     fn orders_become_control_bits() {
         let mut f = Facing::new(0.0);
-        let o = |direction, pace| Orders { direction, pace, face: None };
-        assert_eq!(execute(o(Direction::Forward, Pace::Run), &mut f), key::FORWARD);
-        assert_eq!(execute(o(Direction::Backpedal, Pace::Walk), &mut f), key::BACKWARD | key::WALK);
+        let o = |direction, pace| Orders {
+            direction,
+            pace,
+            face: None,
+        };
+        assert_eq!(
+            execute(o(Direction::Forward, Pace::Run), &mut f),
+            key::FORWARD
+        );
+        assert_eq!(
+            execute(o(Direction::Backpedal, Pace::Walk), &mut f),
+            key::BACKWARD | key::WALK
+        );
         assert_eq!(
             execute(o(Direction::SidestepLeft, Pace::Creep), &mut f),
             key::STEP_LEFT | key::CROUCH
@@ -560,14 +616,31 @@ mod tests {
     #[test]
     fn turning_is_capped_and_owned_by_the_ai() {
         let mut f = Facing::new(0.0);
-        let orders = Orders { face: Some(1.0), ..Orders::default() };
+        let orders = Orders {
+            face: Some(1.0),
+            ..Orders::default()
+        };
         execute(orders, &mut f);
-        assert!((f.facing - MAX_TURN).abs() < 1e-5, "one capped step, got {}", f.facing);
-        assert_eq!(f.desired_facing, f.facing, "nothing left for the movement system to slew");
-        let walking = Orders { face: Some(1.0), pace: Pace::Walk, ..Orders::default() };
+        assert!(
+            (f.facing - MAX_TURN).abs() < 1e-5,
+            "one capped step, got {}",
+            f.facing
+        );
+        assert_eq!(
+            f.desired_facing, f.facing,
+            "nothing left for the movement system to slew"
+        );
+        let walking = Orders {
+            face: Some(1.0),
+            pace: Pace::Walk,
+            ..Orders::default()
+        };
         let before = f.facing;
         execute(walking, &mut f);
-        assert!((f.facing - before - MAX_TURN * 0.5).abs() < 1e-5, "half the rate walking");
+        assert!(
+            (f.facing - before - MAX_TURN * 0.5).abs() < 1e-5,
+            "half the rate walking"
+        );
     }
 
     #[test]

@@ -37,7 +37,12 @@ impl Camera {
 
     /// A camera with the game's projection.
     pub fn game(aspect: f32) -> Self {
-        Self { fov_y: GAME_FOV_Y, near: GAME_NEAR, far: GAME_FAR, ..Self::new(aspect) }
+        Self {
+            fov_y: GAME_FOV_Y,
+            near: GAME_NEAR,
+            far: GAME_FAR,
+            ..Self::new(aspect)
+        }
     }
 
     /// Forward direction from yaw/pitch.

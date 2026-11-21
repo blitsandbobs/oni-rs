@@ -11,19 +11,64 @@ const BUFFER: usize = 20;
 /// The codes the port carries out: the word, its message on (or given)
 /// and off. The original's others aren't here yet (#60's docs list them).
 const CODES: [(&str, &str, Option<&str>, Cheat); 12] = [
-    ("liveforever", "Invincibility Enabled", Some("Invincibility Disabled"), Cheat::Invincible),
-    ("touchofdeath", "Omnipotence Enabled", Some("Omnipotence Disabled"), Cheat::Omnipotent),
-    ("canttouchthis", "Unstoppable Enabled", Some("Unstoppable Disabled"), Cheat::Unstoppable),
+    (
+        "liveforever",
+        "Invincibility Enabled",
+        Some("Invincibility Disabled"),
+        Cheat::Invincible,
+    ),
+    (
+        "touchofdeath",
+        "Omnipotence Enabled",
+        Some("Omnipotence Disabled"),
+        Cheat::Omnipotent,
+    ),
+    (
+        "canttouchthis",
+        "Unstoppable Enabled",
+        Some("Unstoppable Disabled"),
+        Cheat::Unstoppable,
+    ),
     ("fatloot", "Fat Loot Received", None, Cheat::FatLoot),
     ("winlevel", "Instantly Win Level", None, Cheat::WinLevel),
     ("loselevel", "Instantly Lose Level", None, Cheat::LoseLevel),
-    ("superammo", "Super Ammo Mode Enabled", Some("Super Ammo Mode Disabled"), Cheat::SuperAmmo),
-    ("elderrune", "Regeneration Enabled", Some("Regeneration Disabled"), Cheat::Regeneration),
-    ("moonshadow", "Phase Cloak Enabled", Some("Phase Cloak Disabled"), Cheat::Invisibility),
-    ("chenille", "Daodan Power Enabled", Some("Daodan Power Disabled"), Cheat::DaodanPower),
-    ("carousel", "Slow Motion Enabled", Some("Slow Motion Disabled"), Cheat::SlowMotion),
+    (
+        "superammo",
+        "Super Ammo Mode Enabled",
+        Some("Super Ammo Mode Disabled"),
+        Cheat::SuperAmmo,
+    ),
+    (
+        "elderrune",
+        "Regeneration Enabled",
+        Some("Regeneration Disabled"),
+        Cheat::Regeneration,
+    ),
+    (
+        "moonshadow",
+        "Phase Cloak Enabled",
+        Some("Phase Cloak Disabled"),
+        Cheat::Invisibility,
+    ),
+    (
+        "chenille",
+        "Daodan Power Enabled",
+        Some("Daodan Power Disabled"),
+        Cheat::DaodanPower,
+    ),
+    (
+        "carousel",
+        "Slow Motion Enabled",
+        Some("Slow Motion Disabled"),
+        Cheat::SlowMotion,
+    ),
     // (Not the original's: a full shield belt, for trying shields out.)
-    ("forcefield", "Force Field Received", None, Cheat::ForceField),
+    (
+        "forcefield",
+        "Force Field Received",
+        None,
+        Cheat::ForceField,
+    ),
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,7 +112,9 @@ impl World {
         if self.cheats.typed.len() > BUFFER {
             self.cheats.typed.remove(0);
         }
-        let (code, on, off, cheat) = *CODES.iter().find(|(w, ..)| self.cheats.typed.ends_with(w))?;
+        let (code, on, off, cheat) = *CODES
+            .iter()
+            .find(|(w, ..)| self.cheats.typed.ends_with(w))?;
         let enabled = self.cheat(cheat);
         eprintln!("cheat: {code} ({})", if enabled { "on" } else { "off" });
         self.cheats.typed.clear();
@@ -80,7 +127,9 @@ impl World {
 
     /// `ONrCheater`: carries one out; whether it is now on.
     fn cheat(&mut self, cheat: Cheat) -> bool {
-        let Some(p) = self.fighters.first_mut().filter(|f| f.player) else { return false };
+        let Some(p) = self.fighters.first_mut().filter(|f| f.player) else {
+            return false;
+        };
         let c = &mut self.cheats;
         let toggle = |b: &mut bool| {
             *b = !*b;
@@ -146,7 +195,13 @@ impl World {
             p.cheat_unstoppable = unstoppable;
             // Regeneration (`WPrInventory_Update`): a point a second, up
             // to full, while no hypo is at work.
-            if regeneration && p.alive() && p.inventory.hypo_remaining == 0 && p.inventory.hypo_timer == 0 && p.hp < p.max_hp && now.is_multiple_of(60) {
+            if regeneration
+                && p.alive()
+                && p.inventory.hypo_remaining == 0
+                && p.inventory.hypo_timer == 0
+                && p.hp < p.max_hp
+                && now.is_multiple_of(60)
+            {
                 p.hp += 1;
             }
         }
@@ -160,7 +215,10 @@ mod tests {
     #[test]
     fn a_code_is_found_at_the_end_of_what_was_typed() {
         let typed = "xxmoonshadow";
-        assert_eq!(CODES.iter().find(|(w, ..)| typed.ends_with(w)).map(|c| c.3), Some(Cheat::Invisibility));
+        assert_eq!(
+            CODES.iter().find(|(w, ..)| typed.ends_with(w)).map(|c| c.3),
+            Some(Cheat::Invisibility)
+        );
         assert!(CODES.iter().all(|(w, ..)| w.len() <= BUFFER));
     }
 }

@@ -35,7 +35,11 @@ impl Grid {
 
     /// A cell's centre (x, z).
     pub fn centre(&self, (i, j): (i32, i32)) -> Vec2 {
-        self.origin + Vec2::new((i as f32 + 0.5) * grid::SQUARE, (j as f32 + 0.5) * grid::SQUARE)
+        self.origin
+            + Vec2::new(
+                (i as f32 + 0.5) * grid::SQUARE,
+                (j as f32 + 0.5) * grid::SQUARE,
+            )
     }
 
     pub fn square(&self, (i, j): (i32, i32)) -> Square {
@@ -134,18 +138,27 @@ impl Navigation {
     /// Loads `navigation.json` (+ its grids) from a level folder.
     pub fn load(level_dir: &Path) -> std::io::Result<Navigation> {
         let text = std::fs::read_to_string(level_dir.join("navigation.json"))?;
-        let doc: serde_json::Value =
-            serde_json::from_str(&text).map_err(|e| std::io::Error::other(format!("navigation.json: {e}")))?;
+        let doc: serde_json::Value = serde_json::from_str(&text)
+            .map_err(|e| std::io::Error::other(format!("navigation.json: {e}")))?;
         let bin = std::fs::read(level_dir.join(doc["grids"].as_str().unwrap_or("navigation.bin")))?;
         let v3 = |v: &serde_json::Value| {
-            Vec3::new(v[0].as_f64().unwrap_or(0.0) as f32, v[1].as_f64().unwrap_or(0.0) as f32, v[2].as_f64().unwrap_or(0.0) as f32)
+            Vec3::new(
+                v[0].as_f64().unwrap_or(0.0) as f32,
+                v[1].as_f64().unwrap_or(0.0) as f32,
+                v[2].as_f64().unwrap_or(0.0) as f32,
+            )
         };
         let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
         let plane = |v: &serde_json::Value| [f(&v[0]), f(&v[1]), f(&v[2]), f(&v[3])];
         let mut rooms: Vec<Room> = Vec::new();
         let mut raw_links: Vec<Vec<RawLink>> = Vec::new();
         for r in doc["rooms"].as_array().into_iter().flatten() {
-            let names: Vec<&str> = r["flags"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).collect();
+            let names: Vec<&str> = r["flags"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter_map(|v| v.as_str())
+                .collect();
             let flags = oni_schema::bits(&oni_schema::ROOM_FLAGS, names);
             let planes = r["planes"]
                 .as_array()
@@ -159,16 +172,24 @@ impl Navigation {
                 .collect();
             let grid = r["grid"].is_object().then(|| {
                 let g = &r["grid"];
-                let (w, h) = (g["width"].as_u64().unwrap_or(0) as i32, g["height"].as_u64().unwrap_or(0) as i32);
+                let (w, h) = (
+                    g["width"].as_u64().unwrap_or(0) as i32,
+                    g["height"].as_u64().unwrap_or(0) as i32,
+                );
                 let at = g["offset"].as_u64().unwrap_or(0) as usize;
                 Grid {
                     origin: Vec2::new(f(&g["origin"][0]), f(&g["origin"][1])),
                     width: w,
                     height: h,
-                    cells: bin.get(at..at + (w * h) as usize).map(<[u8]>::to_vec).unwrap_or_default(),
+                    cells: bin
+                        .get(at..at + (w * h) as usize)
+                        .map(<[u8]>::to_vec)
+                        .unwrap_or_default(),
                 }
             });
-            let stair = r["stair"].is_object().then(|| (plane(&r["stair"]["plane"]), f(&r["stair"]["height"])));
+            let stair = r["stair"]
+                .is_object()
+                .then(|| (plane(&r["stair"]["plane"]), f(&r["stair"]["height"])));
             rooms.push(Room {
                 flags,
                 planes,
@@ -184,9 +205,19 @@ impl Navigation {
                     .into_iter()
                     .flatten()
                     .map(|l| {
-                        let portal = l["portal"].as_array().into_iter().flatten().filter_map(|v| v.as_str()).map(String::from).collect();
+                        let portal = l["portal"]
+                            .as_array()
+                            .into_iter()
+                            .flatten()
+                            .filter_map(|v| v.as_str())
+                            .map(String::from)
+                            .collect();
                         let q = &l["quad"];
-                        (l["to"].as_u64().unwrap_or(0) as usize, portal, [v3(&q[0]), v3(&q[1]), v3(&q[2]), v3(&q[3])])
+                        (
+                            l["to"].as_u64().unwrap_or(0) as usize,
+                            portal,
+                            [v3(&q[0]), v3(&q[1]), v3(&q[2]), v3(&q[3])],
+                        )
                     })
                     .collect(),
             );
@@ -219,7 +250,11 @@ impl Navigation {
                         .any(|(m, (_, _, q))| m != k && q.iter().any(|c| c.distance(end) <= TOUCH))
                 };
                 let stairs = self.rooms[r].is_stairs() || self.rooms[*to].is_stairs();
-                let obstructed = if stairs { [true, true] } else { [!touched(a), !touched(b)] };
+                let obstructed = if stairs {
+                    [true, true]
+                } else {
+                    [!touched(a), !touched(b)]
+                };
                 portals.push(Portal {
                     to: *to,
                     a,
@@ -255,8 +290,13 @@ impl Navigation {
         while t <= p.width + 2.0 * grid::SQUARE {
             let at = Vec2::new(p.a.x, p.a.z) + dir * t;
             let bad = [r, p.to].iter().any(|&room| {
-                matches!(self.rooms[room].square_at(at.x, at.y), Square::Border4 | Square::Danger | Square::Impassable)
-                    && self.rooms[room].grid.as_ref().is_some_and(|g| g.cell_of(at.x, at.y).is_some())
+                matches!(
+                    self.rooms[room].square_at(at.x, at.y),
+                    Square::Border4 | Square::Danger | Square::Impassable
+                ) && self.rooms[room]
+                    .grid
+                    .as_ref()
+                    .is_some_and(|g| g.cell_of(at.x, at.y).is_some())
             });
             if bad {
                 let s = (t - HALF, t + HALF);
@@ -280,8 +320,14 @@ impl Navigation {
     pub fn look(&self, from: Vec3, dir: Vec2, dist: f32) -> crate::physics::Probe {
         let l = self.probe(from, dir, dist, Square::Danger);
         match l.stopped {
-            Some(sq) => crate::physics::Probe { free: l.free, ledge: (sq == Square::Danger).then_some(l.free) },
-            None => crate::physics::Probe { free: dist, ledge: None },
+            Some(sq) => crate::physics::Probe {
+                free: l.free,
+                ledge: (sq == Square::Danger).then_some(l.free),
+            },
+            None => crate::physics::Probe {
+                free: dist,
+                ledge: None,
+            },
         }
     }
 
@@ -304,7 +350,10 @@ impl Navigation {
             let p = Vec3::new(from.x + dir.x * t, from.y, from.z + dir.y * t);
             // Stay in the room while its grid covers the point; else find the next.
             let in_room = room.is_some_and(|r| {
-                self.rooms[r].grid.as_ref().is_none_or(|g| g.cell_of(p.x, p.z).is_some())
+                self.rooms[r]
+                    .grid
+                    .as_ref()
+                    .is_none_or(|g| g.cell_of(p.x, p.z).is_some())
             });
             if !in_room {
                 room = self.room_at(p);
@@ -312,7 +361,12 @@ impl Navigation {
             let sq = room.map_or(Square::Impassable, |r| self.rooms[r].square_at(p.x, p.z));
             if sq >= stop {
                 if was_good || t > ESCAPE {
-                    return LocalProbe { free: last_good, stopped: Some(sq), worst, escaped };
+                    return LocalProbe {
+                        free: last_good,
+                        stopped: Some(sq),
+                        worst,
+                        escaped,
+                    };
                 }
                 escaped = true;
             } else {
@@ -322,7 +376,12 @@ impl Navigation {
             }
             t += STEP;
         }
-        LocalProbe { free: dist, stopped: None, worst, escaped }
+        LocalProbe {
+            free: dist,
+            stopped: None,
+            worst,
+            escaped,
+        }
     }
 
     /// The room a point is in (behaviour per `docs/PATHFINDING.md`): inside
@@ -331,7 +390,8 @@ impl Navigation {
     /// whose floor is more than 5 above the point don't count.
     pub fn room_at(&self, p: Vec3) -> Option<usize> {
         // (A body pressed a little into the floor is still in its room.)
-        self.room_at_exactly(p).or_else(|| self.room_at_exactly(p + Vec3::Y * 4.0))
+        self.room_at_exactly(p)
+            .or_else(|| self.room_at_exactly(p + Vec3::Y * 4.0))
     }
 
     fn room_at_exactly(&self, p: Vec3) -> Option<usize> {
@@ -340,8 +400,10 @@ impl Navigation {
             if r.flags & NON_AI != 0 || r.min.y > p.y + OUTSIDE_ACCEPT {
                 continue;
             }
-            if p.x < r.min.x - OUTSIDE_ACCEPT || p.x > r.max.x + OUTSIDE_ACCEPT
-                || p.z < r.min.z - OUTSIDE_ACCEPT || p.z > r.max.z + OUTSIDE_ACCEPT
+            if p.x < r.min.x - OUTSIDE_ACCEPT
+                || p.x > r.max.x + OUTSIDE_ACCEPT
+                || p.z < r.min.z - OUTSIDE_ACCEPT
+                || p.z > r.max.z + OUTSIDE_ACCEPT
                 || p.y > r.max.y + OUTSIDE_ACCEPT
             {
                 continue;
@@ -362,7 +424,10 @@ impl Navigation {
             let key = (inside, r.is_stairs(), dist, size, i);
             let better = match best {
                 None => true,
-                Some(b) => (key.0, key.1) > (b.0, b.1) || ((key.0, key.1) == (b.0, b.1) && (key.2, key.3) < (b.2, b.3)),
+                Some(b) => {
+                    (key.0, key.1) > (b.0, b.1)
+                        || ((key.0, key.1) == (b.0, b.1) && (key.2, key.3) < (b.2, b.3))
+                }
             };
             if better {
                 best = Some(key);

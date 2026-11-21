@@ -22,13 +22,29 @@ struct Fake {
 impl Host for Fake {
     fn ray_env(&mut self, from: Vec3, ray: Vec3) -> Option<EnvHit> {
         let to = from + ray;
-        (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit { fraction: from.y / (from.y - to.y), normal: Vec3::Y, surface: 1, quad: None })
+        (from.y > 0.0 && to.y <= 0.0).then(|| EnvHit {
+            fraction: from.y / (from.y - to.y),
+            normal: Vec3::Y,
+            surface: 1,
+            quad: None,
+        })
     }
-    fn ray_chars(&mut self, from: Vec3, ray: Vec3, radius: f32, _owner: Option<usize>) -> Option<CharHit> {
+    fn ray_chars(
+        &mut self,
+        from: Vec3,
+        ray: Vec3,
+        radius: f32,
+        _owner: Option<usize>,
+    ) -> Option<CharHit> {
         let r = 5.0 + radius;
         let l = ray.length();
         if l < 1e-9 {
-            return (from.distance(self.target) <= r).then_some(CharHit { fraction: 0.0, who: 7, normal: Vec3::Y, part: 0 });
+            return (from.distance(self.target) <= r).then_some(CharHit {
+                fraction: 0.0,
+                who: 7,
+                normal: Vec3::Y,
+                part: 0,
+            });
         }
         let d = ray / l;
         let oc = from - self.target;
@@ -39,19 +55,58 @@ impl Host for Fake {
             return None;
         }
         let s = -b - disc.sqrt();
-        (0.0..=l).contains(&s).then(|| CharHit { fraction: s / l, who: 7, normal: (from + d * s - self.target).normalize(), part: 0 })
+        (0.0..=l).contains(&s).then(|| CharHit {
+            fraction: s / l,
+            who: 7,
+            normal: (from + d * s - self.target).normalize(),
+            part: 0,
+        })
     }
-    fn hit_char(&mut self, who: usize, _p: Vec3, _d: Vec3, kind: u32, damage: f32, _s: f32, _k: f32, _o: u32, stamp: Option<u64>, _si: bool) -> bool {
+    fn hit_char(
+        &mut self,
+        who: usize,
+        _p: Vec3,
+        _d: Vec3,
+        kind: u32,
+        damage: f32,
+        _s: f32,
+        _k: f32,
+        _o: u32,
+        stamp: Option<u64>,
+        _si: bool,
+    ) -> bool {
         self.hits.push((who, damage, kind, stamp));
         false
     }
-    fn blast(&mut self, centre: Vec3, _k: u32, damage: f32, _s: f32, _kb: f32, radius: f32, _f: u32, _o: u32, _st: u64, _si: bool) {
+    fn blast(
+        &mut self,
+        centre: Vec3,
+        _k: u32,
+        damage: f32,
+        _s: f32,
+        _kb: f32,
+        radius: f32,
+        _f: u32,
+        _o: u32,
+        _st: u64,
+        _si: bool,
+    ) {
         self.blasts.push((centre, damage, radius));
     }
     fn targets(&self) -> Vec<Target> {
-        vec![Target { who: 7, position: self.target, velocity: Vec3::ZERO }]
+        vec![Target {
+            who: 7,
+            position: self.target,
+            velocity: Vec3::ZERO,
+        }]
     }
-    fn damage_surfaces_near(&mut self, centre: Vec3, radius: f32, _damage: f32, _blast: Option<super::glass::Blast>) {
+    fn damage_surfaces_near(
+        &mut self,
+        centre: Vec3,
+        radius: f32,
+        _damage: f32,
+        _blast: Option<super::glass::Blast>,
+    ) {
         self.glass.push((centre, radius));
     }
     fn super_amount(&self, who: usize) -> f32 {
@@ -67,11 +122,18 @@ impl Host for Fake {
     fn clear(&mut self, _from: Vec3, _to: Vec3) -> bool {
         true
     }
-    fn build_decal(&mut self, quad: Option<u32>, p: &crate::decal::Params) -> Option<crate::decal::Mesh> {
+    fn build_decal(
+        &mut self,
+        quad: Option<u32>,
+        p: &crate::decal::Params,
+    ) -> Option<crate::decal::Mesh> {
         let corners = [(-1.0, 1.0), (1.0, 1.0), (1.0, -1.0), (-1.0, -1.0)];
         Some(crate::decal::Mesh {
             quad,
-            positions: corners.iter().map(|(x, y)| p.position + p.right * (x * p.xscale) + p.up * (y * p.yscale)).collect(),
+            positions: corners
+                .iter()
+                .map(|(x, y)| p.position + p.right * (x * p.xscale) + p.up * (y * p.yscale))
+                .collect(),
             uvs: vec![[1.0, 0.0], [0.0, 0.0], [0.0, 1.0], [1.0, 1.0]],
             shades: vec![0xFFFF_FFFF; 4],
             indices: vec![0, 1, 2, 0, 2, 3],
@@ -162,9 +224,18 @@ fn count(sys: &System, name: &str) -> usize {
 #[test]
 fn a_pulse_fires_a_bullet_that_hits_once_and_dies() {
     let mut sys = System::new(classes());
-    let mut host = Fake { target: Vec3::new(0.0, 10.0, 100.0), ..Fake::default() };
+    let mut host = Fake {
+        target: Vec3::new(0.0, 10.0, 100.0),
+        ..Fake::default()
+    };
     // The gun faces +Z (its forward axis, Y, turned onto Z).
-    let gun = spawn(&mut sys, "gun", Vec3::new(0.0, 10.0, 0.0), Vec3::ZERO, &mut host);
+    let gun = spawn(
+        &mut sys,
+        "gun",
+        Vec3::new(0.0, 10.0, 0.0),
+        Vec3::ZERO,
+        &mut host,
+    );
     sys.get_mut(gun).unwrap().orientation = Mat3::from_cols(Vec3::X, Vec3::Z, -Vec3::Y);
     sys.send(gun, event::PULSE, 0.0, &mut host);
     assert_eq!(count(&sys, "bullet"), 1);
@@ -182,13 +253,26 @@ fn a_pulse_fires_a_bullet_that_hits_once_and_dies() {
 #[test]
 fn gravity_and_a_blast_where_it_lands() {
     let mut sys = System::new(classes());
-    let mut host = Fake { target: Vec3::new(500.0, 0.0, 0.0), ..Fake::default() };
-    let ball = spawn(&mut sys, "ball", Vec3::new(0.0, 50.0, 0.0), Vec3::new(10.0, 0.0, 0.0), &mut host);
+    let mut host = Fake {
+        target: Vec3::new(500.0, 0.0, 0.0),
+        ..Fake::default()
+    };
+    let ball = spawn(
+        &mut sys,
+        "ball",
+        Vec3::new(0.0, 50.0, 0.0),
+        Vec3::new(10.0, 0.0, 0.0),
+        &mut host,
+    );
     for tick in 1..=30 {
         sys.update(tick, &mut host);
     }
     let p = sys.get(ball).unwrap();
-    assert!((p.velocity.y + 49.0).abs() < 0.5, "half a second of gravity: {}", p.velocity.y);
+    assert!(
+        (p.velocity.y + 49.0).abs() < 0.5,
+        "half a second of gravity: {}",
+        p.velocity.y
+    );
     for tick in 31..=120 {
         sys.update(tick, &mut host);
     }
@@ -210,7 +294,10 @@ fn an_instant_emitter_fires_one_burst() {
         sys.update(tick, &mut host);
     }
     assert_eq!(count(&sys, "spark"), 3);
-    assert!(sys.iter().filter(|(_, p)| p.link == Some(parent)).count() == 3, "linked to their emitter");
+    assert!(
+        sys.iter().filter(|(_, p)| p.link == Some(parent)).count() == 3,
+        "linked to their emitter"
+    );
     // Sparks live half a second.
     for tick in 6..=40 {
         sys.update(tick, &mut host);
@@ -227,7 +314,14 @@ fn hole(sys: &mut System, name: &str, host: &mut Fake) -> Option<Handle> {
     data.cause = Cause::HitWall(Some(0));
     data.normal = Vec3::Y;
     data.decal_scale = [1.0, 1.0];
-    let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Decal { is_static: false, random_rotation: true } };
+    let spec = Spec {
+        class,
+        orientation: Orientation::Unchanged,
+        location: Location::Decal {
+            is_static: false,
+            random_rotation: true,
+        },
+    };
     sys.create_effect(&spec, &data, host)
 }
 
@@ -235,17 +329,31 @@ fn hole(sys: &mut System, name: &str, host: &mut Fake) -> Option<Handle> {
 fn decals_past_their_class_count_fade_oldest_first() {
     let mut sys = System::new(classes());
     let mut host = Fake::default();
-    let holes: Vec<Handle> = (0..4).map(|_| hole(&mut sys, "hole", &mut host).unwrap()).collect();
+    let holes: Vec<Handle> = (0..4)
+        .map(|_| hole(&mut sys, "hole", &mut host).unwrap())
+        .collect();
     assert_eq!(sys.decals.dynamic.len(), 4);
-    assert!(sys.decals.dynamic.iter().all(|d| d.alpha == 204), "0.8 of full");
+    assert!(
+        sys.decals.dynamic.iter().all(|d| d.alpha == 204),
+        "0.8 of full"
+    );
     sys.update(1, &mut host);
     // One too many: the oldest starts fading, from its own opacity.
-    let fading: Vec<bool> = holes.iter().map(|&h| sys.get(h).unwrap().flags & pflag::FADE_OUT != 0).collect();
+    let fading: Vec<bool> = holes
+        .iter()
+        .map(|&h| sys.get(h).unwrap().flags & pflag::FADE_OUT != 0)
+        .collect();
     assert_eq!(fading, vec![true, false, false, false]);
     for tick in 2..=31 {
         sys.update(tick, &mut host);
     }
-    let a = sys.decals.dynamic.iter().find(|d| d.particle == holes[0]).unwrap().alpha;
+    let a = sys
+        .decals
+        .dynamic
+        .iter()
+        .find(|d| d.particle == holes[0])
+        .unwrap()
+        .alpha;
     assert!((95..=110).contains(&a), "halfway down from 204: {a}");
     for tick in 32..=62 {
         sys.update(tick, &mut host);
@@ -268,7 +376,11 @@ fn a_decal_with_a_lifetime_fades_when_it_runs_out() {
         sys.update(tick, &mut host);
     }
     // (Under a frame left counts as none.)
-    assert_ne!(sys.get(h).unwrap().flags & pflag::FADE_OUT, 0, "half a second: fading");
+    assert_ne!(
+        sys.get(h).unwrap().flags & pflag::FADE_OUT,
+        0,
+        "half a second: fading"
+    );
     for tick in 32..=62 {
         sys.update(tick, &mut host);
     }
@@ -282,13 +394,29 @@ fn a_decal_needs_a_wall_and_a_decal_place() {
     let mut host = Fake::default();
     let class = sys.classes.get("hole").unwrap();
     let data = Data::new(0, Vec3::ZERO);
-    let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Decal { is_static: false, random_rotation: false } };
-    assert!(sys.create_effect(&spec, &data, &mut host).is_none(), "no wall hit");
+    let spec = Spec {
+        class,
+        orientation: Orientation::Unchanged,
+        location: Location::Decal {
+            is_static: false,
+            random_rotation: false,
+        },
+    };
+    assert!(
+        sys.create_effect(&spec, &data, &mut host).is_none(),
+        "no wall hit"
+    );
     let mut data = Data::new(0, Vec3::ZERO);
     data.cause = Cause::HitWall(None);
     data.normal = Vec3::Y;
-    let spec = Spec { location: Location::Default, ..spec };
-    assert!(sys.create_effect(&spec, &data, &mut host).is_none(), "not placed as a decal");
+    let spec = Spec {
+        location: Location::Default,
+        ..spec
+    };
+    assert!(
+        sys.create_effect(&spec, &data, &mut host).is_none(),
+        "not placed as a decal"
+    );
     assert!(sys.decals.dynamic.is_empty());
 }
 
@@ -303,16 +431,43 @@ fn effect_orientations_fall_back_without_a_cause() {
         data.cause = cause;
         data.normal = Vec3::X;
         data.parent_velocity = Some(Vec3::new(1.0, -1.0, 0.0));
-        let h = sys.create_effect(&Spec { class, orientation: o, location: Location::Default }, &data, host).unwrap();
+        let h = sys
+            .create_effect(
+                &Spec {
+                    class,
+                    orientation: o,
+                    location: Location::Default,
+                },
+                &data,
+                host,
+            )
+            .unwrap();
         sys.get(h).unwrap().orientation.y_axis
     };
     // Along the normal, given a cause; without one, along the parent's flight.
-    assert!(make(&mut sys, &mut host, Orientation::Normal, Cause::HitWall(None)).distance(Vec3::X) < 1e-5);
+    assert!(
+        make(
+            &mut sys,
+            &mut host,
+            Orientation::Normal,
+            Cause::HitWall(None)
+        )
+        .distance(Vec3::X)
+            < 1e-5
+    );
     let flight = Vec3::new(1.0, -1.0, 0.0).normalize();
     assert!(make(&mut sys, &mut host, Orientation::Normal, Cause::None).distance(flight) < 1e-5);
     // Reflected off the wall (x = 0 plane, normal +x): the x turns back.
-    let r = make(&mut sys, &mut host, Orientation::Reflected, Cause::HitWall(None));
-    assert!(r.distance(Vec3::new(-1.0, -1.0, 0.0).normalize()) < 1e-5, "{r}");
+    let r = make(
+        &mut sys,
+        &mut host,
+        Orientation::Reflected,
+        Cause::HitWall(None),
+    );
+    assert!(
+        r.distance(Vec3::new(-1.0, -1.0, 0.0).normalize()) < 1e-5,
+        "{r}"
+    );
     // Reversed: back along the flight.
     assert!(make(&mut sys, &mut host, Orientation::Reversed, Cause::None).distance(-flight) < 1e-5);
 }
@@ -329,7 +484,11 @@ fn the_dynamic_decals_memory_throws_out_the_oldest() {
         purged_all.extend(purged);
         owners.push(k);
     }
-    assert_eq!(purged_all, vec![0], "the oldest goes when the ring comes round (not the one it touches)");
+    assert_eq!(
+        purged_all,
+        vec![0],
+        "the oldest goes when the ring comes round (not the one it touches)"
+    );
     // Small decals run out of block records first: 785 of them.
     let mut d = super::effect::Decals::default();
     let mut first = None;
@@ -339,7 +498,11 @@ fn the_dynamic_decals_memory_throws_out_the_oldest() {
             first = Some((k, purged));
         }
     }
-    assert_eq!(first, Some((785, vec![0])), "the 786th takes the first's record");
+    assert_eq!(
+        first,
+        Some((785, vec![0])),
+        "the 786th takes the first's record"
+    );
 }
 
 /// Classes for the motion and texture actions.
@@ -395,18 +558,39 @@ fn motion_classes() -> Rc<Classes> {
 fn motion_and_texture_actions_follow_the_original() {
     let mut sys = System::new(motion_classes());
     let mut host = Fake::default();
-    let drift = spawn(&mut sys, "drift", Vec3::new(0.0, 50.0, 0.0), Vec3::new(5.0, 0.0, 0.0), &mut host);
+    let drift = spawn(
+        &mut sys,
+        "drift",
+        Vec3::new(0.0, 50.0, 0.0),
+        Vec3::new(5.0, 0.0, 0.0),
+        &mut host,
+    );
     let spiral = spawn(&mut sys, "spiral", Vec3::ZERO, Vec3::ZERO, &mut host);
     let tangent = spawn(&mut sys, "tangent", Vec3::ZERO, Vec3::ZERO, &mut host);
-    let riser = spawn(&mut sys, "riser", Vec3::ZERO, Vec3::new(0.0, 20.0, 0.0), &mut host);
-    spawn(&mut sys, "charge", Vec3::new(1.0, 2.0, 3.0), Vec3::ZERO, &mut host);
+    let riser = spawn(
+        &mut sys,
+        "riser",
+        Vec3::ZERO,
+        Vec3::new(0.0, 20.0, 0.0),
+        &mut host,
+    );
+    spawn(
+        &mut sys,
+        "charge",
+        Vec3::new(1.0, 2.0, 3.0),
+        Vec3::ZERO,
+        &mut host,
+    );
     let flash = spawn(&mut sys, "flash", Vec3::ZERO, Vec3::ZERO, &mut host);
     let sup = spawn(&mut sys, "super", Vec3::ZERO, Vec3::ZERO, &mut host);
 
     // Sent along the spiral's tangent once: rate × radius = π × 10, across
     // the angle (90°: along −X).
     let v = sys.get(tangent).unwrap().velocity;
-    assert!((v.x + std::f32::consts::PI * 10.0).abs() < 1e-3 && v.z.abs() < 1e-3, "{v}");
+    assert!(
+        (v.x + std::f32::consts::PI * 10.0).abs() < 1e-3 && v.z.abs() < 1e-3,
+        "{v}"
+    );
     // The glass charge bursts where it is, at its radius.
     assert_eq!(host.glass, [(Vec3::new(1.0, 2.0, 3.0), 15.0)]);
     // Super: base + delta × the owner's super amount (0.5).
@@ -415,7 +599,11 @@ fn motion_and_texture_actions_follow_the_original() {
     for tick in 1..=20 {
         sys.update(tick, &mut host);
     }
-    assert!(sys.alive(riser), "short of its point (y {})", sys.get(riser).map_or(0.0, |p| p.position.y));
+    assert!(
+        sys.alive(riser),
+        "short of its point (y {})",
+        sys.get(riser).map_or(0.0, |p| p.position.y)
+    );
     for tick in 21..=30 {
         sys.update(tick, &mut host);
     }
@@ -444,7 +632,12 @@ fn broken_glass_bursts_into_shards_over_the_pane_blown_away_from_a_blast() {
     use super::glass::{Blast, Pane};
     // A 40 × 40 pane upright in z = 0, facing +z.
     let pane = Pane {
-        corners: [Vec3::new(0.0, 10.0, 0.0), Vec3::new(40.0, 10.0, 0.0), Vec3::new(40.0, 50.0, 0.0), Vec3::new(0.0, 50.0, 0.0)],
+        corners: [
+            Vec3::new(0.0, 10.0, 0.0),
+            Vec3::new(40.0, 10.0, 0.0),
+            Vec3::new(40.0, 50.0, 0.0),
+            Vec3::new(0.0, 50.0, 0.0),
+        ],
         normal: Vec3::Z,
         d: 0.0,
     };
@@ -452,18 +645,31 @@ fn broken_glass_bursts_into_shards_over_the_pane_blown_away_from_a_blast() {
         let mut sys = System::new(classes());
         let class = sys.classes.get("shard").unwrap();
         sys.break_glass(class, &pane, 10.0, blast, 2, &mut Fake::default());
-        sys.iter().map(|(_, p)| (p.position, p.velocity)).collect::<Vec<_>>()
+        sys.iter()
+            .map(|(_, p)| (p.position, p.velocity))
+            .collect::<Vec<_>>()
     };
     // Shot: 3 × 3 cells of 15, 5 shards each, over the pane, barely moving.
     let shot = shards(None);
     assert_eq!(shot.len(), 45);
-    assert!(shot.iter().all(|(at, v)| (0.0..=40.0).contains(&at.x) && (10.0..=50.0).contains(&at.y) && at.z == 0.0 && v.length() <= 10.0 + 1e-4));
+    assert!(shot.iter().all(|(at, v)| (0.0..=40.0).contains(&at.x)
+        && (10.0..=50.0).contains(&at.y)
+        && at.z == 0.0
+        && v.length() <= 10.0 + 1e-4));
     // A blast behind the pane (−z) blows the shards out to +z, one in front
     // back to −z.
     let mean_z = |s: &[(Vec3, Vec3)]| s.iter().map(|(_, v)| v.z).sum::<f32>() / s.len() as f32;
-    let behind = shards(Some(Blast { centre: Vec3::new(20.0, 30.0, -10.0), dir: None, radius: 20.0 }));
+    let behind = shards(Some(Blast {
+        centre: Vec3::new(20.0, 30.0, -10.0),
+        dir: None,
+        radius: 20.0,
+    }));
     assert!(mean_z(&behind) > 20.0, "{}", mean_z(&behind));
-    let front = shards(Some(Blast { centre: Vec3::new(20.0, 30.0, 10.0), dir: None, radius: 20.0 }));
+    let front = shards(Some(Blast {
+        centre: Vec3::new(20.0, 30.0, 10.0),
+        dir: None,
+        radius: 20.0,
+    }));
     assert!(mean_z(&front) < -20.0, "{}", mean_z(&front));
 }
 
@@ -473,11 +679,18 @@ fn temporary_particles_go_together() {
     let mut sys = System::new(classes());
     let mut host = Fake::default();
     let class = sys.classes.get("shard").unwrap();
-    let spec = Spec { class, orientation: Orientation::Unchanged, location: Location::Default };
+    let spec = Spec {
+        class,
+        orientation: Orientation::Unchanged,
+        location: Location::Default,
+    };
     sys.temporary = true;
-    sys.create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host).unwrap();
+    sys.create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host)
+        .unwrap();
     sys.temporary = false;
-    let kept = sys.create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host).unwrap();
+    let kept = sys
+        .create_effect(&spec, &Data::new(0, Vec3::ZERO), &mut host)
+        .unwrap();
     sys.kill_temporary(&mut host);
     assert_eq!(sys.iter().count(), 1);
     assert!(sys.alive(kept), "made outside the mode, it stays");

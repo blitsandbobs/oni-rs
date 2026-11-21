@@ -48,14 +48,20 @@ fn rows(b: &[u8]) -> Vec<Value> {
 /// (by name), the variants' instance names (as classes name them) and each
 /// variant's rows.
 pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize> {
-    let at = |r: u32| (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten();
+    let at = |r: u32| {
+        (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+    };
     let variants: BTreeMap<String, Option<String>> = dat
         .instances
         .iter()
         .filter(|i| i.tag == TAG_ONCV)
         .filter_map(|i| {
             let d = dat.instance_data(i)?;
-            let parent = at(le_u32(d, 0)).and_then(|p| dat.instance_data(p)).map(|p| cstr(p, 4, 32));
+            let parent = at(le_u32(d, 0))
+                .and_then(|p| dat.instance_data(p))
+                .map(|p| cstr(p, 4, 32));
             Some((cstr(d, 4, 32), parent))
         })
         .collect();
@@ -64,14 +70,25 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize>
         .instances
         .iter()
         .filter(|i| i.tag == TAG_ONCV)
-        .filter_map(|i| Some((i.name.as_deref()?.trim_start_matches("ONCV").to_string(), cstr(dat.instance_data(i)?, 4, 32))))
+        .filter_map(|i| {
+            Some((
+                i.name.as_deref()?.trim_start_matches("ONCV").to_string(),
+                cstr(dat.instance_data(i)?, 4, 32),
+            ))
+        })
         .collect();
     let mut sounds = BTreeMap::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_BINA) {
-        let Some(name) = inst.name.as_deref().and_then(|n| n.strip_prefix("DBAS")) else { continue };
-        let Some(bd) = dat.instance_data(inst) else { continue };
+        let Some(name) = inst.name.as_deref().and_then(|n| n.strip_prefix("DBAS")) else {
+            continue;
+        };
+        let Some(bd) = dat.instance_data(inst) else {
+            continue;
+        };
         let (start, size) = (le_u32(bd, 4) as usize + 8, le_u32(bd, 0) as usize);
-        let Some(b) = raw.get(start..start + size.saturating_sub(8)) else { continue };
+        let Some(b) = raw.get(start..start + size.saturating_sub(8)) else {
+            continue;
+        };
         let r = rows(b);
         if !r.is_empty() {
             sounds.insert(name.to_string(), r);
@@ -79,6 +96,11 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize>
     }
     let n = sounds.values().map(Vec::len).sum();
     std::fs::create_dir_all(common)?;
-    std::fs::write(common.join("anim_sounds.json"), serde_json::to_string_pretty(&json!({ "variants": variants, "instances": instances, "sounds": sounds }))?)?;
+    std::fs::write(
+        common.join("anim_sounds.json"),
+        serde_json::to_string_pretty(
+            &json!({ "variants": variants, "instances": instances, "sounds": sounds }),
+        )?,
+    )?;
     Ok(n)
 }

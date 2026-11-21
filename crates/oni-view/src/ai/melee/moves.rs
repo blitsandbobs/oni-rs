@@ -9,7 +9,9 @@ use std::f32::consts::PI;
 use super::brain::{bearing, distance, relative_turned, Melee, Output, View};
 use super::geometry::{self, Attacker, Miss, Target};
 use super::profile::Move;
-use super::tables::{self, Dir, MeleeState, ATTACKS, EVADES, MANEUVERS, POSITIONS, THROWS, TRANSITIONS};
+use super::tables::{
+    self, Dir, MeleeState, ATTACKS, EVADES, MANEUVERS, POSITIONS, THROWS, TRANSITIONS,
+};
 use crate::anim::input::key as k;
 use crate::anim::types::{flag, var};
 
@@ -54,7 +56,11 @@ pub struct MoveState {
 fn body_state(me: &View) -> MeleeState {
     let m = me.motion;
     let left = m.length().saturating_sub(m.frame);
-    let s = if left <= END_OF_CLIP { m.state } else { m.current().from_state };
+    let s = if left <= END_OF_CLIP {
+        m.state
+    } else {
+        m.current().from_state
+    };
     MeleeState::from_anim_state(s)
 }
 
@@ -104,7 +110,12 @@ pub fn update(m: &mut Melee, me: &View, target: &View, out: &mut Output) -> bool
         let step = match mv {
             Move::Attack(a) => attack(m, me, target, out, a),
             Move::Position { index, run_in } => position(m, me, target, out, index, run_in),
-            Move::Maneuver { index, duration, a, b } => maneuver(m, me, target, out, index, duration, a, b),
+            Move::Maneuver {
+                index,
+                duration,
+                a,
+                b,
+            } => maneuver(m, me, target, out, index, duration, a, b),
             Move::Evade(e) => evade(m, me, target, out, e),
             Move::Throw(i) => throw(m, me, target, out, i),
         };
@@ -163,7 +174,10 @@ fn in_queue_window(me: &View, anim: u16) -> bool {
         return true;
     }
     let left = mo.length().saturating_sub(mo.frame);
-    let direct = mo.coll.lookup(anim, mo.state, mo.varient | var::FIGHT).is_some();
+    let direct = mo
+        .coll
+        .lookup(anim, mo.state, mo.varient | var::FIGHT)
+        .is_some();
     left <= if direct { QUEUE_DIRECT } else { QUEUE_SHORTCUT }
 }
 
@@ -194,7 +208,11 @@ fn attack(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usiz
             .current()
             .and_then(|t| t.moves.get(m.move_index + 1))
             .is_some_and(|n| matches!(n, Move::Attack(_)));
-        return if next_is_attack || !busy(me) { Step::Done } else { Step::Going };
+        return if next_is_attack || !busy(me) {
+            Step::Done
+        } else {
+            Step::Going
+        };
     }
 
     if !in_queue_window(me, anim) {
@@ -214,7 +232,10 @@ fn attack(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usiz
     // Would it land? (After positioning, the positioning already judged it.)
     if !m.positioned {
         let state = body_state(me);
-        let clip = me.motion.coll.lookup(anim, state.anim_state(), me.motion.varient | var::FIGHT);
+        let clip = me
+            .motion
+            .coll
+            .lookup(anim, state.anim_state(), me.motion.varient | var::FIGHT);
         let Some(clip) = clip else { return Step::Abort };
         let (rel, vel) = relative_turned(me, target, 0.0);
         let attacker = Attacker {
@@ -234,7 +255,10 @@ fn attack(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usiz
         };
         match geometry::intersect(&attacker, &victim) {
             Ok(_) => {}
-            Err(Miss::Distance) if m.mv.last_keys & (k::FORWARD | k::BACKWARD | k::STEP_LEFT | k::STEP_RIGHT) != 0 => {
+            Err(Miss::Distance)
+                if m.mv.last_keys & (k::FORWARD | k::BACKWARD | k::STEP_LEFT | k::STEP_RIGHT)
+                    != 0 =>
+            {
                 out.held = m.mv.last_keys;
                 return Step::Going;
             }
@@ -263,9 +287,11 @@ fn transition(me: &View, cur: MeleeState, goal: MeleeState) -> Option<u32> {
         .iter()
         .filter(|t| t.from == cur && t.to.contains(&goal))
         .find(|t| {
-            t.anims
-                .iter()
-                .any(|a| mo.coll.lookup(tables::ty(a), mo.state, mo.varient | var::FIGHT).is_some())
+            t.anims.iter().any(|a| {
+                mo.coll
+                    .lookup(tables::ty(a), mo.state, mo.varient | var::FIGHT)
+                    .is_some()
+            })
         })
         .map(|t| t.keys)
 }
@@ -316,21 +342,31 @@ fn position(
                 // Running in along a clear way only.
                 let want = bearing(me, target) + p.dir.offset().unwrap_or(0.0);
                 let fearless = m.technique.is_some_and(|t| {
-                    m.quirks.fearless(m.profile.techniques[t].fearless, m.info[t].start.map_or(0, |s| s as u8))
+                    m.quirks.fearless(
+                        m.profile.techniques[t].fearless,
+                        m.info[t].start.map_or(0, |s| s as u8),
+                    )
                 });
-                if !fearless && super::brain::steer(me, want) != Some(0.0) && super::brain::floor_probe(me, 
-                    glam::Vec3::new(want.sin(), 0.0, want.cos()),
-                    distance(me, target),
-                    super::brain::fall_danger(me),
-                )
-                .ledge
-                .is_some()
+                if !fearless
+                    && super::brain::steer(me, want) != Some(0.0)
+                    && super::brain::floor_probe(
+                        me,
+                        glam::Vec3::new(want.sin(), 0.0, want.cos()),
+                        distance(me, target),
+                        super::brain::fall_danger(me),
+                    )
+                    .ledge
+                    .is_some()
                 {
                     return Step::Abort;
                 }
                 let keys = cur.maintain_keys() | p.dir.keys();
                 m.mv.last_keys = keys;
-                out.held = if facing_delta(me, target, p.dir) > STANDING_TURN { 0 } else { keys };
+                out.held = if facing_delta(me, target, p.dir) > STANDING_TURN {
+                    0
+                } else {
+                    keys
+                };
                 return Step::Going;
             }
         } else if p.can_wait_for_facing
@@ -357,7 +393,11 @@ fn position(
         .or_else(|| (cur == MeleeState::None).then_some(goal.maintain_keys()));
     let Some(keys) = keys else { return Step::Abort };
     m.mv.last_keys = keys;
-    out.held = if facing_delta(me, target, p.dir) > STANDING_TURN { 0 } else { keys };
+    out.held = if facing_delta(me, target, p.dir) > STANDING_TURN {
+        0
+    } else {
+        keys
+    };
     Step::Going
 }
 
@@ -368,7 +408,9 @@ fn air_strike_ready(m: &mut Melee, me: &View, target: &View, p: &tables::Positio
     const MISS_BY_HEIGHT_TICKS: u32 = 4;
     let Some(t) = m.technique else { return true };
     let info = &m.info[t];
-    let Some((_, _, clip)) = info.attack else { return true };
+    let Some((_, _, clip)) = info.attack else {
+        return true;
+    };
     let (rel, vel) = relative_turned(me, target, 0.0);
     let along = match p.dir {
         Dir::Forward => rel.z,
@@ -386,7 +428,13 @@ fn air_strike_ready(m: &mut Melee, me: &View, target: &View, p: &tables::Positio
         gravity: me.motion.tuning.jump_gravity,
         expected_ticks: 0,
     };
-    let attacker = Attacker { clip: c, tick: 0, air: Some(air), sphere: 3.0, quirks: m.quirks };
+    let attacker = Attacker {
+        clip: c,
+        tick: 0,
+        air: Some(air),
+        sphere: 3.0,
+        quirks: m.quirks,
+    };
     let victim = Target {
         pos: rel,
         velocity: vel,
@@ -422,10 +470,15 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
     let info = &m.info[t];
     let dist = distance(me, target) - target.planning.0;
     // Running in to jump: take off once the jump would carry us there.
-    let jump = m.profile.techniques[t].moves.iter().find_map(|mv| match mv {
-        Move::Position { index, .. } if POSITIONS[*index].jump != tables::JumpKind::None => Some(POSITIONS[*index].jump),
-        _ => None,
-    });
+    let jump = m.profile.techniques[t]
+        .moves
+        .iter()
+        .find_map(|mv| match mv {
+            Move::Position { index, .. } if POSITIONS[*index].jump != tables::JumpKind::None => {
+                Some(POSITIONS[*index].jump)
+            }
+            _ => None,
+        });
     if let Some(kind) = jump {
         let j = m.jumps;
         return dist <= j.vel(kind) * 0.5 * (j.min + j.max);
@@ -475,7 +528,11 @@ fn maneuver(
 ) -> Step {
     let man = &MANEUVERS[index];
     if index == tables::maneuver::RANDOM_STOP {
-        return if (m.random() % 100) as f32 >= a { Step::Done } else { Step::Abort };
+        return if (m.random() % 100) as f32 >= a {
+            Step::Done
+        } else {
+            Step::Abort
+        };
     }
     if m.mv.until.is_none() {
         if busy(me) {
@@ -502,8 +559,11 @@ fn maneuver(
             // round walls and ledges (turning the body by the detour).
             let want = bearing(me, target) + dir.offset().unwrap_or(0.0);
             let fearless = m.technique.is_some_and(|t| {
-                    m.quirks.fearless(m.profile.techniques[t].fearless, m.info[t].start.map_or(0, |s| s as u8))
-                });
+                m.quirks.fearless(
+                    m.profile.techniques[t].fearless,
+                    m.info[t].start.map_or(0, |s| s as u8),
+                )
+            });
             match super::brain::steer(me, want) {
                 Some(dev) => out.face = out.face.map(|f| f + dev),
                 None if !fearless => return Step::Abort,
@@ -521,7 +581,11 @@ fn evade(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize
     let anim = tables::ty(ev.anim);
     if m.mv.realised {
         let length = i64::from(me.motion.length());
-        return if m.now >= m.mv.realised_at + length { Step::Done } else { Step::Going };
+        return if m.now >= m.mv.realised_at + length {
+            Step::Done
+        } else {
+            Step::Going
+        };
     }
     // The attack is over: no need.
     if super::brain::attack_id(target).is_none() {
@@ -572,7 +636,9 @@ fn throw(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize
         out.throw = Some(anim);
         return Step::Going;
     }
-    if facing_delta(me, target, Dir::Forward) > THROW_FACING || distance(me, target) > m.throw_range(index, me) {
+    if facing_delta(me, target, Dir::Forward) > THROW_FACING
+        || distance(me, target) > m.throw_range(index, me)
+    {
         return Step::Abort;
     }
     if target.knockdown_resistant || target.motion.invulnerable() {

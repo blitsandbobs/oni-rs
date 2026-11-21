@@ -104,7 +104,8 @@ impl World {
         let tan_y = (cam.fov * 0.5).tan();
         // A leaf's side, as a slack at right angles to the edge planes.
         let slack = |tan: f32| LEAF * (1.0 + tan * tan).sqrt();
-        to.dot(up).abs() <= ahead * tan_y + slack(tan_y) && to.dot(right).abs() <= ahead * tan_y * cam.aspect + slack(tan_y * cam.aspect)
+        to.dot(up).abs() <= ahead * tan_y + slack(tan_y)
+            && to.dot(right).abs() <= ahead * tan_y * cam.aspect + slack(tan_y * cam.aspect)
     }
 
     fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[(usize, Vec<glam::Mat4>)]) -> bool {
@@ -115,11 +116,16 @@ impl World {
         }
         let from = v.location + v.view * NEAR;
         let end = at - v.view * tolerance;
-        if !self.quads.clear(from, end, crate::quads::flag::LOS_SEE_PLAYER) {
+        if !self
+            .quads
+            .clear(from, end, crate::quads::flag::LOS_SEE_PLAYER)
+        {
             return false;
         }
         let ray = end - from;
-        if bodies.iter().any(|(k, bones)| super::weapons::ray_body(&self.fighters[*k], bones, from, ray).is_some()) {
+        if bodies.iter().any(|(k, bones)| {
+            super::weapons::ray_body(&self.fighters[*k], bones, from, ray).is_some()
+        }) {
             return false;
         }
         // (An animating object in the way: a placed object, a door's
@@ -148,7 +154,10 @@ impl World {
             return;
         }
         // The characters' bodies, near the camera's line, once.
-        let bodies: Vec<(usize, Vec<glam::Mat4>)> = (0..self.fighters.len()).filter(|&k| !self.fighters[k].gone).map(|k| (k, self.fighters[k].bones())).collect();
+        let bodies: Vec<(usize, Vec<glam::Mat4>)> = (0..self.fighters.len())
+            .filter(|&k| !self.fighters[k].gone)
+            .map(|k| (k, self.fighters[k].bones()))
+            .collect();
         let mut next = std::collections::HashMap::with_capacity(flares.len());
         for (h, at, tol, fade) in flares {
             let seen = self.lens_visible(at, tol, &bodies);
@@ -176,11 +185,17 @@ mod tests {
     fn a_flare_fades_in_and_out() {
         let mut s = LensState::Unset;
         assert_eq!(s.step(true, 1, 10, 10), 1.0, "seen from the start: at once");
-        assert!((s.step(false, 1, 10, 10) - 0.9).abs() < 1e-6, "hidden: fading out");
+        assert!(
+            (s.step(false, 1, 10, 10) - 0.9).abs() < 1e-6,
+            "hidden: fading out"
+        );
         for _ in 0..20 {
             s.step(false, 1, 10, 10);
         }
         assert_eq!(s, LensState::Invisible);
-        assert!((s.step(true, 1, 5, 10) - 0.2).abs() < 1e-6, "seen again: fading in");
+        assert!(
+            (s.step(true, 1, 5, 10) - 0.2).abs() < 1e-6,
+            "seen again: fading in"
+        );
     }
 }

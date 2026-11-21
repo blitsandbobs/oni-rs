@@ -100,7 +100,10 @@ impl Avoid {
     /// not when it isn't moving, nor for near-horizontal planes, nor for
     /// planes it is behind.
     pub fn notify(&mut self, with: With, point: Vec3, normal: Vec3, d: f32, feet: Vec3) {
-        if self.move_direction.is_none() || normal.y.abs() > MAX_VERTICAL || feet.dot(normal) + d < 0.0 {
+        if self.move_direction.is_none()
+            || normal.y.abs() > MAX_VERTICAL
+            || feet.dot(normal) + d < 0.0
+        {
             return;
         }
         // (A wall is the same record by its plane; its quad may change.)
@@ -159,12 +162,14 @@ impl Avoid {
                     return false;
                 }
                 let dw = if dist > START_FORGET_DISTANCE {
-                    (TOTALLY_FORGET_DISTANCE - dist) / (TOTALLY_FORGET_DISTANCE - START_FORGET_DISTANCE)
+                    (TOTALLY_FORGET_DISTANCE - dist)
+                        / (TOTALLY_FORGET_DISTANCE - START_FORGET_DISTANCE)
                 } else {
                     1.0
                 };
                 let tw = if c.frames >= START_FORGET_FRAMES {
-                    (TOTALLY_FORGET_FRAMES - c.frames) as f32 / (TOTALLY_FORGET_FRAMES - START_FORGET_FRAMES) as f32
+                    (TOTALLY_FORGET_FRAMES - c.frames) as f32
+                        / (TOTALLY_FORGET_FRAMES - START_FORGET_FRAMES) as f32
                 } else {
                     1.0
                 };
@@ -177,7 +182,8 @@ impl Avoid {
                     c.serious = true;
                 }
                 if c.total_hit_frames < MAX_URGENCY_FRAMES {
-                    MAX_URGENCY_WEIGHT * (c.total_hit_frames - IGNORE_FRAMES) as f32 / (MAX_URGENCY_FRAMES - IGNORE_FRAMES) as f32
+                    MAX_URGENCY_WEIGHT * (c.total_hit_frames - IGNORE_FRAMES) as f32
+                        / (MAX_URGENCY_FRAMES - IGNORE_FRAMES) as f32
                 } else {
                     if c.hit && c.total_hit_frames >= ERROR_FRAMES {
                         stuck = true;
@@ -201,7 +207,12 @@ impl Avoid {
                     } else if comfort > 0.0 {
                         match move_direction {
                             None => c.weight = 0.0,
-                            Some(m) if m.sin() * c.normal.x + m.cos() * c.normal.z > PARALLEL_TOLERANCE => c.weight = 0.0,
+                            Some(m)
+                                if m.sin() * c.normal.x + m.cos() * c.normal.z
+                                    > PARALLEL_TOLERANCE =>
+                            {
+                                c.weight = 0.0
+                            }
                             Some(_) => c.weight *= 1.0 - comfort,
                         }
                     }
@@ -242,7 +253,10 @@ impl Avoid {
 
     /// How many records it holds, and how many are serious.
     pub fn count(&self) -> (usize, usize) {
-        (self.records.len(), self.records.iter().filter(|c| c.serious).count())
+        (
+            self.records.len(),
+            self.records.iter().filter(|c| c.serious).count(),
+        )
     }
 }
 
@@ -264,7 +278,22 @@ struct Ring {
 
 impl Ring {
     fn new() -> Ring {
-        Ring { values: vec![Value { angle: 0.0, value: 0.0, increment: 0.0, next: 1 }, Value { angle: TAU, value: 0.0, increment: 0.0, next: 0 }] }
+        Ring {
+            values: vec![
+                Value {
+                    angle: 0.0,
+                    value: 0.0,
+                    increment: 0.0,
+                    next: 1,
+                },
+                Value {
+                    angle: TAU,
+                    value: 0.0,
+                    increment: 0.0,
+                    next: 0,
+                },
+            ],
+        }
     }
 
     /// Adds a record's badness: rising from 90° before its direction to its
@@ -297,7 +326,11 @@ impl Ring {
     fn create(&mut self, start: usize, end_angle: f32, from: f32, to: f32) -> usize {
         let start_angle = self.values[start].angle;
         let mut wrap_first = start_angle > end_angle;
-        let range = if wrap_first { TAU + end_angle - start_angle } else { end_angle - start_angle };
+        let range = if wrap_first {
+            TAU + end_angle - start_angle
+        } else {
+            end_angle - start_angle
+        };
         let delta = to - from;
         let mut at = start;
         loop {
@@ -305,8 +338,16 @@ impl Ring {
                 self.values[at].increment = to;
                 return at;
             }
-            let remaining = if wrap_first { TAU + end_angle - self.values[at].angle } else { end_angle - self.values[at].angle };
-            self.values[at].increment = if range != 0.0 { to - delta * remaining / range } else { to };
+            let remaining = if wrap_first {
+                TAU + end_angle - self.values[at].angle
+            } else {
+                end_angle - self.values[at].angle
+            };
+            self.values[at].increment = if range != 0.0 {
+                to - delta * remaining / range
+            } else {
+                to
+            };
             let next = self.values[at].next;
             if wrap_first {
                 if self.values[next].angle < end_angle {
@@ -318,7 +359,12 @@ impl Ring {
                 }
                 let (a, b) = (self.values[at], self.values[next]);
                 let t = (end_angle - a.angle) / (b.angle - a.angle);
-                self.values.push(Value { angle: end_angle, value: a.value + t * (b.value - a.value), increment: to, next });
+                self.values.push(Value {
+                    angle: end_angle,
+                    value: a.value + t * (b.value - a.value),
+                    increment: to,
+                    next,
+                });
                 let new = self.values.len() - 1;
                 self.values[at].next = new;
                 return new;
@@ -360,7 +406,13 @@ mod tests {
 
     /// A wall ahead (+z), facing back at the character.
     fn wall_ahead(a: &mut Avoid, feet: Vec3) {
-        a.notify(With::Wall(7), feet + Vec3::Z * 4.0, -Vec3::Z, feet.z + 4.0, feet);
+        a.notify(
+            With::Wall(7),
+            feet + Vec3::Z * 4.0,
+            -Vec3::Z,
+            feet.z + 4.0,
+            feet,
+        );
     }
 
     #[test]
@@ -401,7 +453,13 @@ mod tests {
         a.steer(Some(0.0), Vec3::ZERO);
         a.notify(With::Wall(1), Vec3::ZERO, Vec3::Y, 0.0, Vec3::ZERO);
         assert_eq!(a.count().0, 0, "a floor or ceiling: not noted");
-        a.notify(With::Wall(2), Vec3::new(0.0, 0.0, -2.0), Vec3::Z, 2.0 - 5.0, Vec3::ZERO);
+        a.notify(
+            With::Wall(2),
+            Vec3::new(0.0, 0.0, -2.0),
+            Vec3::Z,
+            2.0 - 5.0,
+            Vec3::ZERO,
+        );
         assert_eq!(a.count().0, 0, "behind its plane: not noted");
         wall_ahead(&mut a, Vec3::ZERO);
         assert_eq!(a.count().0, 1);

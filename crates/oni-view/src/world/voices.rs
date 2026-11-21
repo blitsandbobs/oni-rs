@@ -95,8 +95,16 @@ impl World {
     /// (or overrides), else instead of a lower waiting line (unless
     /// `dont_queue`), else not at all. True unless dropped.
     pub fn say(&mut self, who: usize, line: Line, dont_queue: bool) -> bool {
-        let cur = self.fighters[who].speech.current.as_ref().map_or(speech::NONE, |l| l.kind);
-        let next = self.fighters[who].speech.next.as_ref().map_or(speech::NONE, |l| l.kind);
+        let cur = self.fighters[who]
+            .speech
+            .current
+            .as_ref()
+            .map_or(speech::NONE, |l| l.kind);
+        let next = self.fighters[who]
+            .speech
+            .next
+            .as_ref()
+            .map_or(speech::NONE, |l| l.kind);
         if line.kind == speech::OVERRIDE || line.kind > cur {
             self.speech_stop(who, false);
             let s = &mut self.fighters[who].speech;
@@ -131,7 +139,9 @@ impl World {
     fn speech_tick(&mut self, who: usize) {
         let now = self.now as u64;
         let f = &mut self.fighters[who];
-        let Some(line) = f.speech.current.as_mut() else { return };
+        let Some(line) = f.speech.current.as_mut() else {
+            return;
+        };
         if line.pre_pause > 0 {
             line.pre_pause -= 1;
             if line.pre_pause > 0 {
@@ -155,7 +165,10 @@ impl World {
                 }
             } else {
                 let eye = f.feet() + Vec3::Y * f.motion.height() * 2.0;
-                let eye = f.bones().get(super::HEAD_BONE).map_or(eye, |m| m.w_axis.truncate());
+                let eye = f
+                    .bones()
+                    .get(super::HEAD_BONE)
+                    .map_or(eye, |m| m.w_axis.truncate());
                 let handle = self.audio.ambient_start(&sound, eye, Some(&self.quads));
                 let duration = match self.audio.ambient_duration(&sound) {
                     0 => DEFAULT_DURATION,
@@ -192,7 +205,9 @@ impl World {
     /// for it (unless `force`) and has one.
     pub fn vocalize(&mut self, who: usize, kind: usize, force: bool) -> bool {
         let f = &self.fighters[who];
-        let Some((chance, sound)) = f.sounds.vocalizations.get(kind).cloned() else { return false };
+        let Some((chance, sound)) = f.sounds.vocalizations.get(kind).cloned() else {
+            return false;
+        };
         // (Not its taunt line while it taunts over a body it checked.)
         if kind == vocal::TAUNT && f.brain.as_ref().is_some_and(|b| b.body_taunted()) {
             return false;
@@ -203,8 +218,21 @@ impl World {
         if sound.is_empty() {
             return false;
         }
-        let kind = if force { speech::OVERRIDE } else { VOCAL_PRIORITY[kind] };
-        self.say(who, Line { sound, kind, pre_pause: 0, post_pause: 0 }, false)
+        let kind = if force {
+            speech::OVERRIDE
+        } else {
+            VOCAL_PRIORITY[kind]
+        };
+        self.say(
+            who,
+            Line {
+                sound,
+                kind,
+                pre_pause: 0,
+                post_pause: 0,
+            },
+            false,
+        )
     }
 
     /// Fighter `who` is hurt for `damage` (not killed): maybe a grunt, by
@@ -227,7 +255,9 @@ impl World {
             let chance = if damage >= p.percentage_threshold {
                 p.max_percentage
             } else {
-                p.base_percentage + damage * p.max_percentage.saturating_sub(p.base_percentage) / p.percentage_threshold.max(1)
+                p.base_percentage
+                    + damage * p.max_percentage.saturating_sub(p.base_percentage)
+                        / p.percentage_threshold.max(1)
             };
             if self.audio.chance() * 100.0 >= chance as f32 {
                 return;
@@ -278,8 +308,12 @@ impl World {
         }
         self.speech_stop(who, true);
         let f = &self.fighters[who];
-        let eye = f.bones().get(super::HEAD_BONE).map_or(f.feet(), |m| m.w_axis.truncate());
-        self.audio.impulse_play(&name, Some(eye), volume, Some(&self.quads));
+        let eye = f
+            .bones()
+            .get(super::HEAD_BONE)
+            .map_or(f.feet(), |m| m.w_axis.truncate());
+        self.audio
+            .impulse_play(&name, Some(eye), volume, Some(&self.quads));
     }
 
     /// Fighter `who`'s run of pain this tick: it fades, and a waiting grunt
@@ -303,7 +337,10 @@ impl World {
                 let s = &mut self.fighters[who].pain;
                 match kind {
                     0 => (s.num_light, s.last_kind, s.last_time) = (s.num_light + 1, 0, now),
-                    1 => (s.num_medium, s.last_kind, s.last_time) = (s.num_medium + 1, 1, now + min_timer / 2),
+                    1 => {
+                        (s.num_medium, s.last_kind, s.last_time) =
+                            (s.num_medium + 1, 1, now + min_timer / 2)
+                    }
                     _ => {
                         *s = PainState::default();
                         (s.last_kind, s.last_time) = (2, now + min_timer);
@@ -331,7 +368,11 @@ impl World {
                     self.pain(who, damage, least);
                 }
             }
-            let asked: Vec<usize> = self.fighters[who].perception.as_mut().map(|p| p.vocal_tick()).unwrap_or_default();
+            let asked: Vec<usize> = self.fighters[who]
+                .perception
+                .as_mut()
+                .map(|p| p.vocal_tick())
+                .unwrap_or_default();
             for kind in asked {
                 self.vocalize(who, kind, false);
             }

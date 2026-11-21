@@ -112,7 +112,11 @@ impl Door {
         if !passes || self.sound_muffle > 0.99 {
             return None;
         }
-        Some(if self.sound_muffle > 0.0 { 1.0 / (1.0 - self.sound_muffle) } else { 1.0 })
+        Some(if self.sound_muffle > 0.0 {
+            1.0 / (1.0 - self.sound_muffle)
+        } else {
+            1.0
+        })
     }
 }
 
@@ -148,7 +152,14 @@ impl Door {
         let origin = self.leaves.get(k).copied().unwrap_or(Mat4::IDENTITY);
         let Some(a) = &self.anim else { return origin };
         let m = a.matrix(frame);
-        let col = |c: usize| glam::Vec4::new(m[c * 3], m[c * 3 + 1], m[c * 3 + 2], if c == 3 { 1.0 } else { 0.0 });
+        let col = |c: usize| {
+            glam::Vec4::new(
+                m[c * 3],
+                m[c * 3 + 1],
+                m[c * 3 + 2],
+                if c == 3 { 1.0 } else { 0.0 },
+            )
+        };
         let m = Mat4::from_cols(col(0), col(1), col(2), col(3));
         if a.flags & 0x10 != 0 {
             origin * m
@@ -172,7 +183,10 @@ impl Door {
     /// is nearest.
     pub fn leaf_of(&self, p: Vec3) -> usize {
         (0..self.leaves.len())
-            .min_by(|&a, &b| p.distance_squared(self.leaves[a].w_axis.truncate()).total_cmp(&p.distance_squared(self.leaves[b].w_axis.truncate())))
+            .min_by(|&a, &b| {
+                p.distance_squared(self.leaves[a].w_axis.truncate())
+                    .total_cmp(&p.distance_squared(self.leaves[b].w_axis.truncate()))
+            })
             .unwrap_or(0)
     }
 
@@ -186,14 +200,22 @@ impl Door {
         }
         let frame = self.frame();
         let step = 1;
-        let (test, ahead) = if frame < step { (frame + step, true) } else { (frame - step, false) };
+        let (test, ahead) = if frame < step {
+            (frame + step, true)
+        } else {
+            (frame - step, false)
+        };
         let last = i32::from(self.anim.as_ref().map_or(LAST_FRAME + 1, |a| a.num_frames));
         if test >= last {
             return;
         }
         // The step's motion (from this frame to the other).
         let delta = self.leaf_matrix(k, test) * self.leaf_matrix(k, frame).inverse();
-        let moved = if ahead { delta.transform_point3(point) - point } else { point - delta.transform_point3(point) };
+        let moved = if ahead {
+            delta.transform_point3(point) - point
+        } else {
+            point - delta.transform_point3(point)
+        };
         if moved.length_squared() < 1e-4 {
             return;
         }
@@ -264,7 +286,11 @@ impl Door {
         let mut out = Tick::default();
         // Blocked: a while, and it turns back (closing: for whoever is in
         // the way); a long while opening, and it gives up being blocked.
-        let blocked = if leaf0_only { self.paused[0] > 0 } else { self.paused.iter().any(|&p| p > 0) };
+        let blocked = if leaf0_only {
+            self.paused[0] > 0
+        } else {
+            self.paused.iter().any(|&p| p > 0)
+        };
         if self.state != State::Closed {
             if blocked {
                 self.blocked += 1;
@@ -294,7 +320,11 @@ impl Door {
         let busy = match self.state {
             State::Opening(f) => {
                 if !paused {
-                    self.state = if f + 1 >= OPEN_FRAME { State::Open(HOLD_OPEN) } else { State::Opening(f + 1) };
+                    self.state = if f + 1 >= OPEN_FRAME {
+                        State::Open(HOLD_OPEN)
+                    } else {
+                        State::Opening(f + 1)
+                    };
                 }
                 true
             }
@@ -346,17 +376,23 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
         Vec3::new(f(0), f(1), f(2))
     };
     // The classes' leaf animations (`common/door_classes.json`).
-    let classes: serde_json::Value = std::fs::read_to_string(level_dir.join("../../common/door_classes.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let mut anims: std::collections::HashMap<String, Option<Rc<ObjectAnimation>>> = Default::default();
+    let classes: serde_json::Value =
+        std::fs::read_to_string(level_dir.join("../../common/door_classes.json"))
+            .ok()
+            .and_then(|t| serde_json::from_str(&t).ok())
+            .unwrap_or_default();
+    let mut anims: std::collections::HashMap<String, Option<Rc<ObjectAnimation>>> =
+        Default::default();
     doc["doors"]
         .as_array()
         .into_iter()
         .flatten()
         .map(|d| {
-            let has = |f: &str| d["flags"].as_array().is_some_and(|a| a.iter().any(|x| x == f));
+            let has = |f: &str| {
+                d["flags"]
+                    .as_array()
+                    .is_some_and(|a| a.iter().any(|x| x == f))
+            };
             let events = d["events"]
                 .as_array()
                 .into_iter()
@@ -365,8 +401,16 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
                 .collect();
             let initial_locked = has("initialLocked");
             let class = d["class"].as_str().unwrap_or("").to_string();
-            let anim = anims.entry(class.clone()).or_insert_with(|| object_animation(&classes["classes"][&class]["animation"])).clone();
-            let leaves = d["leaves"].as_array().into_iter().flatten().map(|l| matrix(&l["origin"])).collect();
+            let anim = anims
+                .entry(class.clone())
+                .or_insert_with(|| object_animation(&classes["classes"][&class]["animation"]))
+                .clone();
+            let leaves = d["leaves"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .map(|l| matrix(&l["origin"]))
+                .collect();
             let c = &classes["classes"][&class];
             let sound_allow = match c["soundAllow"].as_str() {
                 Some("all") => SoundAllow::All,
@@ -407,7 +451,14 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
 /// A 4×3 column-major matrix (`[f32; 12]` in JSON).
 fn matrix(v: &serde_json::Value) -> Mat4 {
     let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-    let col = |c: usize| glam::Vec4::new(f(c * 3), f(c * 3 + 1), f(c * 3 + 2), if c == 3 { 1.0 } else { 0.0 });
+    let col = |c: usize| {
+        glam::Vec4::new(
+            f(c * 3),
+            f(c * 3 + 1),
+            f(c * 3 + 2),
+            if c == 3 { 1.0 } else { 0.0 },
+        )
+    };
     Mat4::from_cols(col(0), col(1), col(2), col(3))
 }
 
@@ -419,9 +470,16 @@ pub fn object_animation(j: &serde_json::Value) -> Option<Rc<ObjectAnimation>> {
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|n| oni_schema::OBJECT_ANIMATION_FLAGS.iter().position(|k| Some(*k) == n.as_str()))
+        .filter_map(|n| {
+            oni_schema::OBJECT_ANIMATION_FLAGS
+                .iter()
+                .position(|k| Some(*k) == n.as_str())
+        })
         .fold(0, |acc, b| acc | (1 << b));
-    let scale = j["scale"].as_array().map(|a| std::array::from_fn(|i| a.get(i).map_or(0.0, f))).unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
+    let scale = j["scale"]
+        .as_array()
+        .map(|a| std::array::from_fn(|i| a.get(i).map_or(0.0, f)))
+        .unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
     Some(Rc::new(ObjectAnimation {
         name: j["name"].as_str().map(str::to_string),
         flags,
@@ -444,16 +502,23 @@ pub fn object_animation(j: &serde_json::Value) -> Option<Rc<ObjectAnimation>> {
 /// two leaves (each triangle to the leaf it is nearest), so each can be drawn
 /// where it moves.
 pub fn split_leaves(scene: &mut crate::gltf::Scene, doors: &[Door]) {
-    let by_object: std::collections::HashMap<u32, &Door> = doors.iter().map(|d| (d.object_id, d)).collect();
+    let by_object: std::collections::HashMap<u32, &Door> =
+        doors.iter().map(|d| (d.object_id, d)).collect();
     let mut out = Vec::with_capacity(scene.prims.len());
     for p in std::mem::take(&mut scene.prims) {
-        let Some(d) = p.door.and_then(|id| by_object.get(&id)).filter(|d| d.leaves.len() > 1) else {
+        let Some(d) = p
+            .door
+            .and_then(|id| by_object.get(&id))
+            .filter(|d| d.leaves.len() > 1)
+        else {
             out.push(p);
             continue;
         };
         let mut parts: [Vec<u32>; 2] = Default::default();
         for t in p.indices.chunks_exact(3) {
-            let c = t.iter().fold(Vec3::ZERO, |a, &i| a + Vec3::from(p.vertices[i as usize].pos)) / 3.0;
+            let c = t.iter().fold(Vec3::ZERO, |a, &i| {
+                a + Vec3::from(p.vertices[i as usize].pos)
+            }) / 3.0;
             parts[d.leaf_of(c).min(1)].extend_from_slice(t);
         }
         for (k, indices) in parts.into_iter().enumerate().filter(|(_, i)| !i.is_empty()) {
@@ -515,7 +580,11 @@ mod tests {
         d.tick(false, false);
         assert_eq!(d.state, State::Closing(OPEN_FRAME));
         d.tick(true, false);
-        assert_eq!(d.state, State::Closing(OPEN_FRAME + 1), "someone near doesn't turn a closing door back");
+        assert_eq!(
+            d.state,
+            State::Closing(OPEN_FRAME + 1),
+            "someone near doesn't turn a closing door back"
+        );
         for _ in 0..OPEN_FRAME {
             d.tick(false, false);
         }
@@ -536,7 +605,11 @@ mod tests {
             }
         }
         assert_eq!(d.state, State::Closing(60), "held still while blocked");
-        assert_eq!(reopen, Some(REVERSE_FRAMES as usize - 1), "after 90 ticks it opens for them");
+        assert_eq!(
+            reopen,
+            Some(REVERSE_FRAMES as usize - 1),
+            "after 90 ticks it opens for them"
+        );
         assert_eq!(d.proximity_off, PROXIMITY_OFF);
         // Opening, it closes again instead; a long while, it gives up.
         let mut d = door();
@@ -553,7 +626,11 @@ mod tests {
             d.paused[1] = PAUSE_FRAMES;
             assert!(!d.tick(false, true).reopen);
         }
-        assert_eq!(d.state, State::Closing(60), "the second leaf still holds it");
+        assert_eq!(
+            d.state,
+            State::Closing(60),
+            "the second leaf still holds it"
+        );
     }
 
     #[test]
@@ -563,7 +640,10 @@ mod tests {
         assert!(!d.may_open(Vec3::Z, false));
         assert!(d.may_open(Vec3::Z, true), "a script ignores locks");
         d.one_way = true;
-        assert!(d.may_open(Vec3::Z, false) != d.may_open(-Vec3::Z, false), "one side only");
+        assert!(
+            d.may_open(Vec3::Z, false) != d.may_open(-Vec3::Z, false),
+            "one side only"
+        );
         d.jammed = true;
         assert!(!d.may_open(Vec3::Z, false));
     }

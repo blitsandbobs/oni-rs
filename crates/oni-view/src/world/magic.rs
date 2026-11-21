@@ -55,7 +55,14 @@ pub struct Magic {
 
 impl Default for Magic {
     fn default() -> Magic {
-        Magic { shield_parts: [0; PARTS], shield_active: false, daodan: false, invis_active: false, invis_alpha: 1.0, teleporting: false }
+        Magic {
+            shield_parts: [0; PARTS],
+            shield_active: false,
+            daodan: false,
+            invis_active: false,
+            invis_alpha: 1.0,
+            teleporting: false,
+        }
     }
 }
 
@@ -67,7 +74,10 @@ impl Magic {
         let (amount, base) = match super_shield {
             Some(s) => {
                 self.daodan = true;
-                ((s * f32::from(MAX_SHIELD)).round() as u16, SUPER_SHIELD_BASE)
+                (
+                    (s * f32::from(MAX_SHIELD)).round() as u16,
+                    SUPER_SHIELD_BASE,
+                )
             }
             None => {
                 self.daodan = false;
@@ -126,7 +136,11 @@ impl Magic {
             self.invis_alpha = 1.0;
             self.invis_active = true;
         } else if remaining > 0 || self.invis_active {
-            let goal = if remaining > INVIS_COMING_BACK { 0.0 } else { 1.0 };
+            let goal = if remaining > INVIS_COMING_BACK {
+                0.0
+            } else {
+                1.0
+            };
             if self.invis_alpha > goal {
                 self.invis_alpha = (self.invis_alpha - INVIS_FADE_OUT).max(goal);
             } else if self.invis_alpha < goal {
@@ -166,7 +180,9 @@ impl World {
     /// character's only while they still show.
     pub(super) fn magic_tick(&mut self, who: usize) {
         let now = self.now as u64;
-        let Some(f) = self.fighters.get_mut(who) else { return };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return;
+        };
         let inv = &mut f.inventory;
         if inv.shield_display < inv.shield {
             inv.shield_display += SHIELD_DISPLAY_SPEED;
@@ -182,8 +198,10 @@ impl World {
             return;
         }
         // A super-shield class's glow follows its super amount instead.
-        let super_shield = (f.motion.tuning.super_shield && f.super_amount > 0.0).then_some(f.super_amount);
-        f.effects.shield_update(f.inventory.shield_display, super_shield, dead, now);
+        let super_shield =
+            (f.motion.tuning.super_shield && f.super_amount > 0.0).then_some(f.super_amount);
+        f.effects
+            .shield_update(f.inventory.shield_display, super_shield, dead, now);
         let remaining = f.inventory.invisibility;
         f.effects.invis_update(remaining);
         if remaining > 0 && remaining != ENDLESS {
@@ -198,11 +216,18 @@ impl World {
         let action = f32::from(c.action_frame.unwrap_or(0));
         let duration = c.frames() as f32;
         let fade = if kind == ty::TELEPORT_IN && frame >= action {
-            Some(((frame + 1.0 - action) / (duration - action).max(1.0), f.effects.invis_alpha))
+            Some((
+                (frame + 1.0 - action) / (duration - action).max(1.0),
+                f.effects.invis_alpha,
+            ))
         } else if kind == ty::TELEPORT_OUT && frame <= action && !self.quirks.teleport_pops_in() {
             // (Capped only by an invisibility it wears, not by the fade-out
             // just done.)
-            let cap = if f.effects.invis_active { f.effects.invis_alpha } else { 1.0 };
+            let cap = if f.effects.invis_active {
+                f.effects.invis_alpha
+            } else {
+                1.0
+            };
             Some(((action + 1.0 - frame) / (action + 1.0), cap))
         } else {
             None
@@ -223,12 +248,18 @@ impl World {
     /// `super…` ones, each on its body part) run. Dead, they go.
     pub(super) fn super_tick(&mut self, who: usize) {
         use crate::p3::{event, owner};
-        let Some(f) = self.fighters.get_mut(who) else { return };
+        let Some(f) = self.fighters.get_mut(who) else {
+            return;
+        };
         if !f.alive() || f.motion.dying {
             if let Some(hs) = f.super_handles.take() {
                 let now = self.now as u64;
                 let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
-                let mut host = crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+                let mut host = crate::world::weapons::ShotHost::new(
+                    &mut self.fighters,
+                    Some(&self.quads),
+                    now,
+                );
                 for h in hs {
                     particles.kill(h, &mut host);
                 }
@@ -240,7 +271,11 @@ impl World {
             desired = desired.max((f.hp - f.max_hp) as f32 / f.max_hp.max(1) as f32);
         }
         let desired = desired.max(0.0);
-        f.super_amount = if f.super_amount < desired { (f.super_amount + SUPER_UP).min(desired) } else { (f.super_amount - SUPER_DOWN).max(desired) };
+        f.super_amount = if f.super_amount < desired {
+            (f.super_amount + SUPER_UP).min(desired)
+        } else {
+            (f.super_amount - SUPER_DOWN).max(desired)
+        };
         let on = f.super_amount > 0.0;
         if on == f.super_running && (!on || f.super_handles.is_some()) {
             return;
@@ -250,14 +285,31 @@ impl World {
             let wanted: Vec<(String, usize)> = f.super_particles.iter().cloned().collect();
             let centres: Vec<Option<Vec3>> = wanted
                 .iter()
-                .map(|(_, part)| f.character.parts.iter().find(|p| p.bone == *part).map(|p| (p.bound_box.0 + p.bound_box.1) / 2.0))
+                .map(|(_, part)| {
+                    f.character
+                        .parts
+                        .iter()
+                        .find(|p| p.bone == *part)
+                        .map(|p| (p.bound_box.0 + p.bound_box.1) / 2.0)
+                })
                 .collect();
             let mut handles = Vec::new();
             for ((class, part), centre) in wanted.iter().zip(centres) {
-                let Some(id) = self.armory.particles.classes.get(class) else { continue };
-                let Some(attach) = self.fighters[who].part_matrix(*part) else { continue };
-                let spec = crate::p3::effect::Spec { class: id, orientation: crate::p3::effect::Orientation::Unchanged, location: crate::p3::effect::Location::Default };
-                let mut data = crate::p3::effect::Data::new(self.armory.particles.tick, centre.unwrap_or(Vec3::ZERO));
+                let Some(id) = self.armory.particles.classes.get(class) else {
+                    continue;
+                };
+                let Some(attach) = self.fighters[who].part_matrix(*part) else {
+                    continue;
+                };
+                let spec = crate::p3::effect::Spec {
+                    class: id,
+                    orientation: crate::p3::effect::Orientation::Unchanged,
+                    location: crate::p3::effect::Location::Default,
+                };
+                let mut data = crate::p3::effect::Data::new(
+                    self.armory.particles.tick,
+                    centre.unwrap_or(Vec3::ZERO),
+                );
                 data.owner = owner::CHARACTER_MELEE | who as u32;
                 data.parent_orientation = Some(glam::Mat3::IDENTITY);
                 data.attach = Some(attach);
@@ -273,7 +325,8 @@ impl World {
         let t = f64::from(self.armory.particles.tick) / 60.0;
         let now = self.now as u64;
         let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        let mut host =
+            crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         for h in handles {
             particles.send(h, ev, t, &mut host);
         }
@@ -284,11 +337,15 @@ impl World {
     /// teleport-out clip begins, the character is moved to where the
     /// teleport goes, facing the way it says.
     pub(super) fn teleport_tick(&mut self, who: usize) {
-        let Some(f) = self.fighters.get(who) else { return };
+        let Some(f) = self.fighters.get(who) else {
+            return;
+        };
         if f.motion.kind != crate::anim::types::ty::TELEPORT_OUT {
             return;
         }
-        let Some((at, facing)) = self.fighters[who].teleport_dest.take() else { return };
+        let Some((at, facing)) = self.fighters[who].teleport_dest.take() else {
+            return;
+        };
         self.teleport(who, at, Some(facing));
         let f = &mut self.fighters[who];
         f.motion.air.frames = 0;
@@ -299,7 +356,9 @@ impl World {
     /// (`AI2rKnowledge_CharacterCanBeSeen`): not once it has been
     /// invisible 90 ticks.
     pub fn can_be_seen(&self, who: usize) -> bool {
-        self.fighters.get(who).is_none_or(|f| f.inventory.invisibility == 0 || f.inventory.invisible_frames < UNSEEN_AFTER)
+        self.fighters.get(who).is_none_or(|f| {
+            f.inventory.invisibility == 0 || f.inventory.invisible_frames < UNSEEN_AFTER
+        })
     }
 
     /// `ONiCharacter_BecomeTemporarilyVisible`: a blow between `a` and `b`
@@ -335,22 +394,43 @@ impl World {
             if f.gone || (!f.effects.shield_active && !f.effects.invis_active) {
                 continue;
             }
-            let scaled: Vec<glam::Mat4> = b.iter().map(|m| *m * glam::Mat4::from_scale(Vec3::splat(SHELL_SCALE))).collect();
+            let scaled: Vec<glam::Mat4> = b
+                .iter()
+                .map(|m| *m * glam::Mat4::from_scale(Vec3::splat(SHELL_SCALE)))
+                .collect();
             if f.effects.shield_active {
                 // (A super shield's and a boss's red.)
-                let (kind, tex) = if f.effects.daodan || f.boss_shield { (MagicKind::Daodan, 1) } else { (MagicKind::Shield, 0) };
+                let (kind, tex) = if f.effects.daodan || f.boss_shield {
+                    (MagicKind::Daodan, 1)
+                } else {
+                    (MagicKind::Shield, 0)
+                };
                 if let Some(texture) = self.magic_textures[tex].clone() {
                     let mut alpha = [0.0; PARTS];
                     for (a, p) in alpha.iter_mut().zip(f.effects.shield_parts) {
                         *a = f32::from(p) / 255.0;
                     }
-                    out.push(crate::render::MagicDraw { model, bones: scaled.clone(), texture, kind, alpha, time });
+                    out.push(crate::render::MagicDraw {
+                        model,
+                        bones: scaled.clone(),
+                        texture,
+                        kind,
+                        alpha,
+                        time,
+                    });
                 }
             }
             if f.effects.invis_active {
                 if let Some(texture) = self.magic_textures[2].clone() {
                     let a = ((1.0 - f.effects.invis_alpha) * 255.0 * INVIS_AURA).round() / 255.0;
-                    out.push(crate::render::MagicDraw { model, bones: scaled, texture, kind: MagicKind::Invis, alpha: [a; PARTS], time });
+                    out.push(crate::render::MagicDraw {
+                        model,
+                        bones: scaled,
+                        texture,
+                        kind: MagicKind::Invis,
+                        alpha: [a; PARTS],
+                        time,
+                    });
                 }
             }
         }
@@ -361,7 +441,12 @@ impl World {
 /// `ONrCharacter_FindParts`: the body parts whose bounds come within
 /// `radius` of `at` (a mask), given each part's world matrix and bounding
 /// sphere (centre in the part's frame, radius).
-pub fn parts_near(bones: &[glam::Mat4], spheres: &[Option<(Vec3, f32)>], at: Vec3, radius: f32) -> u32 {
+pub fn parts_near(
+    bones: &[glam::Mat4],
+    spheres: &[Option<(Vec3, f32)>],
+    at: Vec3,
+    radius: f32,
+) -> u32 {
     let mut mask = 0;
     for (k, (m, s)) in bones.iter().zip(spheres).enumerate().take(PARTS) {
         let Some((centre, r)) = s else { continue };
@@ -415,9 +500,18 @@ mod tests {
 
     #[test]
     fn a_hit_meets_the_parts_within_reach() {
-        let bones = [glam::Mat4::IDENTITY, glam::Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0))];
+        let bones = [
+            glam::Mat4::IDENTITY,
+            glam::Mat4::from_translation(Vec3::new(10.0, 0.0, 0.0)),
+        ];
         let spheres = [Some((Vec3::ZERO, 1.0)), Some((Vec3::ZERO, 1.0))];
-        assert_eq!(parts_near(&bones, &spheres, Vec3::new(9.0, 0.0, 0.0), 4.0), 0b10);
-        assert_eq!(parts_near(&bones, &spheres, Vec3::new(5.0, 0.0, 0.0), 4.5), 0b11);
+        assert_eq!(
+            parts_near(&bones, &spheres, Vec3::new(9.0, 0.0, 0.0), 4.0),
+            0b10
+        );
+        assert_eq!(
+            parts_near(&bones, &spheres, Vec3::new(5.0, 0.0, 0.0), 4.5),
+            0b11
+        );
     }
 }

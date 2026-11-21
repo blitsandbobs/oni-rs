@@ -5,7 +5,9 @@
 use glam::{Mat3, Quat, Vec3};
 
 use super::class::{cflag, event, Kind, Value};
-use super::{owner, pflag, Collision, Handle, Host, Outcome, Particle, System, Val, DISABLED, HZ, NEVER};
+use super::{
+    owner, pflag, Collision, Handle, Host, Outcome, Particle, System, Val, DISABLED, HZ, NEVER,
+};
 
 /// Gravity, units per second² (1 unit = 10 cm).
 const GRAVITY: f32 = 98.0;
@@ -63,13 +65,28 @@ impl System {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn action(&mut self, p: &mut Particle, h: Handle, i: usize, t: f64, dt: f32, hit: Option<Collision>, host: &mut dyn Host) -> Outcome {
+    fn action(
+        &mut self,
+        p: &mut Particle,
+        h: Handle,
+        i: usize,
+        t: f64,
+        dt: f32,
+        hit: Option<Collision>,
+        host: &mut dyn Host,
+    ) -> Outcome {
         let classes = self.classes.clone();
         let c = &classes.list[p.class];
         let a = &c.actions[i];
         let none = Outcome::default();
-        let dead = Outcome { dead: true, stop: false };
-        let stop = Outcome { dead: false, stop: true };
+        let dead = Outcome {
+            dead: true,
+            stop: false,
+        };
+        let stop = Outcome {
+            dead: false,
+            stop: true,
+        };
         let vars = p.vars.clone();
         macro_rules! f {
             ($k:expr) => {
@@ -109,13 +126,18 @@ impl System {
                 let x = getf(p, v);
                 let bias = ((x - lo) / (hi - lo)).clamp(0.0, 1.0);
                 let r = self.random();
-                let d = if bias < 0.5 { rate * (1.0 - 4.0 * bias * r) } else { rate * (-1.0 + 4.0 * (1.0 - bias) * r) };
+                let d = if bias < 0.5 {
+                    rate * (1.0 - 4.0 * bias * r)
+                } else {
+                    rate * (-1.0 + 4.0 * (1.0 - bias) * r)
+                };
                 p.vars[v] = Val::F(x + dt * d);
             }
             Kind::AnimatePingpong => {
                 let (v, dir) = (var!(0), var!(1));
                 let (lo, hi, rate) = (f!(0), f!(1), f!(2));
-                let up = matches!(p.vars[dir], Val::U(0)) || matches!(p.vars[dir], Val::F(x) if x == 0.0);
+                let up = matches!(p.vars[dir], Val::U(0))
+                    || matches!(p.vars[dir], Val::F(x) if x == 0.0);
                 let mut x = getf(p, v);
                 if up {
                     x += dt * rate;
@@ -157,7 +179,9 @@ impl System {
                     return none;
                 }
                 let time = f!(0);
-                let Some(alpha) = self.eval_f(&c.alpha, &vars) else { return none };
+                let Some(alpha) = self.eval_f(&c.alpha, &vars) else {
+                    return none;
+                };
                 if alpha <= 0.0 {
                     return dead;
                 }
@@ -166,9 +190,15 @@ impl System {
                 p.flags |= pflag::FADE_OUT;
             }
             Kind::EnableAtTime | Kind::DisableAtTime => {
-                let Some(idx) = raw_enum(a.param(0)) else { return none };
+                let Some(idx) = raw_enum(a.param(0)) else {
+                    return none;
+                };
                 let target = f!(1);
-                let enable = if a.kind == Kind::EnableAtTime { p.lifetime < target } else { p.lifetime > target };
+                let enable = if a.kind == Kind::EnableAtTime {
+                    p.lifetime < target
+                } else {
+                    p.lifetime > target
+                };
                 if idx < 31 {
                     if enable {
                         p.action_mask &= !(1 << idx);
@@ -180,19 +210,30 @@ impl System {
             Kind::Die => return dead,
             Kind::SetLifetime => p.lifetime = f!(0).max(0.0),
             Kind::EmitActivate => {
-                let Some(e) = raw_enum(a.param(0)).map(|e| e as usize).filter(|e| *e < p.emitters.len()) else { return none };
+                let Some(e) = raw_enum(a.param(0))
+                    .map(|e| e as usize)
+                    .filter(|e| *e < p.emitters.len())
+                else {
+                    return none;
+                };
                 let st = &mut p.emitters[e];
                 st.count = 0;
                 st.last_time = NEVER;
                 st.last = None;
             }
             Kind::EmitDeactivate => {
-                if let Some(st) = raw_enum(a.param(0)).and_then(|e| p.emitters.get_mut(e as usize)) {
+                if let Some(st) = raw_enum(a.param(0)).and_then(|e| p.emitters.get_mut(e as usize))
+                {
                     st.count = DISABLED;
                 }
             }
             Kind::EmitParticles => {
-                let Some(e) = raw_enum(a.param(0)).map(|e| e as usize).filter(|e| *e < p.emitters.len()) else { return none };
+                let Some(e) = raw_enum(a.param(0))
+                    .map(|e| e as usize)
+                    .filter(|e| *e < p.emitters.len())
+                else {
+                    return none;
+                };
                 // (The fraction of the count never counts: always floored.)
                 let n = match a.param(1) {
                     Value::Float(x) => x.max(0.0).floor() as u32,
@@ -203,7 +244,9 @@ impl System {
                 let st = &mut p.emitters[e];
                 if st.count != DISABLED && def.flags & super::class::eflag::INCREASE_COUNT != 0 {
                     let total = u32::from(st.count) + n;
-                    st.count = if total >= u32::from(def.limit) && def.flags & super::class::eflag::DEACTIVATE_AT_LIMIT != 0 {
+                    st.count = if total >= u32::from(def.limit)
+                        && def.flags & super::class::eflag::DEACTIVATE_AT_LIMIT != 0
+                    {
                         DISABLED
                     } else {
                         (total % u32::from(DISABLED)) as u16
@@ -212,7 +255,10 @@ impl System {
                 st.last_time = t;
             }
             Kind::KillLastEmitted | Kind::ExplodeLastEmitted => {
-                let Some(last) = raw_enum(a.param(0)).and_then(|e| p.emitters.get(e as usize)).and_then(|s| s.last) else {
+                let Some(last) = raw_enum(a.param(0))
+                    .and_then(|e| p.emitters.get(e as usize))
+                    .and_then(|s| s.last)
+                else {
                     return none;
                 };
                 if a.kind == Kind::KillLastEmitted {
@@ -222,7 +268,9 @@ impl System {
                 }
             }
             Kind::DamageHitChar => {
-                let Some(k) = hit.filter(|k| !k.env) else { return none };
+                let Some(k) = hit.filter(|k| !k.env) else {
+                    return none;
+                };
                 if p.flags & pflag::CUTSCENE_KILLED != 0 {
                     return none;
                 }
@@ -238,7 +286,18 @@ impl System {
                 };
                 let who = self.owner_word(p, c);
                 let stamp = (!many).then(|| h.id());
-                if host.hit_char(k.id as usize, k.point, k.dir, kind, damage, stun, knockback, who, stamp, self_immune) {
+                if host.hit_char(
+                    k.id as usize,
+                    k.point,
+                    k.dir,
+                    kind,
+                    damage,
+                    stun,
+                    knockback,
+                    who,
+                    stamp,
+                    self_immune,
+                ) {
                     return stop;
                 }
             }
@@ -257,12 +316,36 @@ impl System {
                 // (Breaking glass too, unless told not to: blown out along
                 // its flight when it was moving.)
                 if !matches!(a.param(7), Value::Enum(0)) {
-                    let dir = c.has(cflag::VELOCITY).then_some(p.velocity).filter(|v| v.length() > 4.0).map(Vec3::normalize);
-                    host.damage_surfaces_near(centre, radius, damage, Some(super::glass::Blast { centre, dir, radius }));
+                    let dir = c
+                        .has(cflag::VELOCITY)
+                        .then_some(p.velocity)
+                        .filter(|v| v.length() > 4.0)
+                        .map(Vec3::normalize);
+                    host.damage_surfaces_near(
+                        centre,
+                        radius,
+                        damage,
+                        Some(super::glass::Blast {
+                            centre,
+                            dir,
+                            radius,
+                        }),
+                    );
                 }
                 if p.flags & pflag::CUTSCENE_KILLED == 0 {
                     let who = self.owner_word(p, c);
-                    host.blast(centre, kind, damage, stun, knockback, radius, falloff, who, h.id(), self_immune);
+                    host.blast(
+                        centre,
+                        kind,
+                        damage,
+                        stun,
+                        knockback,
+                        radius,
+                        falloff,
+                        who,
+                        h.id(),
+                        self_immune,
+                    );
                 }
             }
             Kind::Explode => {
@@ -292,7 +375,11 @@ impl System {
                     _ => 2,
                 };
                 let angle = (rate * dt).to_radians();
-                let axis_v = if world { Mat3::IDENTITY.col(axis) } else { p.orientation.col(axis) };
+                let axis_v = if world {
+                    Mat3::IDENTITY.col(axis)
+                } else {
+                    p.orientation.col(axis)
+                };
                 let r = Mat3::from_quat(Quat::from_axis_angle(axis_v.normalize_or(Vec3::Y), angle));
                 if has_o {
                     p.orientation = r * p.orientation;
@@ -304,7 +391,11 @@ impl System {
             }
             Kind::FindAttractor => {
                 let delay = (f!(0) * HZ as f32).round().max(0.0) as u32;
-                if self.find_attractor(p, delay, host) && self.run(p, h, event::NEW_ATTRACTOR, t, 0.0, None, false, host).dead {
+                if self.find_attractor(p, delay, host)
+                    && self
+                        .run(p, h, event::NEW_ATTRACTOR, t, 0.0, None, false, host)
+                        .dead
+                {
                     return dead;
                 }
             }
@@ -314,11 +405,17 @@ impl System {
                 }
                 let (turn, predict) = (f!(0), raw_enum(a.param(1)).is_some_and(|x| x != 0));
                 let horizontal = raw_enum(a.param(2)).is_some_and(|x| x != 0);
-                let Some(tg) = self.attractor_of(p, host) else { return none };
+                let Some(tg) = self.attractor_of(p, host) else {
+                    return none;
+                };
                 let at = self.world_position(p);
                 let mut speed = p.velocity.length();
                 if speed < 1e-6 {
-                    let seed = if has_o { p.orientation.y_axis } else { tg.position - at };
+                    let seed = if has_o {
+                        p.orientation.y_axis
+                    } else {
+                        tg.position - at
+                    };
                     p.velocity = seed.normalize_or(Vec3::Y) * 1e-3;
                     speed = 1e-3;
                 }
@@ -329,11 +426,18 @@ impl System {
                 }
                 let want = aim - at;
                 let old_y = p.velocity.y;
-                let (from, to) = (p.velocity.normalize(), want.normalize_or(p.velocity.normalize()));
+                let (from, to) = (
+                    p.velocity.normalize(),
+                    want.normalize_or(p.velocity.normalize()),
+                );
                 let angle = from.angle_between(to);
                 let max = (turn * dt).to_radians();
                 let q = Quat::from_rotation_arc(from, to);
-                let q = if angle > max && angle > 1e-6 { Quat::IDENTITY.slerp(q, max / angle) } else { q };
+                let q = if angle > max && angle > 1e-6 {
+                    Quat::IDENTITY.slerp(q, max / angle)
+                } else {
+                    q
+                };
                 // (The velocity only: the orientation follows it only if the
                 // particle orients to its velocity.)
                 p.velocity = q * p.velocity;
@@ -347,10 +451,16 @@ impl System {
                     return none;
                 }
                 let (ratio, max, desired) = (f!(0), f!(1), f!(2));
-                let Some(tg) = self.attractor_of(p, host) else { return none };
+                let Some(tg) = self.attractor_of(p, host) else {
+                    return none;
+                };
                 let d = tg.position - self.world_position(p);
                 let dist = d.length();
-                let dir = if dist > 1e-6 { d / dist } else { self.random_unit_dir() };
+                let dir = if dist > 1e-6 {
+                    d / dist
+                } else {
+                    self.random_unit_dir()
+                };
                 let acc = ((dist - desired) * ratio * dt).min(max);
                 p.velocity += dir * acc;
                 p.flags |= pflag::VELOCITY_CHANGED;
@@ -360,7 +470,9 @@ impl System {
                     return none;
                 }
                 let (g, max_g) = (f!(0), f!(1));
-                let Some(tg) = self.attractor_of(p, host) else { return none };
+                let Some(tg) = self.attractor_of(p, host) else {
+                    return none;
+                };
                 let d = tg.position - self.world_position(p);
                 let l2 = d.length_squared().max(1e-6);
                 p.velocity += d * (g * 100.0 / l2).min(max_g) * dt;
@@ -419,7 +531,9 @@ impl System {
                 }
                 let (accel, max_speed, sideways) = (f!(0), f!(1), f!(2));
                 let mut dir = Vec3::new(f!(3), f!(4), f!(5));
-                let Some(space) = raw_enum(a.param(6)) else { return none };
+                let Some(space) = raw_enum(a.param(6)) else {
+                    return none;
+                };
                 if space == 0 && has_o {
                     dir = p.orientation * dir;
                 }
@@ -461,7 +575,9 @@ impl System {
             // Dies past a plane along an axis (`P3iAction_KillBeyondPoint`):
             // ±X, ±Y, ±Z (0–5), going beyond the value.
             Kind::KillBeyondPoint => {
-                let Some(axis) = raw_enum(a.param(0)) else { return none };
+                let Some(axis) = raw_enum(a.param(0)) else {
+                    return none;
+                };
                 let threshold = f!(1);
                 let at = self.world_position(p);
                 let beyond = match axis {
@@ -485,7 +601,9 @@ impl System {
                 let centre = self.world_position(p);
                 let blast = (speed != 0.0).then(|| super::glass::Blast {
                     centre,
-                    dir: c.has(cflag::ORIENTATION).then(|| self.world_orientation(p).y_axis),
+                    dir: c
+                        .has(cflag::ORIENTATION)
+                        .then(|| self.world_orientation(p).y_axis),
                     radius,
                 });
                 host.damage_surfaces_near(centre, radius, speed, blast);
@@ -511,7 +629,8 @@ impl System {
             Kind::SuperParticle => {
                 let v = var!(0);
                 let (base, delta, lo, hi) = (f!(0), f!(1), f!(2), f!(3));
-                let amount = super::owner::character(p.owner).map_or(0.0, |who| host.super_amount(who));
+                let amount =
+                    super::owner::character(p.owner).map_or(0.0, |who| host.super_amount(who));
                 p.vars[v] = Val::F((base + delta * amount).clamp(lo.min(hi), hi.max(lo)));
             }
             Kind::MoveGravity => {
@@ -537,8 +656,12 @@ impl System {
                     return none;
                 }
                 let speed = f!(0);
-                let Some(space) = raw_enum(a.param(1)) else { return none };
-                let Some(kill_sideways) = raw_enum(a.param(2)) else { return none };
+                let Some(space) = raw_enum(a.param(1)) else {
+                    return none;
+                };
+                let Some(kill_sideways) = raw_enum(a.param(2)) else {
+                    return none;
+                };
                 if has_o && space == 0 {
                     let dir = p.orientation.y_axis;
                     let axial = dir.dot(p.velocity);
@@ -553,15 +676,21 @@ impl System {
                 p.flags |= pflag::VELOCITY_CHANGED;
             }
             Kind::CollisionEffect => {
-                let Value::Str(name) = a.param(0) else { return none };
-                let Some(class) = classes.get(name) else { return none };
+                let Value::Str(name) = a.param(0) else {
+                    return none;
+                };
+                let Some(class) = classes.get(name) else {
+                    return none;
+                };
                 let offset = self.eval_f(a.param(1), &vars).unwrap_or(0.0);
                 let orient = match a.param(2) {
                     Value::Enum(e) => Some(*e),
                     _ => None,
                 };
                 let attach = matches!(a.param(3), Value::Enum(e) if *e != 0);
-                let quad = hit.filter(|k| k.env).and_then(|k| host.struck_quad(k.point, k.normal));
+                let quad = hit
+                    .filter(|k| k.env)
+                    .and_then(|k| host.struck_quad(k.point, k.normal));
                 self.collision_effect(p, class, offset, orient, attach, hit, quad, t, host);
             }
             Kind::Bounce => {
@@ -617,9 +746,15 @@ impl System {
                 }
             }
             Kind::EnableAbove | Kind::EnableBelow => {
-                let Some(idx) = raw_enum(a.param(0)) else { return none };
+                let Some(idx) = raw_enum(a.param(0)) else {
+                    return none;
+                };
                 let (value, threshold) = (f!(1), f!(2));
-                let enable = if a.kind == Kind::EnableAbove { value > threshold } else { value < threshold };
+                let enable = if a.kind == Kind::EnableAbove {
+                    value > threshold
+                } else {
+                    value < threshold
+                };
                 if idx < 31 {
                     if enable {
                         p.action_mask &= !(1 << idx);
@@ -638,10 +773,17 @@ impl System {
                 }
             }
             Kind::SuperballTrigger => {
-                let Some(e) = raw_enum(a.param(0)).map(|e| e as usize).filter(|e| *e < p.emitters.len()) else { return none };
+                let Some(e) = raw_enum(a.param(0))
+                    .map(|e| e as usize)
+                    .filter(|e| *e < p.emitters.len())
+                else {
+                    return none;
+                };
                 let fuse = f!(1);
                 let st = &p.emitters[e];
-                let Some(ball) = st.last.filter(|b| self.alive(*b)) else { return none };
+                let Some(ball) = st.last.filter(|b| self.alive(*b)) else {
+                    return none;
+                };
                 if t >= st.last_time + f64::from(fuse) {
                     self.send(ball, event::EXPLODE, t, host);
                 } else if let Some(b) = self.get_mut(ball) {
@@ -674,7 +816,11 @@ impl System {
                     let ray = p.velocity.normalize_or_zero() * sense;
                     if ray.length_squared() > 0.0 {
                         if let Some(k) = host.ray_env(p.position, ray) {
-                            axis = k.normal.cross(ray).try_normalize().unwrap_or_else(|| Vec3::Y.cross(ray).normalize_or(Vec3::Y));
+                            axis = k
+                                .normal
+                                .cross(ray)
+                                .try_normalize()
+                                .unwrap_or_else(|| Vec3::Y.cross(ray).normalize_or(Vec3::Y));
                             rot = turn;
                             found = true;
                         }
@@ -687,7 +833,10 @@ impl System {
                     }
                 }
                 if rot > 0.0 && axis.length_squared() > 1e-12 {
-                    let r = Mat3::from_quat(Quat::from_axis_angle(axis.normalize(), (rot * dt).to_radians()));
+                    let r = Mat3::from_quat(Quat::from_axis_angle(
+                        axis.normalize(),
+                        (rot * dt).to_radians(),
+                    ));
                     p.velocity = r * p.velocity;
                     if has_o {
                         p.orientation = r * p.orientation;
@@ -706,7 +855,8 @@ impl System {
                 }
                 let (base, delta, speed) = (f!(0), f!(1), f!(2));
                 let v = var!(0);
-                let angle = (getf(p, v) + (base + delta).to_radians() * dt).rem_euclid(std::f32::consts::TAU);
+                let angle = (getf(p, v) + (base + delta).to_radians() * dt)
+                    .rem_euclid(std::f32::consts::TAU);
                 p.vars[v] = Val::F(angle);
                 let axis = angle.cos() * p.orientation.x_axis + angle.sin() * p.orientation.z_axis;
                 if let Some(axis) = axis.try_normalize() {
@@ -721,27 +871,42 @@ impl System {
             // Sounds (`docs/AUDIO.md`, *Particles*): heard where the
             // particle really is.
             Kind::ImpulseSound => {
-                let Value::Str(name) = a.param(0) else { return none };
+                let Value::Str(name) = a.param(0) else {
+                    return none;
+                };
                 let at = self.world_position(p);
-                self.sounds.push(super::SoundEvent::Impulse { name: name.clone(), at });
+                self.sounds.push(super::SoundEvent::Impulse {
+                    name: name.clone(),
+                    at,
+                });
             }
             Kind::SoundStart => {
-                let Value::Str(name) = a.param(0) else { return none };
+                let Value::Str(name) = a.param(0) else {
+                    return none;
+                };
                 if p.flags & pflag::PLAYING_SOUND != 0 {
-                    self.sounds.push(super::SoundEvent::AmbientStop { particle: h });
+                    self.sounds
+                        .push(super::SoundEvent::AmbientStop { particle: h });
                 }
                 let at = self.world_position(p);
-                self.sounds.push(super::SoundEvent::AmbientStart { particle: h, name: name.clone(), at });
+                self.sounds.push(super::SoundEvent::AmbientStart {
+                    particle: h,
+                    name: name.clone(),
+                    at,
+                });
                 p.flags |= pflag::PLAYING_SOUND;
             }
             Kind::SoundEnd => {
                 if p.flags & pflag::PLAYING_SOUND != 0 {
-                    self.sounds.push(super::SoundEvent::AmbientStop { particle: h });
+                    self.sounds
+                        .push(super::SoundEvent::AmbientStop { particle: h });
                 }
                 p.flags &= !pflag::PLAYING_SOUND;
             }
             Kind::ImpactEffect => {
-                let Value::Str(impact) = a.param(0) else { return none };
+                let Value::Str(impact) = a.param(0) else {
+                    return none;
+                };
                 let modifier = match a.param(1) {
                     Value::Enum(e) => *e,
                     _ => 0,
@@ -755,7 +920,16 @@ impl System {
                 let orientation = has_o.then(|| self.world_orientation(p));
                 let owner = p.owner;
                 let flags = p.flags;
-                self.sounds.push(super::SoundEvent::Impact { impact: impact.clone(), modifier, at, velocity, orientation, hit, owner, flags });
+                self.sounds.push(super::SoundEvent::Impact {
+                    impact: impact.clone(),
+                    modifier,
+                    at,
+                    velocity,
+                    orientation,
+                    hit,
+                    owner,
+                    flags,
+                });
             }
             // A colour between two by a blend (`P3iAction_ColorInterpolate`,
             // `IMrShade_Interpolate`): the lock lights' red and green.
@@ -769,7 +943,9 @@ impl System {
                     },
                     _ => None,
                 };
-                let (Some(c0), Some(c1)) = (shade(0), shade(1)) else { return none };
+                let (Some(c0), Some(c1)) = (shade(0), shade(1)) else {
+                    return none;
+                };
                 let t = f!(2);
                 p.vars[v] = Val::U(crate::decal::shade_lerp(c0, c1, t));
             }
@@ -795,7 +971,11 @@ impl System {
     }
 
     fn random_unit_dir(&mut self) -> Vec3 {
-        let v = Vec3::new(self.signed_random(), self.signed_random(), self.signed_random());
+        let v = Vec3::new(
+            self.signed_random(),
+            self.signed_random(),
+            self.signed_random(),
+        );
         v.normalize_or(Vec3::Y)
     }
 }

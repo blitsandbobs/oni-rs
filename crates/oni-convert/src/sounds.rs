@@ -36,7 +36,11 @@ const TAG_OSBD: FourCc = FourCc(u32::from_be_bytes(*b"OSBD"));
 const NAME: usize = 32;
 
 /// One definition blob's class, version and body (after the version).
-fn blob<'a>(dat: &Dat<'a>, raw: &'a [u8], inst: &oni_dat::Instance) -> Option<(&'a [u8], u32, &'a [u8])> {
+fn blob<'a>(
+    dat: &Dat<'a>,
+    raw: &'a [u8],
+    inst: &oni_dat::Instance,
+) -> Option<(&'a [u8], u32, &'a [u8])> {
     let d = dat.instance_data(inst)?;
     let at = le_u32(d, 4) as usize;
     let size = le_u32(raw.get(at..at + 8)?, 4) as usize;
@@ -63,8 +67,11 @@ pub fn ambient(version: u32, b: &[u8]) -> Option<Value> {
         "minOcclusion": if version >= 6 { le_f32(b, 192) } else { 0.0 },
     });
     let flags = le_u32(b, 4);
-    let names: Vec<&str> =
-        [(1, "interruptOnStop"), (2, "playOnce"), (4, "pan")].iter().filter(|(m, _)| flags & m != 0).map(|(_, n)| *n).collect();
+    let names: Vec<&str> = [(1, "interruptOnStop"), (2, "playOnce"), (4, "pan")]
+        .iter()
+        .filter(|(m, _)| flags & m != 0)
+        .map(|(_, n)| *n)
+        .collect();
     if !names.is_empty() {
         a["flags"] = json!(names);
     }
@@ -171,10 +178,16 @@ pub fn objects(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
         .filter_map(|o| {
             let d = o.data;
             let (shape, size) = match le_u32(d, NAME) {
-                SPHERE => (json!({ "sphere": { "max": le_f32(d, NAME + 4), "min": le_f32(d, NAME + 8) } }), 8),
+                SPHERE => (
+                    json!({ "sphere": { "max": le_f32(d, NAME + 4), "min": le_f32(d, NAME + 8) } }),
+                    8,
+                ),
                 BOX if d.len() >= NAME + 4 + 24 + 8 => {
                     let v = |o: usize| [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)];
-                    (json!({ "box": { "min": v(NAME + 4), "max": v(NAME + 16) } }), 24)
+                    (
+                        json!({ "box": { "min": v(NAME + 4), "max": v(NAME + 16) } }),
+                        24,
+                    )
                 }
                 _ => return None,
             };
@@ -195,7 +208,10 @@ pub fn write_objects(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<
     let o = objects(dat, raw);
     if !o.is_empty() {
         std::fs::create_dir_all(root)?;
-        std::fs::write(root.join("sounds.json"), serde_json::to_string_pretty(&json!({ "objects": o }))?)?;
+        std::fs::write(
+            root.join("sounds.json"),
+            serde_json::to_string_pretty(&json!({ "objects": o }))?,
+        )?;
     }
     Ok(o.len())
 }
@@ -206,8 +222,12 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize
     let mut groups = BTreeMap::new();
     let mut impulses = BTreeMap::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_OSBD) {
-        let Some(full) = inst.name.as_deref() else { continue };
-        let Some((class, version, body)) = blob(dat, raw, inst) else { continue };
+        let Some(full) = inst.name.as_deref() else {
+            continue;
+        };
+        let Some((class, version, body)) = blob(dat, raw, inst) else {
+            continue;
+        };
         let key = full.rsplit_once('.').map_or(full, |(n, _)| n).to_string();
         match class {
             b"mASO" => {
@@ -233,7 +253,9 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<(usize
         std::fs::create_dir_all(common)?;
         std::fs::write(
             common.join("sounds.json"),
-            serde_json::to_string_pretty(&json!({ "ambients": ambients, "groups": groups, "impulses": impulses }))?,
+            serde_json::to_string_pretty(
+                &json!({ "ambients": ambients, "groups": groups, "impulses": impulses }),
+            )?,
         )?;
     }
     Ok(counts)
@@ -281,10 +303,19 @@ mod tests {
         i[60..63].copy_from_slice(b"alt");
         i[92..96].copy_from_slice(&25f32.to_le_bytes());
         let i6 = impulse(6, &i).unwrap();
-        assert_eq!((i6["group"].as_str(), i6["priority"].as_u64()), (Some("bang"), Some(2)));
-        assert_eq!((i6["alt"].as_str(), i6["altThreshold"].as_u64()), (Some("alt"), Some(3)));
+        assert_eq!(
+            (i6["group"].as_str(), i6["priority"].as_u64()),
+            (Some("bang"), Some(2))
+        );
+        assert_eq!(
+            (i6["alt"].as_str(), i6["altThreshold"].as_u64()),
+            (Some("alt"), Some(3))
+        );
         assert_eq!(i6["impactVelocity"], json!(25.0));
         let i3 = impulse(3, &i).unwrap();
-        assert!(i3.get("alt").is_none() && i3.get("impactVelocity").is_none(), "older versions lack them");
+        assert!(
+            i3.get("alt").is_none() && i3.get("impactVelocity").is_none(),
+            "older versions lack them"
+        );
     }
 }
