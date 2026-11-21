@@ -297,6 +297,18 @@ pub trait Host {
     fn inaccuracy(&self, _owner: u32) -> f32 {
         0.0
     }
+    /// A point on character `who`'s body (`ONrParticle3_FindBodySurfacePosition`
+    /// / `…BodyBonePosition`): the part's following matrix, the point in its
+    /// space, and (on the surface) the way out there. `r`: the draws.
+    fn body_point(
+        &mut self,
+        _who: usize,
+        _surface: bool,
+        _radius: f32,
+        _r: [f32; 3],
+    ) -> Option<(Rc<Cell<Mat4>>, Vec3, Option<glam::Mat3>)> {
+        None
+    }
     /// Character `who`'s body part `part`, as a matrix that follows it (for
     /// effects riding what they struck).
     fn part_matrix(&mut self, _who: usize, _part: usize) -> Option<Rc<Cell<Mat4>>> {

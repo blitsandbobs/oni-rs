@@ -223,6 +223,21 @@ impl System {
             let mut char_value: Option<f32> = None;
             let (pos_kind, pv) = &def.position;
             let pf = |s: &mut System, k: usize| s.eval_f(&pv[k], &vars).unwrap_or(0.0);
+            // On the owner's body (`P3cEmitterPosition_BodySurface` /
+            // `BodyBones`): the part's matrix, the point in its space, its
+            // orientation there; none (the emitter's own point) when the
+            // owner is no character.
+            let mut body = None;
+            if matches!(pos_kind, Position::BodySurface | Position::BodyBones) {
+                let who = pc
+                    .has(cflag::OWNER)
+                    .then(|| super::owner::character(parent.owner))
+                    .flatten();
+                if let (Some(who), Some(radius)) = (who, self.eval_f(&pv[0], &vars)) {
+                    let r = [self.random(), self.random(), self.random()];
+                    body = host.body_point(who, *pos_kind == Position::BodySurface, radius, r);
+                }
+            }
             let offset = match pos_kind {
                 Position::Point | Position::BodySurface | Position::BodyBones => Vec3::ZERO,
                 Position::Line => {
@@ -340,19 +355,37 @@ impl System {
             child.matrix = shared.clone();
 
             // Position: the parent's (offset included), the emit offset
-            // turned by its orientation; both through a baked matrix.
+            // turned by its orientation; both through a baked matrix. On a
+            // body, the point itself: a child that rides matrices rides the
+            // part's; any other is put in the world through it.
             let rot = parent_orient.unwrap_or(Mat3::IDENTITY);
-            let mut base = parent.position + parent.offset;
+            let mut m3 = m3;
             let mut off = rot * offset;
-            if let Some(m) = applied {
-                base = m.transform_point3(base);
-                off = m3.unwrap() * off;
-            }
-            if cc.has(cflag::OFFSET_POS) {
-                child.position = base;
-                child.offset = off;
+            if let Some((cell, at, _)) = &body {
+                if cc.has(cflag::DYNAMIC_MATRIX) {
+                    child.matrix = Some(cell.clone());
+                    m3 = None;
+                    child.position = *at;
+                } else {
+                    let m = cell.get();
+                    m3 = Some(glam::Mat3::from_mat4(m));
+                    child.matrix = None;
+                    child.position = m.transform_point3(*at);
+                }
+                child.offset = Vec3::ZERO;
+                off = Vec3::ZERO;
             } else {
-                child.position = base + off;
+                let mut base = parent.position + parent.offset;
+                if let Some(m) = applied {
+                    base = m.transform_point3(base);
+                    off = m3.unwrap() * off;
+                }
+                if cc.has(cflag::OFFSET_POS) {
+                    child.position = base;
+                    child.offset = off;
+                } else {
+                    child.position = base + off;
+                }
             }
             // Velocity.
             let mut d = dir;
@@ -368,11 +401,16 @@ impl System {
                     child.velocity += parent.velocity;
                 }
             }
-            // Orientation.
+            // Orientation: on the body's surface, the way out there (through
+            // the part's matrix unless riding it); else built from the kinds.
             if cc.has(cflag::ORIENTATION) {
-                let po = parent_orient.map(|o| m3.map_or(o, |m| m * o));
-                child.orientation =
-                    construct_orientation(def.orient_dir, def.orient_up, po, off, d);
+                child.orientation = match body.as_ref().and_then(|b| b.2) {
+                    Some(o) => m3.map_or(o, |m| m * o),
+                    None => {
+                        let po = parent_orient.map(|o| m3.map_or(o, |m| m * o));
+                        construct_orientation(def.orient_dir, def.orient_up, po, off, d)
+                    }
+                };
             }
             // An attractor handed down by the emitter.
             if let Some(a) = cc.attractor.as_ref() {

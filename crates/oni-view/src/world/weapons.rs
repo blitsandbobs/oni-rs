@@ -494,6 +494,18 @@ impl Host for ShotHost<'_> {
         self.fighters.get_mut(who)?.part_matrix(part)
     }
 
+    fn body_point(
+        &mut self,
+        who: usize,
+        surface: bool,
+        radius: f32,
+        r: [f32; 3],
+    ) -> Option<(Rc<std::cell::Cell<Mat4>>, Vec3, Option<glam::Mat3>)> {
+        let f = self.fighters.get_mut(who).filter(|f| !f.gone)?;
+        let (part, point, out) = f.body_point(surface, radius, r)?;
+        Some((f.part_matrix(part)?, point, out))
+    }
+
     fn struck_quad(&mut self, point: Vec3, normal: Vec3) -> Option<u32> {
         super::particle_sounds::struck_quad(self.quads?, point, normal)
     }

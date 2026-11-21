@@ -1491,6 +1491,173 @@ impl Fighter {
         self.extent().0
     }
 
+    /// A point on the body for an emitter (`ONrParticle3_FindBodySurfacePosition`,
+    /// `ONrParticle3_FindBodyBonePosition`): the part, the point in its
+    /// space and — on the surface — its orientation there (Y out, X along
+    /// the part). The parts are each a box (their geometry's), long along X;
+    /// a surface point is picked by area over the faces each part has, a
+    /// bone point by length, `radius` out. `r`: three random draws.
+    pub fn body_point(
+        &self,
+        surface: bool,
+        radius: f32,
+        r: [f32; 3],
+    ) -> Option<(usize, Vec3, Option<glam::Mat3>)> {
+        // The faces each part has (`ONcBodySurfacePartMasks`): 1 −X, 2 +X,
+        // 4 −Y, 8 +Y, 16 −Z, 32 +Z; ends at the feet, head and hands.
+        const MASKS: [u8; 19] = [
+            60, 60, 60, 62, 60, 60, 62, 60, 60, 0, 62, 0, 60, 60, 62, 0, 60, 60, 62,
+        ];
+        let boxes: Vec<(Vec3, Vec3)> = (0..19)
+            .map(|b| {
+                self.character
+                    .parts
+                    .iter()
+                    .find(|p| p.bone == b)
+                    .map_or((Vec3::ZERO, Vec3::ZERO), |p| p.bound_box)
+            })
+            .collect();
+        let size = |b: (Vec3, Vec3)| b.1 - b.0;
+        let area = |k: usize| {
+            let (s, m) = (size(boxes[k]), MASKS[k]);
+            let face = [
+                s.y * s.z,
+                s.y * s.z,
+                s.x * s.z,
+                s.x * s.z,
+                s.x * s.y,
+                s.x * s.y,
+            ];
+            (0..6)
+                .filter(|i| m & (1 << i) != 0)
+                .map(|i| face[i])
+                .sum::<f32>()
+        };
+        if surface {
+            let total: f32 = (0..19).map(area).sum();
+            if total <= 0.0 {
+                return None;
+            }
+            let mut stop = (r[0] * total).clamp(0.0, total - 0.01);
+            let (u, v) = (r[1], r[2]);
+            for k in 0..19 {
+                let a = area(k);
+                if stop >= a {
+                    stop -= a;
+                    continue;
+                }
+                let (lo, hi) = boxes[k];
+                let s = size(boxes[k]);
+                let face = [
+                    s.y * s.z,
+                    s.y * s.z,
+                    s.x * s.z,
+                    s.x * s.z,
+                    s.x * s.y,
+                    s.x * s.y,
+                ];
+                let mut p = Vec3::ZERO;
+                let mut on = 0;
+                for (i, &f) in face.iter().enumerate() {
+                    if MASKS[k] & (1 << i) == 0 {
+                        continue;
+                    }
+                    if stop < f {
+                        on = i;
+                        break;
+                    }
+                    stop -= f;
+                }
+                // The face's own axis at its side; the other two across it.
+                let lerp = |a: f32, b: f32, t: f32| (1.0 - t) * a + t * b;
+                let side = |i: usize, axis: usize| {
+                    if i.is_multiple_of(2) {
+                        lo[axis]
+                    } else {
+                        hi[axis]
+                    }
+                };
+                let (axis, ua, va) = [(0, 1, 2), (1, 2, 0), (2, 0, 1)][on / 2];
+                p[axis] = side(on, axis);
+                p[ua] = lerp(lo[ua], hi[ua], u);
+                p[va] = lerp(lo[va], hi[va], v);
+                let mid = (lo + hi) * 0.5;
+                // The ends are capped: near one, the way out is from the
+                // cap's centre (`project_3d`).
+                let cap = ((hi.y - lo.y) / 2.0).min((hi.z - lo.z) / 2.0);
+                let pos_cap = (hi.x - cap).max(mid.x);
+                let neg_cap = (lo.x + cap).min(mid.x);
+                let project = if on < 2 {
+                    if MASKS[k] & 1 != 0 && p.x < neg_cap {
+                        Some(neg_cap)
+                    } else if MASKS[k] & 2 != 0 && p.x > pos_cap {
+                        Some(pos_cap)
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                let orientation = match project {
+                    Some(px) => {
+                        let out = Vec3::new(p.x - px, p.y - mid.y, p.z - mid.z).normalize_or_zero();
+                        let up = if px > mid.x { 1.0 } else { -1.0 };
+                        let right = Vec3::new(0.0, -up * out.z, up * out.y)
+                            .try_normalize()
+                            .unwrap_or(Vec3::new(0.0, 0.0, up));
+                        let x = out.cross(right).try_normalize().unwrap_or(Vec3::Y);
+                        p += out * radius;
+                        glam::Mat3::from_cols(x, out, right)
+                    }
+                    None => {
+                        let out = Vec3::new(0.0, p.y - mid.y, p.z - mid.z).normalize_or_zero();
+                        p.y += radius * out.y;
+                        p.z += radius * out.z;
+                        glam::Mat3::from_cols(
+                            Vec3::X,
+                            Vec3::new(0.0, out.y, out.z),
+                            Vec3::new(0.0, -out.z, out.y),
+                        )
+                    }
+                };
+                return Some((k, p, Some(orientation)));
+            }
+            None
+        } else {
+            let total: f32 = (0..19).map(|k| size(boxes[k]).x).sum();
+            if total <= 0.0 {
+                return None;
+            }
+            let mut stop = (r[0] * total).clamp(0.0, total - 0.01);
+            for (k, &(lo, hi)) in boxes.iter().enumerate() {
+                let len = hi.x - lo.x;
+                if stop >= len {
+                    stop -= len;
+                    continue;
+                }
+                // (As shipped: with a radius the span runs from past the
+                // positive cap to before the negative one, and every point
+                // lies the full radius out — the end-cap radius it works
+                // out goes unused.)
+                let (x_min, x_max) = if radius > 0.0 {
+                    let cap = ((hi.y - lo.y) / 2.0).min((hi.z - lo.z) / 2.0);
+                    (hi.x - cap + radius, lo.x + cap - radius)
+                } else {
+                    (lo.x, hi.x)
+                };
+                let u = r[1];
+                let mut p = Vec3::new((1.0 - u) * x_min + u * x_max, 0.0, 0.0);
+                if radius > 0.0 {
+                    let th = r[2] * std::f32::consts::TAU;
+                    p.y = th.cos() * radius;
+                    p.z = th.sin() * radius;
+                }
+                return Some((k, p, None));
+            }
+            None
+        }
+    }
+
     /// Body part `part`'s matrix, shared (it follows the part each tick).
     pub fn part_matrix(&mut self, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
         if self.part_cells.is_empty() {
