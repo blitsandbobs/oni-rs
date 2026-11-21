@@ -29,6 +29,7 @@ mod melee;
 mod bsl;
 mod consoles;
 mod neutrals;
+mod corpses;
 mod doors;
 mod lasers;
 mod objects;
@@ -373,8 +374,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         for (k, v) in collect_part_specs(&dat, &registry) {
             part_specs.entry(k).or_insert(v);
         }
-        if game_settings.is_none() {
-            game_settings = collect_game_settings(&dat, &registry);
+        match &mut game_settings {
+            None => game_settings = collect_game_settings(&dat, &registry),
+            Some(gs) => powerup_models(&dat, gs),
         }
         for p in melee::collect(&dat, raw.as_deref()) {
             if !melee_profiles.iter().any(|q| q.id == p.id) {
@@ -413,6 +415,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             }
             if let Err(e) = characters::write_setups(&dat, &registry, &root) {
                 stats.warnings.push(format!("setups.json: {e}"));
+            }
+            if let Err(e) = corpses::write(&dat, &registry, &root) {
+                stats.warnings.push(format!("corpses.json: {e}"));
             }
         }
 
@@ -454,7 +459,11 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("part_specs.json"), serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?)?;
     }
-    if let Some(gs) = game_settings {
+    if let Some(mut gs) = game_settings {
+        // (A geometry no level holds: drawn as its glow alone.)
+        for (_, v) in gs["powerups"].as_object_mut().into_iter().flatten() {
+            v.as_object_mut().map(|o| o.remove("geometry"));
+        }
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(dir.join("game_settings.json"), serde_json::to_string_pretty(&gs)?)?;
@@ -514,6 +523,29 @@ fn collect_part_specs(dat: &Dat<'_>, registry: &oni_template::Registry) -> serde
     out
 }
 
+/// Fills in a powerup's model from `dat` if it holds the geometry the
+/// powerup names (`"geometry"`, dropped once found): the model, the sphere
+/// it falls with, and how far above its place its glow lies (its lowest
+/// point + 0.1, `WPrPowerup_Draw`).
+fn powerup_model(dat: &Dat<'_>, v: &mut serde_json::Value) {
+    const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
+    let Some(geom) = v["geometry"].as_str().map(str::to_string) else { return };
+    let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_M3GM && i.name.as_deref().is_some_and(|n| n == geom || n.trim_start_matches("M3GM") == geom)) else { return };
+    let Some(mesh) = oni_geom::extract_mesh(dat, inst) else { return };
+    let low = mesh.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
+    v["model"] = serde_json::json!(format!("models/{}.glb", asset_name(dat, inst)));
+    v["radius"] = serde_json::json!(low.abs().max(1.0));
+    v["glowHeight"] = serde_json::json!(low + 0.1);
+    v.as_object_mut().map(|o| o.remove("geometry"));
+}
+
+/// `powerup_model` for every powerup the game settings left without one.
+fn powerup_models(dat: &Dat<'_>, settings: &mut serde_json::Value) {
+    for (_, v) in settings["powerups"].as_object_mut().into_iter().flatten() {
+        powerup_model(dat, v);
+    }
+}
+
 fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<serde_json::Value> {
     const TAG_ONGS: FourCc = FourCc(0x4F4E_4753);
     let inst = dat.instances.iter().find(|i| i.tag == TAG_ONGS)?;
@@ -564,26 +596,22 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
         .map(|(v, c)| serde_json::json!({ "health": v, "color": c }))
         .collect();
     // The powerups' looks (`powerup_geom[7][128]` @152, `powerup_glow` @1048,
-    // `powerup_glowsize` @1944), by type: the model, and the physics
-    // sphere a dropped one falls with (`WPrPowerup_AddPhysics`: down to the
-    // geometry's lowest point, at least 1; 2 without geometry).
-    const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
+    // `powerup_glowsize[7][2]` @1944), by type: the model, the glow
+    // sprite's size, and the physics sphere a dropped one falls with
+    // (`WPrPowerup_AddPhysics`: down to the geometry's lowest point, at
+    // least 1; 2 without geometry). A model only the levels hold (the LSI's)
+    // is filled in from the first level that has it (`powerup_models`).
     const POWERUPS: [&str; 6] = ["ammoBallistic", "ammoEnergy", "hypo", "shieldBelt", "invisibility", "lsi"];
     let powerups: serde_json::Map<String, serde_json::Value> = POWERUPS
         .iter()
         .enumerate()
         .map(|(k, name)| {
             let geom = cstr(d, 152 + k * 128, 128);
-            let inst = (!geom.is_empty())
-                .then(|| dat.instances.iter().find(|i| i.tag == TAG_M3GM && i.name.as_deref().is_some_and(|n| n == geom || n.trim_start_matches("M3GM") == geom)))
-                .flatten();
-            let radius = inst
-                .and_then(|i| oni_geom::extract_mesh(dat, i))
-                .map(|m| m.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min).abs().max(1.0))
-                .unwrap_or(2.0);
-            let mut v = serde_json::json!({ "radius": radius, "glowSize": le_f32(d, 1944 + 4 * k) });
-            if let Some(i) = inst {
-                v["model"] = serde_json::json!(format!("models/{}.glb", asset_name(dat, i)));
+            let glow_size = [le_f32(d, 1944 + 8 * k), le_f32(d, 1948 + 8 * k)];
+            let mut v = serde_json::json!({ "radius": 2.0, "glowSize": glow_size });
+            if !geom.is_empty() {
+                v["geometry"] = serde_json::json!(geom);
+                powerup_model(dat, &mut v);
             }
             let glow = cstr(d, 1048 + k * 128, 128);
             if !glow.is_empty() {

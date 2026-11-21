@@ -31,6 +31,7 @@ mod hypo;
 mod hud;
 mod lens;
 pub mod neutral;
+pub mod corpses;
 pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
@@ -141,6 +142,8 @@ pub struct World {
     /// The level's neutral behaviours, by id, and the interactions under
     /// way, by character (`world/neutral.rs`).
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
+    /// The level's pre-placed corpses.
+    pub corpses: Vec<corpses::Corpse>,
     pub(crate) neutral_runs: std::collections::HashMap<usize, neutral::Run>,
     /// The level's laser triggers, and their beams out this tick (from, to,
     /// colour — for drawing).
@@ -295,6 +298,7 @@ impl World {
             level_dir: Default::default(),
             consoles: Vec::new(),
             neutrals: Default::default(),
+            corpses: Vec::new(),
             neutral_runs: Default::default(),
             doors: Vec::new(),
             lasers: Vec::new(),
@@ -824,6 +828,7 @@ impl World {
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
         self.neutrals = crate::neutrals::load(level_dir);
+        self.corpses = corpses::load(level_dir);
         self.doors = crate::doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);

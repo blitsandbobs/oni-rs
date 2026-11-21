@@ -111,6 +111,7 @@ fn mission_level(
     progress(35);
     world.spawn(&kind, Vec3::ZERO, 0.0, false);
     world.load_level(&level_dir);
+    world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(gpu, ch)).ok().map(|k| k.model));
     progress(55);
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
@@ -434,6 +435,9 @@ impl ApplicationHandler for App {
                     world.spawn(&kind, spawn_pos, 0.0, false);
                     let mut mission = None;
                     world.load_level(&self.cast.level_dir);
+                    if let Some(classes) = self.classes.as_mut() {
+                        world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(&gpu, ch)).ok().map(|k| k.model));
+                    }
                     world.hud.subtitles_on = self.subtitles;
                     world.attach_doors(crate::door_meshes(&scene));
                     world.attach_glass(crate::glass_parts(&scene));
@@ -1119,6 +1123,7 @@ impl State {
                 .iter()
                 .zip(&bones)
                 .map(|(f, b)| f.draw(b))
+                .chain(pw.world.corpse_draws())
                 .chain(guns.iter().map(|(m, b, see_through)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through }))
                 .collect(),
             (None, Some(m)) => bones

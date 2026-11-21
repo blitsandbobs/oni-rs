@@ -139,6 +139,7 @@ impl ScriptHost {
         world.difficulty = classes.difficulty(&cast.difficulty);
         world.nav = crate::nav::Navigation::load(&cast.level_dir).ok().map(Rc::new);
         world.load_level(&cast.level_dir);
+        world.attach_corpse_models(|c| classes.kind(c, |ch| renderer.add_character(&gpu, ch)).ok().map(|k| k.model));
         world.attach_doors(crate::door_meshes(&scene));
         world.attach_glass(crate::glass_parts(&scene));
         world.attach_weapons(&cast.level_dir.join("../../common"));
@@ -275,6 +276,7 @@ impl ScriptHost {
             .iter()
             .zip(&bones)
             .map(|(f, b)| f.draw(b))
+            .chain(self.world.corpse_draws())
             .chain(guns.iter().map(|(m, b, see_through)| CharDraw { model: *m, bones: b, see_through: *see_through }))
             .collect();
         let basis = cam.billboard_basis();
@@ -1349,6 +1351,27 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 f.inventory.cells += cells.unwrap_or(0);
             }
             Ok(())
+        })?,
+    )?;
+    // corpses() → {{class, x, y, z, drawn}, …}: the level's pre-placed
+    // corpses, where each one's pelvis is, and whether it has a model.
+    let h = host.clone();
+    g.set(
+        "corpses",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let out = lua.create_table()?;
+            for c in &host.world.corpses {
+                let at = c.bones.first().map_or(Vec3::ZERO, |m| m.w_axis.truncate());
+                let t = lua.create_table()?;
+                t.set("class", c.class.clone())?;
+                t.set("x", at.x)?;
+                t.set("y", at.y)?;
+                t.set("z", at.z)?;
+                t.set("drawn", c.model.is_some())?;
+                out.set(out.raw_len() + 1, t)?;
+            }
+            Ok(out)
         })?,
     )?;
     let h = host.clone();

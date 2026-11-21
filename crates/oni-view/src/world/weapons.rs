@@ -102,6 +102,11 @@ impl Powerup {
 pub struct PowerupLook {
     pub model: Option<std::path::PathBuf>,
     pub radius: f32,
+    /// The glow lying under it (`WPrPowerup_Draw`): its texture, size, and
+    /// height above the powerup's place.
+    pub glow: Option<std::path::PathBuf>,
+    pub glow_size: [f32; 2],
+    pub glow_height: f32,
 }
 
 /// A loose powerup's friction, the speed under which it counts as still
@@ -111,6 +116,8 @@ const POWERUP_STATIC_FRICTION: f32 = 0.0025;
 const POWERUP_DYNAMIC_FRICTION: f32 = 0.75;
 const POWERUP_STILL: f32 = 5.0 / 60.0;
 const POWERUP_REST: u32 = 120;
+/// A glow's size without settings (`WPcPowerupDefaultGlowSize`).
+const POWERUP_GLOW_SIZE: f64 = 5.0;
 
 /// Guns, their classes and the particles.
 pub struct Armory {
@@ -706,7 +713,14 @@ impl World {
             .iter()
             .map(|k| {
                 let p = &settings["powerups"][*k];
-                PowerupLook { model: p["model"].as_str().map(|m| common.join(m)), radius: p["radius"].as_f64().unwrap_or(2.0) as f32 }
+                let size = |k: usize| p["glowSize"][k].as_f64().unwrap_or(POWERUP_GLOW_SIZE) as f32;
+                PowerupLook {
+                    model: p["model"].as_str().map(|m| common.join(m)),
+                    radius: p["radius"].as_f64().unwrap_or(2.0) as f32,
+                    glow: p["glow"].as_str().map(|g| common.join("textures").join(format!("{g}.png"))),
+                    glow_size: [size(0), size(1)],
+                    glow_height: p["glowHeight"].as_f64().unwrap_or(0.0) as f32,
+                }
             })
             .collect();
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
@@ -877,6 +891,28 @@ impl World {
                 Some((model, Mat4::from_rotation_translation(glam::Quat::from_rotation_y(p.rotation), p.position)))
             })
             .collect()
+    }
+
+    /// The glows lying under the powerups: flat sprites turned with them,
+    /// at a third of full brightness, drawn without writing depth
+    /// (`WPrPowerup_Draw`).
+    fn powerup_glows(&self) -> impl Iterator<Item = crate::render::Sprite> + '_ {
+        self.armory.powerups.iter().filter_map(|p| {
+            let look = self.armory.powerup_looks.get(p.kind)?;
+            let texture = look.glow.clone()?;
+            let turn = Mat3::from_rotation_y(p.rotation);
+            let bright = 1.0 / 3.0;
+            Some(crate::render::Sprite {
+                at: p.position + Vec3::Y * look.glow_height,
+                size: look.glow_size,
+                mode: crate::render::SpriteMode::Fixed([turn.x_axis, turn.z_axis]),
+                rotation: 0.0,
+                color: [bright; 3],
+                texture,
+                contrail: false,
+                no_depth: false,
+            })
+        })
     }
 
     pub fn powerups(&self) -> &[Powerup] {
@@ -1388,6 +1424,7 @@ impl World {
             .chain((0..self.fighters.len()).filter_map(|who| self.gun_sight(who).map(|s| (who, s))).flat_map(|(who, s)| {
                 self.sight_sprites(who, &s, &textures)
             }))
+            .chain(self.powerup_glows())
             .collect()
     }
 
