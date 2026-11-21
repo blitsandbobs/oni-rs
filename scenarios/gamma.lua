@@ -9,10 +9,10 @@
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \
 --     --char-pos 200,8,300 --script scenarios/gamma.lua
 
-local dir = os.getenv("TMPDIR") or "/tmp"
 local function mean(g, name)
     if g then set_gamma(g) end
-    local p = dir .. "/oni_gamma_" .. name .. ".png"
+    -- (A file of this run's own: the faithful pass runs it at the same time.)
+    local p = temp_path("gamma_" .. name .. ".png")
     screenshot(p, 320, 240)
     local r, gg, b = image_mean(p, 0.0, 0.0, 1.0, 1.0)
     os.remove(p)

@@ -757,6 +757,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // temp_path(name) → a path in the temp folder of this process's own
+    // (`oni_<pid>_<name>`): for a screenshot a scenario reads back, which a
+    // copy running at once (the fixed and faithful passes) mustn't share.
+    g.set(
+        "temp_path",
+        lua.create_function(|_, name: String| {
+            Ok(std::env::temp_dir()
+                .join(format!("oni_{}_{name}", std::process::id()))
+                .to_string_lossy()
+                .into_owned())
+        })?,
+    )?;
     // image_mean(path, x0, y0, x1, y1) → r, g, b (0–1): a saved screenshot's
     // mean colour over a region (fractions of its width and height).
     g.set(

@@ -29,7 +29,7 @@ for i, id in ipairs(ids) do
     assert(anim_of(id) ~= nil and type_of(id) ~= 0, "plays a clip from its own set")
 end
 cam(px, py + 20, pz + 5, px, py + 6, pz + 40)
-screenshot("/private/tmp/claude-501/-Users-wulff-Projects-Oni/feb4aa3f-4acf-4c4c-b25c-2efdee3d50f8/scratchpad/classes.png", 1000, 500)
+screenshot("/tmp/oni_classes.png", 1000, 500)
 
 -- Konoko throws a Striker: the Striker plays Konoko's victim clip.
 local s = spawn(px, py + 5, pz + 8, 180, "striker_easy_1")
