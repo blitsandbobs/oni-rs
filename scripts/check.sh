@@ -1,5 +1,6 @@
 #!/bin/zsh
-# The commit gate, run in parallel: builds the release viewer, then runs
+# The commit gate, run in parallel: checks the formatting (rustfmt's default
+# style), builds the release viewer, then runs
 # clippy and the tests (one after the other: cargo holds one lock on the
 # build directory) alongside both scenario passes (fixed and --faithful).
 # Prints each part's verdict, its failures, and how long it took; exits
@@ -9,6 +10,12 @@
 cd "${0:A:h}/.."
 log=$(mktemp -d)
 start=$SECONDS
+
+if ! cargo fmt --all --check > $log/fmt.txt 2>&1; then
+  echo "FAIL fmt (run: cargo fmt --all)"; grep "^Diff in" $log/fmt.txt | head -20
+  rm -rf $log; exit 1
+fi
+echo "ok   fmt"
 
 if ! cargo build --release -p oni-view > $log/build.txt 2>&1; then
   echo "FAIL build"; grep -E "^error" -A9 $log/build.txt | head -40
