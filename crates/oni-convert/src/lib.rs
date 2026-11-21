@@ -40,6 +40,7 @@ mod weapons;
 mod anim_sounds;
 mod impacts;
 mod sounds;
+mod menus;
 mod pause_pages;
 mod text_consoles;
 mod turrets;
@@ -389,6 +390,9 @@ pub fn convert_with(input_dir: &Path, output_dir: &Path, scripts_dir: Option<&Pa
             if let Some((doc, font)) = pause_pages::common(&dat, &registry) {
                 pause_pages::write(&doc, &root_to_common(&root).join("pause_screen.json"))?;
                 pause_font = font;
+            }
+            if let Some(doc) = menus::common(&dat, &registry) {
+                menus::write(&doc, &root_to_common(&root).join("menus.json"))?;
             }
         } else {
             if let Err(e) = text_consoles::write(text_consoles::consoles(&dat, &registry, console_font), &root) {
