@@ -2658,6 +2658,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((mode, w.skip_blanket()))
         })?,
     )?;
+    // player_ready() → whether the player is in play: no cutscene, input
+    // on, no environment animation or film moving her, alive.
+    let h = host.clone();
+    g.set(
+        "player_ready",
+        lua.create_function(move |_, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            Ok(!w.in_cutscene
+                && w.input_enabled
+                && w.fighters
+                    .first()
+                    .is_some_and(|p| p.env_anim.is_none() && !p.motion.dying && p.hp > 0))
+        })?,
+    )?;
     // set_gamma(g): the gamma option for frames drawn (0–1; 0.5 as drawn).
     let h = host.clone();
     g.set(

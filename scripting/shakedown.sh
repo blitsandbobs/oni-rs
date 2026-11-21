@@ -32,12 +32,12 @@ for l in $(ls $G/levels); do for s in ${=saves}; do echo $l:$s; done; done |
   xargs -P 8 -I{} "$0" --one {} $dir $ticks $mode
 bad=0
 for f in $dir/*.txt; do
-  n=${f:t:r}; e=$(grep -c '^SCRIPT-ERROR\|^STEP-ERROR\|^BEGIN-ERROR\|^TOUR-ERROR\|^LOST\|panicked' $f)
+  n=${f:t:r}; e=$(grep -c '^SCRIPT-ERROR\|^STEP-ERROR\|^BEGIN-ERROR\|^TOUR-ERROR\|^LOST\|^READY never\|panicked' $f)
   done_=$(grep -c '^SHAKE-DONE' $f); x=$(grep '^exit' $f | cut -c6-)
   p=$(grep '^PLAYER' $f | cut -c8-); m=$(grep '^START' $f | grep -o 'moved [0-9]*, fell [-0-9]*')
   if [ "$e" != 0 ] || [ "$done_" != 1 ] || [ "$x" != 0 ]; then st="FAIL"; bad=1; else st="ok"; fi
   printf "%-4s %-6s %-26s %s\n" $st $n "$p" "$m"
-  grep '^SCRIPT-ERROR\|^STEP-ERROR\|^BEGIN-ERROR\|^TOUR-ERROR\|^LOST\|panicked' $f | head -6 | sed 's/^/       /'
+  grep '^SCRIPT-ERROR\|^STEP-ERROR\|^BEGIN-ERROR\|^TOUR-ERROR\|^LOST\|^READY never\|panicked' $f | head -6 | sed 's/^/       /'
 done
 echo "skipped commands (runs reaching them):"
 cat $dir/*.txt | grep '^STUBBED' | cut -c9- | tr ' ' '\n' | grep -v '^$' | sort | uniq -c | sort -rn | awk '{printf "  %s (%s)", $2, $1} END {print ""}'

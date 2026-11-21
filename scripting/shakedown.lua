@@ -35,6 +35,16 @@ if TOUR then
   -- trigger volume and at every console in turn (using it), twice over, so
   -- most of the level's scripts run; errors are reported with the stop.
   local stops = dofile(TOUR)
+  -- First the level's opening plays out (skipped where it can be): the
+  -- player is in play before she is moved anywhere.
+  local ready_at
+  for t = 10, 7200, 10 do
+    pcall(skip_cutscene)
+    local ok2, e = pcall(step, 10)
+    if not ok2 then step_err = "the opening: " .. tostring(e) break end
+    if player_ready() then ready_at = t break end
+  end
+  print("READY " .. (ready_at and ("at tick " .. ready_at) or "never (2 minutes)"))
   local seen_errors = 0
   local t = 0
   for pass = 1, 2 do
