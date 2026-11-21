@@ -364,6 +364,7 @@ mod tests {
             events: Vec::new(),
             track: Rc::new(track),
             reach: Vec::new(),
+            eye: None,
         };
         l.reset();
         l
