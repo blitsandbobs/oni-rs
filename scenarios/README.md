@@ -56,6 +56,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `objects.lua` | Placed objects: none until created; forklifts made, run their clips a frame a tick, swap clips, killed; the truck's wheels stop Konoko. |
 | `object_jello.lua` | Level 3's van: its rear door between Konoko and the camera goes see-through (fixed) and stays solid as shipped (Q17, the ray read as a point); away from it nothing is. |
 | `door_sound.lua` | A closed door keeps an ordinary noise from an AI beyond it but lets a gunshot through (muffled); open, it lets anything through. |
+| `gamma.lua` | The gamma option: 0.5 leaves a frame as drawn, 1 brightens it, 0 darkens it (the original's display ramp). |
 | `game_flow.lua` | Save points: `save_game` keeps Konoko (place, health, gun, clips) and `restore_game` puts her back; a script's splash screen is asked for; `win` wins; Konoko dying runs her die script, which fades out and loses the level. |
 | `cinematics.lua` | Cutscene portraits: a name tag slides from off the right to the top right (inset 20 × 65), slides away and goes on `cinematic_stop`; −1 takes the texture's size; a missing texture shows nothing; `end_cutscene` takes them all. |
 | `flinch.lua` | Flinches: a pistol shot plays the Striker's hit overlay over his idle; a punch from behind on the knockdown-resistant Mutant Muro only flinches him. |
@@ -193,6 +194,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `door(id, what)` / `door_state(id)` | Order a door (`open`, `close`, `lock`, `unlock`, `jam`, `unjam`); its state (`closed` / `opening` / `open` / `closing`) and whether it is locked. |
 | `laser(id, what [, factor])` / `laser_state(id)` / `beams()` | Order a laser trigger (`activate`, `deactivate`, `reset`, `hide`, `show`, `speed`); its active / on / triggered state and beams out; every beam now (`{x1,y1,z1,x2,y2,z2}`). |
 | `eye_of(id)` | Where an agent's eyes look (degrees; nil: along its body). |
+| `set_gamma(g)` | The gamma option for the frames drawn (0–1; 0.5 as drawn). |
 | `menu_open([in_game])` / `menu_state()` / `menu_click(id)` / `menu_key(name)` / `menu_close()` | The main menu (`docs/MENU.md`): bring it up; the dialog on top (`dialog`, `depth`, `visible` {id = title}, `rows`, `selected` "level savepoint", `checks`, `sliders`, `popups`); click a control or press a key, getting what the menu asks for (`new_game`, `new_game faithful`, `load L S`, `resume`, `quit`, `options`); take it down. |
 | `skip_cutscene()` / `cutscene_skip()` | Ask to skip the cutscene (as Space does); where a skip is (`idle`, `starting`, `black`, `skipping`, `fading in`) and the screen's black (0–1, nil: none). |
 | `look_at(id, x, y, z)` / `look_at(id)` / `aim_off(id)` | Make an agent look at a point, or stop looking; a fighter's aim off its body, left-right and up-down (degrees). |

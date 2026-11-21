@@ -145,6 +145,7 @@ impl State {
                 self.settings.subtitles = s.subtitles;
                 self.settings.difficulty = s.difficulty.clone();
                 self.settings.volume = s.overall_volume;
+                self.gamma = s.gamma;
                 if let Some(pw) = self.play.as_mut() {
                     pw.world.hud.subtitles_on = s.subtitles;
                 }

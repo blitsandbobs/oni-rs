@@ -203,6 +203,8 @@ struct State {
     /// The out-of-game menus (`app/front.rs`): at start-up with no level
     /// given, and over mission play (Esc).
     front: Option<front::Front>,
+    /// The gamma option (`gamma.rs`).
+    gamma: f32,
     /// The game is over: close.
     quit: bool,
 }
@@ -521,6 +523,7 @@ impl ApplicationHandler for App {
             play,
             settings,
             front,
+            gamma: user.gamma,
             quit: false,
         });
         // No level given: the main menu.
@@ -1059,6 +1062,7 @@ impl State {
             self.renderer.eye = self.cam.eye;
             self.renderer.fog = pw.world.fog.fog;
         }
+        self.renderer.gamma = self.gamma;
         // The main menu over everything (black behind it).
         if let Some(o) = self.menu_overlay() {
             let scale = self.window.scale_factor() as f32;

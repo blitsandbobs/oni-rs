@@ -250,6 +250,9 @@ pub struct Renderer {
     /// big (scaled to the target).
     pub overlay: Vec<OverlayDraw>,
     pub overlay_size: [f32; 2],
+    /// The gamma option (0–1; 0.5 leaves the frame as drawn): `gamma.rs`.
+    pub gamma: f32,
+    gamma_pass: crate::gamma::GammaPass,
     /// The level's prims' triangles by quad (`attach_quads`), for drawing
     /// some quads see-through.
     tri_quads: Vec<Option<TriQuads>>,
@@ -696,6 +699,8 @@ impl Renderer {
             nearest,
             overlay: Vec::new(),
             overlay_size: [640.0, 480.0],
+            gamma: 0.5,
+            gamma_pass: crate::gamma::GammaPass::new(device, format),
             tri_quads: Vec::new(),
             jello: Vec::new(),
             jello_cache: Default::default(),
@@ -864,6 +869,12 @@ impl Renderer {
         cam_up: glam::Vec3,
     ) {
         self.ensure_depth(&gpu.device, w, h);
+        // (Gamma set: the frame drawn into a texture, then through the ramp.)
+        let power = crate::gamma::power(self.gamma);
+        let ramp = (power - 1.0).abs() > 1e-3;
+        let screen = target;
+        let frame = ramp.then(|| self.gamma_pass.frame(&gpu.device, w, h));
+        let target = frame.as_ref().unwrap_or(screen);
         let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
         let sprites = self.sprite_prims(gpu, cam_right, cam_up);
         let decals = self.decal_batches(gpu);
@@ -1052,6 +1063,9 @@ impl Renderer {
             }
         }
         self.overlay_pass(gpu, &mut encoder, target);
+        if ramp {
+            self.gamma_pass.apply(&mut encoder, screen, power);
+        }
         gpu.queue.submit([encoder.finish()]);
     }
 }

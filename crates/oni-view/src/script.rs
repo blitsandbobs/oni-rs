@@ -1927,6 +1927,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         };
         Ok((mode, w.skip_blanket()))
     })?)?;
+    // set_gamma(g): the gamma option for frames drawn (0–1; 0.5 as drawn).
+    let h = host.clone();
+    g.set("set_gamma", lua.create_function(move |_, v: f32| {
+        h.borrow_mut().renderer.gamma = v;
+        Ok(())
+    })?)?;
     // The main menu (docs/MENU.md): menu_open([in_game]) brings it up;
     // menu_state() → {dialog, depth, rows, selected, checks = {id = on},
     // sliders = {id = value}, popups = {id = item}} of the dialog on top (nil:
