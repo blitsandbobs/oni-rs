@@ -8,6 +8,7 @@
 #   scripting/shakedown.sh --tour       (from each level's start, the player
 #                                        put in every trigger volume and at
 #                                        every console, twice over)
+#   options: --saves (a tour from save points 1-4 too), --faithful
 #
 # A run's full report: $TMPDIR/oni-shakedown-{idle,tour}/<level>_<save>.txt.
 G=../generated/oni
@@ -18,18 +19,26 @@ if [ "$1" = "--one" ]; then
   fi
   SHAKE_TOUR=$tour SHAKE_TICKS=$4 SHAKE_SAVE=${s:#0} ./target/release/oni-view $G/levels/$l/environment.glb \
     --character $G/common/characters/konoko_body_high/model.glb \
-    --anim $G/common/animations/KONOKOrun_lt.glb --char-pos 0,0,0 \
+    --anim $G/common/animations/KONOKOrun_lt.glb --char-pos 0,0,0 ${=6} \
     --script scripting/shakedown.lua > $out 2>&1
   echo "exit $?" >> $out
   exit 0
 fi
-mode=idle; if [ "$1" = "--tour" ]; then mode=tour; shift; fi
+mode=idle; saves="0 1 2 3 4"; extra=
+while [ $# -gt 0 ]; do
+  case $1 in
+    --tour) mode=tour; saves=0 ;;
+    --saves) saves="0 1 2 3 4" ;;
+    --faithful) extra=--faithful ;;
+    *) break ;;
+  esac
+  shift
+done
 ticks=${1:-3600}
-dir=${TMPDIR:-/tmp}/oni-shakedown-$mode
+dir=${TMPDIR:-/tmp}/oni-shakedown-$mode${extra:+-faithful}
 rm -rf $dir; mkdir -p $dir
-if [ $mode = tour ]; then saves=0; else saves="0 1 2 3 4"; fi
 for l in $(ls $G/levels); do for s in ${=saves}; do echo $l:$s; done; done |
-  xargs -P 8 -I{} "$0" --one {} $dir $ticks $mode
+  xargs -P 8 -I{} "$0" --one {} $dir $ticks $mode "$extra"
 bad=0
 for f in $dir/*.txt; do
   n=${f:t:r}; e=$(grep -c '^SCRIPT-ERROR\|^STEP-ERROR\|^BEGIN-ERROR\|^TOUR-ERROR\|^LOST\|^READY never\|panicked' $f)
