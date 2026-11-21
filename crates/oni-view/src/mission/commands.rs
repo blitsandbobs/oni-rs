@@ -1111,8 +1111,11 @@ pub fn dispatch(
             nil()
         }
         // An object animation moves the character (its pelvis on the clip's
-        // path, no collision) from its second frame; `_block` waits for one
-        // already playing to end, then starts and goes on at once.
+        // path, no collision) from frame 1 — the script sets 1, but
+        // `OBrAnim_Start` resets it to 0 before the `+= 1`, so it keeps step
+        // with an object started the same tick (a frame ahead and a fast
+        // motorcycle leaves its rider over the front wheel); `_block` waits
+        // for one already playing to end, then starts and goes on at once.
         "chr_envanim" | "chr_envanim_block" => {
             let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1128,7 +1131,7 @@ pub fn dispatch(
             match world.object_anim(&clip) {
                 Some(anim) => {
                     let f = &mut world.fighters[id];
-                    f.env_anim = Some((anim, 2));
+                    f.env_anim = Some((anim, 1));
                     f.env_anim_no_rotation = a(2).and_then(text).is_some_and(|t| t == "norotation");
                 }
                 None => state.warn(format!("{name}: no animation {clip}")),
