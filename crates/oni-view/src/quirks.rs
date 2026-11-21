@@ -173,6 +173,12 @@ impl Quirks {
     pub fn portraits_stretched(self) -> bool {
         self.faithful
     }
+
+    /// Whether the level scripts run as shipped, without our fixes to their
+    /// most glaring mistakes (`docs/SCRIPT_FIXES.md`).
+    pub fn scripts_as_shipped(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]

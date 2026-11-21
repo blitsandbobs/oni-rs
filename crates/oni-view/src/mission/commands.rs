@@ -406,6 +406,16 @@ pub fn dispatch(
                 _ => nil(),
             }
         }
+        "@player_at" => {
+            // (For our fixes, `fixes/`: where the player stands, feet.)
+            let at = host
+                .world()
+                .fighters
+                .first()
+                .map(|f| f.feet())
+                .unwrap_or_default();
+            done(Value::Table(lua.create_sequence_from([at.x, at.y, at.z])?))
+        }
         "@ticks" => {
             let n = match a(0) {
                 Some(Value::String(s)) => state.ticks_of_word(&s.to_string_lossy()),

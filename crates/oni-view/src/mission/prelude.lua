@@ -112,6 +112,25 @@ setmetatable(F, {
     end,
 })
 
+-- Our own fixes to the shipped scripts (`docs/SCRIPT_FIXES.md`), run after
+-- the level's chunk unless `--faithful`: `FIX(id, name, make)` replaces script
+-- function `name` with `make(original)`. A function the scripts don't have is
+-- an error (the fix has drifted from the scripts).
+function FIX(id, name, make)
+    local orig = rawget(F, name)
+    if not orig then
+        __cmd("@error", id .. ": no script function " .. name)
+        return
+    end
+    rawset(F, name, make(orig))
+end
+
+-- Where the player stands (feet): x, y, z. For the fixes only.
+function PLAYER_AT()
+    local p = __cmd("@player_at")
+    return p[1], p[2], p[3]
+end
+
 -- Runs a translated chunk.
 function __load(chunk, name)
     local f, e = load(chunk, name)

@@ -111,7 +111,11 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `sounds.lua` | Level 1: glass-breaking impulses — placed and panned (PC law), the alt past three copies, nothing out of earshot, a full stereo pool gives up its quietest channel, all play out. |
 | `turrets.lua` | Level 2: a wall turret switched on hums (in sound, loop panned to its side, out sound), targets the player, fires and hurts her; deactivating "every turret" switches none; after its time it rests and switches off. |
 | `cooldown.lua` | Q23: the Mercury Bow fired, dropped and picked up again still waits out its delay (fixed); under `--faithful` the drop cleared it, the shipped cooldown exploit. |
-| `dodge_projectile.lua` | Q24: a Super Ball fired past an armed soldier (inside its dodge radius) makes it step away from the ball's path (fixed); under `--faithful` it stands its ground, the shipped projectile check reading from the world's origin. |
+| `dodge_projectile.lua` | Q24: a Super Ball fired past an armed soldier (inside its dodge radius) is a full-weight direct hit, as with the Daodan DLL, and the soldier sidesteps (fixed); under `--faithful` it stands its ground, the shipped projectile check reading from the world's origin. |
+| `fix_brain_lockout.lua` | S1 (`docs/SCRIPT_FIXES.md`): level 2's Deadly Brain save waits for Konoko to be back past door 26, then closes and locks it; under `--faithful` it locks the open door with her outside. |
+| `fix_brain_consoles.lua` | S4: restored at level 2's save point 4, the brain's next round needs all 4 consoles; under `--faithful`, 3. |
+| `fix_tarmac_respawn.lua` | S2: restored at level 4's save point 3, the tarmac's guards stay gone; under `--faithful` they spawn again and the game saves back at save point 2. |
+| `fix_door14_lock.lua` | S3: level 18's door 14 closes before it locks behind Konoko; under `--faithful` it locks open. |
 | `reload_knocked.lua` | Q26: a reload knocked out before the clip goes in gives the clip back (fixed); under `--faithful` it is lost. |
 | `throw_wall.lua` | Q25: a forward punch at a dummy on the other side of a locked door stays a punch (fixed); under `--faithful` it throws the dummy through the door. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |

@@ -1360,6 +1360,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             // start not run.)
             if run != Some(false) {
                 m.begin(&mut *host);
+            } else if !host.world.quirks.scripts_as_shipped() {
+                let level = host.world.level_dir.clone();
+                m.apply_fixes(&level);
             }
             host.mission = Some(m);
             Ok(())

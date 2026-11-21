@@ -6,6 +6,7 @@
 //! with each engine command carried out against the [`World`].
 
 mod commands;
+mod fixes;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -192,6 +193,10 @@ impl Mission {
     pub fn begin(&mut self, host: &mut dyn Host) {
         self.state.triggers =
             commands::Triggers::load(&host.world().level_dir.join("triggers.json"));
+        if !host.world().quirks.scripts_as_shipped() {
+            let level = host.world().level_dir.clone();
+            self.apply_fixes(&level);
+        }
         let placed = host.world().level_ai.characters.clone();
         if let Some(k) = placed.iter().position(|c| c.has("player")) {
             let p = &placed[k];
@@ -219,6 +224,19 @@ impl Mission {
         if !self.start("main", &[]) {
             self.state.error("no main function".into());
         }
+    }
+
+    /// Our fixes to the level's scripts (`docs/SCRIPT_FIXES.md`), by the
+    /// level folder's name (`NN`).
+    pub fn apply_fixes(&mut self, level_dir: &Path) {
+        let level = level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let Some(src) = fixes::source(level) else {
+            return;
+        };
+        if let Err(e) = self.lua.load(src).set_name(format!("fixes/{level}")).exec() {
+            self.state.error(format!("fixes/{level}: {e}"));
+        }
+        // (`FIX` reports a function the scripts lack as an error.)
     }
 
     /// Runs a chunk of Lua in the scripts' state (in the translator's form:
