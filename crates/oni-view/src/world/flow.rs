@@ -37,6 +37,12 @@ impl World {
             guns: [gun(p.hand), gun(p.holster), gun(p.magic)],
         });
         eprintln!("game: {} {n}", if autosave { "autosave" } else { "save" });
+        // (Kept between runs in play, for `--save-point`.)
+        if self.persist_continues {
+            if let Some(c) = &self.saved {
+                crate::game::store_continue(self.hud.level, c);
+            }
+        }
     }
 
     /// `restore_game` (`ONrGameState_UseContinue`): the player as saved —

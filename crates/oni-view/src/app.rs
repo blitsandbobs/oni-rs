@@ -95,6 +95,7 @@ fn mission_level(
     world.load_level(&level_dir);
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
+    world.persist_continues = true;
     world.attach_doors(crate::door_meshes(&scene));
     world.attach_glass(crate::glass_parts(&scene));
     world.attach_weapons(&oni_root.join("common"));
@@ -326,7 +327,12 @@ impl ApplicationHandler for App {
             let level_dir = self.cast.level_dir.clone();
             let level = level_dir.file_name().and_then(|n| n.to_str()).and_then(|n| n.parse().ok()).unwrap_or(1);
             let oni_root = level_dir.parent().and_then(|p| p.parent()).map(std::path::Path::to_path_buf).unwrap_or_default();
-            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, None) {
+            // (Started at a save point: its continue, if one was kept.)
+            let saved = (self.save_point > 0).then(|| crate::game::load_continue(level, self.save_point)).flatten();
+            if self.save_point > 0 && saved.is_none() {
+                eprintln!("game: no continue kept for save point {} (the level's start)", self.save_point);
+            }
+            match mission_level(&gpu, format, &oni_root, level, Some(scene.clone()), &settings, self.save_point, saved) {
                 Ok((r, pw)) => {
                     renderer = r;
                     charview = None;
