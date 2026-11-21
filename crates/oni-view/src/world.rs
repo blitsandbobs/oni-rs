@@ -30,6 +30,7 @@ pub mod fog;
 mod hypo;
 mod hud;
 mod lens;
+pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
 mod objects;
@@ -240,6 +241,12 @@ pub struct World {
     /// A cutscene or letterbox is on (no compass / objective sounds; the
     /// condition loops hushed).
     pub in_cutscene: bool,
+    /// Ticks into the cutscene (or since a splash over it went).
+    pub cutscene_ticks: u32,
+    /// A cutscene skip under way (`world/skip.rs`).
+    pub skip: skip::Skip,
+    /// The sound turned off (a skip): the overall volume to restore.
+    sound_off_volume: Option<f32>,
     pub letterbox: bool,
     /// The level's environmental particles (`docs/PARTICLES.md`).
     pub(crate) env_particles: Vec<env_particles::EnvParticle>,
@@ -329,6 +336,9 @@ impl World {
             flybys: Vec::new(),
             game_sounds: Default::default(),
             in_cutscene: false,
+            cutscene_ticks: 0,
+            skip: skip::Skip::Idle,
+            sound_off_volume: None,
             letterbox: false,
             env_particles: Vec::new(),
             env_particles_started: false,
@@ -1628,6 +1638,9 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
+        if self.in_cutscene {
+            self.cutscene_ticks += 1;
+        }
         self.fog.tick();
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.

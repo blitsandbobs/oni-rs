@@ -548,6 +548,13 @@ impl ApplicationHandler for App {
                         st.keys.clear();
                         return;
                     }
+                    // Space in a cutscene skips it (restored: as shipped the
+                    // call is commented out, Q18).
+                    if code == KeyCode::Space && event.state == ElementState::Pressed && !event.repeat {
+                        if let Some(pw) = st.play.as_mut().filter(|p| p.world.in_cutscene && !p.world.quirks.faithful) {
+                            pw.world.skip_cutscene();
+                        }
+                    }
                     // F1: the pause screen (the cursor freed for its buttons).
                     if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
                         if let Some(pw) = st.play.as_mut() {
@@ -804,13 +811,23 @@ impl State {
         }
 
         pw.accum += dt;
+        // A cutscene being skipped: 32 ticks this frame, whatever the clock.
+        let mut fast = if frozen { None } else { pw.world.skip_frame() };
         if frozen {
             // (The sound runs on: loops, fades, the volume.)
             pw.accum = 0.0;
             audio_only(pw, dt);
         }
-        while pw.accum >= TICK {
-            pw.accum -= TICK;
+        if fast.is_some() {
+            pw.accum = 0.0;
+        }
+        loop {
+            match fast.as_mut() {
+                Some(0) => break,
+                Some(n) => *n -= 1,
+                None if pw.accum >= TICK => pw.accum -= TICK,
+                None => break,
+            }
             // The player from the controls, dummies idle (AI later); then
             // melee hits resolve and reactions play.
             pw.world.step(controls);
@@ -885,6 +902,8 @@ impl State {
         }
         let after = after?;
         flow.splash = None;
+        // (A splash over a cutscene: its skip waits to settle again.)
+        pw.world.cutscene_ticks = 0;
         Some(after)
     }
 
@@ -942,8 +961,13 @@ impl State {
             // screen of the time on a high-density display).
             let scale = self.window.scale_factor() as f32;
             let (w, h) = (self.config.width as f32 / scale, self.config.height as f32 / scale);
-            self.renderer.overlay = pw.world.hud_draw(w, h);
+            self.renderer.overlay = if pw.world.skipping() { Vec::new() } else { pw.world.hud_draw(w, h) };
             self.renderer.overlay_size = [w, h];
+            // A cutscene skip's fade (black while it skips).
+            if let Some(a) = pw.world.skip_blanket() {
+                self.renderer.overlay.push(crate::render::OverlayDraw { texture: None, tris: quad([0.0, 0.0, w, h]), color: [0.0, 0.0, 0.0, a], additive: false });
+            }
+            pw.world.skip_drawn();
             // A splash screen over everything: black, its picture in the
             // middle (640 × 480), the fade's black over it.
             if let Some(sp) = pw.flow.as_ref().and_then(|f| f.splash.as_ref()) {

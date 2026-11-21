@@ -119,6 +119,10 @@ impl World {
     /// once it has been up a second — closed.
     pub fn pause_toggle(&mut self) {
         let was = self.hud.pause.is_some();
+        // (Not in a cutscene, nor dead: `ONiGameState_ProcessMiscActions`.)
+        if !was && (self.in_cutscene || self.fighters.first().is_some_and(|p| !p.alive())) {
+            return;
+        }
         let (lsi, weapon) = match self.fighters.first() {
             Some(p) => (p.inventory.lsi, p.hand.or(p.holster).map(|w| self.armory.weapons[w].class.name.clone())),
             None => (false, None),

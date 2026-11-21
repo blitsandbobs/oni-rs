@@ -180,11 +180,16 @@ impl ScriptHost {
                 self.world.audio.tick(Some(&self.world.quads));
                 continue;
             }
-            self.world.step(controls);
-            if let Some(mut m) = self.mission.take() {
-                m.tick(self);
-                self.mission = Some(m);
+            // (Each tick a frame: a cutscene being skipped runs 32 a frame.)
+            let ticks = self.world.skip_frame().unwrap_or(1);
+            for _ in 0..ticks {
+                self.world.step(controls);
+                if let Some(mut m) = self.mission.take() {
+                    m.tick(self);
+                    self.mission = Some(m);
+                }
             }
+            self.world.skip_drawn();
         }
     }
 
@@ -1890,6 +1895,28 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // skip_cutscene() asks to skip the cutscene (as Space does);
+    // cutscene_skip() → "idle" / "starting" / "black" / "skipping" /
+    // "fading in", and the screen's black (0–1; nil: none).
+    let h = host.clone();
+    g.set("skip_cutscene", lua.create_function(move |_, ()| {
+        h.borrow_mut().world.skip_cutscene();
+        Ok(())
+    })?)?;
+    let h = host.clone();
+    g.set("cutscene_skip", lua.create_function(move |_, ()| {
+        use crate::world::skip::Skip;
+        let host = h.borrow();
+        let w = &host.world;
+        let mode = match w.skip {
+            Skip::Idle => "idle",
+            Skip::Starting(_) => "starting",
+            Skip::Black => "black",
+            Skip::Skipping => "skipping",
+            Skip::FadingIn(_) => "fading in",
+        };
+        Ok((mode, w.skip_blanket()))
+    })?)?;
     // look_at(id, x, y, z): an agent looks at a point (as `ai2_lookatme`);
     // look_at(id): it stops looking.
     let h = host.clone();

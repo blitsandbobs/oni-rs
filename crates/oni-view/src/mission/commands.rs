@@ -516,6 +516,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             }
             let world = host.world();
             world.in_cutscene = true;
+            world.cutscene_ticks = 0;
+            world.skip = crate::world::skip::Skip::Idle;
+            world.sound_enabled(true);
             world.letterbox = true;
             world.input_enabled = false;
             if !world.fighters.is_empty() {
@@ -572,6 +575,8 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             state.all_passive = false;
             let world = host.world();
             world.in_cutscene = false;
+            world.cancel_skipping();
+            world.sound_enabled(true);
             world.letterbox = false;
             world.input_enabled = true;
             world.camera.jello = true;

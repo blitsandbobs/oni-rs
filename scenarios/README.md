@@ -101,6 +101,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `script_orders.lua` | Script orders through the real dispatcher: poison doses (5 every 30 calls; a gap restarts it), an unstoppable character takes blows without reacting, `ai2_kill` smites every AI but not the player. |
 | `stairs.lua` | Stairs: Konoko runs up a flight (steps aren't collided with — the ramp under them is); the Bay 4 comguy climbs to its alarm console (#32). |
 | `hearing.lua` | Hearing bodies (#13): a crouched walk is silent, running is heard, a landed blow alarms (medium). |
+| `cutscene_skip.lua` | Skipping a cutscene: too soon (under 10 ticks in) nothing; then 20 frames' fade to black with the sound off, 32 ticks a frame unseen until the cutscene ends, 20 frames' fade back, the sound back. |
 | `death.lua` | Death (#12): a body stays — unless its class deletes its dead after a delay (the mad bomber, 190 ticks). |
 | `teams.lua` | Teams (#11): a friend's punch passes through; an enemy's lands; auto-facing turns toward an enemy, never a friend. |
 | `text_console.lua` | Level 3's data console: `text_console` opens its 3 pages in a modal dialog — the game stands still; Space turns the page and closes on the last (Close), Esc closes; no such console opens nothing. |
@@ -191,6 +192,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `door(id, what)` / `door_state(id)` | Order a door (`open`, `close`, `lock`, `unlock`, `jam`, `unjam`); its state (`closed` / `opening` / `open` / `closing`) and whether it is locked. |
 | `laser(id, what [, factor])` / `laser_state(id)` / `beams()` | Order a laser trigger (`activate`, `deactivate`, `reset`, `hide`, `show`, `speed`); its active / on / triggered state and beams out; every beam now (`{x1,y1,z1,x2,y2,z2}`). |
 | `eye_of(id)` | Where an agent's eyes look (degrees; nil: along its body). |
+| `skip_cutscene()` / `cutscene_skip()` | Ask to skip the cutscene (as Space does); where a skip is (`idle`, `starting`, `black`, `skipping`, `fading in`) and the screen's black (0–1, nil: none). |
 | `look_at(id, x, y, z)` / `look_at(id)` / `aim_off(id)` | Make an agent look at a point, or stop looking; a fighter's aim off its body, left-right and up-down (degrees). |
 | `mission_exec(code)` | Defines script functions of the scenario's own (translated-Lua form, `F.name = function() C.command(…) end`) in the running mission; run them with `mission_call`. |
 | `cinematics()` | The cutscene portraits showing: `{name, x, y, w, h}` on the 1024 × 768 virtual screen. |
