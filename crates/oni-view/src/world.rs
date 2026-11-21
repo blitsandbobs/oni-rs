@@ -32,6 +32,8 @@ mod hud;
 mod lens;
 pub mod neutral;
 pub mod corpses;
+pub mod magic;
+pub mod cheats;
 pub mod skip;
 pub mod timer;
 pub use hud::hit_quadrant;
@@ -97,6 +99,8 @@ fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f3
 #[derive(Clone)]
 pub struct CharKind {
     pub model: usize,
+    /// Its low body's model, for the magic effects (if converted).
+    pub magic_model: Option<usize>,
     pub character: Rc<Character>,
     pub anims: Rc<AnimCollection>,
     /// The character class's tuning (fight stance, idle, jump, fall damage).
@@ -144,6 +148,10 @@ pub struct World {
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
     /// The level's pre-placed corpses.
     pub corpses: Vec<corpses::Corpse>,
+    /// The cheat codes typed and their toggles.
+    pub cheats: cheats::Cheats,
+    /// The magic effects' textures: shield, super shield, invisibility.
+    pub magic_textures: [Option<std::path::PathBuf>; 3],
     pub(crate) neutral_runs: std::collections::HashMap<usize, neutral::Run>,
     /// The level's laser triggers, and their beams out this tick (from, to,
     /// colour — for drawing).
@@ -299,6 +307,8 @@ impl World {
             consoles: Vec::new(),
             neutrals: Default::default(),
             corpses: Vec::new(),
+            magic_textures: Default::default(),
+            cheats: Default::default(),
             neutral_runs: Default::default(),
             doors: Vec::new(),
             lasers: Vec::new(),
@@ -380,6 +390,7 @@ impl World {
         if !self.quads.quads.is_empty() {
             f.snap_to_floor(&self.quads);
         }
+        f.magic_model = kind.magic_model;
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
@@ -514,7 +525,8 @@ impl World {
             }
         }
 
-        // Sight.
+        // Sight (none of one invisible long enough).
+        let seeable: Vec<bool> = (0..n).map(|j| self.can_be_seen(j)).collect();
         for i in 0..n {
             if !alive[i] || self.fighters[i].passive || self.fighters[i].perception.as_ref().is_none_or(|p| p.blind) {
                 continue;
@@ -531,7 +543,7 @@ impl World {
             };
             let look = forward(yaw);
             for j in 0..n {
-                if j == i || !alive[j] {
+                if j == i || !alive[j] || !seeable[j] {
                     continue;
                 }
                 let p = self.fighters[i].perception.as_ref().expect("perceiving");
@@ -558,7 +570,7 @@ impl World {
             };
             if let Some(p) = f.perception.as_mut() {
                 if now.is_multiple_of(60) {
-                    p.decay(now, &|_| true);
+                    p.decay(now, &|w| seeable.get(w).copied().unwrap_or(true));
                 }
                 if calm {
                     p.calm();
@@ -632,6 +644,7 @@ impl World {
                 friend: f.team().regards(me_team) != crate::ai::perception::Relation::Hostile,
                 dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
                 fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
+                invisible: f.inventory.invisibility > 0,
             })
             .collect();
         let gun = self.gun_view(i);
@@ -827,6 +840,8 @@ impl World {
         self.fog = Default::default();
         self.level_ai = Rc::new(crate::ai::level::LevelAi::load(level_dir, &level_dir.join("../../common")));
         self.consoles = crate::consoles::load(level_dir);
+        // (Cheats: once the game is won — or the developers' switch.)
+        self.cheats.allowed = crate::game::won_game() || std::env::var_os("ONI_CHEATS").is_some();
         self.neutrals = crate::neutrals::load(level_dir);
         self.corpses = corpses::load(level_dir);
         self.doors = crate::doors::load(level_dir);
@@ -1973,8 +1988,10 @@ impl World {
         self.timer_tick();
         self.conditions_tick();
         self.audio.tick(Some(&self.quads));
+        self.cheats_tick();
         for i in 0..self.fighters.len() {
             self.inventory_tick(i);
+            self.magic_tick(i);
         }
         self.hud_tick();
         self.camera_tick();
@@ -2199,6 +2216,8 @@ impl World {
                 let potency = self.potency(a);
                 self.fighters[t.target].thrown_potency = potency;
                 eprintln!("throw: fighter {a} throws {} ({clip})", t.target);
+                // (Both seen for a moment, if invisible.)
+                self.reveal(a, t.target);
                 let at = self.fighters[a].feet();
                 self.sound(crate::ai::perception::Stimulus::SoundMelee, at, 150.0, Some(a), Some(t.target));
             } else {
@@ -2344,6 +2363,9 @@ impl World {
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
         let wrap = |x: f32| (x + PI).rem_euclid(TAU) - PI;
+        // A blow shows them both for a moment, if invisible
+        // (`ONiCharacter_BecomeTemporarilyVisible`).
+        self.reveal(a, b);
         let (attacker_feet, attack_dir) = (self.fighters[a].feet(), self.attack_vector(a));
         let quirks = self.quirks;
         // (Above full health a super-hypo class hits harder.)
@@ -2364,7 +2386,14 @@ impl World {
                 m.daze = m.daze.min(1);
             }
         }
-        if fb.motion.invulnerable() {
+        // The player omnipotent (the cheat): past every defence, at least
+        // a killing blow.
+        let omnipotent = self.cheats.omnipotent && self.fighters[a].player;
+        let fb = &mut self.fighters[b];
+        if omnipotent {
+            damage = damage.max(fb.hp);
+        }
+        if fb.motion.invulnerable() && !omnipotent {
             fb.take_damage(0, attack_dir);
             eprintln!("hit: fighter {a} → {b}: invulnerable");
             return;
@@ -2376,7 +2405,8 @@ impl World {
         let skill = self.block_skill(b);
         let roll = self.percent();
         let fb = &mut self.fighters[b];
-        let blocks = skill.is_none_or(|p| roll < p)
+        let blocks = !omnipotent
+            && skill.is_none_or(|p| roll < p)
             && attack.flags & strike::UNBLOCKABLE == 0
             && fb.motion.hit_stun == 0
             && fb.motion.defensive()
@@ -2390,7 +2420,7 @@ impl World {
             fb.facing.facing = to_attacker.rem_euclid(TAU);
             if attack.flags & strike::SPECIAL == 0 {
                 fb.take_damage(0, attack_dir);
-                if fb.unstoppable {
+                if fb.is_unstoppable() {
                     // (Blocks without block stun.)
                     fb.please_block = true;
                 } else if attack.stagger > 0 {

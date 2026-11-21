@@ -86,6 +86,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `sight.lua` | The gun's sight: from the marker on the gun, stopping 2 short of the wall or a character; red / blue lasers, a tunnel without one; none for others, an empty gun, or a gun through a wall (which doesn't fire). |
 | `gun_hold.lua` | The gun in the hand: it rides the hand through a pickup, points down the aim standing, is held to the aiming screen's reach; a left-handed ninja holds it in the left hand. |
 | `glass.lua` | A shot breaks a glass pane, which bursts into five falling shards: level 1's range has 18 targets (references 3001–3018) that `env_broken` counts; `env_show` breaks and mends glass. |
+| `shield_invis.lua` | Shield belts and invisibility (and the cheat codes): `forcefield` typed on the pause screen (only once allowed) gives a full shield, shown climbing 2 a tick to a glow of 89; a shot into a shielded dummy takes shield, not health, and flares the parts struck; `moonshadow` fades Konoko out, unseen by a Striker facing her after 90 ticks, a punch shows her at 0.6; off, she fades back; a picked-up cloak runs down 1800 ticks. |
 | `corpses.lua` | Level 1's pre-placed corpse (Chung) is drawn lying on the warehouse floor with the LSI by his hand; from save point 1, finding the body plays its cutscene, Konoko picks up the LSI, the script's data console reads it and door 37 unlocks. |
 | `ai_shoot.lua` | An armed enemy that sees the player goes into combat, aims and fires; its shots land; empty, it fights hand to hand. |
 | `ai_gun.lua` | An unarmed enemy that shoots goes for a loaded gun lying near, bends for it and shoots with it. |
@@ -184,6 +185,8 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `inventory(id)` → `clips, cells, hypos` | What a fighter carries besides guns. |
 | `powerup(id, kind [, amount])` | Give a powerup the game's way (`ammo`, `cell`, `hypo`, `shield`, `invis`, `lsi`) → how much it took. |
 | `shadow(id)` | Fighter `id`'s shadow this frame: `{alpha, quad, vertices, positions}`, or nil. |
+| `cheats(on)` / `type_keys(s)` | Allow the cheat codes (as once the game is won); type letters on the pause screen → the last cheat message. |
+| `effects(id)` / `magic_drawn()` | A fighter's shield and invisibility: `{shield, shield_shown, shield_active, shield_parts, daodan, invisibility, invisible_for, invis_active, invis_alpha, seen}`; how many magic effects the last screenshot drew. |
 | `corpses()` | The level's pre-placed corpses: `{class, x, y, z, drawn}` each (where its pelvis lies; whether its class has a model). |
 | `decals([class])` / `quad_plane(q)` / `particles_of(class)` / `health_shade(id)` / `show_decals(on)` | The live decals (of a class), the level's first, oldest first: `class`, `static`, `alpha` (0–255), `vertices`, `triangles`, `positions`, `quad` made on; a level quad's plane (`a, b, c, d`); where each particle of a class is (`{x, y, z, dx, dy, dz [, tint]}`: its forward axis, its colour when a variable); a fighter's health colour; whether screenshots draw decals. |
 | `env_particles(tag)` / `particle(tag, command [, event])` / `console_screen(id)` | How many of the level's environmental particles with that tag are alive; send them a command as scripts do; the texture a console's screen shows now. |

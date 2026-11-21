@@ -637,8 +637,16 @@ fn collect_game_settings(dat: &Dat<'_>, registry: &oni_template::Registry) -> Op
                 .collect()
         })
         .unwrap_or_default();
+    // The magic effects' textures (`ONrCharacter_Draw`: by name, the shield,
+    // a super shield's and invisibility's), as their files are named.
+    let magic = serde_json::json!({
+        "shield": sanitize("SHIELD"),
+        "daodanShield": sanitize("DAODAN_SHIELD"),
+        "invis": sanitize("INVIS"),
+    });
     Some(serde_json::json!({
         "powerups": powerups,
+        "magicTextures": magic,
         "autoprompts": autoprompts,
         "healthColor": health_color,
         "eventSounds": events,
@@ -2150,6 +2158,31 @@ fn convert_characters(
             })
             .collect();
         std::fs::write(dir.join("model.glb"), scene_to_glb(&nodes))?;
+        // The low body too: magic effects (a shield's glow, invisibility's
+        // shimmer) are drawn over it (`TRcBody_Low`; untextured, they bring
+        // their own).
+        if let Some(mut low) = character::extract_body(dat, inst, character::lod::LOW) {
+            if let Some(pose) = &pose {
+                character::apply_pose(&mut low, pose, true);
+            }
+            let nodes: Vec<SceneNode> = low
+                .parts
+                .iter()
+                .map(|p| SceneNode {
+                    name: p.bone.clone(),
+                    translation: p.translation,
+                    rotation: p.rotation,
+                    parent: p.parent,
+                    mesh: Some(&p.mesh),
+                    blend: false,
+                    additive: false,
+                    self_illum: false,
+                    one_sided: false,
+                    texture_uri: None,
+                })
+                .collect();
+            std::fs::write(dir.join("low.glb"), scene_to_glb(&nodes))?;
+        }
         write_character_json(&dir, &body, &anim_sets)?;
         stats.characters += 1;
         stats.character_meta += 1;

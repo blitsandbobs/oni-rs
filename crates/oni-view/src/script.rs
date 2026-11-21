@@ -82,6 +82,8 @@ struct ScriptHost {
     class_names: Vec<String>,
     /// Whether frames draw the decals (`show_decals`).
     show_decals: bool,
+    /// How many magic effects the last screenshot drew.
+    magic_drawn: usize,
     /// Controls the player holds across steps (`anim::input::key` bits).
     held: u32,
     /// Buttons tapped for the next step's first tick only.
@@ -163,6 +165,7 @@ impl ScriptHost {
             opponent: cast.opponent.unwrap_or_else(|| cast.player.clone()),
             class_names: vec![cast.player],
             show_decals: true,
+            magic_drawn: 0,
             held: 0,
             taps: 0,
             eye: None,
@@ -248,7 +251,9 @@ impl ScriptHost {
         };
         self.renderer.overlay_size = [w as f32, h as f32];
         let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
-        let mut guns: Vec<(usize, Vec<Mat4>, bool)> = self
+        self.renderer.magic = self.world.magic_draws(&bones);
+        self.magic_drawn = self.renderer.magic.len();
+        let mut guns: Vec<(usize, Vec<Mat4>, bool, f32)> = self
             .world
             .gun_draws()
             .into_iter()
@@ -256,18 +261,24 @@ impl ScriptHost {
             .chain(self.world.turret_draws())
             .chain(self.world.object_draws())
             .chain(self.world.powerup_draws())
-            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false)))
+            .filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0)))
             .collect();
         // (Objects in the camera's way, see-through.)
         for (path, m) in self.world.object_jello_draws() {
             if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                guns.push((k, vec![m], true));
+                guns.push((k, vec![m], true, 1.0));
+            }
+        }
+        // (Guns held by bodies fading out.)
+        for (path, m, a) in self.world.faded_gun_draws() {
+            if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
+                guns.push((k, vec![m], false, a));
             }
         }
         // (Consoles' screens, textured by their state.)
         for (path, tex, m) in self.world.console_draws() {
             if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                guns.push((k, vec![m], false));
+                guns.push((k, vec![m], false, 1.0));
             }
         }
         let draws: Vec<CharDraw> = self
@@ -277,7 +288,7 @@ impl ScriptHost {
             .zip(&bones)
             .map(|(f, b)| f.draw(b))
             .chain(self.world.corpse_draws())
-            .chain(guns.iter().map(|(m, b, see_through)| CharDraw { model: *m, bones: b, see_through: *see_through }))
+            .chain(guns.iter().map(|(m, b, see_through, alpha)| CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha }))
             .collect();
         let basis = cam.billboard_basis();
         let rgba = crate::render_to_rgba(
@@ -748,6 +759,55 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(Some(t))
         })?,
     )?;
+    // cheats(on): typing the cheat codes allowed (as once the game is won).
+    // type_keys(s) → the last message: letters typed on the pause screen.
+    let h = host.clone();
+    g.set("cheats", lua.create_function(move |_, on: bool| {
+        h.borrow_mut().world.cheats.allowed = on;
+        Ok(())
+    })?)?;
+    let h = host.clone();
+    g.set(
+        "type_keys",
+        lua.create_function(move |_, s: String| {
+            let mut host = h.borrow_mut();
+            let mut last = None;
+            for c in s.chars() {
+                if let Some(m) = host.world.cheat_key(c) {
+                    last = Some(m.to_string());
+                }
+            }
+            Ok(last)
+        })?,
+    )?;
+    // effects(id) → {shield, shield_shown, shield_active, shield_parts,
+    // daodan, invisibility, invisible_for, invis_active, invis_alpha,
+    // seen}: a fighter's shield and invisibility (`seen`: the AI can see
+    // it).
+    let h = host.clone();
+    g.set(
+        "effects",
+        lua.create_function(move |lua, id: usize| {
+            let host = h.borrow();
+            let f = host.world.fighters.get(id).ok_or_else(|| mlua::Error::runtime("no such fighter"))?;
+            let t = lua.create_table()?;
+            t.set("shield", f.inventory.shield)?;
+            t.set("shield_shown", f.inventory.shield_display)?;
+            t.set("shield_active", f.effects.shield_active)?;
+            t.set("shield_parts", f.effects.shield_parts.to_vec())?;
+            t.set("daodan", f.effects.daodan)?;
+            t.set("invisibility", f.inventory.invisibility)?;
+            t.set("invisible_for", f.inventory.invisible_frames)?;
+            t.set("invis_active", f.effects.invis_active)?;
+            t.set("invis_alpha", f.effects.invis_alpha)?;
+            t.set("seen", host.world.can_be_seen(id))?;
+            Ok(t)
+        })?,
+    )?;
+    // magic_drawn() → how many magic effects the last screenshot drew
+    // (shields, invisibility's shimmer).
+    let h = host.clone();
+    g.set("magic_drawn", lua.create_function(move |_, ()| Ok(h.borrow().magic_drawn))?)?;
     let h = host.clone();
     g.set(
         "pause_press",

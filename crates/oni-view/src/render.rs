@@ -31,7 +31,7 @@ impl Gpu {
             .await
             .expect("no suitable GPU adapter");
         let limits = wgpu::Limits {
-            max_push_constant_size: 64, // one 4x4 model matrix
+            max_push_constant_size: 128, // a 4x4 model matrix and a vec4
             ..wgpu::Limits::default()
         };
         let (device, queue) = adapter
@@ -228,6 +228,34 @@ pub struct CharDraw<'a> {
     pub bones: &'a [Mat4],
     /// Drawn see-through (an object in the camera's way: 31 of 255).
     pub see_through: bool,
+    /// How visible (1: as usual; below, blended at that alpha without
+    /// writing depth — an invisible body fading; 0: not drawn).
+    pub alpha: f32,
+}
+
+/// The push constants: a model matrix, and for the faded and magic draws a
+/// vec4 (alpha, time, kind).
+const PUSH_SIZE: u32 = 80;
+
+/// Which magic effect (`M3cTextureFlags_MagicShield_*`): its colours.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum MagicKind {
+    Shield,
+    Daodan,
+    Invis,
+}
+
+/// A magic effect over a body (`TRrBody_DrawMagic`): a model drawn part
+/// by part with `bones`, in `texture`, each part at its `alpha`, shimmering
+/// by `kind` at game time `time`.
+#[derive(Clone, Debug)]
+pub struct MagicDraw {
+    pub model: usize,
+    pub bones: Vec<Mat4>,
+    pub texture: std::path::PathBuf,
+    pub kind: MagicKind,
+    pub alpha: [f32; 19],
+    pub time: u32,
 }
 
 pub struct Renderer {
@@ -236,6 +264,9 @@ pub struct Renderer {
     jello_pipeline: wgpu::RenderPipeline,
     /// The objects in the camera's way (31 of 255).
     object_jello_pipeline: wgpu::RenderPipeline,
+    /// A body fading (invisibility), and magic effects over bodies.
+    faded_pipeline: wgpu::RenderPipeline,
+    magic_pipeline: wgpu::RenderPipeline,
     /// The one-sided level quads' pipelines (backs culled).
     opaque_cull_pipeline: wgpu::RenderPipeline,
     blend_cull_pipeline: wgpu::RenderPipeline,
@@ -294,6 +325,8 @@ pub struct Renderer {
     /// Particles to draw this frame (glowing sprites), and textures loaded
     /// for them by file.
     pub sprites: Vec<Sprite>,
+    /// This frame's magic effects (shields, invisibility).
+    pub magic: Vec<MagicDraw>,
     textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
     /// The scene's and models' textures by index, their files (to find the
     /// animated ones).
@@ -370,7 +403,7 @@ impl Renderer {
             bind_group_layouts: &[&uniform_bgl, &tex_bgl],
             push_constant_ranges: &[wgpu::PushConstantRange {
                 stages: wgpu::ShaderStages::VERTEX,
-                range: 0..64,
+                range: 0..PUSH_SIZE,
             }],
         });
 
@@ -447,11 +480,46 @@ impl Renderer {
         let jello_pipeline = make_pipeline_with("jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello");
         let object_jello_pipeline = make_pipeline_with("object jello", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_jello_object");
         let blend_pipeline = make_pipeline("alpha", Some(wgpu::BlendState::ALPHA_BLENDING), false);
-        let additive_pipeline = make_pipeline("additive", Some(additive), false);
+        // (Additive textures draw with the fog forced off, as the original's
+        // GL engine does — `gl_utility.c`, "force fog off!")
+        let additive_pipeline = make_pipeline_with("additive", Some(additive), false, "fs_nofog");
         let opaque_cull_pipeline = culled("opaque culled", None, true, "fs_main");
         let blend_cull_pipeline = culled("alpha culled", Some(wgpu::BlendState::ALPHA_BLENDING), false, "fs_main");
-        let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_main");
+        let additive_cull_pipeline = culled("additive culled", Some(additive), false, "fs_nofog");
         let flare_pipeline = make_pipeline_full("flare", Some(additive), false, "fs_nofog", wgpu::CompareFunction::Always);
+        // A faded body (blended at its alpha, no depth written) and magic
+        // effects (added on, no depth written): their own vertex stages.
+        let effect_pipeline = |label: &str, blend: wgpu::BlendState, vertex: &str, fragment: &str| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some(vertex),
+                    buffers: std::slice::from_ref(&vbl),
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(fragment),
+                    targets: &[Some(wgpu::ColorTargetState { format, blend: Some(blend), write_mask: wgpu::ColorWrites::ALL })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState { topology: wgpu::PrimitiveTopology::TriangleList, ..Default::default() },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: DEPTH_FORMAT,
+                    depth_write_enabled: false,
+                    depth_compare: wgpu::CompareFunction::Less,
+                    stencil: Default::default(),
+                    bias: Default::default(),
+                }),
+                multisample: Default::default(),
+                multiview: None,
+                cache: None,
+            })
+        };
+        let faded_pipeline = effect_pipeline("faded", wgpu::BlendState::ALPHA_BLENDING, "vs_faded", "fs_faded");
+        let magic_pipeline = effect_pipeline("magic", additive, "vs_magic", "fs_magic");
 
         // Billboard particle pipeline: camera-facing quads, additive glow,
         // depth-tested against the scene but with no depth write.
@@ -692,6 +760,8 @@ impl Renderer {
             blend_pipeline,
             jello_pipeline,
             object_jello_pipeline,
+            faded_pipeline,
+            magic_pipeline,
             opaque_cull_pipeline,
             blend_cull_pipeline,
             additive_cull_pipeline,
@@ -728,6 +798,7 @@ impl Renderer {
             char_models: Vec::new(),
             models_by_path: Default::default(),
             sprites: Vec::new(),
+            magic: Vec::new(),
             textures_by_path: Default::default(),
             tex_paths,
             tex_anims: Default::default(),
@@ -882,6 +953,14 @@ impl Renderer {
         let beams = self.beam_prim(&gpu.device, cam_right, cam_up);
         let sprites = self.sprite_prims(gpu, cam_right, cam_up);
         let decals = self.decal_batches(gpu);
+        // The magic effects, their textures loaded.
+        let magic: Vec<(MagicDraw, usize)> = std::mem::take(&mut self.magic)
+            .into_iter()
+            .map(|m| {
+                let t = self.texture_index(gpu, &m.texture);
+                (m, t)
+            })
+            .collect();
         self.jello_buffers(gpu);
         gpu.queue.write_buffer(
             &self.uniform_buf,
@@ -1032,7 +1111,7 @@ impl Renderer {
                 for p in sprites.iter().filter(|p| p.bucket == bucket) {
                     draw_prim(&mut pass, p, Mat4::IDENTITY);
                 }
-                for d in characters.iter().filter(|d| !d.see_through) {
+                for d in characters.iter().filter(|d| !d.see_through && d.alpha >= 1.0) {
                     let Some(cm) = self.char_models.get(d.model) else {
                         continue;
                     };
@@ -1043,6 +1122,52 @@ impl Renderer {
                         };
                         draw_prim(&mut pass, p, model);
                     }
+                }
+                // (A part drawn with the push constants' extra vec4.)
+                let draw_with = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4], texture: usize| {
+                    let mut push = [0.0f32; 20];
+                    push[..16].copy_from_slice(&model.to_cols_array());
+                    push[16..].copy_from_slice(&extra);
+                    pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push));
+                    pass.set_bind_group(1, self.tex_bgs.get(texture).unwrap_or(&self.default_tex), &[]);
+                    pass.set_vertex_buffer(0, p.vbuf.slice(..));
+                    pass.set_index_buffer(p.ibuf.slice(..), wgpu::IndexFormat::Uint32);
+                    pass.draw_indexed(0..p.count, 0, 0..1);
+                };
+                // Bodies fading (invisibility): every part blended at the
+                // body's alpha, depth unwritten (`ONrCharacter_Draw`).
+                if bucket == Bucket::Alpha && characters.iter().any(|d| d.alpha < 1.0 && d.alpha > 0.0) {
+                    pass.set_pipeline(&self.faded_pipeline);
+                    for d in characters.iter().filter(|d| !d.see_through && d.alpha < 1.0 && d.alpha > 0.0) {
+                        let Some(cm) = self.char_models.get(d.model) else { continue };
+                        for p in &cm.prims {
+                            let model = p.bone.and_then(|i| d.bones.get(i).copied()).unwrap_or(Mat4::IDENTITY);
+                            draw_with(&mut pass, p, model, [d.alpha, 0.0, 0.0, 0.0], self.shown(p.texture));
+                        }
+                    }
+                    pass.set_pipeline(pipeline);
+                }
+                // The magic effects over them, added on (`TRrBody_DrawMagic`).
+                if bucket == Bucket::Additive && !magic.is_empty() {
+                    pass.set_pipeline(&self.magic_pipeline);
+                    for (m, texture) in &magic {
+                        let Some(cm) = self.char_models.get(m.model) else { continue };
+                        let kind = match m.kind {
+                            MagicKind::Shield => 0.0,
+                            MagicKind::Daodan => 1.0,
+                            MagicKind::Invis => 2.0,
+                        };
+                        for p in &cm.prims {
+                            let Some(bone) = p.bone else { continue };
+                            let alpha = m.alpha.get(bone).copied().unwrap_or(0.0);
+                            if alpha <= 0.0 {
+                                continue;
+                            }
+                            let model = m.bones.get(bone).copied().unwrap_or(Mat4::IDENTITY);
+                            draw_with(&mut pass, p, model, [alpha, m.time as f32, kind, 0.0], *texture);
+                        }
+                    }
+                    pass.set_pipeline(pipeline);
                 }
                 // The decals: after the solid scene, before what is seen
                 // through or glows (in order: the level's, then the rest,
@@ -1625,14 +1750,25 @@ fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
-struct Push { model: mat4x4<f32> };
+// The model matrix; for the faded and magic draws, (alpha, time, kind, _).
+struct Push { model: mat4x4<f32>, extra: vec4<f32> };
 var<push_constant> pc: Push;
 
 struct VSOut {
     @builtin(position) clip: vec4<f32>,
     @location(0) uv: vec2<f32>,
     @location(1) color: vec3<f32>,
+    @location(2) alpha: f32,
 };
+
+fn placed(pos: vec3<f32>, uv: vec2<f32>, color: vec3<f32>) -> VSOut {
+    var out: VSOut;
+    out.clip = u.view_proj * pc.model * vec4<f32>(pos, 1.0);
+    out.uv = uv;
+    out.color = color;
+    out.alpha = 1.0;
+    return out;
+}
 
 @vertex
 fn vs_main(
@@ -1641,11 +1777,94 @@ fn vs_main(
     @location(2) uv: vec2<f32>,
     @location(3) color: vec3<f32>,
 ) -> VSOut {
+    return placed(pos, uv, color);
+}
+
+// A body fading out (invisibility): blended at the draw's alpha.
+@vertex
+fn vs_faded(
+    @location(0) pos: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) color: vec3<f32>,
+) -> VSOut {
+    var out = placed(pos, uv, color);
+    out.alpha = pc.extra.x;
+    return out;
+}
+
+@fragment
+fn fs_faded(in: VSOut) -> @location(0) vec4<f32> {
+    let c = lit(in);
+    return vec4<f32>(fogged(c.rgb, in.clip.z), c.a * in.alpha);
+}
+
+// The magic effects' shimmer (`MSrShade_Vertices_GouraudActive`): each
+// vertex's colour swings through a sine table, at its own speed (by its
+// index in its part, the table's 64 speeds) and phase, at game time t.
+fn vary(t: f32) -> f32 {
+    let k = u32(floor(t * 256.0 + 0.5)) % 256u;
+    return floor(255.0 * 0.5 * (1.0 + sin(f32(k) * 6.2831853 / 256.0)) + 0.5);
+}
+fn swing(most: f32, t: f32) -> f32 {
+    return floor(most * vary(t) / 256.0);
+}
+
+@vertex
+fn vs_magic(
+    @builtin(vertex_index) i: u32,
+    @location(0) pos: vec3<f32>,
+    @location(1) normal: vec3<f32>,
+    @location(2) uv: vec2<f32>,
+    @location(3) color: vec3<f32>,
+) -> VSOut {
     var out: VSOut;
     out.clip = u.view_proj * pc.model * vec4<f32>(pos, 1.0);
     out.uv = uv;
-    out.color = color;
+    out.alpha = pc.extra.x;
+    let time = pc.extra.y;
+    let speed = 0.01 + 0.005 * sin(f32(i % 64u));
+    let phase = 0.15 * f32(i);
+    var rgb: vec3<f32>;
+    if (pc.extra.z > 1.5) {
+        // Invisibility: red and green together, blue a little apart.
+        let r = swing(24.0, 1.0 * speed * time + phase);
+        var b = swing(64.0, 0.3 * speed * time + phase);
+        if (b > 48.0) {
+            b = r + (b - 48.0);
+        } else {
+            b = r;
+        }
+        rgb = vec3<f32>(r, r, b);
+    } else if (pc.extra.z > 0.5) {
+        // A super shield's, red.
+        rgb = vec3<f32>(swing(255.0, 1.1 * speed * time + phase), swing(32.0, 1.0 * speed * time + phase), swing(80.0, 0.9 * speed * time + phase));
+    } else {
+        // A shield's, blue.
+        rgb = vec3<f32>(swing(15.0, 0.9 * speed * time + phase), swing(127.0, 1.0 * speed * time + phase), swing(255.0, 1.1 * speed * time + phase));
+    }
+    out.color = rgb / 255.0;
     return out;
+}
+
+// The sRGB transfer, each way (the frame is sRGB; the original worked in
+// display values).
+fn to_display(c: vec3<f32>) -> vec3<f32> {
+    return select(1.055 * pow(c, vec3<f32>(1.0 / 2.4)) - 0.055, c * 12.92, c <= vec3<f32>(0.0031308));
+}
+fn to_linear(c: vec3<f32>) -> vec3<f32> {
+    return select(pow((c + 0.055) / 1.055, vec3<f32>(2.4)), c / 12.92, c <= vec3<f32>(0.04045));
+}
+
+// What the original adds in display values — the texture times the
+// shimmer times the alpha — brought into the frame's light (so one layer
+// adds exactly what the original's did). Unfogged: an additive texture's
+// fog is forced off.
+@fragment
+fn fs_magic(in: VSOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(tex, samp, in.uv);
+    let added = to_display(texel.rgb) * in.color * texel.a * in.alpha;
+    return vec4<f32>(to_linear(added), 1.0);
 }
 
 fn lit(in: VSOut) -> vec4<f32> {

@@ -40,6 +40,8 @@ struct Item {
     title: String,
     rect: [f32; 4],
     font: (u16, u8),
+    /// Its font's colour (ARGB).
+    shade: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -81,6 +83,7 @@ impl Data {
                 title: i["title"].as_str().unwrap_or("").to_string(),
                 rect: std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32),
                 font: (i["font"]["size"].as_u64().unwrap_or(10) as u16, i["font"]["style"].as_u64().unwrap_or(1) as u8),
+                shade: i["font"]["shade"].as_str().and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok()).unwrap_or(0xFFFF_7F00),
             })
             .collect();
         let item_pages = c["items"].as_array().into_iter().flatten().chain(l["items"].as_array().into_iter().flatten()).map(|i| (i["type"].as_u64().unwrap_or(0) as u32, console::page(&i["page"]))).collect();
@@ -164,6 +167,9 @@ pub struct Pause {
     /// The sections flashing (bits by `Tab as u32`).
     highlighted: u32,
     opened: Instant,
+    /// A cheat's message, shown in the hint area instead of the hint while
+    /// the screen is up (`ONrPauseScreen_OverrideMessage`).
+    pub message: Option<&'static str>,
 }
 
 impl Pause {
@@ -218,6 +224,7 @@ impl Pause {
             help_page: 0,
             highlighted,
             opened: Instant::now(),
+            message: None,
         }
     }
 
@@ -368,9 +375,15 @@ impl Pause {
         // The page in the main area, its hint below.
         if let (Some((page, shade)), Some(main)) = (self.page(data), data.item(110)) {
             out.extend(page_draws(page, place(main.rect), fonts, part, textures, texture_size, shade, self.tab == Tab::Diary));
-            if let (false, Some(sub)) = (help, data.item(111)) {
+            if let (false, Some(sub), None) = (help, data.item(111), self.message) {
                 lines_draws(&mut out, &page.hint, place(sub.rect), 0.0, fonts, shade);
             }
+        }
+        // A cheat's message there instead, in the area's own font (on any
+        // page).
+        if let (Some(m), Some(sub)) = (self.message, data.item(111)) {
+            let line = console::Line { text: m.to_string(), size: sub.font.0, style: sub.font.1, shade: Some(sub.shade) };
+            lines_draws(&mut out, &[line], place(sub.rect), 0.0, fonts, sub.shade);
         }
         out
     }

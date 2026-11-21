@@ -189,12 +189,28 @@ impl<'a> ShotHost<'a> {
         self.bones[i].as_deref().unwrap_or_default()
     }
 
-    /// `InflictDamage`: a hit or a blast reaching character `who`. True when
-    /// the particle already hit it (a duplicate).
+    /// `InflictDamage`: a hit or a blast reaching character `who` — at `at`,
+    /// `radius` across (a shot's 4, a blast's own). True when the particle
+    /// already hit it (a duplicate).
     #[allow(clippy::too_many_arguments)]
-    fn inflict(&mut self, who: usize, dir: Vec3, kind: u32, damage: i32, stun: i32, knockback: f32, stamp: Option<u64>, owner: u32) -> bool {
+    fn inflict(&mut self, who: usize, at: Vec3, radius: f32, dir: Vec3, kind: u32, damage: i32, stun: i32, knockback: f32, stamp: Option<u64>, owner: u32) -> bool {
         let attacker = p3::owner::character(owner)
             .and_then(|a| Some((a, self.fighters.get(a)?.feet(), self.teams.get(a).copied())));
+        // A shield lights up where it is struck (`ONrCharacter_FindParts`:
+        // the parts whose bounds come within reach).
+        let shield_mask = match self.fighters.get(who) {
+            Some(f) if f.alive() && f.inventory.shield > 0 => {
+                let mut spheres = [None; crate::world::magic::PARTS];
+                for p in &f.character.parts {
+                    if let (Some(s), Some(slot)) = (p.bound_sphere, spheres.get_mut(p.bone)) {
+                        *slot = Some(s);
+                    }
+                }
+                let bones = self.bones_of(who).to_vec();
+                crate::world::magic::parts_near(&bones, &spheres, at, radius)
+            }
+            _ => 0,
+        };
         let Some(f) = self.fighters.get_mut(who) else { return false };
         if !f.alive() {
             return false;
@@ -209,15 +225,18 @@ impl<'a> ShotHost<'a> {
             return false;
         }
         if f.inventory.shield > 0 {
-            // A shield belt soaks it all (the excess is lost).
+            f.effects.shield_hit(shield_mask, false);
+            // A shield belt soaks it all (the excess is lost): no hurt, no
+            // reaction — only where it came from, on the hit ring.
             f.inventory.shield = f.inventory.shield.saturating_sub(damage.max(0) as u16);
+            f.hits[crate::world::hit_quadrant(f.facing.aim(), dir)] = 255;
             return false;
         }
         let physical = if kind == damage::PICK_UP { 0 } else { damage };
         // Picked up (`WPrHitChar`): enough of it (a share of 100 by damage)
         // and it is lifted toward the shooter, the hit's stun more ticks of
         // it (at most 60).
-        if kind == damage::PICK_UP && f.alive() && !f.unstoppable {
+        if kind == damage::PICK_UP && f.alive() && !f.is_unstoppable() {
             let lifted = f.lift.timer > 0 || {
                 f.lift.percent += damage as f32;
                 f.lift.percent >= 100.0
@@ -238,7 +257,7 @@ impl<'a> ShotHost<'a> {
         let side = |t: u16| if behind { reaction::from_behind(t) } else { t };
         let stun = stun.max(0) as u16;
         let current = f.motion.current().anim_type;
-        if !f.unstoppable && f.alive() {
+        if !f.is_unstoppable() && f.alive() {
             match kind {
                 damage::NORMAL => f.minor_hit_reaction(),
                 damage::MINOR_STUN if stun > 0 => {
@@ -447,7 +466,7 @@ impl Host for ShotHost<'_> {
             let f = &self.fighters[who];
             (f.feet() + Vec3::Y * f.motion.height() - point).try_normalize().unwrap_or(Vec3::Z)
         });
-        self.inflict(who, dir, kind, damage.round() as i32, stun.round() as i32, knockback, stamp, owner)
+        self.inflict(who, point, 4.0, dir, kind, damage.round() as i32, stun.round() as i32, knockback, stamp, owner)
     }
 
     fn blast(&mut self, centre: Vec3, kind: u32, damage: f32, stun: f32, knockback: f32, radius: f32, falloff: u32, owner: u32, stamp: u64, self_immune: bool) {
@@ -474,7 +493,7 @@ impl Host for ShotHost<'_> {
                 _ => 1.0,
             };
             let dir = v.try_normalize().unwrap_or(Vec3::Y);
-            self.inflict(who, dir, kind, (p * damage).round() as i32, (p * stun).round() as i32, p * knockback, Some(stamp), owner);
+            self.inflict(who, centre, radius, dir, kind, (p * damage).round() as i32, (p * stun).round() as i32, p * knockback, Some(stamp), owner);
         }
         self.sounds.push((centre, 400.0, p3::owner::character(owner)));
     }
@@ -709,6 +728,9 @@ impl World {
         let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
         self.hypo = super::hypo::HypoSettings::load(&gs);
         let settings: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json")).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
+        // The magic effects' textures (shield, super shield, invisibility).
+        self.magic_textures = ["shield", "daodanShield", "invis"]
+            .map(|k| settings["magicTextures"][k].as_str().map(|t| common.join("textures").join(format!("{t}.png"))));
         self.armory.powerup_looks = POWERUP_DATA
             .iter()
             .map(|k| {
@@ -1231,8 +1253,22 @@ impl World {
             .weapons
             .iter()
             .enumerate()
-            .filter(|(i, g)| !g.gone && !holstered.contains(i) && g.owner.is_none_or(|o| self.fighters.get(o).is_some_and(|f| f.hand == Some(*i))))
+            .filter(|(i, g)| !g.gone && !holstered.contains(i) && g.owner.is_none_or(|o| self.fighters.get(o).is_some_and(|f| f.hand == Some(*i) && f.effects.body_alpha() >= 1.0)))
             .filter_map(|(_, g)| Some((g.class.model.clone()?, g.matrix.get())))
+            .collect()
+    }
+
+    /// The guns in the hands of bodies fading (invisibility): drawn with
+    /// the body, at its alpha (the original's weapon is part of the body
+    /// drawn); none once it is gone.
+    pub fn faded_gun_draws(&self) -> Vec<(std::path::PathBuf, Mat4, f32)> {
+        self.fighters
+            .iter()
+            .filter_map(|f| {
+                let alpha = f.effects.body_alpha();
+                let g = self.armory.weapons.get(f.hand?)?;
+                (alpha < 1.0 && alpha > 0.0 && !g.gone).then(|| Some((g.class.model.clone()?, g.matrix.get(), alpha))).flatten()
+            })
             .collect()
     }
 
@@ -1321,7 +1357,13 @@ impl World {
             .then(|| self.quads.ray(feet + Vec3::Y, Vec3::Y * -2.0, crate::quads::flag::OBJ_COL_SKIP))
             .flatten()
             .map(|h| h.quad);
+        // (None for a body faded out; fading with it as it turns invisible.)
+        let seen = f.effects.body_alpha();
+        if seen <= 0.0 {
+            return None;
+        }
         let (at, quad, size, alpha) = s.place(&self.quads, pelvis, feet.y, floor)?;
+        let alpha = if seen < 1.0 { (f32::from(alpha) * seen).round() as u16 } else { alpha };
         let mesh = crate::decal::Shadow::build(&self.quads, quad, at, size)?;
         Some((mesh, alpha, s.texture.clone()))
     }

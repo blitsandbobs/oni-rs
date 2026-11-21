@@ -308,6 +308,20 @@ pub fn store_unlocks(items: u32, weapons: &[String]) {
     write_continues(&path, &doc);
 }
 
+/// Whether the game has been won (`ONrPersist_GetWonGame`): the cheat
+/// codes work.
+pub fn won_game() -> bool {
+    continues_file().is_some_and(|p| read_continues(&p)["wonGame"].as_bool() == Some(true))
+}
+
+/// The game won (`ONrPersist_MarkWonGame`, after the last level).
+pub fn mark_won_game() {
+    let Some(path) = continues_file() else { return };
+    let mut doc = read_continues(&path);
+    doc["wonGame"] = serde_json::json!(true);
+    write_continues(&path, &doc);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -65,7 +65,7 @@ impl Classes {
     pub fn kind(
         &mut self,
         name: &str,
-        upload: impl FnOnce(&Character) -> usize,
+        mut upload: impl FnMut(&Character) -> usize,
     ) -> Result<CharKind, String> {
         if let Some(k) = self.kinds.get(name) {
             return Ok(k.clone());
@@ -112,8 +112,12 @@ impl Classes {
             c["dazed"]["min"].as_u64().unwrap_or(60) as u32,
             c["dazed"]["max"].as_u64().unwrap_or(100) as u32,
         );
+        // Its low body, which magic effects are drawn over.
+        let low = self.dir.join(model).with_file_name("low.glb");
+        let magic_model = skel::load_character(&low).ok().map(|c| upload(&c));
         let kind = CharKind {
             model: upload(&character),
+            magic_model,
             character: Rc::new(character),
             anims,
             tuning: tuning(&c),

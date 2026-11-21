@@ -139,6 +139,8 @@ pub struct Player {
     pub cells: u16,
     pub hypos: u16,
     pub shield: u16,
+    /// The shield as shown (it climbs to the shield 2 a tick).
+    pub shield_display: u16,
     pub invisibility: u16,
     pub lsi: bool,
     /// The countdown's display this frame (None: none, or blinked off), and
@@ -527,7 +529,7 @@ impl Hud {
             let hp = p.hp.max(0) as u32;
             self.health.update(hp, hp + u32::from(p.hypo_remaining), p.max_hp as f32 / 180.0);
         }
-        self.shield.update(u32::from(p.shield), u32::from(p.shield), f32::from(MAX_SHIELD) / 180.0);
+        self.shield.update(u32::from(p.shield_display), u32::from(p.shield), f32::from(MAX_SHIELD) / 180.0);
         let mut sound = None;
         // (A new move — this level's diary — prompts as a new objective does,
         // with its own message.)

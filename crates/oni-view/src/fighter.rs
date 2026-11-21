@@ -69,6 +69,8 @@ fn is_landing(t: u16) -> bool {
 pub struct Fighter {
     /// Uploaded render-model index (see [`crate::render::Renderer::add_character`]).
     pub model: usize,
+    /// Its low body's model (magic effects are drawn over it).
+    pub magic_model: Option<usize>,
     /// Shared skeleton/mesh for posing, bounds, and blend capture.
     pub character: Rc<Character>,
     pub physics: chrphys::Body,
@@ -89,8 +91,9 @@ pub struct Fighter {
     pub hp: i32,
     /// Its full health.
     pub max_hp: i32,
-    /// Takes no damage (`chr_invincible`).
+    /// Takes no damage (`chr_invincible`); the player also by the cheat.
     pub invincible: bool,
+    pub cheat_invincible: bool,
     /// Can't be killed but by an act of god (placed `unkillable`): a blow
     /// that would leaves it on 1 and defeats it (`ONrCharacter_TakeDamage`).
     pub unkillable: bool,
@@ -123,6 +126,8 @@ pub struct Fighter {
     /// Unstoppable (a script's order): blows don't stun it, knock it about
     /// or make it react, and it blocks without block stun.
     pub unstoppable: bool,
+    /// The player made unstoppable by the cheat (`ONgPlayerUnstoppable`).
+    pub cheat_unstoppable: bool,
     /// Death-locked (a script's order): it can die, but its body is never
     /// removed.
     pub death_lock: bool,
@@ -237,6 +242,8 @@ pub struct Fighter {
     pub magic: Option<usize>,
     /// What it carries: ammo clips, energy cells, hypos.
     pub inventory: Inventory,
+    /// Its shield's glow and invisibility's fade, as drawn.
+    pub effects: crate::world::magic::Magic,
     /// Aim pitch (radians, up positive) and the recoil kick on top of it.
     pub aiming_ud: f32,
     /// The look-mode turn (radians, left positive) of the aim off its
@@ -323,7 +330,14 @@ pub struct Inventory {
     pub hypo_remaining: u16,
     pub hypo_timer: u16,
     pub shield: u16,
+    /// The shield as shown (`shieldDisplayAmount`): it climbs to the shield
+    /// 2 a tick, and drops with it at once.
+    pub shield_display: u16,
+    /// Ticks of invisibility left (`ENDLESS`: never runs out), and how many
+    /// it has been invisible (`numInvisibleFrames`; the AI loses sight of
+    /// it after 90).
     pub invisibility: u16,
+    pub invisible_frames: u32,
     pub lsi: bool,
     /// What it drops dying ([`crate::ai::level::Placed::drops`]), and
     /// whether it keeps its worn shield, invisibility and LSI then
@@ -362,6 +376,7 @@ impl Fighter {
         let placement = Mat4::from_rotation_translation(Quat::from_rotation_y(facing_yaw), origin);
         Fighter {
             model,
+            magic_model: None,
             character,
             physics,
             motion,
@@ -374,6 +389,8 @@ impl Fighter {
             hp: tuning.max_hit_points,
             max_hp: tuning.max_hit_points,
             invincible: false,
+            cheat_invincible: false,
+            cheat_unstoppable: false,
             gone: false,
             film: None,
             console: None,
@@ -439,6 +456,7 @@ impl Fighter {
             holster: None,
             magic: None,
             inventory: Inventory::default(),
+            effects: Default::default(),
             aiming_ud: 0.0,
             aiming_lr: 0.0,
             auto_aim: (0.0, 0.0),
@@ -1008,7 +1026,7 @@ impl Fighter {
         };
         let damage = damage.round() as i32;
         if damage > 0 {
-            if self.invincible {
+            if self.is_invincible() {
             return;
         }
         let damage = self.survive(damage);
@@ -1066,7 +1084,7 @@ impl Fighter {
         self.poison_last = now;
         self.poison_count += 1;
         if self.poison_count >= initial {
-            if !self.invincible {
+            if !self.is_invincible() {
                 self.take_damage(amount, Vec3::ZERO);
             }
             self.poison_count = initial - every;
@@ -1140,7 +1158,7 @@ impl Fighter {
         // (`ONcDamage_HurtHypoScale`); dead, it is gone.
         let inv = &mut self.inventory;
         inv.hypo_remaining = if self.hp == 0 { 0 } else { inv.hypo_remaining.saturating_sub((2.5 * damage.max(0) as f32).round() as u16) };
-        if !self.unstoppable {
+        if !self.is_unstoppable() {
             self.knockback += knockback;
         }
         // Where it came from, on the hit ring (`ONrCharacter_DamageCompass`).
@@ -1477,11 +1495,22 @@ impl Fighter {
     }
 
     /// A render draw referencing `bones` (kept alive by the caller).
+    /// Takes no damage (`ONrCharacter_IsInvincible`).
+    pub fn is_invincible(&self) -> bool {
+        self.invincible || self.cheat_invincible
+    }
+
+    /// Neither reacts nor is shoved (`ONrCharacter_IsUnstoppable`).
+    pub fn is_unstoppable(&self) -> bool {
+        self.unstoppable || self.cheat_unstoppable
+    }
+
     pub fn draw<'a>(&self, bones: &'a [Mat4]) -> CharDraw<'a> {
         CharDraw {
             model: self.model,
             bones,
             see_through: false,
+            alpha: self.effects.body_alpha(),
         }
     }
 

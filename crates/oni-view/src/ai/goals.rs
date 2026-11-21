@@ -342,6 +342,8 @@ pub struct Other {
     /// Reeling from a stun, or lying on the ground.
     pub dizzy: bool,
     pub fallen: bool,
+    /// Wearing invisibility (lost at once, `AI2iCombat_TargetKnowledge…`).
+    pub invisible: bool,
 }
 
 /// The gun in an AI's hand, as targeting sees it.
@@ -2349,6 +2351,14 @@ impl Agent {
                 }
             } else if c.strength < Strength::Definite {
                 if self.combat().target_strength == Strength::Definite {
+                    // Lost sight of an invisible one: lost at once
+                    // (`AI2iCombat_TargetKnowledgeChanged`).
+                    if cx.others.get(target).is_some_and(|o| o.invisible) {
+                        let c = self.combat();
+                        c.lost_contact = Some(0);
+                        c.target_strength = Strength::Strong;
+                        return;
+                    }
                     // Lost sight of it: remember where it really is, and
                     // after a while pursue.
                     if let Some(o) = cx.others.get(target) {

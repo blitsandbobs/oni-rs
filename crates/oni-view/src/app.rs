@@ -606,7 +606,12 @@ impl ApplicationHandler for App {
                             match code {
                                 KeyCode::F1 => pw.world.pause_toggle(),
                                 KeyCode::Escape => pw.world.pause_press(2, false),
-                                _ => {}
+                                // (Letters typed: the cheat codes.)
+                                _ => {
+                                    if let Some(c) = format!("{code:?}").strip_prefix("Key").and_then(|k| k.chars().next()).filter(|_| format!("{code:?}").len() == 4) {
+                                        pw.world.cheat_key(c.to_ascii_lowercase());
+                                    }
+                                }
                             }
                         }
                         st.keys.clear();
@@ -1005,6 +1010,8 @@ impl State {
             After::Resume => return,
             After::End => {
                 eprintln!("game: the end");
+                // (Won: the cheat codes work from now on.)
+                crate::game::mark_won_game();
                 // (Begun at the menu: back to it.)
                 if self.front.as_ref().is_some_and(|f| f.started_here) {
                     self.play = None;
@@ -1096,20 +1103,28 @@ impl State {
             }
             (None, None) => Vec::new(),
         };
+        // The magic effects over the bodies (shields, invisibility).
+        self.renderer.magic = self.play.as_ref().map(|pw| pw.world.magic_draws(&bones)).unwrap_or_default();
         // Guns: one-bone models placed by their matrices.
-        let guns: Vec<(usize, Vec<Mat4>, bool)> = match &self.play {
+        let guns: Vec<(usize, Vec<Mat4>, bool, f32)> = match &self.play {
             Some(pw) => {
-                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.object_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false))).collect();
+                let mut v: Vec<_> = pw.world.gun_draws().into_iter().chain(pw.world.particle_models()).chain(pw.world.turret_draws()).chain(pw.world.object_draws()).chain(pw.world.powerup_draws()).filter_map(|(path, m)| Some((self.renderer.model_from(&self.gpu, &path)?, vec![m], false, 1.0))).collect();
                 // (Objects in the camera's way, see-through.)
                 for (path, m) in pw.world.object_jello_draws() {
                     if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], true));
+                        v.push((k, vec![m], true, 1.0));
+                    }
+                }
+                // (Guns held by bodies fading out.)
+                for (path, m, a) in pw.world.faded_gun_draws() {
+                    if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
+                        v.push((k, vec![m], false, a));
                     }
                 }
                 // (Consoles' screens, textured by their state.)
                 for (path, tex, m) in pw.world.console_draws() {
                     if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                        v.push((k, vec![m], false));
+                        v.push((k, vec![m], false, 1.0));
                     }
                 }
                 v
@@ -1124,7 +1139,7 @@ impl State {
                 .zip(&bones)
                 .map(|(f, b)| f.draw(b))
                 .chain(pw.world.corpse_draws())
-                .chain(guns.iter().map(|(m, b, see_through)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through }))
+                .chain(guns.iter().map(|(m, b, see_through, alpha)| crate::render::CharDraw { model: *m, bones: b, see_through: *see_through, alpha: *alpha }))
                 .collect(),
             (None, Some(m)) => bones
                 .first()
@@ -1134,6 +1149,7 @@ impl State {
                         model: m,
                         bones: b,
                         see_through: false,
+                        alpha: 1.0,
                     }]
                 })
                 .unwrap_or_default(),

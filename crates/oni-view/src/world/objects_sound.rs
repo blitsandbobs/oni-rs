@@ -201,7 +201,8 @@ impl World {
             (hp > max).then(|| fade(1.0 - ((hp - max) / (max * (boost - 1.0)).max(1e-3)).clamp(0.0, 1.0))),
             // (The shield's loop was taken out of the game.)
             None,
-            (invis > 0.0).then(|| fade(1.0 - invis / MAX_INVISIBILITY)),
+            // (Endless invisibility, the cheat's, comes out below silent.)
+            (invis > 0.0).then(|| fade(1.0 - invis / MAX_INVISIBILITY).max(0.0)),
             self.timer_critical().then_some(1.0),
         ];
         for (k, want) in wanted.into_iter().enumerate() {

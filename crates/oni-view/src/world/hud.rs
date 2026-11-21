@@ -55,6 +55,7 @@ impl World {
             cells: i.cells,
             hypos: i.hypos,
             shield: i.shield,
+            shield_display: i.shield_display,
             invisibility: i.invisibility,
             lsi: i.lsi,
             timer: self.timer_text(),
