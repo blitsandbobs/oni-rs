@@ -1393,6 +1393,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             t.set("weapons", w.armory.weapons.len())?;
             t.set("fighters", w.fighters.iter().filter(|f| !f.gone).count())?;
             t.set("corpses", w.corpses.list.len())?;
+            t.set("contrails", w.contrail_count())?;
             Ok(t)
         })?,
     )?;

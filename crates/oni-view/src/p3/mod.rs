@@ -819,6 +819,26 @@ impl System {
                 }
             }
         }
+        // A contrail's link gone (`P3rDisplayClass_Contrail`, as it draws:
+        // here, each tick): broken, and BrokenLink sent.
+        if matches!(c.sprite_type, 5 | 6) && !c.contrail_emitter {
+            if let Some(l) = p.link {
+                let gone = self
+                    .get(l)
+                    .is_none_or(|q| q.flags & pflag::BREAK_LINKS_TO_ME != 0);
+                if gone {
+                    p.link = None;
+                    let t = p.time;
+                    if self
+                        .run(&mut p, h, event::BROKEN_LINK, t, 0.0, None, false, host)
+                        .dead
+                    {
+                        self.die(p, h, t, host);
+                        return;
+                    }
+                }
+            }
+        }
         let mut last_hit: Option<(bool, u32, f64)> = None;
         let mut last_emitter = None;
         while p.time < final_t - 0.001 {

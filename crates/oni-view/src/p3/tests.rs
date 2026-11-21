@@ -214,7 +214,13 @@ fn classes() -> Rc<Classes> {
             "lifetime": 0.5,
             "appearance": { "scale": 1.0, "alpha": 1.0, "instance": "_BURN", "maxDecals": 100, "decalFadeFrames": 30 }
         },
-        "flash": { "flags": ["hasOrientation"] }
+        "flash": { "flags": ["hasOrientation"] },
+        "head": { "flags": [], "lifetime": 5.0 },
+        "tail": {
+            "flags": ["hasContrailData"], "spriteType": 6, "lifetime": 5.0,
+            "actions": [ { "type": "die", "params": [] } ],
+            "events": { "brokenLink": [0, 1] }
+        }
     } });
     Rc::new(Classes::from_json(&doc))
 }
@@ -718,4 +724,20 @@ fn temporary_particles_go_together() {
     sys.kill_temporary(&mut host);
     assert_eq!(sys.iter().count(), 1);
     assert!(sys.alive(kept), "made outside the mode, it stays");
+}
+
+#[test]
+fn a_contrail_whose_link_dies_hears_of_it() {
+    // (`P3rDisplayClass_Contrail`: a link gone breaks, sending BrokenLink —
+    // here the tail's dies.)
+    let mut sys = System::new(classes());
+    let mut host = Fake::default();
+    let head = spawn(&mut sys, "head", Vec3::ZERO, Vec3::ZERO, &mut host);
+    let tail = spawn(&mut sys, "tail", Vec3::X, Vec3::ZERO, &mut host);
+    sys.get_mut(tail).unwrap().link = Some(head);
+    sys.update(1, &mut host);
+    assert_eq!(count(&sys, "tail"), 1, "linked, it lives");
+    sys.kill(head, &mut host);
+    sys.update(2, &mut host);
+    assert_eq!(count(&sys, "tail"), 0, "its link gone, it dies");
 }

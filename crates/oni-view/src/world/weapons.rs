@@ -2064,11 +2064,12 @@ impl World {
             .filter(|(_, p)| p.flags & p3::pflag::HIDDEN == 0)
             .filter_map(|(h, p)| {
                 let c = sys.class(p.class);
-                // (Decals are drawn as decals.)
+                // (Decals are drawn as decals; contrails as their links.)
                 if c.has(cflag::INVISIBLE)
                     || c.has(cflag::GEOMETRY)
                     || c.has(cflag::DECAL)
                     || c.instance.is_empty()
+                    || matches!(c.sprite_type, 5 | 6)
                 {
                     return None;
                 }
@@ -2129,7 +2130,167 @@ impl World {
                     .flat_map(|(who, s)| self.sight_sprites(who, &s, &textures)),
             )
             .chain(self.powerup_glows())
+            .chain(self.contrails())
             .collect()
+    }
+
+    /// The contrails (`P3rDisplayClass_Contrail`, `M3rContrail_Draw`): each
+    /// particle of a contrail class joined to the one it links to by a
+    /// band — across its X (`Contrail`, sprite type 5) or square to the
+    /// link and the line of sight (`ContrailRotated`, 6) at its scale;
+    /// v 0 at it, 1 at the link; its colour at its end, the link's at the
+    /// other, both at its alpha. A contrail emitter draws the part of the
+    /// band to its newest emission that has grown since it was emitted.
+    /// How many contrail links are drawn now.
+    pub fn contrail_count(&self) -> usize {
+        self.contrails().len()
+    }
+
+    fn contrails(&self) -> Vec<crate::render::Sprite> {
+        use p3::class::{cflag, Link, Value};
+        let sys = &self.armory.particles;
+        let cam = self.camera.view.location;
+        let read = |v: &Value, vars: &[p3::Val]| -> Option<f32> {
+            match v {
+                Value::Float(x) => Some(*x),
+                Value::Range(a, b) => Some((a + b) / 2.0),
+                Value::Bell(m, _) => Some(*m),
+                Value::Var(i) => vars.get(*i)?.f(),
+                _ => None,
+            }
+        };
+        let tint = |p: &p3::Particle| -> u32 {
+            match &sys.class(p.class).tint {
+                Value::Shade(s) | Value::ShadeRange(s, _) | Value::ShadeBell(s, _) => *s,
+                Value::Var(i) => match p.vars.get(*i) {
+                    Some(p3::Val::U(u)) => *u,
+                    _ => 0xFFFF_FFFF,
+                },
+                _ => 0xFFFF_FFFF,
+            }
+        };
+        let live = |h: p3::Handle| {
+            sys.get(h)
+                .filter(|q| q.flags & p3::pflag::BREAK_LINKS_TO_ME == 0)
+        };
+        // A particle's half-width at its end of a link toward `to`.
+        let width = |p: &p3::Particle, at: Vec3, to: Vec3| -> Option<Vec3> {
+            let c = sys.class(p.class);
+            let scale = read(&c.scale, &p.vars)?;
+            Some(if c.sprite_type == 5 {
+                if !c.has(cflag::ORIENTATION) {
+                    return None;
+                }
+                sys.world_orientation(p).x_axis * scale
+            } else {
+                let w = (to - at).cross(at - cam);
+                let l = w.length();
+                if l > 0.01 {
+                    w * (scale / l)
+                } else {
+                    w
+                }
+            })
+        };
+        // Its width as the far end of a link: its own (toward its own link),
+        // or — first in its chain, or its link gone — the near end's.
+        let far_width = |q: &p3::Particle, at: Vec3, near: Vec3| -> Vec3 {
+            q.link
+                .and_then(live)
+                .and_then(|r| width(q, at, sys.world_position(r)))
+                .unwrap_or(near)
+        };
+        let mut out = Vec::new();
+        for (_, p) in sys.iter() {
+            let c = sys.class(p.class);
+            if !matches!(c.sprite_type, 5 | 6)
+                || p.flags & p3::pflag::HIDDEN != 0
+                || c.has(cflag::INVISIBLE)
+                || c.instance.is_empty()
+            {
+                continue;
+            }
+            // What it joins to, and how much of the band shows.
+            let (link, start_v) = if c.contrail_emitter {
+                let Some(k) = c
+                    .emitters
+                    .iter()
+                    .enumerate()
+                    .position(|(k, e)| e.link == Link::LastEmission(k))
+                else {
+                    continue;
+                };
+                let Some(st) = p.emitters.get(k) else {
+                    continue;
+                };
+                let Some(l) = st.last.and_then(live) else {
+                    continue;
+                };
+                let interval = read(&c.emitters[k].rate.1[0], &p.vars).unwrap_or(1.0);
+                let since = (p.time - st.last_time) as f32;
+                let v = if since < 0.0 {
+                    1.0
+                } else if since > interval {
+                    0.0
+                } else {
+                    1.0 - since / interval
+                };
+                (l, v)
+            } else {
+                let Some(l) = p.link.and_then(live) else {
+                    continue;
+                };
+                (l, 0.0)
+            };
+            let (at, to) = (sys.world_position(p), sys.world_position(link));
+            let along = to - at;
+            if c.max_contrail * c.max_contrail > 0.001
+                && along.length_squared() > c.max_contrail * c.max_contrail
+            {
+                continue;
+            }
+            let Some(w0) = width(p, at, to) else { continue };
+            let w1 = far_width(link, to, w0);
+            // Its alpha: fading out, its life left; else its appearance's.
+            let mut alpha = if p.flags & p3::pflag::FADE_OUT != 0 && p.fadeout_time > 0.0 {
+                (p.lifetime / p.fadeout_time).clamp(0.0, 1.0)
+            } else {
+                read(&c.alpha, &p.vars).unwrap_or(1.0).clamp(0.0, 1.0)
+            };
+            if let Some((lo, hi)) = c.edge_fade {
+                let edge = 1.0
+                    - along
+                        .normalize_or_zero()
+                        .dot((at - cam).normalize_or_zero())
+                        .abs();
+                if edge < lo {
+                    continue;
+                } else if edge < hi {
+                    alpha *= (edge - lo) / (hi - lo);
+                }
+            }
+            let rgb = |shade: u32| {
+                let ch = |shift: u32| ((shade >> shift) & 0xFF) as f32 / 255.0 * alpha;
+                [ch(16), ch(8), ch(0)]
+            };
+            let (c0, c1) = (rgb(tint(p)), rgb(tint(link)));
+            out.push(crate::render::Sprite {
+                at,
+                size: [0.0, 0.0],
+                mode: crate::render::SpriteMode::Quad([
+                    (at + w0, [0.0, start_v], c0),
+                    (at - w0, [1.0, start_v], c0),
+                    (to - w1, [1.0, 1.0], c1),
+                    (to + w1, [0.0, 1.0], c1),
+                ]),
+                rotation: 0.0,
+                color: c0,
+                texture: self.particle_texture(p),
+                contrail: true,
+                no_depth: false,
+            });
+        }
+        out
     }
 
     /// The sprites drawing a gun's sight (`ONiDrawLaserSight`,

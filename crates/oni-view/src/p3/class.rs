@@ -516,6 +516,14 @@ pub struct Class {
     /// A lens flare (`P3cParticleClassFlag2_Appearance_LensFlare`): drawn
     /// over the scene where its point is seen.
     pub lens: Option<Lens>,
+    /// A contrail's edge fade (`P3cParticleClassFlag2_Appearance_EdgeFade`):
+    /// edge-on below the first it is gone, up to the second it fades in.
+    pub edge_fade: Option<(f32, f32)>,
+    /// The longest contrail link drawn (`max_contrail`; 0: any).
+    pub max_contrail: f32,
+    /// Drawn as the contrail to its own latest emission
+    /// (`P3cParticleClassFlag2_ContrailEmitter`).
+    pub contrail_emitter: bool,
     pub attractor: Option<AttractorDef>,
     pub vars: Vec<VarDef>,
     pub actions: Vec<Action>,
@@ -856,6 +864,12 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
                         (f("lensInFrames").max(1), f("lensOutFrames").max(1))
                     }),
             }),
+        edge_fade: names("flags2").iter().any(|n| n == "edgeFade").then(|| {
+            let f = |k: &str| c["appearance"][k].as_f64().unwrap_or(0.0) as f32;
+            (f("edgeFadeMin"), f("edgeFadeMax"))
+        }),
+        max_contrail: c["appearance"]["maxContrail"].as_f64().unwrap_or(0.0) as f32,
+        contrail_emitter: names("flags2").iter().any(|n| n == "contrailEmitter"),
         attractor,
         vars,
         actions,

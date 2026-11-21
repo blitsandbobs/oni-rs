@@ -149,6 +149,9 @@ pub struct Sprite {
 /// How a sprite lies: its X (along its width) and Y (its height).
 #[derive(Clone, Copy, Debug)]
 pub enum SpriteMode {
+    /// Given outright: four corners in order round the quad, each with its
+    /// texture coordinate and colour (a contrail's link, `M3rContrail_Draw`).
+    Quad([(glam::Vec3, [f32; 2], [f32; 3]); 4]),
     /// Facing the camera: the screen's X and Y.
     Facing,
     /// Facing the camera, turned on screen toward this direction.
@@ -2119,6 +2122,20 @@ impl Renderer {
             Default::default();
         for s in &sprites {
             let t = self.texture_index(gpu, &s.texture);
+            if let SpriteMode::Quad(corners) = s.mode {
+                let (verts, idx) = by_texture.entry((t, s.no_depth)).or_default();
+                let base = verts.len() as u32;
+                for (p, uv, color) in corners {
+                    verts.push(Vertex {
+                        pos: p.into(),
+                        normal: [0.0, 1.0, 0.0],
+                        uv,
+                        color,
+                    });
+                }
+                idx.extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+                continue;
+            }
             let (mut x, mut y) = match s.mode {
                 SpriteMode::Facing => (right, up),
                 // Its direction's on-screen heading becomes its X.
@@ -2139,6 +2156,7 @@ impl Renderer {
                     (x, x.cross(s.at - self.eye).try_normalize().unwrap_or(up))
                 }
                 SpriteMode::Fixed([u, v]) => (u, v),
+                SpriteMode::Quad(_) => unreachable!("drawn above"),
             };
             if s.rotation != 0.0 {
                 let (sin, cos) = s.rotation.to_radians().sin_cos();

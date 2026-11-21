@@ -378,6 +378,18 @@ pub fn decode(d: &[u8]) -> Option<Value> {
             app.insert(key.into(), v);
         }
     }
+    // Contrails: fading out edge-on (between these, when the class fades at
+    // its edges) and the longest link drawn (0: any).
+    for (key, off) in [
+        ("edgeFadeMin", 396),
+        ("edgeFadeMax", 424),
+        ("maxContrail", 452),
+    ] {
+        let v = value(d, off);
+        if !v.is_null() && v != json!(0.0) {
+            app.insert(key.into(), v);
+        }
+    }
     // Lens flares: how far behind something one can still be seen, and the
     // frames it fades in and out over as it is seen or hidden.
     let dist = value(d, 480);
