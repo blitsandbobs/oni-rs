@@ -120,3 +120,44 @@ pub fn write(doc: &Value, path: &Path) -> std::io::Result<()> {
     }
     std::fs::write(path, serde_json::to_string_pretty(doc)?)
 }
+
+/// The HUD help overlay (`ONtIGUI_HUDHelp`, `IGHH` `hud_help_info`, level 0;
+/// `Oni_InGameUI.h`): `left_texture` @28, `right_texture` @32,
+/// `left_offset` / `right_offset` (two `i16` each) @36 / @40,
+/// `num_left_items` @44, `num_right_items` @48, then the var-array's count
+/// @52 and its items @56, each 68 bytes: `text[64]`, `offset` (two `i16`).
+/// The first `num_left_items` label the left ring, the rest the right.
+pub fn hud_help(dat: &Dat<'_>) -> Option<Value> {
+    let inst = dat
+        .instances
+        .iter()
+        .find(|i| i.tag.to_string() == "IGHH" && dat.instance_data(i).is_some())?;
+    let d = dat.instance_data(inst)?;
+    let u = |o: usize| Some(u32::from_le_bytes(d.get(o..o + 4)?.try_into().ok()?));
+    let s = |o: usize| Some(i16::from_le_bytes(d.get(o..o + 2)?.try_into().ok()?));
+    let name = |r: u32| -> Value {
+        (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+            .and_then(|i| i.name.clone())
+            .map_or(Value::Null, Value::from)
+    };
+    let left_items = u(44)? as usize;
+    let items: Vec<Value> = (0..u(52)? as usize)
+        .map(|k| {
+            let o = 56 + k * 68;
+            let text = d.get(o..o + 64)?;
+            let end = text.iter().position(|&b| b == 0).unwrap_or(64);
+            Some(json!({
+                "text": String::from_utf8_lossy(&text[..end]),
+                "offset": [s(o + 64)?, s(o + 66)?],
+                "right": k >= left_items,
+            }))
+        })
+        .collect::<Option<_>>()?;
+    Some(json!({
+        "left": { "texture": name(u(28)?), "offset": [s(36)?, s(38)?] },
+        "right": { "texture": name(u(32)?), "offset": [s(40)?, s(42)?] },
+        "items": items,
+    }))
+}

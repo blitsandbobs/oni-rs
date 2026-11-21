@@ -8,6 +8,7 @@
 
 pub mod cinematic;
 pub mod console;
+pub mod help;
 pub mod menu;
 pub mod pause;
 pub mod text;
@@ -197,6 +198,11 @@ pub struct Hud {
     /// The pause screen up (F1), and what it can show.
     pub pause: Option<pause::Pause>,
     pause_data: pause::Data,
+    /// The help overlay (`common/hud_help.json`), and whether it shows
+    /// (`ONgInGameUI_EnableHelp`: the pause screen's Help page, or
+    /// `ui_show_help`; the pause screen closing turns it off).
+    help: Option<help::Help>,
+    pub help_on: bool,
     /// What the player has met — the item kinds (bits by powerup type) and
     /// weapon classes, unlocked for the pause screen for good — and what is
     /// new since it was last looked at.
@@ -263,6 +269,8 @@ impl Default for Hud {
             console_dialog: None,
             part_specs: serde_json::Value::Null,
             pause: None,
+            help: None,
+            help_on: false,
             pause_data: pause::Data::default(),
             items_seen: 0,
             weapon_classes_seen: Vec::new(),
@@ -405,6 +413,7 @@ impl Hud {
             part_specs: specs,
             additive,
             fonts: Fonts::load(common),
+            help: help::Help::load(common),
             texts: table("messages"),
             subtitle_texts: Subtitles::from_json(&doc["subtitles"]),
             level,
@@ -782,6 +791,7 @@ impl Hud {
         if let Some(p) = &self.pause {
             if p.may_close() {
                 self.pause = None;
+                self.help_on = false;
             }
             return;
         }
@@ -797,7 +807,9 @@ impl Hud {
             new_weapon: self.new_weapon_class.as_deref(),
             new_move: self.new_move,
         };
-        self.pause = Some(pause::Pause::open(&self.pause_data, &player));
+        let p = pause::Pause::open(&self.pause_data, &player);
+        self.help_on = p.tab == pause::Tab::Help;
+        self.pause = Some(p);
         self.pause_read();
     }
 
@@ -808,8 +820,12 @@ impl Hud {
             return;
         };
         if p.press(&self.pause_data, id) {
+            // (`ONiPS_SetTab`: the overlay with the Help page.)
+            self.help_on = p.tab == pause::Tab::Help;
             self.pause = Some(p);
             self.pause_read();
+        } else {
+            self.help_on = false;
         }
     }
 
@@ -911,6 +927,7 @@ impl Hud {
         if let (Some(p), false) = (p, letterboxed) {
             let from = out.len();
             self.rings(&mut out, p, w, h);
+            self.help_overlay(&mut out, w, h);
             // (Textures flagged additive add to the frame.)
             for d in &mut out[from..] {
                 let stem = d
@@ -1026,6 +1043,76 @@ impl Hud {
         Some((path, size))
     }
 
+    /// The two rings' centres (`gLeftCenter`, `gRightCenter`): each ring 10
+    /// in from its side, on the bottom edge.
+    fn centres(&mut self, w: f32, h: f32) -> ([f32; 2], [f32; 2]) {
+        let left = self.size_of("left");
+        let right = self.size_of("right");
+        (
+            [
+                10.0 + (left[0] as i32 / 2) as f32,
+                h - (left[1] as i32 / 2) as f32,
+            ],
+            [
+                w - 10.0 - (right[0] as i32 / 2) as f32,
+                h - (right[1] as i32 / 2) as f32,
+            ],
+        )
+    }
+
+    /// The help overlay (`ONiInGameUI_DisplayHelp`), after the rings: each
+    /// shown side's texture, then its labels (green, with the drop shadow).
+    fn help_overlay(&mut self, out: &mut Vec<OverlayDraw>, w: f32, h: f32) {
+        let Some(help) = self.help.clone().filter(|_| self.help_on) else {
+            return;
+        };
+        let (lc, rc) = self.centres(w, h);
+        let mut corners = [[0; 2]; 2];
+        for (k, (side, c, ring)) in [(&help.left, lc, "left"), (&help.right, rc, "right")]
+            .into_iter()
+            .enumerate()
+        {
+            let size = self.size_of(side.texture.as_deref().unwrap_or(ring));
+            corners[k] = help::corner(c, side.offset, size);
+            if let (true, Some(t)) = (self.show[k], &side.texture) {
+                let [l, t0] = corners[k].map(|v| v as f32);
+                out.push(rect(
+                    Some(self.texture(t)),
+                    [l, t0, l + size[0], t0 + size[1]],
+                    [1.0, 1.0, 1.0, 1.0],
+                ));
+            }
+        }
+        let Some(font) = self.fonts.best(help::TEXT_SIZE).cloned() else {
+            return;
+        };
+        let atlas = font.atlas.display().to_string();
+        let laid: Vec<(text::Segment, f32, String)> = help
+            .labels
+            .iter()
+            .filter(|l| self.show[usize::from(l.right)])
+            .map(|l| {
+                let width = l
+                    .text
+                    .chars()
+                    .filter_map(|c| font.glyph(c))
+                    .map(|g| g[3])
+                    .sum();
+                let [x, top] =
+                    help::place(l, corners[usize::from(l.right)], width, font.line_height());
+                let seg = text::Segment {
+                    text: l.text.clone(),
+                    x,
+                    top,
+                    width,
+                    color: help::TEXT_COLOR,
+                };
+                (seg, 1.0, atlas.clone())
+            })
+            .collect();
+        out.extend(text_draws(&self.fonts, &laid));
+    }
+
     /// The two rings (`ONrInGameUI_Display`).
     fn rings(&mut self, out: &mut Vec<OverlayDraw>, p: &Player, w: f32, h: f32) {
         let flash = self.flash_alpha();
@@ -1033,14 +1120,7 @@ impl Hud {
         let filled = self.filled;
         let left = self.size_of("left");
         let right = self.size_of("right");
-        let lc = [
-            10.0 + (left[0] as i32 / 2) as f32,
-            h - (left[1] as i32 / 2) as f32,
-        ];
-        let rc = [
-            w - 10.0 - (right[0] as i32 / 2) as f32,
-            h - (right[1] as i32 / 2) as f32,
-        ];
+        let (lc, rc) = self.centres(w, h);
         let white = [1.0, 1.0, 1.0, 1.0];
         let lring = Some(self.texture("leftRing"));
         let rring = Some(self.texture("rightRing"));

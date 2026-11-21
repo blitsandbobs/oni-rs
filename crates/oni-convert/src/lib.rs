@@ -473,6 +473,12 @@ pub fn convert_with(
                 text_consoles::write_dialog(&dialog, &root_to_common(&root))?;
                 console_font = font;
             }
+            if let Some(help) = pause_pages::hud_help(&dat) {
+                std::fs::write(
+                    root_to_common(&root).join("hud_help.json"),
+                    serde_json::to_string_pretty(&help)?,
+                )?;
+            }
             if let Some((doc, font)) = pause_pages::common(&dat, &registry) {
                 pause_pages::write(&doc, &root_to_common(&root).join("pause_screen.json"))?;
                 pause_font = font;

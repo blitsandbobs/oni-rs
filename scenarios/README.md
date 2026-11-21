@@ -49,7 +49,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `block.lua` | Automatic blocking: a dummy facing the player head-on blocks a punch (no damage); turned 60° away it can't. |
 | `reactions.lua` | Hit reactions: a behind hit, a combo knockdown, getting up (dummy and player), death. |
 | `patrol.lua` | AI movement: a route follower runs a square with ordinary locomotion; held orders sidestep and backpedal. |
-| `pause.lua` | The pause screen on level 3: F1 opens it on the objectives (current first, Previous to older), items and weapons only once met, the diary up to this level on its first page, the help; the game stands still; Close. |
+| `pause.lua` | The pause screen on level 3: F1 opens it on the objectives (current first, Previous to older), items and weapons only once met, the diary up to this level on its first page, the help with its overlay over the rings (gone with another page or on closing; `ui_show_help` toggles it in play); the game stands still; Close. |
 | `mouse_melee.lua` | Unarmed, the fire buttons are melee: fire 1 (left mouse) punches, fire 2 (right) kicks, fire 3 (middle) crouches. |
 | `collisions.lua` | What movement meets: an AI walking past someone in its way bumps them, records it and steers round; Konoko against a wall counts it. |
 | `loose.lua` | Loose things: a gun let fall lands fast with its impact and lies still; a dying thug's hypo falls and comes to rest; a lifted Striker rises toward Konoko and falls when let go. |
@@ -178,7 +178,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `use_hypo(id)` / `hypo_left(id)` | Use a hypo as Tab does (whether it was used); the health it still has to give. |
 | `lens_flares()` / `lens_flare_near(x, y, z)` | How many lens flares there are, and how many are shown now; the opacity share of the flare nearest a point. |
 | `game()` | The game flow: the level's outcome (`victory`: true won, false lost), a splash screen asked for (`splash`), the save point kept (`save_point`). |
-| `hud()` / `hud_triangles()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; F1 (the objective read); the subtitle option. |
+| `hud()` / `hud_triangles()` / `hud_help()` / `read_objective()` / `subtitles(on)` | The HUD: its text areas' lines (`messages`, `subtitles`, `console`), `objective` / `new_objective`, the compass `target`, `letterbox` depth, `fade` opacity, `filled` / `flashing` bits, `show` (left, right), the player's `hits`; how many triangles it draws; whether the help overlay shows; F1 (the objective read); the subtitle option. |
 | `camera()` / `jello()` | The game camera: its place, view direction and whether a script waits on it (`x, y, z, vx, vy, vz, busy`); how many level quads it makes see-through. |
 | `fog()` / `image_mean(path, x0, y0, x1, y1)` | The fog now: `r, g, b, start, end` (screen depth); a saved screenshot's mean colour over a region (fractions), `r, g, b`. |
 | `temp_path(name)` | A path in the temp folder of this process's own (`oni_<pid>_<name>`): for a screenshot a scenario reads back. The fixed and faithful passes run every scenario at the same time, so a fixed path would be shared. |

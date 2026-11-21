@@ -1688,6 +1688,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Whether the HUD's help overlay shows (the pause screen's Help page,
+    // ui_show_help).
+    let h = host.clone();
+    g.set(
+        "hud_help",
+        lua.create_function(move |_, ()| Ok(h.borrow().world.hud.help_on))?,
+    )?;
     // How many overlay triangles the HUD draws now (on a 640 × 480 screen).
     let h = host.clone();
     g.set(

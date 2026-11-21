@@ -713,6 +713,11 @@ pub fn dispatch(
             }
             nil()
         }
+        // (A debugging command: no level script uses it.)
+        "ui_show_help" => {
+            host.world().hud.help_on = int(a(0)).unwrap_or(0) > 0;
+            nil()
+        }
         "ui_fill_element" | "ui_flash_element" => {
             let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else {
                 return nil();
