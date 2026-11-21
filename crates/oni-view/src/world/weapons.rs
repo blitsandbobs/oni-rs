@@ -190,6 +190,8 @@ pub struct ShotHost<'a> {
     pub quads: Option<&'a crate::quads::Quads>,
     /// Rolls for a boss shield's fractions (seeded by the tick).
     rng: u32,
+    /// The placed objects particles may meet: each one's collision sphere.
+    pub objects: Vec<(Vec3, f32)>,
 }
 
 impl<'a> ShotHost<'a> {
@@ -221,6 +223,7 @@ impl<'a> ShotHost<'a> {
             turret_spread: 0.0,
             quads: None,
             rng: (now as u32).wrapping_mul(0x9E37_79B9) | 1,
+            objects: Vec::new(),
         }
     }
 
@@ -488,6 +491,18 @@ impl ShotHost<'_> {
 impl Host for ShotHost<'_> {
     fn super_amount(&self, who: usize) -> f32 {
         self.fighters.get(who).map_or(0.0, |f| f.super_amount)
+    }
+
+    fn ray_objects(&mut self, from: Vec3, ray: Vec3, radius: f32) -> Option<(f32, Vec3, u32)> {
+        // (A point against each sphere; a sphere against it grown by its
+        // radius — `PHrCollision_Point_SphereTree` / `…SphereTree_SphereTree`.)
+        self.objects
+            .iter()
+            .enumerate()
+            .filter_map(|(k, &(c, r))| {
+                p3::ray_sphere_entry(from, ray, c, r + radius).map(|(t, n)| (t, n, k as u32))
+            })
+            .min_by(|a, b| a.0.total_cmp(&b.0))
     }
 
     fn part_matrix(&mut self, who: usize, part: usize) -> Option<Rc<std::cell::Cell<Mat4>>> {
@@ -3297,9 +3312,11 @@ impl World {
             .collect();
         let inaccuracy = self.inaccuracies();
         let spread = self.turret_spread();
+        let objects = self.object_spheres();
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.pane_quads = pane_quads;
         host.doors = &self.door_boxes;
+        host.objects = objects;
         host.set_spread(inaccuracy, spread);
         host.panes = panes;
         host.quads = Some(&self.quads);

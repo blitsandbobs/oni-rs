@@ -294,7 +294,7 @@ impl System {
                 }
             }
             Kind::DamageHitChar => {
-                let Some(k) = hit.filter(|k| !k.env) else {
+                let Some(k) = hit.filter(|k| !k.env && k.id & super::OBJECT_HIT == 0) else {
                     return none;
                 };
                 if p.flags & pflag::CUTSCENE_KILLED != 0 {

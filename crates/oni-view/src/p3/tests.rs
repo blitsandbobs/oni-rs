@@ -17,6 +17,8 @@ struct Fake {
     blasts: Vec<(Vec3, f32, f32)>,
     /// Glass broken near: centre, radius.
     glass: Vec<(Vec3, f32)>,
+    /// A placed object: its sphere.
+    object: Option<(Vec3, f32)>,
 }
 
 impl Host for Fake {
@@ -61,6 +63,10 @@ impl Host for Fake {
             normal: (from + d * s - self.target).normalize(),
             part: 0,
         })
+    }
+    fn ray_objects(&mut self, from: Vec3, ray: Vec3, radius: f32) -> Option<(f32, Vec3, u32)> {
+        let (c, r) = self.object?;
+        ray_sphere_entry(from, ray, c, r + radius).map(|(t, n)| (t, n, 0))
     }
     fn hit_char(
         &mut self,
@@ -740,4 +746,36 @@ fn a_contrail_whose_link_dies_hears_of_it() {
     sys.kill(head, &mut host);
     sys.update(2, &mut host);
     assert_eq!(count(&sys, "tail"), 0, "its link gone, it dies");
+}
+
+#[test]
+fn a_shot_stops_at_a_placed_object_and_harms_no_one() {
+    // (`P3iCheckCollisions`: the other physics in the way — a placed
+    // object's sphere — is a hit like a character's, `CollideChar`; the
+    // bullet dies there, its damage reaching no one.)
+    let mut sys = System::new(classes());
+    let mut host = Fake {
+        target: Vec3::new(0.0, 10.0, 300.0),
+        object: Some((Vec3::new(0.0, 10.0, 60.0), 8.0)),
+        ..Fake::default()
+    };
+    let gun = spawn(
+        &mut sys,
+        "gun",
+        Vec3::new(0.0, 10.0, 0.0),
+        Vec3::ZERO,
+        &mut host,
+    );
+    sys.get_mut(gun).unwrap().orientation = Mat3::from_cols(Vec3::X, Vec3::Z, -Vec3::Y);
+    sys.send(gun, event::PULSE, 0.0, &mut host);
+    let mut last_z = 0.0f32;
+    for tick in 1..=12 {
+        sys.update(tick, &mut host);
+        for (_, p) in sys.iter() {
+            last_z = last_z.max(p.position.z);
+        }
+    }
+    assert_eq!(count(&sys, "bullet"), 0, "it died on the object");
+    assert!(host.hits.is_empty(), "harming no one");
+    assert!(last_z <= 53.0, "not past the object's front: {last_z}");
 }

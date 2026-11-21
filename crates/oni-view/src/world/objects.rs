@@ -47,6 +47,23 @@ pub struct Setup {
     /// both modes — the "largest coordinate" the code meant would wall off
     /// whole aisles round a truck).
     pub radius: f32,
+    /// Its first geometry's texture (what a particle striking it is made
+    /// of, `P3iPhysicsGetMaterialType`).
+    pub texture: Option<String>,
+}
+
+/// A model's first texture, by name (the glTF's first image).
+fn first_texture(path: &std::path::Path) -> Option<String> {
+    let b = std::fs::read(path).ok()?;
+    let n = u32::from_le_bytes(b.get(12..16)?.try_into().ok()?) as usize;
+    let j: serde_json::Value = serde_json::from_slice(b.get(20..20 + n)?).ok()?;
+    let uri = j["images"][0]["uri"].as_str()?;
+    Some(
+        std::path::Path::new(uri)
+            .file_stem()?
+            .to_string_lossy()
+            .into_owned(),
+    )
 }
 
 /// A live object (`OBtObject` with its physics' animation context).
@@ -127,6 +144,9 @@ pub fn load(level_dir: &Path) -> Vec<Setup> {
                     .collect(),
                 radius: f(&o["radius"]["shipped"]).max(1.0),
                 particles: o["particles"].as_array().cloned().unwrap_or_default(),
+                texture: o["geometry"][0]
+                    .as_str()
+                    .and_then(|g| first_texture(&common.join(g))),
             }
         })
         .collect()
@@ -344,6 +364,14 @@ impl World {
 
     /// The objects' collision spheres this tick (centre on its matrix's
     /// place, `OBiUpdate`): not hidden, not without collision.
+    /// The setup of the `n`th object in [`World::object_spheres`].
+    pub(crate) fn object_spheres_index(&self, n: usize) -> Option<usize> {
+        (0..self.objects.len())
+            .filter(|&k| self.objects[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
+            .nth(n)
+            .map(|k| self.objects[k].setup)
+    }
+
     pub fn object_spheres(&self) -> Vec<(Vec3, f32)> {
         (0..self.objects.len())
             .filter(|&k| self.objects[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)

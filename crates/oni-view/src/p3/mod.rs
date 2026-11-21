@@ -160,6 +160,33 @@ pub struct Collision {
     pub part: Option<u32>,
 }
 
+/// Where a ray from `from` along `ray` enters the sphere `centre`, `r`
+/// (`PHrCollision_Point_SphereTree`): the fraction along it (0–1) and the
+/// normal there. Heading away from it, or starting inside, is no hit.
+pub fn ray_sphere_entry(from: Vec3, ray: Vec3, centre: Vec3, r: f32) -> Option<(f32, Vec3)> {
+    let oc = from - centre;
+    let (a, b, c) = (
+        ray.length_squared(),
+        2.0 * oc.dot(ray),
+        oc.length_squared() - r * r,
+    );
+    if a < 1e-12 || b > 0.0 || c <= 0.0 {
+        return None;
+    }
+    let disc = b * b - 4.0 * a * c;
+    if disc < 0.0 {
+        return None;
+    }
+    let t = (-b - disc.sqrt()) / (2.0 * a);
+    (0.0..=1.0)
+        .contains(&t)
+        .then(|| (t, (from + ray * t - centre).normalize_or(Vec3::Y)))
+}
+
+/// A collision's id with this bit: a placed object (its index), not a
+/// character — a physics hit that harms no one.
+pub const OBJECT_HIT: u32 = 1 << 31;
+
 /// A level hit: how far along the ray (0–1), the surface normal and an id.
 #[derive(Clone, Copy, Debug)]
 pub struct EnvHit {
@@ -234,6 +261,12 @@ pub trait Host {
         radius: f32,
         owner: Option<usize>,
     ) -> Option<CharHit>;
+    /// The first placed object met along the ray (its collision sphere;
+    /// grown by `radius` for a sphere): how far along (0–1), the normal
+    /// there, which object.
+    fn ray_objects(&mut self, _from: Vec3, _ray: Vec3, _radius: f32) -> Option<(f32, Vec3, u32)> {
+        None
+    }
     /// A direct hit (`WPrHitChar`); true when `stamp` is the victim's last
     /// particle (a duplicate, rejected).
     #[allow(clippy::too_many_arguments)]
@@ -1072,6 +1105,23 @@ impl System {
                     t: cur + dt * f64::from(limit * k.fraction),
                     quad: None,
                     part: Some(k.part as u32),
+                });
+            }
+            // The other physics in the way (`P3gPhysicsList`): the placed
+            // objects, met by their spheres — a hit like a character's
+            // (`CollideChar`), harming no one.
+            let limit = best.map_or(1.0, |b| ((b.t - cur) / dt.max(1e-9)) as f32);
+            let r = ray * limit;
+            if let Some((f, normal, k)) = host.ray_objects(from, r, c.collision_radius) {
+                best = Some(Collision {
+                    env: false,
+                    point: from + r * f,
+                    normal,
+                    dir: r * f,
+                    id: OBJECT_HIT | k,
+                    t: cur + dt * f64::from(limit * f),
+                    quad: None,
+                    part: None,
                 });
             }
         }
