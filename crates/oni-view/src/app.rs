@@ -18,6 +18,7 @@ use crate::camera::Camera;
 use crate::gltf::Scene;
 
 mod front;
+mod mouse;
 use crate::render::{Gpu, Renderer};
 
 /// Play-mode controller: the [`World`](crate::world::World) (player = fighter 0,
@@ -203,6 +204,8 @@ struct State {
     /// Play mode: whether the mouse is captured (locked + hidden, turning the
     /// character). Toggled with Esc so the cursor can be freed without quitting.
     captured: bool,
+    /// The mouse as set: focus, grab, the arrow (`app/mouse.rs`).
+    mouse: mouse::Mouse,
     /// Player key/mouse bindings (Oni defaults; rebindable later).
     bindings: oni_config::Bindings,
     tuning: oni_config::InputTuning,
@@ -391,7 +394,6 @@ impl ApplicationHandler for App {
                 Ok((r, pw)) => {
                     renderer = r;
                     charview = None;
-                    apply_capture(&window, true);
                     // (Esc brings up the main menu over it.)
                     front = Some(front::Front::new(oni_root.clone(), user.clone(), false));
                     Some(pw)
@@ -468,9 +470,6 @@ impl ApplicationHandler for App {
                                 Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
                         }
                     }
-                    // Capture the cursor so mouse motion turns the character
-                    // continuously (Oni grabs the mouse in gameplay); Esc releases it.
-                    apply_capture(&window, true);
                     world.audio.mixer.lock().unwrap().law = self.sound_law;
                     let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
                     world.audio.realtime = audio.is_some();
@@ -518,6 +517,7 @@ impl ApplicationHandler for App {
         }
 
         let now = Instant::now();
+        let focused = window.has_focus();
         self.state = Some(State {
             gpu,
             surface,
@@ -530,6 +530,7 @@ impl ApplicationHandler for App {
             looking: false,
             cursor: [0.0, 0.0],
             captured: self.play,
+            mouse: mouse::Mouse::new(focused),
             bindings: oni_config::Bindings::oni_defaults(),
             tuning: oni_config::InputTuning { invert_y: user.invert_mouse, ..oni_config::InputTuning::default() },
             move_speed,
@@ -603,9 +604,6 @@ impl ApplicationHandler for App {
                                 KeyCode::Escape => pw.world.pause_press(2, false),
                                 _ => {}
                             }
-                            if pw.world.hud.pause.is_none() {
-                                apply_capture(&st.window, st.captured);
-                            }
                         }
                         st.keys.clear();
                         return;
@@ -621,10 +619,6 @@ impl ApplicationHandler for App {
                     if code == KeyCode::F1 && event.state == ElementState::Pressed && !event.repeat {
                         if let Some(pw) = st.play.as_mut() {
                             pw.world.pause_toggle();
-                            if pw.world.hud.pause.is_some() {
-                                st.mouse_held.clear();
-                                apply_capture(&st.window, false);
-                            }
                         }
                         st.keys.clear();
                         return;
@@ -635,7 +629,6 @@ impl ApplicationHandler for App {
                             // the window to quit); otherwise Esc quits.
                             st.captured = !st.captured;
                             st.mouse_held.clear();
-                            apply_capture(&st.window, st.captured);
                         } else {
                             event_loop.exit();
                         }
@@ -655,15 +648,12 @@ impl ApplicationHandler for App {
                 // and drop any held buttons so none stays stuck down.
                 st.mouse_held.clear();
                 st.keys.clear();
-                if st.play.is_some() {
-                    apply_capture(&st.window, false);
-                }
+                st.mouse.focused = false;
+                st.sync_mouse();
             }
-            WindowEvent::Focused(true) => {
-                if st.play.is_some() && st.captured {
-                    apply_capture(&st.window, true);
-                }
-            }
+            WindowEvent::Focused(true) => st.mouse.focused = true,
+            WindowEvent::CursorEntered { .. } => st.mouse.inside = true,
+            WindowEvent::CursorLeft { .. } => st.mouse.inside = false,
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = st.window.scale_factor() as f32;
                 st.cursor = [position.x as f32 / scale, position.y as f32 / scale];
@@ -695,8 +685,17 @@ impl ApplicationHandler for App {
                         if let Some(id) = pw.world.hud.pause_hit(w, h, st.cursor[0], st.cursor[1]) {
                             pw.world.pause_press(id, true);
                         }
-                        if pw.world.hud.pause.is_none() {
-                            apply_capture(&st.window, st.captured);
+                    }
+                    return;
+                }
+                // A console's text up: a click is on its button, Next or
+                // Close (`ONcTC_Btn_Next`, `_Close`).
+                if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.text_console.is_some()) {
+                    if pressed && button == MouseButton::Left {
+                        let scale = st.window.scale_factor() as f32;
+                        let (w, h) = (st.config.width as f32 / scale, st.config.height as f32 / scale);
+                        if pw.world.hud.text_console_hit(w, h, st.cursor[0], st.cursor[1]) {
+                            pw.world.text_console_click();
                         }
                     }
                     return;
@@ -709,11 +708,10 @@ impl ApplicationHandler for App {
                 if button == MouseButton::Left {
                     st.looking = pressed;
                 }
-                if st.play.is_some() && !st.captured {
-                    // Click back into the window to re-capture (not a fire press).
+                if st.play.is_some() && !st.mouse.grabbed {
+                    // Click into the window to grab the mouse (not a fire press).
                     if pressed && button == MouseButton::Left {
                         st.captured = true;
-                        apply_capture(&st.window, true);
                     }
                 } else if let Some(b) = to_config_mouse(button) {
                     // Captured: the buttons act through the bindings (fire 1/2/3
@@ -737,8 +735,8 @@ impl ApplicationHandler for App {
         if let (Some(st), DeviceEvent::MouseMotion { delta }) = (self.state.as_mut(), event) {
             if st.play.is_some() {
                 // Play mode: the mouse turns the character (accumulated, applied
-                // per tick) — only while the cursor is captured.
-                if st.captured {
+                // per tick) — only while the mouse is grabbed.
+                if st.mouse.grabbed {
                     if let Some(play) = st.play.as_mut() {
                         play.mouse_dx += delta.0 as f32;
                         play.mouse_dy += delta.1 as f32;
@@ -1081,6 +1079,9 @@ impl State {
             self.renderer.overlay = o;
             self.renderer.overlay_size = [self.config.width as f32 / scale, self.config.height as f32 / scale];
         }
+        // The pointer over the game's own screens: the original's arrow.
+        self.sync_mouse();
+        self.draw_arrow();
         let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
             (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),
             (None, Some(cv)) => {
@@ -1153,9 +1154,6 @@ fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
     vec![[l, t, 0.0, 0.0], [rr, t, 1.0, 0.0], [rr, b, 1.0, 1.0], [l, t, 0.0, 0.0], [rr, b, 1.0, 1.0], [l, b, 0.0, 1.0]]
 }
 
-/// Grabs or releases the mouse cursor for play mode. Tries OS cursor-lock
-/// first (continuous turning), falling back to confine-to-window; hides the
-/// cursor while captured.
 /// The win or fail splash's music (`ONrGameState_SplashScreen`): every
 /// other sound stopped, `music` started silent and faded in over a second.
 fn splash_music(audio: &mut crate::audio::Audio, splash: Option<&mut crate::game::Splash>, music: &'static str) {
@@ -1177,18 +1175,6 @@ fn audio_only(pw: &mut PlayWorld, dt: f32) {
     }
 }
 
-fn apply_capture(window: &Window, on: bool) {
-    use winit::window::CursorGrabMode;
-    if on {
-        let _ = window
-            .set_cursor_grab(CursorGrabMode::Locked)
-            .or_else(|_| window.set_cursor_grab(CursorGrabMode::Confined));
-        window.set_cursor_visible(false);
-    } else {
-        let _ = window.set_cursor_grab(CursorGrabMode::None);
-        window.set_cursor_visible(true);
-    }
-}
 
 /// Maps a `winit` physical key to the portable `oni_config::Key` the bindings
 /// are keyed on (variant names mirror `winit`'s). Unmapped keys return `None`.

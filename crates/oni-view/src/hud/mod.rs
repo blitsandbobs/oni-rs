@@ -607,6 +607,17 @@ impl Hud {
         self.text_console = None;
     }
 
+    /// The console text's button (Next or Close) on a `w` × `h` screen.
+    pub fn text_console_button(&self, w: f32, h: f32) -> Option<[f32; 4]> {
+        self.text_console.as_ref()?;
+        self.console_dialog.as_ref().map(|d| console::button_rect(d, w, h))
+    }
+
+    /// Whether screen `x`, `y` is on the console text's button.
+    pub fn text_console_hit(&self, w: f32, h: f32, x: f32, y: f32) -> bool {
+        self.text_console_button(w, h).is_some_and(|[l, t, bw, bh]| x >= l && x < l + bw && y >= t && y < t + bh)
+    }
+
     /// Whether a modal screen is up (a console's text, the pause screen):
     /// the game stands still.
     pub fn modal(&self) -> bool {

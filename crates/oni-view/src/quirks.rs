@@ -118,6 +118,11 @@ impl Quirks {
     pub fn no_new_target(self) -> bool {
         self.faithful
     }
+
+    /// Q19: the options' Invert Mouse box is titled "Off" (ticked: inverted).
+    pub fn invert_mouse_titled_off(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]

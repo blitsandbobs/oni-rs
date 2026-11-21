@@ -142,6 +142,14 @@ impl World {
         self.pause_sounds(was);
     }
 
+    /// The console text's button clicked (`ONiTC_HandleCommand`): it clicks
+    /// (`WMcButton_ClickSound`); Next shows the next page, Close (on the
+    /// last) closes.
+    pub fn text_console_click(&mut self) {
+        self.audio.impulse_play("button_click", None, None, None);
+        self.hud.text_console_next();
+    }
+
     /// The pause screen's sounds (`ONrPauseScreen_Display`): opening, its
     /// sound and the overall volume halved; closing, the volume back and its
     /// sound.

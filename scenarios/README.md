@@ -142,7 +142,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `fire(n)` | Tap fire 1 / 2 / 3 (left / right / middle mouse; unarmed: punch / kick / crouch). |
 | `state()` / `anim_type()` | The body state / current animation type (numbers, see `anim/types.rs`). |
 | `aim_deg()` | The aim direction (desired facing without the diagonal / sidestep body lean). |
-| `faithful(on)` | Reproduce the original's known bugs (`docs/QUIRKS.md`). |
+| `faithful(on)` / `faithful()` | Reproduce the original's known bugs (`docs/QUIRKS.md`); with no argument, whether it does. |
 | `seed(n)` | Reseed the weighted animation pick for repeatable runs. |
 | `type_of(id)` / `state_of(id)` / `facing_of(id)` / `dead(id)` | Inspect any fighter. |
 | `set_hp(id, n)` / `set_facing(id, deg)` / `knock(id, anim_type)` | Test hooks: set health, turn, force a reaction. |
@@ -168,7 +168,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `fog()` / `image_mean(path, x0, y0, x1, y1)` | The fog now: `r, g, b, start, end` (screen depth); a saved screenshot's mean colour over a region (fractions), `r, g, b`. |
 | `jello_objects()` | The placed objects see-through this tick (in the camera's way), by name. |
 | `pause_toggle()` / `pause_screen()` / `pause_press(b)` | F1 on the pause screen; its state `{tab, page (from 1), pages, lines, hint, previous, next}` or nil; a button: `"objective"`, `"items"`, `"weapons"`, `"diary"`, `"help"`, `"previous"`, `"next"`, `"close"`. |
-| `text_console()` / `text_console_key(k)` | The data console showing its text, `{name, page (from 1), pages, last, lines}` or nil; presses Space (`"next"`) or Esc (`"close"`) on it. |
+| `text_console()` / `text_console_key(k)` / `text_console_click(x, y)` | The data console showing its text, `{name, page (from 1), pages, last, lines, button}` (`button`: its button's `{x, y, w, h}` on 640 × 480) or nil; presses Space (`"next"`) or Esc (`"close"`) on it; clicks at screen x, y (true: on the button, Next or Close). |
 | `lock_of(id)` | The frames fighter `id`'s scripted animation still holds it (`animationLockFrames`; 0: free). |
 | `jello_drawn()` / `set_jello(q, on)` | How many see-through triangles the last screenshot drew; marks level quad `q` see-through or not, as the camera does (until its next update). |
 | `ray(x1, y1, z1, x2, y2, z2)` | The first level quad between two points (any flags): `{quad, at={x,y,z}, flags, object_tag, jello}`, or nil. |

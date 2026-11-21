@@ -785,7 +785,11 @@ impl Window {
                         out.extend(p.draw([r[0], r[1]], rw, rh));
                     }
                     let title = items.get(*selected).map_or("", |(_, s)| s.as_str());
-                    string(&mut out, look, c.def.font, shade, title, [r[0] + 2.0 + lw, r[1], (rw - 2.0 - lw).max(0.0), rh], Halign::Left, true);
+                    // (On one line, cut before the arrow: the original
+                    // wraps a title too long for it.)
+                    let room = (rw - 2.0 - lw - look.part("popup_menu").map_or(0.0, |p| p.right_width())).max(0.0);
+                    let title = fit(look, c.def.font, title, room);
+                    string(&mut out, look, c.def.font, shade, &title, [r[0] + 2.0 + lw, r[1], room + 1000.0, rh], Halign::Left, true);
                 }
                 (Ctl::List { rows, selected, start }, _) => {
                     let lh = self.line.get(&k).copied().unwrap_or(14.0);
@@ -924,6 +928,15 @@ fn string(out: &mut Vec<OverlayDraw>, look: &Look, f: FontDef, shade: u32, s: &s
     }
 }
 
+/// As much of `s` as fits `width` in a font (whole characters).
+fn fit(look: &Look, f: FontDef, s: &str, width: f32) -> String {
+    let mut out = s.to_string();
+    while !out.is_empty() && look.width(f, &out) > width {
+        out.pop();
+    }
+    out.trim_end().to_string()
+}
+
 // --- the out-of-game menus -----------------------------------------------
 
 /// The main menu's buttons (`ONcMainMenu_Btn_*`).
@@ -946,7 +959,8 @@ const GAMMA: i64 = 110;
 /// data).
 pub const FAITHFUL: i64 = 3;
 /// The resolutions the options offer (shown and kept; the window is sized
-/// freely).
+/// freely), named without the original's bit depth (`%d x %d x %d bit`:
+/// the port has none to choose, and the longest wouldn't fit the popup).
 const RESOLUTIONS: [(u32, u32); 5] = [(640, 480), (800, 600), (1024, 768), (1280, 1024), (1600, 1200)];
 const DIFFICULTIES: [&str; 3] = ["easy", "normal", "hard"];
 
@@ -979,6 +993,8 @@ pub struct MainMenu {
     /// resumes).
     pub in_game: bool,
     pub settings: Settings,
+    /// The original's slips kept (Q19).
+    pub quirks: crate::quirks::Quirks,
 }
 
 impl MainMenu {
@@ -988,7 +1004,7 @@ impl MainMenu {
         let mut w = Window::new(data, "mainmenu");
         w.set_visible(OPTIONS, !in_game);
         w.set_visible(RESUME, in_game);
-        MainMenu { stack: vec![w], in_game, settings }
+        MainMenu { stack: vec![w], in_game, settings, quirks: crate::quirks::Quirks::FIXED }
     }
 
     pub fn top(&self) -> Option<&Window> {
@@ -1019,8 +1035,14 @@ impl MainMenu {
         w.set_slider(VOLUME, 0, 100, (s.overall_volume * 100.0).round() as i32);
         w.set_check(SUBTITLES, s.subtitles);
         w.set_check(INVERT_MOUSE, s.invert_mouse);
+        // (Q19: shipped, the box ticked for inverted is titled "Off".)
+        if !self.quirks.invert_mouse_titled_off() {
+            if let Some(c) = w.control_mut(INVERT_MOUSE) {
+                c.def.title = "On".into();
+            }
+        }
         w.set_popup(DIFFICULTY, None, DIFFICULTIES.iter().position(|d| *d == s.difficulty).unwrap_or(1) as i64);
-        let modes: Vec<(i64, String)> = RESOLUTIONS.iter().enumerate().map(|(i, (w, h))| (i as i64, format!("{w} x {h} x 32 bit"))).collect();
+        let modes: Vec<(i64, String)> = RESOLUTIONS.iter().enumerate().map(|(i, (w, h))| (i as i64, format!("{w} x {h}"))).collect();
         let current = RESOLUTIONS.iter().position(|r| *r == s.resolution).unwrap_or(0) as i64;
         w.set_popup(RESOLUTION, Some(modes), current);
         self.stack.push(w);

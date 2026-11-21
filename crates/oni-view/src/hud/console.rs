@@ -241,6 +241,13 @@ pub fn button_draws(out: &mut Vec<OverlayDraw>, part: &dyn Fn(&str) -> Option<Pa
     }
 }
 
+/// The dialog's button on a `w` × `h` screen: x, y, width, height.
+pub fn button_rect(d: &Dialog, w: f32, h: f32) -> [f32; 4] {
+    let at = [((w - d.size[0]) * 0.5).floor().max(0.0), ((h - d.size[1]) * 0.5).floor().max(0.0)];
+    let [bx, by, bw, bh] = d.button;
+    [at[0] + bx, at[1] + by, bw, bh]
+}
+
 /// The dialog over a `w` × `h` screen, centred (at a whole multiple of its
 /// size that fits): the in-game UI's background and outline, the page in
 /// the text area, the button.

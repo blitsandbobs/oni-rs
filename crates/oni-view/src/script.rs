@@ -456,10 +456,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "faithful",
-        lua.create_function(move |_, on: bool| {
-            let q = if on { Quirks::FAITHFUL } else { Quirks::FIXED };
-            h.borrow_mut().world.set_quirks(q);
-            Ok(())
+        // faithful(on) sets the mode; faithful() tells it.
+        lua.create_function(move |_, on: Option<bool>| {
+            if let Some(on) = on {
+                h.borrow_mut().world.set_quirks(if on { Quirks::FAITHFUL } else { Quirks::FIXED });
+            }
+            Ok(h.borrow().world.quirks.faithful)
         })?,
     )?;
 
@@ -741,6 +743,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // text_console() → {name, page, pages, last, lines} or nil: the data
     // console showing its text (page from 1; lines: the page's strings).
     // text_console_key("next" | "close"): Space / Esc on it.
+    // text_console_click(x, y): the left button at screen x, y (640 × 480;
+    // `button` in text_console() is its button's {x, y, w, h}) → whether it
+    // was on the button (Next / Close).
     let h = host.clone();
     g.set(
         "text_console",
@@ -753,6 +758,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             t.set("pages", c.pages.len())?;
             t.set("last", c.last())?;
             t.set("lines", c.pages.get(c.page).map(|p| p.text.iter().map(|l| l.text.clone()).collect::<Vec<_>>()).unwrap_or_default())?;
+            if let Some(b) = host.world.hud.text_console_button(640.0, 480.0) {
+                t.set("button", b.to_vec())?;
+            }
             Ok(Some(t))
         })?,
     )?;
@@ -766,6 +774,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 _ => hud.text_console_close(),
             }
             Ok(())
+        })?,
+    )?;
+    let h = host.clone();
+    g.set(
+        "text_console_click",
+        lua.create_function(move |_, (x, y): (f32, f32)| {
+            let world = &mut h.borrow_mut().world;
+            let hit = world.hud.text_console_hit(640.0, 480.0, x, y);
+            if hit {
+                world.text_console_click();
+            }
+            Ok(hit)
         })?,
     )?;
     // lock_of(id) → the frames fighter `id`'s scripted animation still holds
@@ -1959,7 +1979,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         if !data.has("mainmenu") {
             return Err(mlua::Error::external("no menus (common/menus.json)"));
         }
-        let m = crate::hud::menu::MainMenu::open(&data, in_game.unwrap_or(false), crate::settings::Settings::default());
+        let mut m = crate::hud::menu::MainMenu::open(&data, in_game.unwrap_or(false), crate::settings::Settings::default());
+        m.quirks = host.world.quirks;
         host.menu = Some((data, m));
         Ok(())
     })?)?;

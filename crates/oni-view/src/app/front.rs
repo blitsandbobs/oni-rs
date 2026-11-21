@@ -8,7 +8,7 @@ use std::time::{Duration, Instant};
 
 use winit::keyboard::KeyCode;
 
-use super::{apply_capture, mission_level, State};
+use super::{mission_level, State};
 use crate::hud::menu::{self, Action, Data, Key, MainMenu, Window};
 
 /// The main menu's music (`OScMusicScore_Win`).
@@ -79,12 +79,15 @@ impl State {
     /// sounds playing paused, music only, the menu's music fading in.
     pub(super) fn open_menu(&mut self) {
         let in_game = self.play.is_some();
+        let quirks = if self.settings.faithful { crate::quirks::Quirks::FAITHFUL } else { crate::quirks::Quirks::FIXED };
         let Some(front) = self.front.as_mut() else { return };
         if !front.data.has("mainmenu") {
             eprintln!("menu: no menus (common/menus.json); reconvert the assets");
             return;
         }
-        front.menu = Some(MainMenu::open(&front.data, in_game, front.user.clone()));
+        let mut menu = MainMenu::open(&front.data, in_game, front.user.clone());
+        menu.quirks = quirks;
+        front.menu = Some(menu);
         if !in_game && front.audio.is_none() {
             let common = front.oni_root.join("common");
             let mut audio = crate::audio::Audio::load(&common, &common);
@@ -102,7 +105,6 @@ impl State {
         }
         self.keys.clear();
         self.mouse_held.clear();
-        apply_capture(&self.window, false);
     }
 
     /// The menu gone back to the game (`ONiOGU_MainMenu_Destroy`): the music
@@ -119,7 +121,6 @@ impl State {
         }
         if self.play.is_some() {
             self.captured = true;
-            apply_capture(&self.window, true);
         }
     }
 
@@ -285,7 +286,6 @@ impl State {
         match self.load_level(&root, level, save_point, saved) {
             Ok(()) => {
                 self.captured = true;
-                apply_capture(&self.window, true);
                 eprintln!("game: level {level}, save point {save_point}{}", if faithful { " (faithful)" } else { "" });
             }
             Err(e) => {
