@@ -235,6 +235,34 @@ impl MoveMode {
     }
 }
 
+/// Which way to dodge a danger (`AI2iManeuver_MakeDodgeFromDanger`): straight
+/// away from it, or — within 10, a direct hit — square to its incoming path,
+/// to the side with room (either at random when both or neither have).
+/// `danger` runs from the body toward it. Also says whether it was direct.
+fn dodge_heading(
+    danger: Vec3,
+    incoming: Vec3,
+    pelvis: Vec3,
+    rng: &mut Rng,
+    cx: &Ctx,
+) -> (Vec3, bool) {
+    let danger = danger.with_y_zero();
+    if danger.length() >= 10.0 {
+        return (-danger.normalize_or(Vec3::X), false);
+    }
+    let Some(side) = Vec3::new(incoming.z, 0.0, -incoming.x).try_normalize() else {
+        return (Vec3::X, true);
+    };
+    let clear = |d: Vec3| (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP);
+    let heading = match (clear(side), clear(-side)) {
+        (true, false) => side,
+        (false, true) => -side,
+        _ if rng.next() & 0x8000 == 0 => -side,
+        _ => side,
+    };
+    (heading, true)
+}
+
 // --- randomness -------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -3044,7 +3072,7 @@ impl Agent {
         let looking =
             class.dodge && (!firing || class.dodge_while_firing || class.dodge_stops_firing);
         let pelvis = cx.pelvis;
-        let mut found: Vec<Dodge> = Vec::new();
+        let mut found: Vec<(Dodge, bool)> = Vec::new();
         if looking {
             for s in cx.spreads.iter().filter(|s| s.owner != cx.me) {
                 let rel = pelvis - s.origin;
@@ -3071,29 +3099,19 @@ impl Agent {
                 if weight <= 0.0 {
                     continue;
                 }
-                let heading = if off < 10.0 {
-                    // Straight at it: sidestep, to a side with room.
-                    let side = s.axis.cross(Vec3::Y).normalize_or(Vec3::X);
-                    let clear = |d: Vec3| {
-                        (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP)
-                    };
-                    if clear(side) || !clear(-side) {
-                        side
-                    } else {
-                        -side
-                    }
-                } else {
-                    away.with_y_zero().normalize_or(Vec3::X)
-                };
+                let (heading, direct) = dodge_heading(-away, s.axis, pelvis, &mut self.rng, cx);
                 let lifetime = (20.0 * class.dodge_time_scale).round() as u32;
-                found.push(Dodge {
-                    key: s.owner as u64,
-                    weight,
-                    lifetime,
-                    left: lifetime,
-                    age: 0,
-                    heading,
-                });
+                found.push((
+                    Dodge {
+                        key: s.owner as u64,
+                        weight,
+                        lifetime,
+                        left: lifetime,
+                        age: 0,
+                        heading,
+                    },
+                    direct,
+                ));
             }
             for p in cx.projectiles {
                 // Its next 50 ticks against the body.
@@ -3109,17 +3127,20 @@ impl Agent {
                 if closest.distance(pelvis) > reach {
                     continue;
                 }
-                // The danger: from the body to the trajectory's closest
-                // point (`AI2rManeuver_NotifyNearbyProjectile`'s
-                // direction-to-trajectory, as a spread's direction to its
-                // centre). Shipped, both it and the distance are the closest
-                // point's own, from the world's origin — so the weight is
-                // almost always far below zero and projectiles go undodged
-                // (Q24; the Daodan DLL's `projaware`).
+                // The danger, from the body toward the trajectory
+                // (`AI2rManeuver_NotifyNearbyProjectile`'s distance and
+                // direction-to-trajectory). Shipped, both are the closest
+                // point's own, from the world's origin, so the weight is almost
+                // always far below zero and projectiles go undodged. The
+                // Daodan DLL's `projaware` (on in the Anniversary Edition) means
+                // to pass the body-relative point but, its stack offsets off,
+                // passes memory that reads as (0, 0, 0): every projectile on
+                // course is a direct hit at full weight, and the AI sidesteps
+                // it. Q24 follows the Daodan.
                 let danger = if cx.quirks.projectiles_from_origin() {
                     closest
                 } else {
-                    closest - pelvis
+                    Vec3::ZERO
                 };
                 let mut weight = ((p.radius - danger.length()) / 10.0).min(0.8);
                 if weight < -0.3 {
@@ -3130,30 +3151,18 @@ impl Agent {
                     continue;
                 }
                 let lifetime = (45.0 * class.dodge_time_scale).round() as u32;
-                // Away from it; nearly a direct hit, square to its path
-                // (`AI2iManeuver_MakeDodgeFromDanger`, within 10), to a side
-                // with room.
-                let heading = if (closest - pelvis).with_y_zero().length() < 10.0 {
-                    let side = path.cross(Vec3::Y).normalize_or(Vec3::X);
-                    let clear = |d: Vec3| {
-                        (cx.sight)(pelvis, pelvis + d * 20.0, crate::quads::flag::CHR_COL_SKIP)
-                    };
-                    if clear(side) || !clear(-side) {
-                        side
-                    } else {
-                        -side
-                    }
-                } else {
-                    (pelvis - closest).with_y_zero().normalize_or(Vec3::X)
-                };
-                found.push(Dodge {
-                    key: p.id | (1 << 63),
-                    weight,
-                    lifetime,
-                    left: lifetime,
-                    age: 0,
-                    heading,
-                });
+                let (heading, direct) = dodge_heading(danger, path, pelvis, &mut self.rng, cx);
+                found.push((
+                    Dodge {
+                        key: p.id | (1 << 63),
+                        weight,
+                        lifetime,
+                        left: lifetime,
+                        age: 0,
+                        heading,
+                    },
+                    direct,
+                ));
             }
         }
         let k = self.combat();
@@ -3163,10 +3172,14 @@ impl Agent {
             d.left = d.left.saturating_sub(COMBAT_PERIOD as u32);
         }
         k.dodges.retain(|d| d.left > 0);
-        for f in found {
+        for (f, direct) in found {
             if let Some(d) = k.dodges.iter_mut().find(|d| d.key == f.key) {
+                // A dodge under way keeps its heading on a direct hit, or
+                // while it still leads away (`AI2iManeuver_MakeDodgeFromDanger`).
+                if !direct && d.heading.dot(f.heading) <= 0.0 {
+                    d.heading = f.heading;
+                }
                 d.weight = f.weight;
-                d.heading = f.heading;
                 d.left = f.lifetime;
                 d.lifetime = f.lifetime;
             } else if k.dodges.len() < 8 {
