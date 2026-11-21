@@ -87,6 +87,46 @@ oni/
 
 Cross-references (Oni instance IDs) become relative paths / stable string IDs.
 
+## Playing the game
+
+Convert the original game data once (a few seconds), then run the game; with
+no arguments it opens Oni's main menu:
+
+```sh
+cargo run --release -p oni-convert -- ../original/gamedata ../generated/oni
+cargo run --release -p oni-view
+```
+
+Controls are the shipped defaults (W/S/A/D, mouse, Space, Shift, Ctrl, Q,
+Tab, R, F1 for the pause screen); `CLAUDE.md` lists them with the
+developers' launch options.
+
+### Cheat codes
+
+The original's cheats work as they did: open the pause screen (F1) and type
+a code; its message replaces the pause screen's hint. As shipped they only
+work once the game has been won; to have them from the start, run with
+`ONI_CHEATS=1`:
+
+```sh
+ONI_CHEATS=1 cargo run --release -p oni-view
+```
+
+| Code | Does |
+|---|---|
+| `liveforever` | You take no damage (toggle) |
+| `touchofdeath` | Your blows get through blocks and kill (toggle) |
+| `canttouchthis` | You can't be knocked about (toggle) |
+| `fatloot` | 6 clips, 6 cells, 6 hypos |
+| `winlevel` / `loselevel` | Win / lose the level at once |
+| `superammo` | Your guns never run dry (toggle) |
+| `elderrune` | Health slowly comes back (toggle) |
+| `moonshadow` | The phase cloak: invisibility that never runs out (toggle) |
+| `forcefield` | A full shield belt *(the port's own, not the original's)* |
+
+Toggles switch off when a new level begins. The rest of the original's codes
+and the details: `docs/CHEATS.md`.
+
 ## Build & test
 
 ```sh
