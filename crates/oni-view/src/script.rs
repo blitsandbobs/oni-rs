@@ -1368,6 +1368,29 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // world_stats() → what the world holds, for finding a runaway: live
+    // particles (and the busiest classes), weapons, fighters, corpses.
+    let h = host.clone();
+    g.set(
+        "world_stats",
+        lua.create_function(move |lua, ()| {
+            let host = h.borrow();
+            let w = &host.world;
+            let t = lua.create_table()?;
+            let sys = w.particles();
+            let (n, top) = sys.census();
+            t.set("particles", n)?;
+            let top: Vec<String> = top
+                .iter()
+                .map(|(c, k)| format!("{} {k}", sys.class(*c).name))
+                .collect();
+            t.set("top", top.join(", "))?;
+            t.set("weapons", w.armory.weapons.len())?;
+            t.set("fighters", w.fighters.iter().filter(|f| !f.gone).count())?;
+            t.set("corpses", w.corpses.list.len())?;
+            Ok(t)
+        })?,
+    )?;
     let h = host.clone();
     g.set(
         "mission_info",
@@ -1376,6 +1399,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let t = lua.create_table()?;
             if let Some(m) = &host.mission {
                 t.set("tasks", m.tasks())?;
+                t.set("waiting", m.waiting())?;
                 t.set("errors", m.state.errors.clone())?;
                 t.set("objective", m.state.objective)?;
                 t.set("outcome", m.state.outcome)?;

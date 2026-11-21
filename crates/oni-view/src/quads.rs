@@ -340,6 +340,14 @@ impl Quads {
     /// (`AKrCollision_Point`), skipping those with any of `skip`: nearest by
     /// the hit's x + y + z distance from the start, in 1/256ths.
     pub fn ray(&self, start: Vec3, vector: Vec3, skip: u32) -> Option<Hit> {
+        self.ray_walk(start, vector, skip, false)
+    }
+
+    /// [`ray`](Self::ray), or (`any`) the first hit found. The quads are
+    /// gathered cell by cell along the ray, near to far — not from every
+    /// cell under its box, which for a long slanting ray is most of the
+    /// level — and the walk stops once no cell left can hold a nearer hit.
+    fn ray_walk(&self, start: Vec3, vector: Vec3, skip: u32, any: bool) -> Option<Hit> {
         let end = start + vector;
         // (A quick reject on the boxes, wide enough never to change the
         // answer.)
@@ -347,20 +355,106 @@ impl Quads {
             start.min(end) - Vec3::splat(0.25),
             start.max(end) + Vec3::splat(0.25),
         );
-        self.candidates(lo, hi, false)
-            .into_iter()
-            .map(|k| (k as usize, &self.quads[k as usize]))
-            .filter(|(_, q)| q.flags & skip == 0 && q.min.cmple(hi).all() && q.max.cmpge(lo).all())
-            .filter_map(|(k, q)| {
-                let point = self.quad_line(q, start, end)?;
-                let d = point - start;
-                Some(Hit {
-                    quad: k as u32,
-                    point,
-                    distance: d.x.abs() + d.y.abs() + d.z.abs(),
-                })
+        let test = |k: u32| -> Option<Hit> {
+            let q = &self.quads[k as usize];
+            if q.flags & skip != 0 || !(q.min.cmple(hi).all() && q.max.cmpge(lo).all()) {
+                return None;
+            }
+            let point = self.quad_line(q, start, end)?;
+            let d = point - start;
+            Some(Hit {
+                quad: k,
+                point,
+                distance: d.x.abs() + d.y.abs() + d.z.abs(),
             })
-            .min_by_key(|h| (round_256(h.distance), h.quad))
+        };
+        let key = |h: &Hit| (round_256(h.distance), h.quad);
+        if self.grid.cells.is_empty() {
+            let mut hits = self.candidates(lo, hi, false).into_iter().filter_map(test);
+            return if any {
+                hits.next()
+            } else {
+                hits.min_by_key(key)
+            };
+        }
+        // Sampled every half cell, a step crosses at most one cell edge each
+        // way; each sample takes the cells within half a unit of it, so a hit
+        // on an edge or a corner crossed is never missed.
+        let g = &self.grid;
+        let cell_of =
+            |v: f32, o: f32, n: usize| (((v - o) / CELL).floor().max(0.0) as usize).min(n - 1);
+        let flat = Vec3::new(vector.x, 0.0, vector.z).length();
+        let steps = (flat / (CELL * 0.5)).ceil().max(1.0) as usize;
+        let manhattan = vector.x.abs() + vector.y.abs() + vector.z.abs();
+        let mut seen_cells: Vec<usize> = Vec::new();
+        let mut prev: Option<(usize, usize)> = None;
+        let mut best: Option<Hit> = None;
+        SEEN.with_borrow_mut(|(stamps, now)| {
+            if stamps.len() < self.quads.len() {
+                stamps.resize(self.quads.len(), 0);
+            }
+            *now = now.wrapping_add(1);
+            if *now == 0 {
+                stamps.fill(0);
+                *now = 1;
+            }
+            for i in 0..=steps {
+                // Whatever is still to come lies at least this far along.
+                let t_before = i.saturating_sub(1) as f32 / steps as f32;
+                if let Some(b) = &best {
+                    if round_256(t_before * manhattan) > key(b).0 {
+                        break;
+                    }
+                }
+                let p = start + vector * (i as f32 / steps as f32);
+                let (cx, cz) = (
+                    cell_of(p.x, g.origin[0], g.size[0]),
+                    cell_of(p.z, g.origin[1], g.size[1]),
+                );
+                let mut cells: Vec<(usize, usize)> =
+                    [(-0.5, -0.5), (0.5, -0.5), (-0.5, 0.5), (0.5, 0.5)]
+                        .iter()
+                        .map(|(dx, dz)| {
+                            (
+                                cell_of(p.x + dx, g.origin[0], g.size[0]),
+                                cell_of(p.z + dz, g.origin[1], g.size[1]),
+                            )
+                        })
+                        .collect();
+                // (Across a corner since the last sample: the two cells beside it.)
+                if let Some((px, pz)) = prev {
+                    if px != cx && pz != cz {
+                        cells.push((cx, pz));
+                        cells.push((px, cz));
+                    }
+                }
+                prev = Some((cx, cz));
+                for (x, z) in cells {
+                    let c = z * g.size[0] + x;
+                    if seen_cells.contains(&c) {
+                        continue;
+                    }
+                    seen_cells.push(c);
+                    for &k in &g.cells[c] {
+                        let s = &mut stamps[k as usize];
+                        if *s == *now {
+                            continue;
+                        }
+                        *s = *now;
+                        if let Some(h) = test(k) {
+                            if any {
+                                best = Some(h);
+                                return;
+                            }
+                            if best.as_ref().is_none_or(|b| key(&h) < key(b)) {
+                                best = Some(h);
+                            }
+                        }
+                    }
+                }
+            }
+        });
+        best
     }
 
     /// Every quad a ray from `start` along `vector` crosses
@@ -396,7 +490,7 @@ impl Quads {
     /// Whether nothing but what `skip` passes lies between `from` and `to`
     /// (`AKrCollision_Point` asked for none: any hit at all).
     pub fn clear(&self, from: Vec3, to: Vec3, skip: u32) -> bool {
-        self.ray(from, to - from, skip).is_none()
+        self.ray_walk(from, to - from, skip, true).is_none()
     }
 
     /// An AI's line of sight from `from` to `to` (`LOS_SEE_AI`).
@@ -668,6 +762,64 @@ pub(crate) mod tests {
         }
         q.rebuild_grid();
         q
+    }
+
+    /// The walk along a ray finds what gathering every cell under its box
+    /// finds: the same nearest hit (ties by quad), and a hit at all.
+    #[test]
+    fn walking_a_ray_finds_what_its_box_finds() {
+        let mut seed = 12345u32;
+        let mut rnd = move || {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            (seed >> 8) as f32 / (1u32 << 24) as f32
+        };
+        // Rectangles of every slant scattered over 600 × 600.
+        let mut walls = Vec::new();
+        for _ in 0..400 {
+            let c = Vec3::new(rnd() * 600.0, rnd() * 100.0, rnd() * 600.0);
+            let u =
+                Vec3::new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5).normalize() * (5.0 + rnd() * 60.0);
+            let w = u
+                .cross(Vec3::new(rnd() - 0.5, rnd() - 0.5, rnd() - 0.5))
+                .normalize()
+                * (5.0 + rnd() * 40.0);
+            walls.push(([c - u - w, c + u - w, c + u + w, c - u + w], 0));
+        }
+        let q = room(&walls);
+        let reference = |start: Vec3, vector: Vec3| {
+            let end = start + vector;
+            let (lo, hi) = (
+                start.min(end) - Vec3::splat(0.25),
+                start.max(end) + Vec3::splat(0.25),
+            );
+            q.candidates(lo, hi, false)
+                .into_iter()
+                .filter(|&k| {
+                    let w = &q.quads[k as usize];
+                    w.min.cmple(hi).all() && w.max.cmpge(lo).all()
+                })
+                .filter_map(|k| {
+                    let point = q.quad_line(&q.quads[k as usize], start, end)?;
+                    let d = point - start;
+                    Some((round_256(d.x.abs() + d.y.abs() + d.z.abs()), k))
+                })
+                .min()
+        };
+        for i in 0..3000 {
+            let start = Vec3::new(rnd() * 600.0, rnd() * 100.0, rnd() * 600.0);
+            let reach = if i % 3 == 0 { 800.0 } else { 120.0 };
+            let vector = Vec3::new(rnd() - 0.5, (rnd() - 0.5) * 0.4, rnd() - 0.5) * reach;
+            let want = reference(start, vector);
+            let got = q
+                .ray(start, vector, 0)
+                .map(|h| (round_256(h.distance), h.quad));
+            assert_eq!(got, want, "ray {i} from {start} along {vector}");
+            assert_eq!(
+                q.clear(start, start + vector, 0),
+                want.is_none(),
+                "clear {i}"
+            );
+        }
     }
 
     /// A 20×20 wall in the plane z = 0, facing +z.

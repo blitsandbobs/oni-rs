@@ -44,6 +44,8 @@ struct Task {
     label: String,
     /// A patrolling fighter waiting for this script to end.
     waiter: Option<usize>,
+    /// The blocking command it waits on, and since which tick (none: asleep).
+    on: Option<(String, u64)>,
 }
 
 /// What the scripts have changed or asked for, besides the world.
@@ -352,6 +354,7 @@ impl Mission {
                         wake: now + delay,
                         label,
                         waiter,
+                        on: None,
                     });
                 }
                 if i >= tasks.len() {
@@ -365,6 +368,16 @@ impl Mission {
                                 .front()
                                 .and_then(|x| x.as_number().or(x.as_integer().map(|i| i as f64)));
                             t.wake = now + n.unwrap_or(1.0).max(1.0) as u64;
+                            // (A blocking command names itself as it waits.)
+                            let cmd = v
+                                .get(1)
+                                .and_then(|x| x.as_string())
+                                .map(|s| s.to_string_lossy());
+                            t.on = match (cmd, t.on.take()) {
+                                (Some(c), Some((p, since))) if c == p => Some((p, since)),
+                                (Some(c), _) => Some((c, now)),
+                                (None, _) => None,
+                            };
                         }
                         Ok(_) => t.wake = u64::MAX, // done
                         Err(e) => {
@@ -414,6 +427,30 @@ impl Mission {
     /// How many tasks are alive (running or sleeping).
     pub fn tasks(&self) -> usize {
         self.tasks.len()
+    }
+
+    /// What each live task is waiting for: a blocking command (and for how
+    /// long) or the end of a sleep — for finding a script stuck for good.
+    pub fn waiting(&self) -> Vec<String> {
+        let now = self.state.now;
+        self.tasks
+            .iter()
+            .map(|t| match &t.on {
+                Some((cmd, since)) => {
+                    format!(
+                        "{}: {cmd} for {} ticks",
+                        t.label,
+                        now.saturating_sub(*since)
+                    )
+                }
+                None if t.wake == u64::MAX => format!("{}: done", t.label),
+                None => format!(
+                    "{}: asleep {} more ticks",
+                    t.label,
+                    t.wake.saturating_sub(now)
+                ),
+            })
+            .collect()
     }
 }
 

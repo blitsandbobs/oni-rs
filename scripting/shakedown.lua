@@ -40,6 +40,7 @@ if TOUR then
   for pass = 1, 2 do
     for _, s in ipairs(stops) do
       local label, x, y, z, face = s[1], s[2], s[3], s[4], s[5]
+      local clock0 = os.time()
       pcall(skip_cutscene)
       teleport(0, x, y, z)
       if face then facing(math.deg(face)) end
@@ -57,6 +58,13 @@ if TOUR then
       seen_errors = #errs
       if m.outcome ~= nil and not first_outcome then first_outcome, outcome_at = tostring(m.outcome), t end
       lost_characters(label)
+      -- A slow stop (3 s or more of wall time for its 90 ticks): what the world holds.
+      local took = os.time() - clock0
+      if took >= 3 then
+        local w = world_stats()
+        print(string.format("SLOW %s (pass %d): %d s; particles %d (%s), weapons %d, fighters %d, corpses %d",
+          label, pass, took, w.particles, w.top, w.weapons, w.fighters, w.corpses))
+      end
     end
     if step_err then break end
   end
@@ -78,6 +86,7 @@ print(string.format("MISSION tasks=%s spawned=%s objective=%s outcome=%s%s messa
   tostring(m.tasks), tostring(m.spawned), tostring(m.objective), tostring(m.outcome),
   first_outcome and (" (first " .. first_outcome .. " at tick " .. outcome_at .. ")") or "", m.messages and #m.messages or 0, tostring(count and count() or "?")))
 if step_err then print("STEP-ERROR " .. step_err) end
+for _, w in ipairs(m.waiting or {}) do print("WAITING " .. w) end
 local seen = {}
 for _, e in ipairs(m.errors or {}) do
   local k = tostring(e):gsub("%d+", "#")

@@ -59,7 +59,11 @@ end
 
 -- `fork f …`: an error in the fork aborts its parent too.
 function FORK(f, ...)
-    local ok, e = start(f, "fork", ...)
+    local label = "fork"
+    for k, v in pairs(F) do
+        if v == f then label = "fork " .. k break end
+    end
+    local ok, e = start(f, label, ...)
     if not ok then error(e, 0) end
 end
 
@@ -89,12 +93,12 @@ setmetatable(C, {
             if now then RUN(now, arg) end
             if type(wait) == "number" then
                 -- Done in so many ticks: sleep that long.
-                if wait > 0 then coroutine.yield(wait) end
+                if wait > 0 then coroutine.yield(wait, k) end
             else
                 -- Stalled: the same command is called again each tick until
-                -- it stops stalling.
+                -- it stops stalling. (Yielding its name: what the task waits on.)
                 while wait do
-                    coroutine.yield(1)
+                    coroutine.yield(1, k)
                     r, wait = __cmd(k, ...)
                 end
             end

@@ -403,6 +403,21 @@ impl System {
         self.get(h).is_some()
     }
 
+    /// How many particles live, and the classes with the most (for
+    /// finding a runaway emitter): (count, [(class index, count)], most first).
+    pub fn census(&self) -> (usize, Vec<(ClassId, usize)>) {
+        let mut by: std::collections::HashMap<ClassId, usize> = Default::default();
+        let mut n = 0;
+        for p in self.slots.iter().filter_map(|s| s.particle.as_ref()) {
+            n += 1;
+            *by.entry(p.class).or_default() += 1;
+        }
+        let mut top: Vec<_> = by.into_iter().collect();
+        top.sort_by_key(|a| std::cmp::Reverse(a.1));
+        top.truncate(3);
+        (n, top)
+    }
+
     pub fn class(&self, id: ClassId) -> &Class {
         &self.classes.list[id]
     }
