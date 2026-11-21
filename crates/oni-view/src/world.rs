@@ -3007,9 +3007,13 @@ impl World {
     }
 
     /// What fighter `me` sees of who it could throw: everyone alive except
-    /// the knockdown-resistant and anyone in a wholly invulnerable clip.
+    /// the knockdown-resistant and anyone in a wholly invulnerable clip —
+    /// and anyone behind a wall (pelvis to pelvis, what bodies collide
+    /// with; the shipped `AttemptThrow` doesn't look, Q25).
     fn throw_sense(&self, me: usize) -> Option<throw::Sense> {
         let f = self.fighters.get(me)?;
+        let through_walls = self.quirks.throw_through_walls();
+        let mine = f.sight_points()[0];
         let candidates = self
             .fighters
             .iter()
@@ -3023,6 +3027,13 @@ impl World {
                     && !o.motion.corpse
                     && !o.motion.tuning.knockdown_resistant
                     && !o.motion.current().has_flag(flag::INVULNERABLE)
+                    && (through_walls
+                        || o.feet().distance(f.feet()) > throw::SEARCH_RANGE
+                        || self.quads.clear(
+                            mine,
+                            o.sight_points()[0],
+                            crate::quads::flag::CHR_COL_SKIP,
+                        ))
             })
             .map(|(j, o)| throw::Candidate {
                 who: j,

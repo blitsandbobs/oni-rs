@@ -154,6 +154,13 @@ impl Quirks {
     pub fn projectiles_from_origin(self) -> bool {
         self.faithful
     }
+
+    /// Q25: a throw takes the nearest foe in reach and arc with no look for
+    /// a wall between (`AttemptThrow`): someone on the other side of a thin
+    /// wall can be thrown.
+    pub fn throw_through_walls(self) -> bool {
+        self.faithful
+    }
 }
 
 #[cfg(test)]
