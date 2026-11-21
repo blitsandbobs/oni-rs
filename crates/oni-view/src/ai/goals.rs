@@ -215,10 +215,10 @@ impl MoveMode {
 // --- randomness -------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
-struct Rng(u32);
+pub(super) struct Rng(u32);
 
 impl Rng {
-    fn next(&mut self) -> u32 {
+    pub(super) fn next(&mut self) -> u32 {
         let mut x = self.0;
         x ^= x << 13;
         x ^= x >> 17;
@@ -346,6 +346,22 @@ pub struct Other {
     pub invisible: bool,
 }
 
+/// An AI's own body, as its goals see it.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Body {
+    pub hp: i32,
+    pub max_hp: i32,
+    /// Placed unkillable.
+    pub unkillable: bool,
+    /// Standing or moving about, doing nothing else
+    /// (`ONrCharacter_IsInactiveUpright`).
+    pub inactive_upright: bool,
+    /// In its powerup clip proper (`ONrCharacter_IsPoweringUp`).
+    pub powering_up: bool,
+    /// The powerup animation type (`ONcAnimType_Powerup`).
+    pub powerup_type: u16,
+}
+
 /// The gun in an AI's hand, as targeting sees it.
 #[derive(Clone, Copy, Debug)]
 pub struct GunView {
@@ -367,6 +383,8 @@ pub struct GunView {
 /// What a goal can see and use this tick.
 pub struct Ctx<'a> {
     pub me: usize,
+    /// Its own body (what a boss watches).
+    pub body: Body,
     pub now: u64,
     pub feet: Vec3,
     pub eye: Vec3,
@@ -813,7 +831,7 @@ pub struct Combat {
     pub primary: Primary,
     band: Band,
     advance: (f32, f32),
-    retreat: (f32, f32),
+    pub(super) retreat: (f32, f32),
     try_advance: u32,
     lost_contact: Option<u32>,
     target_dead: bool,
@@ -847,6 +865,10 @@ pub struct Combat {
     /// trace).
     dodges: Vec<Dodge>,
     dodge: Option<(Vec3, f32)>,
+    /// A boss's own state (`docs/AI.md`, *Bosses*).
+    pub boss: super::bosses::Boss,
+    /// How far it will look for a gun (a boss's; none: anywhere).
+    pub gun_search: Option<(f32, f32)>,
 }
 
 /// An AI character's goals (behaviour per `docs/GOALS.md`).
@@ -891,12 +913,22 @@ pub struct Agent {
     pub use_console: Option<usize>,
     /// Waiting for a patrol script to finish.
     waiting_script: bool,
-    rng: Rng,
+    pub(super) rng: Rng,
     /// Shooting: the way its gun's barrel should point (aiming with the
     /// gun), how fast the aim may swing (×), and whether to hold the trigger.
     pub aim: Option<Vec3>,
     pub aim_speed: f32,
     pub trigger: bool,
+    /// The trigger it pulls is the alternate fire's (Barabbas' grenades).
+    pub alt_fire: bool,
+    /// What it asks of its body this tick, for the world to do: an
+    /// animation type (forced, or as appropriate), health back, the fight
+    /// stance (`ONrCharacter_DoAnimation`, `_Heal`, `_FightMode`).
+    pub anim_request: Option<(u16, bool)>,
+    pub heal: i32,
+    pub fight_mode: bool,
+    /// Health it has given itself regenerating (`regenerated_amount`).
+    pub regenerated: i32,
     /// A gun it wants to bend for now (the world drops its own and starts
     /// the pickup).
     pub want_pickup: Option<usize>,
@@ -939,6 +971,11 @@ impl Agent {
             aim: None,
             aim_speed: 1.0,
             trigger: false,
+            alt_fire: false,
+            anim_request: None,
+            heal: 0,
+            fight_mode: false,
+            regenerated: 0,
             want_pickup: None,
             extra_spread: 0.0,
             neutral_exit: None,
@@ -1285,6 +1322,10 @@ impl Agent {
             }
             Goal::Combat(c) => {
                 cx.fights.leave(cx.me);
+                // (A boss behaviour ending: its movement mode back.)
+                if !matches!(c.boss, super::bosses::Boss::None) {
+                    self.mode = MoveMode::ByAlert;
+                }
                 // The alert drops to high on leaving combat.
                 if cx.perception.alert > Alert::High {
                     cx.perception.alert = Alert::High;
@@ -1355,12 +1396,12 @@ impl Agent {
                     self.glance_at(at, ticks, cx);
                 }
             }
-            Notice::Knowledge { id, degrade } if cx.perception.non_combatant => {
-                self.noncombatant_knowledge(id, degrade, cx)
+            Notice::Knowledge { id, degrade, event } if cx.perception.non_combatant => {
+                self.noncombatant_knowledge(id, degrade, event, cx)
             }
-            Notice::Knowledge { id, degrade } => match self.goal {
+            Notice::Knowledge { id, degrade, event } => match self.goal {
                 Goal::Pursuit(_) => self.pursuit_knowledge(id, degrade, cx),
-                Goal::Combat(_) => self.combat_knowledge(id, degrade, cx),
+                Goal::Combat(_) => self.combat_knowledge(id, degrade, event, cx),
                 _ => {}
             },
             Notice::Startle(_) => {}
@@ -1372,6 +1413,9 @@ impl Agent {
         self.press = 0;
         self.aim = None;
         self.trigger = false;
+        self.anim_request = None;
+        self.heal = 0;
+        self.fight_mode = false;
         self.extra_spread = 0.0;
         if let Some((_, t)) = &mut self.glance {
             *t = t.saturating_sub(1);
@@ -2284,16 +2328,25 @@ impl Agent {
             weapon_melee: 0,
             dodges: Vec::new(),
             dodge: None,
+            boss: Default::default(),
+            gun_search: None,
         };
         set_new_target(&mut combat, &c);
         self.goal = Goal::Combat(Box::new(combat));
         eprintln!("ai: {} → combat with {who} (profile {})", self.name, self.profile.name);
     }
 
-    fn combat(&mut self) -> &mut Combat {
+    pub(super) fn combat(&mut self) -> &mut Combat {
         match &mut self.goal {
             Goal::Combat(c) => c,
             _ => unreachable!("not fighting"),
+        }
+    }
+
+    pub(super) fn combat_ref(&self) -> Option<&Combat> {
+        match &self.goal {
+            Goal::Combat(c) => Some(c),
+            _ => None,
         }
     }
 
@@ -2338,8 +2391,13 @@ impl Agent {
         eprintln!("ai: {}: target dead", self.name);
     }
 
-    fn combat_knowledge(&mut self, id: u32, degrade: bool, cx: &mut Ctx) {
-        let Some(c) = cx.perception.contact(id).cloned() else { return };
+    fn combat_knowledge(&mut self, id: u32, degrade: bool, event: Option<(Stimulus, i32)>, cx: &mut Ctx) {
+        let Some(mut c) = cx.perception.contact(id).cloned() else { return };
+        // (What this news was, not what the contact last heard.)
+        let damage = event.map_or(0, |e| e.1);
+        if let Some((stimulus, _)) = event {
+            c.stimulus = stimulus;
+        }
         let (target, contact) = (self.combat().target, self.combat().contact);
         if degrade {
             if c.who != Some(target) || id != contact {
@@ -2378,6 +2436,10 @@ impl Agent {
         // Hurt while fighting on the way to an alarm: the fight goes on.
         if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) && self.fight_timer > 0 {
             self.fight_timer = self.profile.alarm.fight_ticks;
+        }
+        // Hurt, a boss reacts (`AI2cCombatMessage_Hurt`).
+        if matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) && self.boss_mode().is_some() {
+            self.barabbas_hurt(damage.max(0) as u32, cx);
         }
         if c.who == Some(target) && matches!(c.stimulus, Stimulus::HitWeapon | Stimulus::HitMelee) {
             let k = self.combat();
@@ -2589,6 +2651,10 @@ impl Agent {
                 }
             }
         }
+        // Knocked down, a boss reacts (`AI2cCombatMessage_Fallen`).
+        if cx.fallen && self.boss_mode().is_some() {
+            self.barabbas_fallen(cx);
+        }
         // Lying down outside melee: dazed a while, then get up.
         if primary != Primary::Melee {
             let (lo, hi) = cx.daze;
@@ -2726,6 +2792,12 @@ impl Agent {
             self.combat().targeting = None;
             return;
         };
+        // A boss's own targeting: whether it aims, fires, and which trigger.
+        let boss = self.barabbas_targeting();
+        if boss.is_some_and(|b| !b.aim) {
+            self.alt_fire = false;
+            return;
+        }
         let stops_firing = self.class.dodge_stops_firing;
         let k = self.combat();
         let melee_kind = matches!(behavior.as_str(), "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee");
@@ -2740,7 +2812,7 @@ impl Agent {
             .get_or_insert_with(|| Box::new(crate::ai::ranged::Targeting::new(g.params, g.ai.aim, g.skill, first, at, shoulder)));
         targeting.predict(at, shoulder);
         // (Staring, it looks with the gun lowered and never fires.)
-        let shooting = behavior != "stare";
+        let shooting = behavior != "stare" && boss.is_none_or(|b| b.shoot);
         let dir = targeting.aim(shoulder, g.matrix, shooting);
         // (Backing off hard — or dodging, for a class whose dodges stop its
         // firing — it doesn't fire.)
@@ -2748,11 +2820,16 @@ impl Agent {
         let backing = (k.primary == Primary::Retreat && k.too_close > 0.2) || dodging;
         let fire = targeting.execute(shooting && k.have_los && !backing, g.matrix);
         let speed = targeting.aim_speed;
-        if shooting {
+        if shooting || boss.is_some() {
             self.aim = Some(dir);
         }
         self.aim_speed = speed;
         self.trigger = fire;
+        // (A boss hears that it pulled the trigger, `AI2cCombatMessage_Fire`.)
+        if let Some(b) = boss {
+            self.alt_fire = b.alternate;
+            self.barabbas_fired(&behavior, fire, b.alternate);
+        }
     }
 
     /// A patrol's shoot-at-flag: aim at the spot and fire as targeting
@@ -2806,13 +2883,7 @@ impl Agent {
     /// The combat layer's decision (every 5 ticks): the range band, the
     /// profile's behaviour for it, and the highest viable primary movement.
     fn choose_primary(&mut self, target_feet: Vec3, cx: &mut Ctx) {
-        const HOLD: usize = 0;
-        const ADVANCE: usize = 1;
-        const RETREAT: usize = 2;
-        const FIND_ALARM: usize = 3;
-        const MELEE: usize = 4;
-        const GETUP: usize = 5;
-        const GUN: usize = 6;
+        use super::bosses::pm::*;
         let profile = self.profile.clone();
         let alarm = self.find_alarm(cx);
         let dist = (target_feet - cx.feet).with_y_zero().length();
@@ -2866,7 +2937,16 @@ impl Agent {
                 _ => base == Band::Short,
             };
             let armed = cx.gun.is_some_and(|g| g.usable);
+            // (A behaviour that isn't a boss's: no boss state.)
+            let boss = behavior.starts_with("barabbas").then(|| behavior.to_string());
+            if boss.is_none() && !matches!(k.boss, super::bosses::Boss::None) {
+                k.boss = super::bosses::Boss::None;
+                self.mode = MoveMode::ByAlert;
+            }
+            let k = self.combat();
             match behavior {
+                // A boss's: its own mode machine (`ai/bosses.rs`).
+                _ if boss.is_some() => {}
                 "stare" => w[HOLD] = 1.0,
                 "melee" | "barabbasMelee" | "superNinjaMelee" | "mutantMuroMelee" => w[MELEE] = 1.0,
                 "runForAlarm" => {
@@ -2903,6 +2983,12 @@ impl Agent {
                     }
                 }
             }
+            if let Some(b) = &boss {
+                self.barabbas_primary(b, dist, &mut w, cx);
+            }
+            // (A boss may not mind being too close for its gun.)
+            let ignores_too_close = boss.is_some() && self.barabbas_ignores_too_close();
+            let k = self.combat();
             // Its gun put the target down: in to finish it hand to hand.
             let t = cx.others.get(k.target);
             if let Some(g) = cx.gun.filter(|_| armed && has_melee && profile.melee_when != "never") {
@@ -2925,7 +3011,7 @@ impl Agent {
             if armed && !weapon_melee && min_safe > 0.0 && dist < min_safe {
                 let tc = (1.5 * (1.0 - dist / min_safe)).min(1.0);
                 k.too_close = tc;
-                if tc >= 0.75 {
+                if tc >= 0.75 && !ignores_too_close {
                     w[HOLD] *= 1.0 - tc;
                     w[ADVANCE] *= 1.0 - tc;
                     if fight_back {
@@ -3004,18 +3090,20 @@ impl Agent {
                     // Once a fight it decides whether it goes for guns at all.
                     let goes = *k.gun_roll.get_or_insert(gun_roll < gun_chance);
                     let still = k.gun_target.and_then(|g| cx.guns.iter().find(|f| f.index == g)).filter(|f| f.usable);
+                    // (How far it looks: a boss's own radii, else these.)
+                    let (near, far) = k.gun_search.take().unwrap_or((30.0, GUN_SEARCH));
                     let pick = still.or_else(|| {
                         cx.guns
                             .iter()
                             .filter(|f| f.usable && !k.unreachable.contains(&f.index))
-                            .filter(|f| f.at.distance(cx.feet) <= GUN_SEARCH)
+                            .filter(|f| f.at.distance(cx.feet) <= far)
                             .min_by(|a, b| a.at.distance(cx.feet).total_cmp(&b.at.distance(cx.feet)))
                     });
                     match pick.filter(|_| goes) {
                         Some(f) => {
                             k.gun_target = Some(f.index);
                             let d = f.at.distance(cx.feet);
-                            w[GUN] *= 1.0 - ((d - 30.0) / (GUN_SEARCH - 30.0)).max(0.0);
+                            w[GUN] *= 1.0 - ((d - near) / (far - near)).max(0.0);
                         }
                         None => {
                             k.gun_target = None;
@@ -3035,7 +3123,14 @@ impl Agent {
                 _ => {}
             }
         };
-        self.find_dodges(cx);
+        // (Barabbas doesn't dodge.)
+        if self.boss_mode().is_none() {
+            self.find_dodges(cx);
+        } else {
+            let k = self.combat();
+            k.dodges.clear();
+            k.dodge = None;
+        }
         if pick == Primary::FindAlarm {
             self.alarm_setup(alarm, cx);
             return;
@@ -3236,8 +3331,12 @@ impl Agent {
 
     /// A non-combatant's reaction to news: a danger panics it; anything
     /// else it glances at.
-    fn noncombatant_knowledge(&mut self, id: u32, degrade: bool, cx: &mut Ctx) {
-        let Some(c) = cx.perception.contact(id).cloned() else { return };
+    fn noncombatant_knowledge(&mut self, id: u32, degrade: bool, event: Option<(Stimulus, i32)>, cx: &mut Ctx) {
+        let Some(mut c) = cx.perception.contact(id).cloned() else { return };
+        // (What this news was, not what the contact last heard.)
+        if let Some((stimulus, _)) = event {
+            c.stimulus = stimulus;
+        }
         if degrade {
             let Goal::Panic(p) = &self.goal else { return };
             if p.cause == Some(id) && (c.strength <= Strength::Forgotten || c.priority < Priority::HostileThreat) {

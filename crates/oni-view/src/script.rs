@@ -847,6 +847,18 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
+    // boss_of(id) → a boss's mode now ("ShootBeam", "Regenerate", …) or nil.
+    let h = host.clone();
+    g.set(
+        "boss_of",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            Ok(match host.world.fighters.get(id).and_then(|f| f.brain.as_ref()) {
+                Some(crate::ai::Brain::Agent(a)) => a.boss_mode().map(|m| format!("{m:?}")),
+                _ => None,
+            })
+        })?,
+    )?;
     // magic_drawn() → how many magic effects the last screenshot drew
     // (shields, invisibility's shimmer).
     let h = host.clone();

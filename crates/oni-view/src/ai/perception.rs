@@ -328,8 +328,11 @@ pub enum Notice {
     /// "investigate" (`docs/GOALS.md`, *Pursuit*).
     Pursue(u32),
     /// Something changed about a contact (new information, or it faded:
-    /// `degrade`) — what goals that track a contact listen to.
-    Knowledge { id: u32, degrade: bool },
+    /// `degrade`) — what goals that track a contact listen to. New
+    /// information carries what was perceived and its damage (the
+    /// original's `last_type`, `last_user_data`): by the time a goal reads
+    /// the contact, a later stimulus the same tick may have replaced them.
+    Knowledge { id: u32, degrade: bool, event: Option<(Stimulus, i32)> },
 }
 
 /// A character's perception: contacts, alert, and the stimuli's effects.
@@ -539,7 +542,7 @@ impl Perception {
             // (Non-combatants don't get alerted: their goals judge danger.)
             self.notify(&contact, upgraded, first_sighting, now);
         }
-        self.notices.push(Notice::Knowledge { id: contact.id, degrade: false });
+        self.notices.push(Notice::Knowledge { id: contact.id, degrade: false, event: Some((stimulus, damage)) });
     }
 
     /// Orders the contacts most important first (behaviour per
@@ -681,7 +684,7 @@ impl Perception {
         let matches = |c: &Contact| who.is_none() || c.who == who;
         for c in self.contacts.iter_mut().filter(|c| matches(c)) {
             c.strength = Strength::Forgotten;
-            self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
+            self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
         }
         self.contacts.retain(|c| !matches(c));
         self.rank();
@@ -691,7 +694,7 @@ impl Perception {
     pub fn died(&mut self, who: usize) {
         for c in self.contacts.iter_mut().filter(|c| c.who == Some(who)) {
             c.strength = Strength::Dead;
-            self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
+            self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
         }
         self.rank();
     }
@@ -716,7 +719,7 @@ impl Perception {
             if unseen || (now >= c.degrade_at && !self.omniscient) {
                 c.strength = c.strength.down();
                 c.degrade_at = now + u64::from(tuning.contact_decay(c.strength));
-                self.notices.push(Notice::Knowledge { id: c.id, degrade: true });
+                self.notices.push(Notice::Knowledge { id: c.id, degrade: true, event: None });
             }
         }
         self.rank();

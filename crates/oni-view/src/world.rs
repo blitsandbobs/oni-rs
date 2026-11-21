@@ -757,11 +757,22 @@ impl World {
         let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
         let crouching = f.motion.crouching();
         let f_state_standing = f.motion.state == st::STANDING;
+        let powerup_type = oni_schema::value(&oni_schema::ANIM_TYPES, "powerup").unwrap_or(0);
+        let powerup_state = oni_schema::value(&oni_schema::ANIM_STATES, "powerup").unwrap_or(0);
+        let body = crate::ai::goals::Body {
+            hp: f.hp,
+            max_hp: f.max_hp,
+            unkillable: f.unkillable,
+            inactive_upright: f.motion.inactive_upright(),
+            powering_up: f.motion.kind == powerup_type && f.motion.current().from_state == powerup_state,
+            powerup_type,
+        };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         let (melee_profile, daze) = (f.melee_profile.clone(), f.daze);
         if let Some(perception) = f.perception.as_mut() {
             let mut cx = Ctx {
                 me: i,
+                body,
                 now,
                 feet,
                 eye,
@@ -804,6 +815,25 @@ impl World {
                 continue;
             }
             self.with_agent(i, |a, cx| a.update(cx));
+            // What it asks of its body: an animation, health, the stance.
+            let asked = match self.fighters[i].brain.as_mut() {
+                Some(crate::ai::Brain::Agent(a)) => Some((a.anim_request.take(), std::mem::take(&mut a.heal), std::mem::take(&mut a.fight_mode))),
+                _ => None,
+            };
+            if let Some((anim, heal, fight)) = asked {
+                let f = &mut self.fighters[i];
+                if let Some((kind, force)) = anim {
+                    let ch = f.character.clone();
+                    let urge = if force { crate::anim::motion::Urge::Force } else { crate::anim::motion::Urge::Appropriate };
+                    f.motion.request(&ch, urge, false, kind);
+                }
+                if heal > 0 && f.alive() {
+                    f.hp = (f.hp + heal).min(f.max_hp);
+                }
+                if fight {
+                    f.motion.fight_mode();
+                }
+            }
             // A gun it bends for: its own (useless) one goes to the floor.
             let want = match self.fighters[i].brain.as_mut() {
                 Some(crate::ai::Brain::Agent(a)) => a.want_pickup.take(),

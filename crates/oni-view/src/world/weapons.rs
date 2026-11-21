@@ -1206,6 +1206,7 @@ impl World {
             let facing = f.facing.facing;
             let want = a.aim_want(f.feet() + glam::Vec3::Y * SHOULDER);
             let trigger = a.trigger && a.aim.is_some();
+            let alternate = a.alt_fire;
             let (mut yaw, mut pitch, speed) = match want {
                 Some((dir, speed)) if dir.length_squared() > 1e-6 => {
                     let d = dir.normalize();
@@ -1237,7 +1238,7 @@ impl World {
             let gun = &self.armory.weapons[w];
             let single = gun.class.has(flag::AI_SINGLE_SHOT) && (gun.chamber > 0 || gun.reload_time > 0);
             if trigger && !single {
-                out[i] = key::FIRE1;
+                out[i] = if alternate { key::FIRE2 } else { key::FIRE1 };
             }
         }
         out

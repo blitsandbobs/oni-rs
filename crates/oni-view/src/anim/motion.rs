@@ -456,6 +456,30 @@ impl Motion {
 
     // --- requests --------------------------------------------------------
 
+    /// Standing or moving about, doing nothing else
+    /// (`ONrCharacter_IsInactiveUpright`): not down, sliding or lying, and
+    /// in a stand, idle, crouch, turn, run, walk or sidestep clip.
+    pub fn inactive_upright(&self) -> bool {
+        let down = |s: u16| {
+            matches!(
+                oni_schema::name(&oni_schema::ANIM_STATES, s).unwrap_or(""),
+                "fallenBack" | "fallenFront" | "sliding" | "runSlide" | "runBackSlide" | "lieBack"
+            )
+        };
+        if down(self.entered_from) || down(self.state) {
+            return false;
+        }
+        matches!(
+            oni_schema::name(&oni_schema::ANIM_TYPES, self.kind).unwrap_or(""),
+            "stand" | "idle" | "crouch" | "standingTurnLeft" | "standingTurnRight" | "crouchTurnLeft" | "crouchTurnRight"
+                | "runStart" | "run" | "runStop" | "runBackwardsStart" | "runBackwards" | "runSidestepLeft" | "runSidestepRight"
+                | "runSidestepLeftStart" | "runSidestepRightStart" | "walkStart" | "walk" | "walkStop" | "oneStepStop"
+                | "walkBackwardsStart" | "walkBackwards" | "walkSidestepLeft" | "walkSidestepRight" | "crouchRun" | "crouchWalk"
+                | "crouchRunBackwards" | "crouchWalkBackwards" | "crouchRunSidestepLeft" | "crouchRunSidestepRight"
+                | "crouchWalkSidestepLeft" | "crouchWalkSidestepRight"
+        )
+    }
+
     /// Requests animation type `kind`. Returns the clip it resolved to (also
     /// when merely queued), or None when there is no such clip for the current
     /// state or a pause forbids it. `late_ok` lets an attack press that came

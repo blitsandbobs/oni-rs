@@ -10,6 +10,7 @@
 //! pathfinding, goals and combat later) only ever produce [`Orders`].
 
 pub mod avoid;
+pub mod bosses;
 pub mod goals;
 pub mod level;
 pub mod melee;

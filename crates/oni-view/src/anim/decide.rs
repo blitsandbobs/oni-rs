@@ -329,6 +329,9 @@ fn is_committed(t: u16) -> bool {
             | ty::SIDESTEP_RIGHT_PUNCH
             | ty::LAND_DEAD
             | ty::TAUNT
+            // (The bosses' powers, which their AI asks for.)
+            | ty::POWERUP
+            | ty::MURO_THUNDERBOLT
     )
 }
 

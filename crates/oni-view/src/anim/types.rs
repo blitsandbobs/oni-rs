@@ -122,6 +122,8 @@ pub mod ty {
     pub const LAND_LEFT_HARD: u16 = 139;
     pub const LAND_BACK_HARD: u16 = 140;
     pub const LAND_DEAD: u16 = 141;
+    pub const POWERUP: u16 = 219;
+    pub const MURO_THUNDERBOLT: u16 = 231;
     pub const CROUCH_TURN_LEFT: u16 = 142;
     pub const CROUCH_TURN_RIGHT: u16 = 143;
     pub const CROUCH_FORWARD: u16 = 144;
