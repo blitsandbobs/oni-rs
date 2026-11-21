@@ -1890,6 +1890,31 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // look_at(id, x, y, z): an agent looks at a point (as `ai2_lookatme`);
+    // look_at(id): it stops looking.
+    let h = host.clone();
+    g.set(
+        "look_at",
+        lua.create_function(move |_, (id, x, y, z): (usize, Option<f32>, Option<f32>, Option<f32>)| {
+            if let Some(crate::ai::Brain::Agent(a)) = h.borrow_mut().world.fighters.get_mut(id).and_then(|f| f.brain.as_mut()) {
+                match (x, y, z) {
+                    (Some(x), Some(y), Some(z)) => a.look_at(glam::Vec3::new(x, y, z)),
+                    _ => a.stop_looking(),
+                }
+            }
+            Ok(())
+        })?,
+    )?;
+    // aim_off(id) → its aim off the body, left-right and up-down (degrees).
+    let h = host.clone();
+    g.set(
+        "aim_off",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let f = host.world.fighters.get(id);
+            Ok((f.map(|f| f.aiming_lr.to_degrees()), f.map(|f| f.aiming_ud.to_degrees())))
+        })?,
+    )?;
     // Where an agent's eyes look (degrees; nil: along its body).
     let h = host.clone();
     g.set(

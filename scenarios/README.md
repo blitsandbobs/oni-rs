@@ -72,6 +72,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `camera.lua` | The game camera: 33 back and 23 up behind Konoko, sinking as she looks up and rising as she looks down, easing round a turn; look mode swings the view and drifts back; the corridor wall behind her goes see-through; `cm_detach`, `cm_reset` and `cm_interpolate` (busy, then free). |
 | `door_leaves.lua` | Door leaves move as boxes; a leaf closing on Konoko holds still, then the door turns back for her; a double door blocked at its second leaf stays half-shut in faithful mode (Q14). |
 | `doors.lua` | Doors (#17): one opens as Konoko comes near and she runs through; it closes behind her; locked it stops her; unlocked it opens again. |
+| `look.lua` | Where an AI looks (#30): an unarmed agent told to look at a point swings its aim there (at most 6° a tick) and its head and upper body follow through its aiming screen; told to stop, both come back to the middle. |
 | `lasers.lua` | Laser triggers: level 1's training lasers start off, sweep when switched on, trip on Konoko (the low beams, not the one over her head), hide and switch off. |
 | `decals.lua` | Decals: level 1 lays its 116 on their walls, 0.05 off; a pistol round leaves a bullet hole the class's size on the wall it hit, and its spark sits 0.4 off the wall facing out; it is drawn only from in front of its one-sided wall, and fades to 20/255 when the wall goes see-through. (`impacts.lua` also checks a punch's flash takes the dummy's health colour.) |
 | `deadly_brain.lua` | Level 2's Deadly Brain started: its readouts spiral out from the emitter to their radius (30–90) around the brain (`moveSpiral`). |
@@ -190,6 +191,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `door(id, what)` / `door_state(id)` | Order a door (`open`, `close`, `lock`, `unlock`, `jam`, `unjam`); its state (`closed` / `opening` / `open` / `closing`) and whether it is locked. |
 | `laser(id, what [, factor])` / `laser_state(id)` / `beams()` | Order a laser trigger (`activate`, `deactivate`, `reset`, `hide`, `show`, `speed`); its active / on / triggered state and beams out; every beam now (`{x1,y1,z1,x2,y2,z2}`). |
 | `eye_of(id)` | Where an agent's eyes look (degrees; nil: along its body). |
+| `look_at(id, x, y, z)` / `look_at(id)` / `aim_off(id)` | Make an agent look at a point, or stop looking; a fighter's aim off its body, left-right and up-down (degrees). |
 | `mission_exec(code)` | Defines script functions of the scenario's own (translated-Lua form, `F.name = function() C.command(…) end`) in the running mission; run them with `mission_call`. |
 | `cinematics()` | The cutscene portraits showing: `{name, x, y, w, h}` on the 1024 × 768 virtual screen. |
 | `overlays_of(id)` | The partial-body clips playing on a fighter: `{slot = recoil / inventory / hit, clip, type, frame}` each. |

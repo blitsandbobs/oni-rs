@@ -264,6 +264,8 @@ pub struct Fighter {
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
     pub ai_aim: Option<(f32, f32)>,
+    /// The body's facing when `ai_aim` was last set (the aim turns with it).
+    pub ai_aim_facing: f32,
     /// Aiming its gun exactly (`ONrCharacter_DoExactAiming`): since when it
     /// last wasn't (the gun swings from the hand to the aim over 8 ticks),
     /// and whether the swing is done.
@@ -444,6 +446,7 @@ impl Fighter {
             shooting: Rc::new(Vec::new()),
             targeting: Default::default(),
             ai_aim: None,
+            ai_aim_facing: 0.0,
         }
     }
 
@@ -1440,11 +1443,12 @@ impl Fighter {
             .collect()
     }
 
-    /// The aim pose: holding a gun, in a clip that aims (not blocking, not
-    /// reeling), no overlay forbidding it — the class's screen for the clip,
-    /// bent toward the aim (yaw off the body, pitch with recoil).
+    /// The aim pose: in a clip that aims (not blocking, not reeling), no
+    /// overlay forbidding it — the class's screen for the clip, bent toward
+    /// the aim (yaw off the body, pitch with recoil). Armed or not, as the
+    /// original has it: unarmed, the head and upper body look.
     fn aim_layer(&self, dont_aim: bool) -> Option<crate::skel::Layer> {
-        if self.hand.is_none() || !self.alive() {
+        if !self.alive() {
             return None;
         }
         let s = self.screen(dont_aim)?;

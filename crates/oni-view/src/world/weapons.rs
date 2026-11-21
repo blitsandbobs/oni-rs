@@ -1083,13 +1083,19 @@ impl World {
             .collect()
     }
 
-    /// The AIs' aim and triggers this tick (`docs/AI.md`, *Shooting*): each
-    /// aim swings toward where its goals want the barrel — at most a sixth of
-    /// a turn a second × its speed × the gun's aiming speed, never more than
-    /// 130° off the body (then straight ahead) — and the trigger is held
-    /// while its targeting says so. Returns each fighter's trigger bits.
+    /// The AIs' aim and triggers this tick (`AI2rExecutor_UpdateAim`;
+    /// `docs/AI.md`, *Aiming and looking*): each aim — kept to the body as it
+    /// turns — swings toward what the AI wants to aim or look at
+    /// (`Agent::aim_want`, from the shoulder 15 up) by at most a sixth of a
+    /// turn a second × its speed (× the gun's aiming speed, gun in hand),
+    /// never more than 130° off the body (then straight ahead), and back to
+    /// straight ahead once it wants nothing. Its upper body follows through
+    /// the aiming screens (`aiming_lr` / `_ud`), its gun too. The trigger is
+    /// held while its targeting says so. Returns each fighter's trigger bits.
     pub(super) fn ai_guns(&mut self) -> Vec<u32> {
         use std::f32::consts::{PI, TAU};
+        const SHOULDER: f32 = 15.0;
+        const MAX_OFF: f32 = 130.0 * PI / 180.0;
         let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
         let mut out = vec![0u32; self.fighters.len()];
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -1097,26 +1103,41 @@ impl World {
                 f.ai_aim = None;
                 continue;
             };
-            let (want, speed, trigger) = (a.aim, a.aim_speed, a.trigger);
-            let Some(w) = f.hand else {
+            // (A film carries its own aim.)
+            if f.film.is_some() || !f.alive() {
                 f.ai_aim = None;
                 continue;
+            }
+            let facing = f.facing.facing;
+            let want = a.aim_want(f.feet() + glam::Vec3::Y * SHOULDER);
+            let trigger = a.trigger && a.aim.is_some();
+            let (mut yaw, mut pitch, speed) = match want {
+                Some((dir, speed)) if dir.length_squared() > 1e-6 => {
+                    let d = dir.normalize();
+                    (d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), speed)
+                }
+                // (Stopping: back to the middle at the usual speed.)
+                _ => (facing, 0.0, 1.0),
             };
-            let Some(dir) = want.filter(|_| f.alive()) else {
-                f.ai_aim = None;
-                continue;
-            };
-            let mut yaw = dir.x.atan2(dir.z);
-            let mut pitch = dir.y.clamp(-1.0, 1.0).asin();
-            if wrap(yaw - f.facing.facing).abs() > 130f32.to_radians() {
-                yaw = f.facing.facing;
+            if wrap(yaw - facing).abs() > MAX_OFF {
+                yaw = facing;
                 pitch = 0.0;
             }
-            let (cy, cp) = f.ai_aim.unwrap_or((f.facing.facing, 0.0));
+            // Where it aims now: as last tick, turned with the body since.
+            let (cy, cp) = match f.ai_aim {
+                Some((y, p)) => (y + (facing - f.ai_aim_facing), p),
+                None => (facing, 0.0),
+            };
             let (dy, dp) = (wrap(yaw - cy), pitch - cp);
-            let step = TAU / 60.0 * speed * self.armory.weapons[w].class.aiming_speed.max(0.01);
+            let gun = f.hand.map_or(1.0, |w| self.armory.weapons[w].class.aiming_speed.max(0.01));
+            let step = TAU / 60.0 * speed * gun;
             let dist = (dy * dy + dp * dp).sqrt();
-            f.ai_aim = Some(if dist <= step { (yaw, pitch) } else { (cy + dy * step / dist, cp + dp * step / dist) });
+            let now = if dist <= step { (yaw, pitch) } else { (cy + dy * step / dist, cp + dp * step / dist) };
+            // (Back in the middle with nothing wanted, it stops aiming.)
+            f.ai_aim = if want.is_none() && dist <= step { None } else { Some((wrap(now.0), now.1)) };
+            f.ai_aim_facing = facing;
+            (f.aiming_lr, f.aiming_ud) = f.ai_aim.map_or((0.0, 0.0), |(y, p)| (wrap(y - facing), p));
+            let Some(w) = f.hand else { continue };
             // (A gun that fires one shot a press waits for its chamber.)
             let gun = &self.armory.weapons[w];
             let single = gun.class.has(flag::AI_SINGLE_SHOT) && (gun.chamber > 0 || gun.reload_time > 0);

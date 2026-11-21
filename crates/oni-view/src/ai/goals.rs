@@ -1081,6 +1081,11 @@ impl Agent {
         self.look = Look::At(at);
     }
 
+    /// Stops looking at anything (`AI2rMovement_StopAiming`).
+    pub fn stop_looking(&mut self) {
+        self.look = Look::None;
+    }
+
     /// The advance's viability check (`AI2iManeuver_CheckAdvance`;
     /// `docs/AI.md`, *Combat advance*): its weight now — and how it moves,
     /// or None if it doesn't. `weight` is its weight so far, `second` the
@@ -1414,6 +1419,26 @@ impl Agent {
             self.eye = self.glance.map(|(g, _)| facing + relative(g - facing).clamp(-range, range));
         }
         (o, self.press)
+    }
+
+    /// Where it wants to aim now, from `shoulder` (`AI2rMovementState`'s
+    /// aiming modes → `AI2rExecutor_AimTarget` / `_AimDirection`): its gun's
+    /// barrel when shooting, else a glance, else what it looks at or the way
+    /// it looks; none: it stops aiming (`AI2rExecutor_AimStop`). With how
+    /// fast the aim may swing (×; pursuing, half — `AI2cPursuit_AimingSpeed`).
+    pub fn aim_want(&self, shoulder: Vec3) -> Option<(Vec3, f32)> {
+        if let Some(dir) = self.aim {
+            return Some((dir, self.aim_speed));
+        }
+        let speed = if matches!(self.goal, Goal::Pursuit(_)) { 0.5 } else { 1.0 };
+        let yaw = |y: f32| Vec3::new(y.sin(), 0.0, y.cos());
+        let dir = match (self.glance, self.look) {
+            (Some((g, _)), _) => yaw(g),
+            (None, Look::At(p)) => p - shoulder,
+            (None, Look::Dir(d)) => yaw(d),
+            (None, Look::None) => return None,
+        };
+        Some((dir, speed))
     }
 
     fn look_range(&self) -> f32 {
