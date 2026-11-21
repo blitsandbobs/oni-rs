@@ -329,9 +329,21 @@ fn is_committed(t: u16) -> bool {
             | ty::SIDESTEP_RIGHT_PUNCH
             | ty::LAND_DEAD
             | ty::TAUNT
-            // (The bosses' powers, which their AI asks for.)
+            | ty::BLOWNUP
+            | ty::BLOWNUP_BEHIND
             | ty::POWERUP
             | ty::MURO_THUNDERBOLT
+            // The repeated strikes (PF_PF … KD_KD_KD).
+            | 172..=191
+            // The hit and knockdown reactions (Hit_Head … Knockdown_Crouch_Behind).
+            | 76..=92
+            // Thrown 1–17.
+            | 96..=101
+            | 114..=119
+            | 128..=132
+            // Pickups (from the floor, from mid height), holster, draw.
+            | 157..=162
+            | 227..=229
     )
 }
 
@@ -694,4 +706,21 @@ fn steer(m: &mut Motion, facing: &mut Facing, c: &Controls) {
         0.0
     };
     facing.rotate(amount);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `HandlePriorAction`'s list: reactions, throws, pickups, holster and
+    /// draw, the repeated strikes, blown up — but not plain movement.
+    #[test]
+    fn committed_actions_match_the_original() {
+        for t in [ty::HIT_HEAD, ty::KNOCKDOWN_CROUCH_BEHIND, 96, 132, 157, 162, 172, 191, 227, 229, ty::BLOWNUP_BEHIND] {
+            assert!(is_committed(t), "{t}");
+        }
+        for t in [ty::STAND, ty::RUN, ty::RUN_START, ty::IDLE, 102, 192, 230] {
+            assert!(!is_committed(t), "{t}");
+        }
+    }
 }

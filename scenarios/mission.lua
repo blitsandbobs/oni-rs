@@ -353,6 +353,13 @@ local rows = {-0.15, 0.21, 0.45} -- (the muzzle rises as the gun tips up)
 local function refill()
     -- Out of rounds: the training puts out two clips; pick them up, reload.
     if select(2, weapon(0)) > 0 then return end
+    -- A spare clip (both picked up last time): just reload.
+    if inventory(0) > 0 then
+        assert(reload(0), "reload")
+        step(80)
+        assert(select(2, weapon(0)) == 10, "full again")
+        return
+    end
     local before = powerups_lying()
     local spawned = wait_for(function() return powerups_lying() >= before + 2 end, 600)
     assert(spawned, "clips put out when the pistol runs dry")
