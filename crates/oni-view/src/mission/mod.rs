@@ -26,6 +26,10 @@ pub trait Host {
     fn clip(&mut self, _name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
         None
     }
+    /// The character classes (a placement's costume, its default melee).
+    fn classes(&self) -> Option<&crate::classes::Classes> {
+        None
+    }
 }
 
 /// A running script task.
@@ -71,8 +75,6 @@ pub struct State {
     pub scripts: HashMap<usize, HashMap<String, String>>,
     /// `ai2_allpassive`.
     pub all_passive: bool,
-    /// The game's difficulty (0 easy, 1 normal, 2 hard).
-    pub difficulty: i64,
     /// Event scripts to start at the next tick (a spawn's script, …).
     pub(super) pending_events: Vec<(String, Vec<String>)>,
     /// Character event scripts fired, per fighter (once per life).
@@ -366,6 +368,9 @@ mod tests {
         }
         fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
             self.classes.clip(name)
+        }
+        fn classes(&self) -> Option<&crate::classes::Classes> {
+            Some(&self.classes)
         }
     }
 

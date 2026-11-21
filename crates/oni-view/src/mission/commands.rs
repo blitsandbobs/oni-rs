@@ -336,7 +336,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                 return done(v.clone());
             }
             match w.as_str() {
-                "difficulty" => done(Value::Integer(state.difficulty)),
+                "difficulty" => done(Value::Integer(host.world().difficulty.level)),
                 "did_kill_griffen" | "chr_has_lsi" | "chr_has_empty_weapon" => done(Value::Integer(0)),
                 _ => nil(),
             }
@@ -393,6 +393,9 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
                     "gl_fog_start" => fog.start = v,
                     "gl_fog_end" => fog.end = v,
                     _ => {}
+                }
+                if k == "ai2_boss_battle" {
+                    host.world().boss_battle = v != 0.0;
                 }
                 let cam = &mut host.world().camera;
                 match k.as_str() {
@@ -1274,7 +1277,7 @@ pub fn dispatch(state: &mut State, host: &mut dyn Host, lua: &Lua, name: &str, a
             done(Value::Integer(lsi as i64))
         }
         "did_kill_griffen" => done(Value::Integer(0)),
-        "difficulty" => done(Value::Integer(state.difficulty)),
+        "difficulty" => done(Value::Integer(host.world().difficulty.level)),
 
         // --- AI orders -------------------------------------------------------
         "ai2_dopath" => {
@@ -1667,14 +1670,29 @@ pub fn spawn(state: &mut State, host: &mut dyn Host, name: &str, force: bool) ->
     })?;
     let placed = world.level_ai.characters[index].clone();
     state.spawned.insert(index);
-    let kind = match host.kind(&placed.class) {
+    // Its class: a random costume, or upgraded on hard (`ONrGameState_
+    // NewCharacter`); its melee profile the new class's default if it had
+    // its old class's.
+    let roll = world.roll();
+    let hard = world.difficulty.level >= 2;
+    let (class, default_melee) = match host.classes() {
+        Some(c) => (
+            c.costume(&placed.class, placed.has("randomCostume"), placed.has("upgradeDifficulty"), hard, roll),
+            placed.melee_id.is_some() && placed.melee_id == c.default_melee_id(&placed.class),
+        ),
+        None => (placed.class.clone(), false),
+    };
+    if class != placed.class {
+        eprintln!("script: {name} wears {class} (placed as {})", placed.class);
+    }
+    let kind = match host.kind(&class) {
         Ok(k) => k,
         Err(e) => {
             state.warn(format!("ai2_spawn {name}: {e}"));
             return None;
         }
     };
-    let melee = placed.melee_id.and_then(|m| host.melee(m));
+    let melee = if default_melee { kind.melee.clone() } else { placed.melee_id.and_then(|m| host.melee(m)) };
     let world = host.world();
     // (A placement is the feet; spawning takes the pelvis: start a little
     // above and let it settle.)

@@ -179,8 +179,12 @@ impl crate::mission::Host for PlayHost<'_> {
     }
     fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
         self.classes.melee_by_id(id)
-    }    fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
+    }
+    fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
         self.classes.clip(name)
+    }
+    fn classes(&self) -> Option<&crate::classes::Classes> {
+        Some(self.classes)
     }
 }
 

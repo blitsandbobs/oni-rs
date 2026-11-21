@@ -84,11 +84,13 @@ pub struct Difficulty {
     pub enemy_hp: f32,
     /// Widens the spread of shots from AIs hostile to the player.
     pub inaccuracy: f32,
+    /// The game's difficulty itself: 0 easy, 1 normal, 2 hard.
+    pub level: i64,
 }
 
 impl Default for Difficulty {
     fn default() -> Self {
-        Difficulty { notice: 1.0, dodge: 1.0, block: 1.0, player_hp: 1.0, enemy_hp: 1.0, inaccuracy: 1.0 }
+        Difficulty { notice: 1.0, dodge: 1.0, block: 1.0, player_hp: 1.0, enemy_hp: 1.0, inaccuracy: 1.0, level: 1 }
     }
 }
 

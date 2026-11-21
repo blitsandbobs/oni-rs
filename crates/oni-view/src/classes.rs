@@ -140,6 +140,36 @@ impl Classes {
 }
 
 impl Classes {
+    /// The class a placement takes (`ONrGameState_NewCharacter`): with a
+    /// random costume or upgraded difficulty, one of the classes of its
+    /// variant — on hard, of the variant it upgrades to — picked by `roll`
+    /// (0–1). (Upgraded below hard, it still takes a random one of its own
+    /// variant: one test covers both flags.)
+    pub fn costume(&self, class: &str, random: bool, upgrade: bool, hard: bool, roll: f32) -> String {
+        if !random && !upgrade {
+            return class.to_string();
+        }
+        let Some(c) = self.entries.iter().find(|c| c["name"].as_str() == Some(class)) else { return class.to_string() };
+        let Some(variant) = c["variantName"].as_str() else { return class.to_string() };
+        let desired = match c["variantUpgrade"].as_str() {
+            Some(u) if upgrade && hard && !u.is_empty() => u,
+            _ => variant,
+        };
+        let pool: Vec<&str> = self.entries.iter().filter(|e| e["variantName"].as_str() == Some(desired)).filter_map(|e| e["name"].as_str()).collect();
+        if pool.is_empty() {
+            eprintln!("classes: {class} (variant {variant}) found no classes of variant {desired}");
+            return class.to_string();
+        }
+        let k = ((pool.len() as f32 * roll) as usize).min(pool.len() - 1);
+        pool[k].to_string()
+    }
+
+    /// A class's default melee profile's id (`ai2_behavior.default_melee_id`).
+    pub fn default_melee_id(&self, class: &str) -> Option<u16> {
+        let c = self.entries.iter().find(|c| c["name"].as_str() == Some(class))?;
+        self.melee.get(c["meleeProfile"].as_str()?).map(|p| p.id)
+    }
+
     /// A single clip by name, from any class (loaded once).
     pub fn clip(&mut self, name: &str) -> Option<Rc<AnimCollection>> {
         if let Some(c) = self.singles.get(name) {
@@ -169,6 +199,7 @@ impl Classes {
             player_hp: pick("playerHpMultiplier"),
             enemy_hp: pick("enemyHpMultiplier"),
             inaccuracy: pick("inaccuracyMultiplier"),
+            level: i.map_or(1, |i| i as i64),
         }
     }
 }

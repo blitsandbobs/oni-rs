@@ -94,6 +94,8 @@ pub struct Fighter {
     /// Takes no damage (`chr_invincible`); the player also by the cheat.
     pub invincible: bool,
     pub cheat_invincible: bool,
+    /// A boss (its placement's flag; `ONcCharacterFlag_Boss`).
+    pub boss: bool,
     /// Can't be killed but by an act of god (placed `unkillable`): a blow
     /// that would leaves it on 1 and defeats it (`ONrCharacter_TakeDamage`).
     pub unkillable: bool,
@@ -390,6 +392,7 @@ impl Fighter {
             max_hp: tuning.max_hit_points,
             invincible: false,
             cheat_invincible: false,
+            boss: false,
             cheat_unstoppable: false,
             gone: false,
             film: None,

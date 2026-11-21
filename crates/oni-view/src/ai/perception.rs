@@ -350,6 +350,11 @@ pub struct Perception {
     pub non_combatant: bool,
     /// Knows everything it has ever perceived forever.
     pub omniscient: bool,
+    /// A boss (its placement's flag; the player always), and — while a
+    /// boss battle is on (`ai2_boss_battle`) — which characters are bosses:
+    /// bosses go after bosses, the rest after the rest.
+    pub boss: bool,
+    pub boss_battle: Option<std::rc::Rc<Vec<bool>>>,
     /// Sees nothing (`ai2_makeblind`) / hears nothing (`ai2_makedeaf`).
     pub blind: bool,
     pub deaf: bool,
@@ -400,6 +405,8 @@ impl Perception {
             glance_until: 0,
             non_combatant: false,
             omniscient: false,
+            boss: false,
+            boss_battle: None,
             blind: false,
             deaf: false,
             notices: Vec::new(),
@@ -538,7 +545,41 @@ impl Perception {
     /// Orders the contacts most important first (behaviour per
     /// `docs/PERCEPTION.md`, *Memory*).
     fn rank(&mut self) {
-        self.contacts.sort_by(compare);
+        let mut contacts = std::mem::take(&mut self.contacts);
+        contacts.sort_by(|a, b| self.compare(a, b));
+        self.contacts = contacts;
+    }
+
+    /// `AI2rKnowledge_CompareFunc` as this AI ranks them: in a boss battle,
+    /// one of its own kind (boss or not) first — dropping it only once
+    /// forgotten — then [`compare`]'s order.
+    pub fn compare(&self, a: &Contact, b: &Contact) -> std::cmp::Ordering {
+        use std::cmp::Ordering;
+        let preference = match (&self.boss_battle, a.who, b.who) {
+            (Some(bosses), Some(x), Some(y)) => {
+                let (bx, by) = (bosses.get(x).copied().unwrap_or(false), bosses.get(y).copied().unwrap_or(false));
+                if bx == self.boss && by != self.boss {
+                    Ordering::Less
+                } else if bx != self.boss && by == self.boss {
+                    Ordering::Greater
+                } else {
+                    Ordering::Equal
+                }
+            }
+            _ => Ordering::Equal,
+        };
+        if preference == Ordering::Equal {
+            return compare(a, b);
+        }
+        let ignorable = |c: &Contact| c.strength <= Strength::Forgotten;
+        let solid = |c: &Contact| c.strength >= Strength::Strong;
+        if ignorable(a) && solid(b) {
+            Ordering::Greater
+        } else if ignorable(b) && solid(a) {
+            Ordering::Less
+        } else {
+            preference
+        }
     }
 
     /// Runs the alert handler again on the most important contact (a patrol
@@ -768,6 +809,31 @@ mod tests {
         // Unseen, a definite contact fades a step after its time.
         p.decay(10 + 180, &|_| true);
         assert_eq!(p.about(0).unwrap().strength, Strength::Strong);
+    }
+
+    #[test]
+    fn in_a_boss_battle_bosses_go_after_bosses() {
+        let mut p = Perception::new(Tuning::default(), Team::Syndicate);
+        // 0 the player (a boss), 1 another boss, 2 not.
+        p.boss_battle = Some(std::rc::Rc::new(vec![true, true, false]));
+        p.perceive(Some(0), Some(Team::Konoko), Stimulus::SightDefinite, Strength::Definite, Vec3::ZERO, 0, 0);
+        p.perceive(Some(2), Some(Team::Konoko), Stimulus::SightDefinite, Strength::Definite, Vec3::ZERO, 0, 0);
+        assert_eq!(p.contacts[0].who, Some(2), "not a boss: the non-boss first");
+        p.boss = true;
+        p.rank();
+        assert_eq!(p.contacts[0].who, Some(0), "a boss: the boss first");
+        // Faded to weak, still preferred — only forgotten lets it go.
+        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Weak;
+        p.rank();
+        assert_eq!(p.contacts[0].who, Some(0));
+        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Forgotten;
+        p.rank();
+        assert_eq!(p.contacts[0].who, Some(2));
+        // No boss battle: as usual.
+        p.boss_battle = None;
+        p.contacts.iter_mut().find(|c| c.who == Some(0)).unwrap().strength = Strength::Weak;
+        p.rank();
+        assert_eq!(p.contacts[0].who, Some(2), "strong before weak");
     }
 
     #[test]

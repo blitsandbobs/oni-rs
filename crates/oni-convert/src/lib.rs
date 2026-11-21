@@ -861,9 +861,19 @@ fn collect_character_classes(
             .into_iter()
             .map(|t| t.map(|t| format!("../textures/{}.png", sanitize(&t))))
             .collect();
+        // Its variant's name and the one it upgrades to on hard
+        // (`ONtCharacterVariant`: `name[32]` @4, `upgrade_name[32]` @36) —
+        // what random costumes and upgraded difficulty choose among.
+        let variant_data = cc.variant.as_deref().and_then(|v| {
+            let i = dat.instances.iter().find(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONCV")) && i.name.as_deref().is_some_and(|n| n.trim_start_matches("ONCV") == v))?;
+            let d = dat.instance_data(i)?;
+            Some((cstr(d, 4, 32), cstr(d, 36, 32)))
+        });
         out.push(serde_json::json!({
             "name": cc.name,
             "variant": cc.variant,
+            "variantName": variant_data.as_ref().map(|v| v.0.clone()),
+            "variantUpgrade": variant_data.as_ref().map(|v| v.1.clone()).filter(|u| !u.is_empty()),
             "body": cc.body,
             "model": model,
             "textures": cc.textures,

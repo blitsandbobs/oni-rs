@@ -148,6 +148,8 @@ pub struct World {
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
     /// The level's pre-placed corpses.
     pub corpses: Vec<corpses::Corpse>,
+    /// A boss battle on (`ai2_boss_battle`): bosses go after bosses.
+    pub boss_battle: bool,
     /// The cheat codes typed and their toggles.
     pub cheats: cheats::Cheats,
     /// The magic effects' textures: shield, super shield, invisibility.
@@ -309,6 +311,7 @@ impl World {
             corpses: Vec::new(),
             magic_textures: Default::default(),
             cheats: Default::default(),
+            boss_battle: false,
             neutral_runs: Default::default(),
             doors: Vec::new(),
             lasers: Vec::new(),
@@ -426,6 +429,11 @@ impl World {
         true
     }
 
+    /// A roll in `[0, 1)` for others (`UUrLocalRandom`'s uses).
+    pub fn roll(&mut self) -> f32 {
+        self.random()
+    }
+
     /// A roll in `[0, 1)`.
     fn random(&mut self) -> f32 {
         self.percent() / 100.0 + (self.percent() / 10_000.0)
@@ -525,6 +533,13 @@ impl World {
             }
         }
 
+        // In a boss battle, who the bosses are (the player always is).
+        let bosses = self.boss_battle.then(|| Rc::new(self.fighters.iter().map(|f| f.boss || f.player).collect::<Vec<bool>>()));
+        for f in &mut self.fighters {
+            if let Some(p) = f.perception.as_mut() {
+                p.boss_battle = bosses.clone();
+            }
+        }
         // Sight (none of one invisible long enough).
         let seeable: Vec<bool> = (0..n).map(|j| self.can_be_seen(j)).collect();
         for i in 0..n {
@@ -783,9 +798,11 @@ impl World {
                 p.team = pl.team;
                 p.non_combatant = pl.has("nonCombatant");
                 p.omniscient = pl.has("omniscient");
+                p.boss = pl.has("boss");
             }
         }
         if let Some(pl) = placed {
+            f.boss = pl.has("boss");
             f.unkillable = pl.has("unkillable");
             f.infinite_ammo = pl.has("infiniteAmmo");
             f.max_hp += pl.hp_offset;

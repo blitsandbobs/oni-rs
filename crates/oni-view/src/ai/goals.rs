@@ -2405,7 +2405,7 @@ impl Agent {
         let current = cx.perception.contact(contact).cloned();
         let mut change = false;
         if let Some(cur) = &current {
-            match super::perception::compare(&c, cur) {
+            match cx.perception.compare(&c, cur) {
                 std::cmp::Ordering::Less => change = true, // ranks ahead
                 std::cmp::Ordering::Greater => return,
                 std::cmp::Ordering::Equal => {}
