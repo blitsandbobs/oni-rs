@@ -406,15 +406,17 @@ pub fn dispatch(
                 _ => nil(),
             }
         }
-        "@player_at" => {
-            // (For our fixes, `fixes/`: where the player stands, feet.)
-            let at = host
-                .world()
-                .fighters
-                .first()
-                .map(|f| f.feet())
-                .unwrap_or_default();
-            done(Value::Table(lua.create_sequence_from([at.x, at.y, at.z])?))
+        "@chr_at" => {
+            // (For our fixes, `fixes/`: where a character stands, feet —
+            // the player by default; nil if it isn't present.)
+            let who = match a(0) {
+                None | Some(Value::Nil) => Some(0),
+                v => fighter(host, v),
+            };
+            match who.and_then(|i| host.world().fighters.get(i).map(|f| f.feet())) {
+                Some(at) => done(Value::Table(lua.create_sequence_from([at.x, at.y, at.z])?)),
+                None => nil(),
+            }
         }
         "@ticks" => {
             let n = match a(0) {

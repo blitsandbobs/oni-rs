@@ -11,5 +11,6 @@ pub fn source(level: &str) -> Option<&'static str> {
 const FILES: &[(&str, &str)] = &[
     ("02", include_str!("fixes/02.lua")),
     ("04", include_str!("fixes/04.lua")),
+    ("12", include_str!("fixes/12.lua")),
     ("18", include_str!("fixes/18.lua")),
 ];

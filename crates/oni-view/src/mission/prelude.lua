@@ -125,11 +125,14 @@ function FIX(id, name, make)
     rawset(F, name, make(orig))
 end
 
--- Where the player stands (feet): x, y, z. For the fixes only.
-function PLAYER_AT()
-    local p = __cmd("@player_at")
+-- Where a character stands (feet): x, y, z — the player when `who` is nil;
+-- nothing if it isn't present. For the fixes only.
+function CHR_AT(who)
+    local p = __cmd("@chr_at", who)
+    if p == nil then return nil end
     return p[1], p[2], p[3]
 end
+function PLAYER_AT() return CHR_AT() end
 
 -- Runs a translated chunk.
 function __load(chunk, name)

@@ -116,6 +116,7 @@ default `konoko_generic`); `--anim` is only used by the static viewer.
 | `fix_brain_consoles.lua` | S4: restored at level 2's save point 4, the brain's next round needs all 4 consoles; under `--faithful`, 3. |
 | `fix_tarmac_respawn.lua` | S2: restored at level 4's save point 3, the tarmac's guards stay gone; under `--faithful` they spawn again and the game saves back at save point 2. |
 | `fix_door14_lock.lua` | S3: level 18's door 14 closes before it locks behind Konoko; under `--faithful` it locks open. |
+| `fix_mukade_stranded.lua` | S5: level 12's Mukade stranded on the lower roof below the arena teleports back to its centre after 3 s; under `--faithful` he stays there. |
 | `reload_knocked.lua` | Q26: a reload knocked out before the clip goes in gives the clip back (fixed); under `--faithful` it is lost. |
 | `throw_wall.lua` | Q25: a forward punch at a dummy on the other side of a locked door stays a punch (fixed); under `--faithful` it throws the dummy through the door. |
 | `weapons.lua` | A gun turns fire 1 into a shot: the pistol's particle hits the dummy once for 8–10, the magazine drops by one, its kick stays in the aim, ten shots empty it, and with a clip an empty gun reloads on the press. |
