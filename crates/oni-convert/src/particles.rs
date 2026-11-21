@@ -184,22 +184,14 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
         e
     };
     let mut out = Vec::new();
-    for inst in dat.instances.iter().filter(|i| i.tag == TAG_ENVP) {
-        let Some(d) = dat.instance_data(inst) else { continue };
-        let num = le_u16(d, 22) as usize;
-        for k in 0..num {
-            let o = ENVP_ARRAY_START + k * ENVP_PARTICLE_STRIDE;
-            if o + ENVP_PARTICLE_STRIDE > d.len() {
-                break;
-            }
-            let class = cstr(d, o, 64);
-            if class.is_empty() {
-                continue;
-            }
-            let m: [f32; 12] = std::array::from_fn(|i| le_f32(d, o + ENVP_MATRIX_OFF + i * 4));
-            let decal = [le_f32(d, o + 160), le_f32(d, o + 164)];
-            out.push(entry(class, cstr(d, o + 64, 48), m, le_u16(d, o + 168), decal, "env"));
+    // (Not the arrays placed objects carry: theirs ride the object.)
+    let owned = object_owned(dat);
+    for (i, inst) in dat.instances.iter().enumerate().filter(|(_, i)| i.tag == TAG_ENVP) {
+        if owned.contains(&i) {
+            continue;
         }
+        let Some(d) = dat.instance_data(inst) else { continue };
+        out.extend(envp_entries(d, "env"));
     }
     for o in crate::objects::read(dat, raw, "Particle").1 {
         let d = o.data;
@@ -215,6 +207,49 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
         out.push(entry(cstr(d, 0, 64), cstr(d, 64, 48), m, le_u16(d, 112), decal, "object"));
     }
     out
+}
+
+/// An `ENVP` array's particles: each its class, tag, matrix (12 floats,
+/// columns X Y Z then position — in the owner's space: the world's, or a
+/// placed object's), decal scale and whether held back at the start.
+pub fn envp_entries(d: &[u8], from: &str) -> Vec<serde_json::Value> {
+    const NOT_INITIALLY_CREATED: u16 = 0x2;
+    let mut out = Vec::new();
+    for k in 0..le_u16(d, 22) as usize {
+        let o = ENVP_ARRAY_START + k * ENVP_PARTICLE_STRIDE;
+        if o + ENVP_PARTICLE_STRIDE > d.len() {
+            break;
+        }
+        let class = cstr(d, o, 64);
+        if class.is_empty() {
+            continue;
+        }
+        let m: [f32; 12] = std::array::from_fn(|i| le_f32(d, o + ENVP_MATRIX_OFF + i * 4));
+        let mut e = serde_json::json!({ "class": class, "matrix": m, "decalScale": [le_f32(d, o + 160), le_f32(d, o + 164)], "from": from });
+        let tag = cstr(d, o + 64, 48);
+        if !tag.is_empty() {
+            e["tag"] = serde_json::json!(tag);
+        }
+        if le_u16(d, o + 168) & NOT_INITIALLY_CREATED != 0 {
+            e["notInitiallyCreated"] = serde_json::json!(true);
+        }
+        out.push(e);
+    }
+    out
+}
+
+/// The `ENVP` arrays placed objects carry (`OBtObjectSetup.particleArray`
+/// @8 in `OBOA`): their instance indices.
+pub fn object_owned(dat: &Dat<'_>) -> std::collections::HashSet<usize> {
+    const TAG_OBOA: FourCc = FourCc(u32::from_be_bytes(*b"OBOA"));
+    let Some(d) = dat.instances.iter().find(|i| i.tag == TAG_OBOA).and_then(|i| dat.instance_data(i)) else { return Default::default() };
+    (0..le_u16(d, 22) as usize)
+        .filter_map(|k| {
+            let r = le_u32(d, 24 + k * 240 + 8);
+            (r & 1 != 0).then_some((r >> 8) as usize)
+        })
+        .filter(|&i| dat.instances.get(i).is_some_and(|x| x.tag == TAG_ENVP))
+        .collect()
 }
 
 /// Writes `<root>/env_particles.json` (see `env_particles`), if any.

@@ -1091,6 +1091,7 @@ impl State {
             self.renderer.decals = pw.world.decal_draws(self.cam.eye);
             self.renderer.hidden_refs = pw.world.env_hidden.clone();
             self.renderer.env_shades = pw.world.env_shades.clone();
+            self.renderer.door_shades = pw.world.door_shades.clone();
             self.renderer.broken_glass = pw.world.broken_glass.clone();
             self.renderer.jello = pw.world.jello.clone();
             self.renderer.jello_doors = pw.world.jello_doors.iter().copied().collect();

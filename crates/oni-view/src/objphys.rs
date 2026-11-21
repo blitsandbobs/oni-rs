@@ -1,9 +1,10 @@
 //! Physics for loose things — guns and powerups lying about or falling
 //! (`BFW_Physics.c`, the linear level of `OBiPhysics_Update`; behaviour per
 //! `docs/OBJECTS.md`, *Loose things*): a sphere pulled down by gravity,
-//! moving its velocity a tick, reflected off the level's quads one plane a
-//! pass (then halted if it still pushes into something), and slowed by
-//! friction only once it has touched something.
+//! moving its velocity a tick, reflected off the level's quads and other
+//! bodies (characters, placed objects, other loose things) one plane a pass
+//! (then halted if it still pushes into something), and slowed by friction
+//! only once it has touched something.
 
 use glam::Vec3;
 
@@ -25,12 +26,26 @@ pub struct Body {
     pub dynamic_friction: f32,
 }
 
-/// A level surface it met: where, and the plane's normal (toward it).
+/// What it met: a level surface (its quad), or another body (a
+/// character's, or not) — where, and the plane's normal (toward it).
 #[derive(Clone, Copy, Debug)]
 pub struct Contact {
     pub quad: u32,
     pub point: Vec3,
     pub normal: Vec3,
+    /// Another body (`PHcCollider_Phy`): whether a character's.
+    pub body: Option<bool>,
+}
+
+/// Another physics body a loose thing can meet
+/// (`PHrPhysics_Single_PhyCollision`): the spheres it is met by (a
+/// character's stack, else one), the whole one the meeting's plane comes
+/// from, and whether it is a character.
+#[derive(Clone, Debug)]
+pub struct Obstacle {
+    pub spheres: Vec<(Vec3, f32)>,
+    pub whole: (Vec3, f32),
+    pub character: bool,
 }
 
 impl Body {
@@ -42,15 +57,33 @@ impl Body {
     /// with the characters' skip flags as loose things use them; two-sided
     /// quads both ways), less what it moves away from or is already behind
     /// (`PHiRemoveBackfacingCollisions`).
-    fn gather(&self, quads: &Quads, v: Vec3) -> Vec<Contact> {
+    fn gather(&self, quads: &Quads, others: &[Obstacle], v: Vec3) -> Vec<Contact> {
         let mut out = Vec::new();
         for h in quads.sphere(self.position, self.radius, v, flag::CHR_COL_SKIP) {
             let q = &quads.quads[h.quad as usize];
             let (n, _) = quads.plane(q.plane);
-            out.push(Contact { quad: h.quad, point: h.point, normal: n });
+            out.push(Contact { quad: h.quad, point: h.point, normal: n, body: None });
             if q.flags & flag::AK_2SIDED != 0 {
-                out.push(Contact { quad: h.quad, point: h.point, normal: -n });
+                out.push(Contact { quad: h.quad, point: h.point, normal: -n, body: None });
             }
+        }
+        // Other bodies its sphere, swept along `v`, meets: the plane half way
+        // between the two whole spheres' near sides, facing it (straight up
+        // when the centres coincide).
+        for o in others {
+            let swept = |(c, r): &(Vec3, f32)| {
+                let t = if v.length_squared() > 0.0 { ((*c - self.position).dot(v) / v.length_squared()).clamp(0.0, 1.0) } else { 0.0 };
+                (self.position + v * t).distance(*c) <= r + self.radius
+            };
+            if !o.spheres.iter().any(swept) {
+                continue;
+            }
+            let (c, r) = o.whole;
+            let (point, normal) = match (self.position - c).try_normalize() {
+                Some(n) => (((c + n * r) + (self.position - n * self.radius)) * 0.5, n),
+                None => (self.position, Vec3::Y),
+            };
+            out.push(Contact { quad: u32::MAX, point, normal, body: Some(o.character) });
         }
         out.retain(|c| !(v.dot(c.normal) > 0.0 || (c.point - self.position).dot(c.normal) > 0.0));
         out
@@ -61,13 +94,13 @@ impl Body {
     /// plane it pushes into takes that push off) — `on_pass` sees what it
     /// met — and a halt if it reflected, the move, and friction if it
     /// touched anything. Returns whether it touched anything.
-    pub fn tick(&mut self, quads: &Quads, mut on_pass: impl FnMut(&Body, &[Contact])) -> bool {
+    pub fn tick(&mut self, quads: &Quads, others: &[Obstacle], mut on_pass: impl FnMut(&Body, &[Contact])) -> bool {
         self.velocity.y -= GRAVITY;
         self.velocity += self.acceleration;
         self.acceleration = Vec3::ZERO;
         let mut v = self.velocity;
         // The reflecting pass (`OBrPhysics_Update_Reflect`).
-        let mut met = self.gather(quads, v);
+        let mut met = self.gather(quads, others, v);
         met.sort_by(|a, b| a.point.distance_squared(self.position).total_cmp(&b.point.distance_squared(self.position)));
         let mut reflected = false;
         for c in &met {
@@ -81,7 +114,7 @@ impl Body {
         on_pass(self, &met);
         // The halt (`OBrPhysics_Update_ReflectHalt`): still pushing into
         // something, it stops.
-        if reflected && self.gather(quads, v).iter().any(|c| v.dot(c.normal) < 0.0) {
+        if reflected && self.gather(quads, others, v).iter().any(|c| v.dot(c.normal) < 0.0) {
             v = Vec3::ZERO;
         }
         self.position += v;
@@ -118,7 +151,7 @@ mod tests {
         let mut landed = None;
         for t in 0..200 {
             let mut hit = false;
-            b.tick(&q, |_, met| hit |= !met.is_empty());
+            b.tick(&q, &[], |_, met| hit |= !met.is_empty());
             if hit && landed.is_none() {
                 landed = Some(t);
             }

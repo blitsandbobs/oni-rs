@@ -13,6 +13,7 @@ use crate::{cstr, le_f32, le_u16, le_u32};
 const TAG_OBOA: FourCc = FourCc(u32::from_be_bytes(*b"OBOA"));
 const TAG_M3GA: FourCc = FourCc(u32::from_be_bytes(*b"M3GA"));
 const TAG_OBAN: FourCc = FourCc(u32::from_be_bytes(*b"OBAN"));
+const TAG_ENVP: FourCc = FourCc(u32::from_be_bytes(*b"ENVP"));
 /// `sizeof(OBtObjectSetup)`, after the array's 24-byte header.
 const STRIDE: usize = 240;
 
@@ -71,6 +72,13 @@ pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
             "geometry": geometry,
             "radius": { "shipped": shipped.max(1.0), "fixed": fixed.max(1.0) },
         });
+        // Its particles (`particleArray` @8, an `ENVP`): in its own space.
+        if let Some(p) = local(dat, le_u32(d, o + 8)).filter(|p| p.tag == TAG_ENVP).and_then(|p| dat.instance_data(p)) {
+            let p = crate::particles::envp_entries(p, "object");
+            if !p.is_empty() {
+                obj["particles"] = json!(p);
+            }
+        }
         if let Some(a) = local(dat, le_u32(d, o + 4)).filter(|a| a.tag == TAG_OBAN) {
             obj["animation"] = json!(a.name.clone().unwrap_or_else(|| crate::asset_name(dat, a)));
         }

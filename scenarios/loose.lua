@@ -2,7 +2,10 @@
 -- gravity, meets the floor (its impact) and slides to rest; a dying
 -- character drops its "death candy" — powerups that fall and come to rest
 -- (their physics gone after 120 still ticks); a character a weapon lifts is
--- pulled up toward its lifter and falls when let go.
+-- pulled up toward its lifter and falls when let go. Loose things meet
+-- each other and characters too (`PHrPhysics_Single_PhyCollision`): a gun
+-- dropped onto a lying gun comes to rest on it, one dropped onto a
+-- character's head stops on him (or glances off), not falling through.
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -70,4 +73,23 @@ step(120)
 local _, sy = pos_of(s)
 print(string.format("let go: back to y %.1f", sy))
 assert(sy < top - 3, "it falls when let go")
+
+-- A second pistol let fall on the first: it rests on it, not through it.
+local first = loose_guns()[before_guns + 1]
+assert(spawn_weapon("w1_tap", first.at[1], first.at[2] + 30, first.at[3], true))
+step(120)
+local second = loose_guns()[#loose_guns()]
+print(string.format("on the pistol: at y %.2f (the first at %.2f)", second.at[2], first.at[2]))
+assert(second.at[2] > first.at[2] + 1, "rests on the first")
+
+-- One let fall on a standing thug's head: it stops there, not through him.
+local t2 = spawn(x - 40, y + 5, z, 0, "thug_wh_1")
+step(30)
+local tx, tyy, tz = pos_of(t2)
+assert(spawn_weapon("w1_tap", tx + 1, tyy + 40, tz, true))
+step(120)
+local third = loose_guns()[#loose_guns()]
+local off = math.sqrt((third.at[1] - tx) ^ 2 + (third.at[3] - tz) ^ 2)
+print(string.format("on the thug: %.1f off him, at y %.2f", off, third.at[2]))
+assert(off > 4 or third.at[2] > tyy + 10, "not through him")
 print("loose ok")

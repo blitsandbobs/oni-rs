@@ -109,6 +109,13 @@ pub struct PowerupLook {
     pub glow_height: f32,
 }
 
+/// A loose thing (to leave itself out of what it meets).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Loose {
+    Weapon(usize),
+    Powerup(usize),
+}
+
 /// A loose powerup's friction, the speed under which it counts as still
 /// (`5 / 60` a tick), and how long it rests before its physics goes
 /// (`WPcPowerupPhysicsTimer`).
@@ -591,6 +598,8 @@ fn matrix_lerp(a: Mat4, b: Mat4, t: f32) -> Mat4 {
 pub enum SightTarget {
     None,
     Environment,
+    /// A placed object (`AMcRayResult_Object`).
+    Object,
     Character,
 }
 
@@ -650,9 +659,10 @@ impl World {
     }
 
     /// Whether fighter `who`'s gun pokes through a wall
-    /// (`ONrCharacter_IsGunThroughWall`): the level or a door between the
-    /// middle of its pelvis and any of the gun's shooting attachments, or the
-    /// gun's pivot. Such a gun neither fires nor shows its sight.
+    /// (`ONrCharacter_IsGunThroughWall`): the level, a door or a placed
+    /// object between the middle of its pelvis and any of the gun's shooting
+    /// attachments, or the gun's pivot. Such a gun neither fires nor shows
+    /// its sight.
     pub fn gun_through_wall(&self, who: usize) -> bool {
         let Some(f) = self.fighters.get(who) else { return false };
         let Some(w) = f.hand else { return false };
@@ -669,7 +679,10 @@ impl World {
         let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
         // (A long gun held over a ledge counts as through it, the original's
         // known limit.)
-        let blocked = |to: Vec3| crate::chrphys::level_ray(&env, pelvis, to - pelvis).is_some();
+        let blocked = |to: Vec3| {
+            let v = to - pelvis;
+            crate::chrphys::level_ray(&env, pelvis, v).is_some() || (v.length() > 1e-3 && self.ray_to_object(pelvis, v.normalize(), v.length()).is_some())
+        };
         gun.class.attachments.iter().filter(|a| a.ammo_used > 0).any(|a| blocked(m.transform_point3(a.matrix.w_axis.truncate())))
             || blocked(m.w_axis.truncate())
     }
@@ -677,8 +690,8 @@ impl World {
     /// Fighter `who`'s gun sight (`ONiDrawWeaponSight`): the player's, with
     /// a gun that has ammo and isn't through a wall, and a sight. From the
     /// sight along its direction to the first character (but itself), level
-    /// surface or door — at most the class's sight distance, stopping 2
-    /// short of what it meets.
+    /// surface, door or placed object — at most the class's sight distance,
+    /// stopping 2 short of what it meets.
     pub fn gun_sight(&self, who: usize) -> Option<GunSight> {
         let f = self.fighters.get(who).filter(|f| f.player && !f.gone)?;
         let gun = &self.armory.weapons[f.hand?];
@@ -710,6 +723,11 @@ impl World {
             let d = h.fraction * PICK_LIMIT;
             if hit.is_none_or(|(h, _)| d < h) {
                 hit = Some((d, SightTarget::Environment));
+            }
+        }
+        if let Some(d) = self.ray_to_object(from, dir, PICK_LIMIT) {
+            if hit.is_none_or(|(h, _)| d < h) {
+                hit = Some((d, SightTarget::Object));
             }
         }
         let (to, target) = match hit {
@@ -775,6 +793,8 @@ impl World {
             .collect();
         self.env_particles = super::env_particles::load(&self.level_dir, &self.armory.particles.classes.clone());
         self.quads = crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
+        // (The doors' flat shades come from their quads.)
+        self.door_shades = self.doors.iter().map(|d| (d.object_id, self.door_shade(d.object_id))).collect();
         // The object animations scripts name: the common ones, then the level's.
         self.object_anims.clear();
         for path in [common.join("object_animations.json"), self.level_dir.join("object_animations.json")] {
@@ -902,20 +922,64 @@ impl World {
         self.armory.powerups.push(p);
     }
 
+    /// The other bodies a loose thing (`me`) may meet
+    /// (`PHrPhysics_Callback_FindPhyCollisions`): the guns and powerups
+    /// lying free with physics, the placed objects shown (their spheres) and
+    /// — for a gun, `characters` — the characters' stacks, but not the dead
+    /// once settled (their physics off).
+    pub(super) fn loose_obstacles(&self, me: Option<Loose>, characters: bool) -> Vec<crate::objphys::Obstacle> {
+        use crate::objphys::Obstacle;
+        let one = |c: Vec3, r: f32, character: bool| Obstacle { spheres: vec![(c, r)], whole: (c, r), character };
+        let mut out = Vec::new();
+        for (k, g) in self.armory.weapons.iter().enumerate() {
+            if me == Some(Loose::Weapon(k)) || g.owner.is_some() || g.gone {
+                continue;
+            }
+            if let Some(b) = &g.body {
+                out.push(one(b.position, b.radius, false));
+            }
+        }
+        for (k, p) in self.armory.powerups.iter().enumerate() {
+            if me == Some(Loose::Powerup(k)) {
+                continue;
+            }
+            if let Some(b) = &p.body {
+                out.push(one(b.position, b.radius, false));
+            }
+        }
+        for k in 0..self.objects.len() {
+            if self.objects[k].flags & crate::world::objects::oflag::INVISIBLE != 0 {
+                continue;
+            }
+            out.push(one(self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius, false));
+        }
+        if characters {
+            for f in self.fighters.iter().filter(|f| !f.gone && !f.settled) {
+                let t = f.tree();
+                out.push(Obstacle { spheres: t.leaves.iter().map(|s| (s.center, s.radius)).collect(), whole: (t.root.center, t.root.radius), character: true });
+            }
+        }
+        out
+    }
+
     /// One tick of the falling and sliding powerups (`WPiPowerup_Update`):
     /// their physics (`crate::objphys`; characters don't stop them), the
     /// "Powerup" impact once a pass on meeting a surface hard enough, and —
     /// on the ground or barely moving for 120 ticks — their physics goes.
     fn powerups_tick(&mut self) {
         let mut impacts = Vec::new();
-        for p in &mut self.armory.powerups {
+        // (What each moving one may meet: not characters.)
+        let others: Vec<Vec<crate::objphys::Obstacle>> =
+            (0..self.armory.powerups.len()).map(|k| if self.armory.powerups[k].body.is_some() { self.loose_obstacles(Some(Loose::Powerup(k)), false) } else { Vec::new() }).collect();
+        for (p, others) in self.armory.powerups.iter_mut().zip(&others) {
             let Some(mut b) = p.body else { continue };
             let mut on_ground = false;
-            b.tick(&self.quads, |body, met| {
-                if let Some(c) = met.iter().find(|c| body.velocity.dot(c.normal).abs() > 0.35) {
+            b.tick(&self.quads, others, |body, met| {
+                let level = || met.iter().filter(|c| c.body.is_none());
+                if let Some(c) = level().find(|c| body.velocity.dot(c.normal).abs() > 0.35) {
                     impacts.push(*c);
                 }
-                on_ground = met.iter().any(|c| c.normal.y > crate::chrphys::MIN_FLOOR_NORMAL_Y);
+                on_ground = level().any(|c| c.normal.y > crate::chrphys::MIN_FLOOR_NORMAL_Y);
             });
             b.velocity.y = b.velocity.y.min(2.25);
             p.position = b.position;
@@ -2253,8 +2317,14 @@ impl World {
             if gun.owner.is_some() || gun.gone {
                 continue;
             }
-            // Meeting a surface hard enough: its "Weapon" impact.
-            for c in self.armory.weapons[w].tick_free(&self.quads) {
+            // Meeting a surface hard enough: its "Weapon" impact. (Other
+            // bodies stop it too: characters, objects, loose things.)
+            let others = if self.armory.weapons[w].body.is_some() && !self.armory.weapons[w].resting {
+                self.loose_obstacles(Some(Loose::Weapon(w)), true)
+            } else {
+                Vec::new()
+            };
+            for c in self.armory.weapons[w].tick_free(&self.quads, &others) {
                 self.fall_impact_on(c, "Weapon");
             }
         }

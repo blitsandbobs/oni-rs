@@ -14,7 +14,7 @@ use oni_geom::objanim::ObjectAnimation;
 use super::World;
 
 /// `OBcFlags_*` the engine reads.
-mod oflag {
+pub(crate) mod oflag {
     pub const FORCE_DRAW: u32 = 0x0008;
     pub const INVISIBLE: u32 = 0x0100;
     pub const IN_USE: u32 = 0x0200;
@@ -41,6 +41,8 @@ pub struct Setup {
     pub origin: Mat4,
     pub animation: Option<String>,
     pub models: Vec<PathBuf>,
+    /// Its attached particles (`particleArray`), as `objects.json` has them.
+    pub particles: Vec<serde_json::Value>,
     /// Its collision sphere's radius (as shipped: spec quirk 16, kept in
     /// both modes — the "largest coordinate" the code meant would wall off
     /// whole aisles round a truck).
@@ -60,6 +62,8 @@ pub struct Object {
     pub flags: u32,
     /// Lit flat in this colour (`obj_shade`).
     pub shade: Option<[f32; 3]>,
+    /// Its matrix as its particles ride it (kept up each tick).
+    pub cell: std::rc::Rc<std::cell::Cell<Mat4>>,
 }
 
 /// Loads a level's object setups (`objects.json`).
@@ -93,6 +97,7 @@ pub fn load(level_dir: &Path) -> Vec<Setup> {
                 animation: o["animation"].as_str().map(str::to_string),
                 models: o["geometry"].as_array().into_iter().flatten().filter_map(|g| g.as_str()).map(|g| common.join(g)).collect(),
                 radius: f(&o["radius"]["shipped"]).max(1.0),
+                particles: o["particles"].as_array().cloned().unwrap_or_default(),
             }
         })
         .collect()
@@ -185,18 +190,30 @@ impl World {
     /// in the range (even one already made).
     pub fn obj_create(&mut self, a: u32, b: u32) {
         let (lo, hi) = (a.min(b), a.max(b));
-        for (i, s) in self.object_setups.iter().enumerate() {
+        for i in 0..self.object_setups.len() {
+            let s = &self.object_setups[i];
             if s.flags & oflag::IN_USE == 0 || !(lo..=hi).contains(&s.script_id) {
                 continue;
             }
-            let anim = s.animation.as_deref().and_then(|n| self.object_anim(n));
-            self.objects.push(Object { setup: i, anim, frame: 0, step: 1, stop: 0, animating: false, flags: s.flags, shade: None });
+            let flags = s.flags;
+            let anim = s.animation.clone().and_then(|n| self.object_anim(&n));
+            let cell = std::rc::Rc::new(std::cell::Cell::new(Mat4::IDENTITY));
+            self.objects.push(Object { setup: i, anim, frame: 0, step: 1, stop: 0, animating: false, flags, shade: None, cell: cell.clone() });
+            let k = self.objects.len() - 1;
+            cell.set(self.object_matrix(k));
+            // Its particles (`OBrSetParticles`), unless hidden.
+            if flags & oflag::INVISIBLE == 0 {
+                self.object_particles_new(i, cell);
+            }
         }
     }
 
     /// `obj_kill a b`: those objects are gone.
     pub fn obj_kill(&mut self, a: u32, b: u32) {
         let gone = self.objects_by_id(a, b);
+        for &k in &gone {
+            self.object_particles_delete(self.objects[k].setup);
+        }
         let mut k = 0;
         self.objects.retain(|_| {
             k += 1;
@@ -212,6 +229,13 @@ impl World {
                 o.flags &= !oflag::INVISIBLE;
             } else {
                 o.flags |= oflag::INVISIBLE;
+            }
+            // Its particles come and go with it (`OBrSetParticles`).
+            let (setup, cell) = (o.setup, o.cell.clone());
+            if show {
+                self.object_particles_new(setup, cell);
+            } else {
+                self.object_particles_delete(setup);
             }
         }
     }
@@ -256,6 +280,9 @@ impl World {
     pub(super) fn objects_tick(&mut self) {
         for o in &mut self.objects {
             o.tick();
+        }
+        for k in 0..self.objects.len() {
+            self.objects[k].cell.set(self.object_matrix(k));
         }
     }
 

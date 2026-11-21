@@ -178,6 +178,8 @@ pub struct World {
     /// The level's doors, and each one's closed leaf (for collision).
     pub doors: Vec<crate::doors::Door>,
     door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
+    /// Each door's flat shade by object id (`ONrLevel_ObjectGunk_GetShade`).
+    pub door_shades: std::collections::HashMap<u32, [f32; 3]>,
     /// Each door's leaf as character collision sees it.
     door_boxes: Vec<crate::chrphys::DoorBox>,
     /// Each door leaf's box in its own frame (what `door_boxes` places).
@@ -338,6 +340,7 @@ impl World {
             lasers: Vec::new(),
             beams: Vec::new(),
             door_meshes: Vec::new(),
+            door_shades: Default::default(),
             door_boxes: Vec::new(),
             door_leaf_boxes: Vec::new(),
             door_links: Vec::new(),
@@ -1126,6 +1129,34 @@ impl World {
         self.mark_door_quads();
     }
 
+    /// A door's flat shade (`ONrLevel_ObjectGunk_GetShade`): the average of
+    /// its level quads' corner shades (a triangle's three), counting only
+    /// corners with a component over 0x3F, rounded; none such, 0x3F grey;
+    /// no quads, white.
+    pub(super) fn door_shade(&self, object_id: u32) -> [f32; 3] {
+        const MIN: u32 = 0x3F;
+        let tag = (3 << 24) | (object_id & 0x00FF_FFFF);
+        let quads: Vec<_> = self.quads.quads.iter().filter(|q| q.object_tag == tag).collect();
+        if quads.is_empty() {
+            return [1.0; 3];
+        }
+        let (mut sum, mut n) = ([0u32; 3], 0u32);
+        for q in quads {
+            let corners = if q.flags & crate::quads::flag::TRIANGLE != 0 { 3 } else { 4 };
+            for &c in &q.shades[..corners] {
+                let rgb = [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
+                if rgb.iter().any(|&v| v > MIN) {
+                    for k in 0..3 {
+                        sum[k] += rgb[k];
+                    }
+                    n += 1;
+                }
+            }
+        }
+        let avg = if n > 0 { sum.map(|v| (v + n / 2) / n) } else { [MIN; 3] };
+        avg.map(|v| v as f32 / 255.0)
+    }
+
     /// The door leaves' boxes where they stand this tick: solid while their
     /// door isn't closed (its leaf objects exist).
     fn place_door_boxes(&mut self) {
@@ -1159,6 +1190,29 @@ impl World {
     pub fn segment_meets_object(&self, a: Vec3, b: Vec3) -> bool {
         self.door_boxes.iter().any(|d| d.solid && d.meets_segment(a, b))
             || (0..self.objects.len()).any(|k| camera::segment_meets_sphere(a, b, self.object_matrix(k).w_axis.truncate(), self.object_setups[self.objects[k].setup].radius))
+    }
+
+    /// The nearest placed object along a ray (`AMrRayToObject`, unit `dir`,
+    /// out to `max`): the distance to where it meets the first one's sphere
+    /// — 0 when it starts inside one, as shipped. (Door leaves are met as
+    /// the level's door boxes.)
+    pub fn ray_to_object(&self, from: Vec3, dir: Vec3, max: f32) -> Option<f32> {
+        (0..self.objects.len())
+            .filter_map(|k| {
+                let c = self.object_matrix(k).w_axis.truncate();
+                let r = self.object_setups[self.objects[k].setup].radius;
+                let eo = c - from;
+                let eo_sq = eo.length_squared();
+                if eo_sq < r * r {
+                    return Some(0.0);
+                }
+                let v = eo.dot(dir);
+                let disc = r * r - (eo_sq - v * v);
+                let t = v - disc.max(0.0).sqrt();
+                (disc >= 0.0 && t >= 0.0).then_some(t)
+            })
+            .filter(|&t| t <= max)
+            .min_by(f32::total_cmp)
     }
 
     /// The leaves (object id, leaf) of the doors that aren't closed whose

@@ -349,6 +349,9 @@ pub struct Renderer {
     pub magic: Vec<MagicDraw>,
     /// Level parts shaded flat by script reference (`env_shade`).
     pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
+    /// Each door's flat shade (object id): its leaves and level quads lit
+    /// flat in it (`OBJtOSD_Door.shade`).
+    pub door_shades: std::collections::HashMap<u32, [f32; 3]>,
     textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
     /// The scene's and models' textures by index, their files (to find the
     /// animated ones).
@@ -822,6 +825,7 @@ impl Renderer {
             sprites: Vec::new(),
             magic: Vec::new(),
             env_shades: Default::default(),
+            door_shades: Default::default(),
             textures_by_path: Default::default(),
             tex_paths,
             tex_anims: Default::default(),
@@ -1035,7 +1039,10 @@ impl Renderer {
             // each bucket: the baked world-space scene prims, then every character
             // instance's parts posed by that instance's bones.
             // (A level part shaded by its script reference.)
-            let env_shade = |p: &GpuPrim| shade_extra(p.env_ref.and_then(|r| self.env_shades.get(&r)).copied());
+            // (A door's quads, flat in its shade.)
+            let env_shade = |p: &GpuPrim| {
+                shade_extra(p.env_ref.and_then(|r| self.env_shades.get(&r)).or_else(|| p.door.and_then(|(d, _)| self.door_shades.get(&d))).copied())
+            };
             let draw_shaded = |pass: &mut wgpu::RenderPass, p: &GpuPrim, model: Mat4, extra: [f32; 4]| {
                 pass.set_push_constants(wgpu::ShaderStages::VERTEX, 0, bytemuck::cast_slice(&push_block(model, extra)));
                 let bg = self.tex_bgs.get(self.shown(p.texture)).unwrap_or(&self.default_tex);

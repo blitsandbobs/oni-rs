@@ -239,6 +239,7 @@ impl ScriptHost {
         self.renderer.decals = if self.show_decals { self.world.decal_draws(cam.eye) } else { Vec::new() };
         self.renderer.hidden_refs = self.world.env_hidden.clone();
         self.renderer.env_shades = self.world.env_shades.clone();
+        self.renderer.door_shades = self.world.door_shades.clone();
         self.renderer.broken_glass = self.world.broken_glass.clone();
         self.renderer.jello = self.world.jello.clone();
         self.renderer.jello_doors = self.world.jello_doors.iter().copied().collect();
@@ -832,6 +833,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "env_shade_of",
         lua.create_function(move |_, r: u32| Ok(h.borrow().world.env_shades.get(&r).map(|c| c.to_vec())))?,
     )?;
+    // door_shade_of(object id) → {r, g, b}: the door's flat shade (0–1).
+    let h = host.clone();
+    g.set(
+        "door_shade_of",
+        lua.create_function(move |_, id: u32| Ok(h.borrow().world.door_shades.get(&id).map(|c| c.to_vec())))?,
+    )?;
+    // door_ids() → {object id, …}: the level's doors.
+    let h = host.clone();
+    g.set("door_ids", lua.create_function(move |_, ()| Ok(h.borrow().world.doors.iter().map(|d| d.object_id).collect::<Vec<_>>()))?)?;
     let h = host.clone();
     g.set(
         "obj_shades",
@@ -1788,7 +1798,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // sight(id) → {from, to, target, laser, tunnel}: fighter id's gun sight
-    // this tick (nil without one); target "none" | "environment" |
+    // this tick (nil without one); target "none" | "environment" | "object" |
     // "character", laser its {r, g, b} (nil without one), tunnel how many
     // sprites. gun_through_wall(id) → whether its gun pokes through a wall.
     let h = host.clone();
@@ -1802,6 +1812,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             t.set("to", vec![s.to.x, s.to.y, s.to.z])?;
             t.set("target", match s.target {
                 crate::world::SightTarget::None => "none",
+                crate::world::SightTarget::Object => "object",
                 crate::world::SightTarget::Environment => "environment",
                 crate::world::SightTarget::Character => "character",
             })?;

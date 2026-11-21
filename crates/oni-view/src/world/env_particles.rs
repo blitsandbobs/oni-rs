@@ -46,6 +46,27 @@ pub(crate) struct EnvParticle {
     not_initially: bool,
     /// Its live particle, while created.
     handle: Option<Handle>,
+    /// A placed object's (`EPcParticleOwner_Object`): the setup it belongs
+    /// to and the object's matrix it rides (its own is in the object's
+    /// space); None for the level's own.
+    pub(crate) owner: Option<(usize, std::rc::Rc<std::cell::Cell<Mat4>>)>,
+}
+
+/// One particle of an `ENVP` array as `objects.json` / `env_particles.json`
+/// write it: class, tag, matrix, decal scale, held back at the start.
+pub(crate) fn parse(p: &Value, classes: &p3::Classes) -> EnvParticle {
+    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
+    let m: Vec<f32> = p["matrix"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default();
+    let c = |k: usize| Vec3::new(m.get(k * 3).copied().unwrap_or(0.0), m.get(k * 3 + 1).copied().unwrap_or(0.0), m.get(k * 3 + 2).copied().unwrap_or(0.0));
+    EnvParticle {
+        class: p["class"].as_str().and_then(|n| classes.get(n)),
+        tag: p["tag"].as_str().unwrap_or("").to_string(),
+        matrix: Mat4::from_mat3_translation(Mat3::from_cols(c(0), c(1), c(2)), c(3)),
+        decal_scale: [f(&p["decalScale"][0]), f(&p["decalScale"][1])],
+        not_initially: p["notInitiallyCreated"].as_bool().unwrap_or(false),
+        handle: None,
+        owner: None,
+    }
 }
 
 /// Loads a level's environmental particles (classes resolved against the
@@ -55,24 +76,7 @@ pub(crate) fn load(level_dir: &Path, classes: &p3::Classes) -> Vec<EnvParticle> 
     else {
         return Vec::new();
     };
-    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
-    j["particles"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|p| {
-            let m: Vec<f32> = p["matrix"].as_array().map(|a| a.iter().map(f).collect()).unwrap_or_default();
-            let c = |k: usize| Vec3::new(m.get(k * 3).copied().unwrap_or(0.0), m.get(k * 3 + 1).copied().unwrap_or(0.0), m.get(k * 3 + 2).copied().unwrap_or(0.0));
-            EnvParticle {
-                class: p["class"].as_str().and_then(|n| classes.get(n)),
-                tag: p["tag"].as_str().unwrap_or("").to_string(),
-                matrix: Mat4::from_mat3_translation(Mat3::from_cols(c(0), c(1), c(2)), c(3)),
-                decal_scale: [f(&p["decalScale"][0]), f(&p["decalScale"][1])],
-                not_initially: p["notInitiallyCreated"].as_bool().unwrap_or(false),
-                handle: None,
-            }
-        })
-        .collect()
+    j["particles"].as_array().into_iter().flatten().map(|p| parse(p, classes)).collect()
 }
 
 impl World {
@@ -94,6 +98,12 @@ impl World {
         p.velocity = Vec3::ZERO;
         p.offset = Vec3::ZERO;
         p.owner = 0;
+        // (An object's rides its matrix, if the class takes one.)
+        if let Some((_, cell)) = &e.owner {
+            if self.armory.particles.class(class).has(p3::class::cflag::DYNAMIC_MATRIX) {
+                p.matrix = Some(cell.clone());
+            }
+        }
         let super::weapons::Armory { particles, .. } = &mut self.armory;
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         let h = particles.created(p, time, &mut host);
@@ -115,6 +125,40 @@ impl World {
         data.normal = self.quads.plane(self.quads.quads[hit.quad as usize].plane).0;
         let spec = Spec { class, orientation: Orientation::Normal, location: Location::Decal { is_static: true, random_rotation: false } };
         self.create_effect(&spec, &data)
+    }
+
+    /// A placed object's particles made (`OBrSetParticles`, `EPrArray_New`):
+    /// each tagged after the object (`name_tag`), riding `cell`, created
+    /// unless held back — for setup `setup`, unless they already are.
+    pub(super) fn object_particles_new(&mut self, setup: usize, cell: std::rc::Rc<std::cell::Cell<Mat4>>) {
+        if self.env_particles.iter().any(|e| e.owner.as_ref().is_some_and(|o| o.0 == setup)) {
+            return;
+        }
+        let s = &self.object_setups[setup];
+        let name = s.name.clone();
+        let made: Vec<EnvParticle> = s.particles.iter().map(|v| parse(v, &self.armory.particles.classes)).collect();
+        for mut e in made {
+            e.tag = if name.is_empty() { e.tag } else { format!("{name}_{}", e.tag) };
+            e.owner = Some((setup, cell.clone()));
+            let held = e.not_initially;
+            self.env_particles.push(e);
+            if !held {
+                self.env_new(self.env_particles.len() - 1);
+            }
+        }
+    }
+
+    /// A placed object's particles gone (`EPrArray_Delete`): hidden, killed.
+    pub(super) fn object_particles_delete(&mut self, setup: usize) {
+        let mine: Vec<usize> = (0..self.env_particles.len()).filter(|&k| self.env_particles[k].owner.as_ref().is_some_and(|o| o.0 == setup)).collect();
+        for &k in &mine {
+            self.env_kill(k);
+        }
+        let mut k = 0;
+        self.env_particles.retain(|_| {
+            k += 1;
+            !mine.contains(&(k - 1))
+        });
     }
 
     /// Kills environmental particle `k`'s particle, if it has one.
@@ -171,7 +215,9 @@ impl World {
     /// created.
     pub(super) fn env_particles_start(&mut self) {
         for k in 0..self.env_particles.len() {
-            if !self.env_particles[k].not_initially {
+            let e = &self.env_particles[k];
+            // (Objects make their own as they are made.)
+            if !e.not_initially && e.owner.is_none() && e.handle.is_none() {
                 self.env_new(k);
             }
         }

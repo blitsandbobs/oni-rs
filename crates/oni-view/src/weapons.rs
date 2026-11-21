@@ -750,13 +750,17 @@ impl Weapon {
     /// fading. Returns the surfaces it met hard enough for an impact
     /// (`WPiWeaponPhysics_PostCollision_Callback`: faster than 0.35 along a
     /// surface's normal; each surface each pass).
-    pub fn tick_free(&mut self, quads: &crate::quads::Quads) -> Vec<crate::objphys::Contact> {
+    pub fn tick_free(&mut self, quads: &crate::quads::Quads, others: &[crate::objphys::Obstacle]) -> Vec<crate::objphys::Contact> {
         let mut impacts = Vec::new();
         if let Some(mut b) = self.body.filter(|_| !self.resting) {
             let mut touched = false;
-            b.tick(quads, |body, met| {
+            b.tick(quads, others, |body, met| {
                 for c in met {
-                    if body.velocity.dot(c.normal).abs() > IMPACT_SPEED {
+                    // (A character met is no landing; another body, no impact.)
+                    if c.body == Some(true) {
+                        continue;
+                    }
+                    if c.body.is_none() && body.velocity.dot(c.normal).abs() > IMPACT_SPEED {
                         impacts.push(*c);
                     }
                     touched = true;
