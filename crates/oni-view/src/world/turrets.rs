@@ -30,11 +30,11 @@ struct Attachment {
     matrix: Mat4,
 }
 
-/// A turret class (`common/turrets.json`).
 /// Ticks out of view before a turret's idle effect stops
 /// (`OBJcTurret_NotVisibleTime`).
 const TURRET_NOT_VISIBLE: u32 = 120;
 
+/// A turret class (`common/turrets.json`).
 pub struct TurretClass {
     pub head: Option<PathBuf>,
     pub barrel: Option<PathBuf>,

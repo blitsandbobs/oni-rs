@@ -119,13 +119,13 @@ impl Quirks {
         self.faithful
     }
 
-    /// Q19: the options' Invert Mouse box is titled "Off" (ticked: inverted).
     /// Q18: Space's skip of a cutscene is commented out — cutscenes can't
     /// be skipped.
     pub fn cutscenes_unskippable(self) -> bool {
         self.faithful
     }
 
+    /// Q19: the options' Invert Mouse box is titled "Off" (ticked: inverted).
     pub fn invert_mouse_titled_off(self) -> bool {
         self.faithful
     }
