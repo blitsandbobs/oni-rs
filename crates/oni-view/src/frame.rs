@@ -36,7 +36,7 @@ impl WorldFrame {
         renderer.hidden_refs = world.env_hidden.clone();
         renderer.env_shades = world.env_shades.clone();
         renderer.door_shades = world.doors.shades.clone();
-        renderer.broken_glass = world.broken_glass.clone();
+        renderer.broken_glass = world.glass.broken.clone();
         renderer.jello = world.jello.clone();
         renderer.jello_doors = world.jello_doors.iter().copied().collect();
         renderer.anim_time = world.game_tick();

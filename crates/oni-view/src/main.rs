@@ -31,6 +31,7 @@ mod frame;
 mod game;
 mod gamma;
 mod geom;
+mod glass;
 mod gltf;
 mod hud;
 mod impacts;

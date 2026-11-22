@@ -1116,15 +1116,7 @@ impl World {
         }
         self.doors.mark_quads(&mut self.quads);
         // (Glass is breakable by its material, `AKiComputeBreakableFlags`.)
-        for k in 0..self.glass.len() {
-            let (quad, broken) = (self.glass[k].quad, self.glass[k].broken);
-            if let Some(q) = self.quads.quads.get_mut(quad as usize) {
-                q.flags |= crate::quads::flag::BREAKABLE;
-                if broken {
-                    q.flags |= crate::quads::flag::BROKEN_GLASS;
-                }
-            }
-        }
+        self.glass.mark_quads(&mut self.quads);
         // (Anyone placed before the level's quads were known.)
         for k in 0..self.fighters.len() {
             let quads = &self.quads;
@@ -3280,9 +3272,10 @@ impl World {
         self.powerups_tick();
         // The shots.
         let tick = self.now as u32;
-        let pane_quads: Vec<u32> = self.glass.iter().map(|p| p.quad).collect();
+        let pane_quads: Vec<u32> = self.glass.panes.iter().map(|p| p.quad).collect();
         let panes: Vec<(bool, Vec3, f32)> = self
             .glass
+            .panes
             .iter()
             .map(|p| (p.broken, p.centre, p.radius))
             .collect();
