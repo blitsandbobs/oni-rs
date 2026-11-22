@@ -7,7 +7,9 @@
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Value};
+use oni_schema::files;
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{le_f32, le_u32};
 
@@ -20,7 +22,7 @@ const TAG_ONSK: FourCc = FourCc(u32::from_be_bytes(*b"ONSK"));
 /// `planet_xsize[8]` @88, `planet_ysize[8]` @120, `planet_azimuth[8]` @152,
 /// `planet_bearing[8]` @184, `lensflare_scale` @216, `lensflare_alpha` @220,
 /// `star_count` @224, `star_seed` @228, `star_texture_count` @232.
-fn decode(dat: &Dat<'_>, d: &[u8]) -> Option<Value> {
+fn decode(dat: &Dat<'_>, d: &[u8]) -> Option<files::SkyFile> {
     let name = |r: u32| -> Option<String> {
         (r & 1 != 0)
             .then(|| dat.instances.get((r >> 8) as usize))
@@ -30,27 +32,30 @@ fn decode(dat: &Dat<'_>, d: &[u8]) -> Option<Value> {
     if d.len() < 236 {
         return None;
     }
-    let textures: Vec<Option<String>> = (0..5).map(|k| name(le_u32(d, k * 4))).collect();
-    let planets: Vec<Value> = (0..(le_u32(d, 80) as usize).min(8))
-        .filter_map(|k| {
-            Some(json!({
-                "texture": name(le_u32(d, 24 + k * 4))?,
-                "size": [le_f32(d, 88 + k * 4), le_f32(d, 120 + k * 4)],
-                "azimuth": le_f32(d, 152 + k * 4),
-                "bearing": le_f32(d, 184 + k * 4),
-            }))
-        })
-        .collect();
-    Some(json!({
-        "textures": textures,
-        "planets": planets,
-        "starCount": le_u32(d, 224),
-    }))
+    Some(files::SkyFile {
+        name: String::new(),
+        textures: (0..5).map(|k| name(le_u32(d, k * 4))).collect(),
+        planets: (0..(le_u32(d, 80) as usize).min(8))
+            .filter_map(|k| {
+                Some(files::Planet {
+                    texture: name(le_u32(d, 24 + k * 4))?,
+                    size: [le_f32(d, 88 + k * 4), le_f32(d, 120 + k * 4)],
+                    azimuth: le_f32(d, 152 + k * 4),
+                    bearing: le_f32(d, 184 + k * 4),
+                })
+            })
+            .collect(),
+        star_count: le_u32(d, 224),
+    })
 }
 
 /// The level's sky: its `ONLV`'s `sky_class`, found (with data) in the level
 /// or in level 0.
-pub fn sky(dat: &Dat<'_>, level0: &Dat<'_>, registry: &oni_template::Registry) -> Option<Value> {
+pub fn sky(
+    dat: &Dat<'_>,
+    level0: &Dat<'_>,
+    registry: &oni_template::Registry,
+) -> Option<files::SkyFile> {
     let onlv = dat.instances.iter().find(|i| i.tag == TAG_ONLV)?;
     let layout = registry.get(TAG_ONLV)?;
     let rec = oni_template::decode(layout, dat.instance_data(onlv)?, dat.header.endian).ok()?;
@@ -64,7 +69,7 @@ pub fn sky(dat: &Dat<'_>, level0: &Dat<'_>, registry: &oni_template::Registry) -
             .find_map(|i| d.instance_data(i).map(|data| (i, data)));
         if let Some((_, data)) = found {
             let mut v = decode(d, data)?;
-            v["name"] = json!(wanted);
+            v.name = wanted;
             return Some(v);
         }
     }
@@ -100,7 +105,7 @@ mod tests {
         };
         let (l0, l2) = (Dat::parse(&l0).unwrap(), Dat::parse(&l2).unwrap());
         let registry = oni_template::Registry::load();
-        let s = sky(&l2, &l0, &registry).expect("level 2 has a sky");
+        let s = serde_json::to_value(sky(&l2, &l0, &registry).expect("level 2 has a sky")).unwrap();
         assert_eq!(s["name"], "sunset");
         assert_eq!(
             s["textures"],

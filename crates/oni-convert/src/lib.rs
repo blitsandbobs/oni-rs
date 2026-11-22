@@ -593,9 +593,10 @@ pub fn convert_with(
         std::fs::create_dir_all(&dir)?;
         std::fs::write(
             dir.join("texture_flags.json"),
-            serde_json::to_string_pretty(
-                &serde_json::json!({ "additive": pick(0), "selfIlluminated": pick(1) }),
-            )?,
+            serde_json::to_string_pretty(&oni_schema::files::TextureFlagsFile {
+                additive: pick(0),
+                self_illuminated: pick(1),
+            })?,
         )?;
     }
 

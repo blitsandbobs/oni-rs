@@ -383,13 +383,9 @@ impl Hud {
                 )
             })
             .collect();
-        let flags: serde_json::Value = crate::json::load(common.join("texture_flags.json"));
-        let additive = flags["additive"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|n| n.as_str().map(str::to_string))
-            .collect();
+        let flags: oni_schema::files::TextureFlagsFile =
+            crate::json::read_file(common.join("texture_flags.json"));
+        let additive = flags.additive.into_iter().collect();
         let specs: serde_json::Value = crate::json::load(common.join("part_specs.json"));
         let border = PartSpec::from_json(
             &specs["partSpecs"]["cinematic_border"],

@@ -889,7 +889,9 @@ impl Renderer {
     /// without the file.
     pub fn attach_sky(&mut self, gpu: &Gpu, level_dir: &std::path::Path) {
         self.sky.clear();
-        let Some(doc) = crate::json::read(level_dir.join("sky.json")) else {
+        let Some(doc) = crate::json::read(level_dir.join("sky.json"))
+            .and_then(|v| serde_json::from_value::<oni_schema::files::SkyFile>(v).ok())
+        else {
             return;
         };
         const D: f32 = 5.0;
@@ -922,11 +924,8 @@ impl Renderer {
             ..Default::default()
         });
         let common = level_dir.join("../../common/textures");
-        for (face, name) in FACES
-            .iter()
-            .zip(doc["textures"].as_array().into_iter().flatten())
-        {
-            let Some(name) = name.as_str() else { continue };
+        for (face, name) in FACES.iter().zip(&doc.textures) {
+            let Some(name) = name else { continue };
             let path = [
                 level_dir.join("textures").join(format!("{name}.png")),
                 common.join(format!("{name}.png")),

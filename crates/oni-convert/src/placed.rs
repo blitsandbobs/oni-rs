@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Value};
+use oni_schema::files;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -28,7 +28,7 @@ fn local<'a>(dat: &'a Dat<'_>, r: u32) -> Option<&'a oni_dat::Instance> {
 /// @24), `animation` @4, `flags` @12, `doorScriptID` @20, `physicsLevel`
 /// @24, `scriptID` @28, `position` @32, `orientation` @44 (x, y, z, w),
 /// `scale` @60, `debugOrigMatrix` @64, `objName` @112.
-pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
+pub fn objects(dat: &Dat<'_>) -> Vec<files::PlacedObject> {
     let Some(d) = dat
         .instances
         .iter()
@@ -75,32 +75,44 @@ pub fn objects(dat: &Dat<'_>) -> Vec<Value> {
                 }
             }
         }
-        let mut obj = json!({
-            "index": k,
-            "name": cstr(d, o + 112, 64),
-            "scriptId": le_u32(d, o + 28),
-            "flags": oni_schema::bit_names(&oni_schema::OBJECT_FLAGS, le_u32(d, o + 12)),
-            "physicsLevel": oni_schema::PHYSICS_LEVELS.get(le_u32(d, o + 24) as usize).copied().unwrap_or("none"),
-            "position": position,
-            "orientation": [le_f32(d, o + 44), le_f32(d, o + 48), le_f32(d, o + 52), le_f32(d, o + 56)],
-            "scale": le_f32(d, o + 60),
-            "origin": (0..12).map(|i| le_f32(d, o + 64 + 4 * i)).collect::<Vec<_>>(),
-            "geometry": geometry,
-            "radius": { "shipped": shipped.max(1.0), "fixed": fixed.max(1.0) },
-        });
         // Its particles (`particleArray` @8, an `ENVP`): in its own space.
-        if let Some(p) = local(dat, le_u32(d, o + 8))
+        let particles = local(dat, le_u32(d, o + 8))
             .filter(|p| p.tag == TAG_ENVP)
             .and_then(|p| dat.instance_data(p))
-        {
-            let p = crate::particles::envp_entries(p, "object");
-            if !p.is_empty() {
-                obj["particles"] = json!(p);
-            }
-        }
-        if let Some(a) = local(dat, le_u32(d, o + 4)).filter(|a| a.tag == TAG_OBAN) {
-            obj["animation"] = json!(a.name.clone().unwrap_or_else(|| crate::asset_name(dat, a)));
-        }
+            .map(|p| crate::particles::envp_entries(p, "object"))
+            .unwrap_or_default();
+        let obj = files::PlacedObject {
+            index: k,
+            name: cstr(d, o + 112, 64),
+            script_id: le_u32(d, o + 28),
+            flags: oni_schema::bit_names(&oni_schema::OBJECT_FLAGS, le_u32(d, o + 12))
+                .into_iter()
+                .map(String::from)
+                .collect(),
+            physics_level: oni_schema::PHYSICS_LEVELS
+                .get(le_u32(d, o + 24) as usize)
+                .copied()
+                .unwrap_or("none")
+                .to_string(),
+            position,
+            orientation: [
+                le_f32(d, o + 44),
+                le_f32(d, o + 48),
+                le_f32(d, o + 52),
+                le_f32(d, o + 56),
+            ],
+            scale: le_f32(d, o + 60),
+            origin: std::array::from_fn(|i| le_f32(d, o + 64 + 4 * i)),
+            geometry,
+            radius: files::ObjectRadius {
+                shipped: shipped.max(1.0),
+                fixed: fixed.max(1.0),
+            },
+            particles,
+            animation: local(dat, le_u32(d, o + 4))
+                .filter(|a| a.tag == TAG_OBAN)
+                .map(|a| a.name.clone().unwrap_or_else(|| crate::asset_name(dat, a))),
+        };
         out.push(obj);
     }
     out
@@ -115,6 +127,6 @@ pub fn write(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("objects.json"),
-        serde_json::to_string_pretty(&json!({ "objects": o }))?,
+        serde_json::to_string_pretty(&files::ObjectsFile { objects: o })?,
     )
 }

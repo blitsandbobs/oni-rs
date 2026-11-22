@@ -6,7 +6,6 @@
 use std::path::{Path, PathBuf};
 
 use glam::Vec3;
-use serde_json::Value;
 
 /// One placed particle to draw as a camera-facing billboard.
 pub struct Particle {
@@ -24,32 +23,15 @@ pub struct Particle {
 /// Parses `particles.json` at `path`; texture URIs are resolved relative to the
 /// JSON file's directory. Returns an empty vec on any error (viewer is lenient).
 pub fn load(path: &Path) -> Vec<Particle> {
-    let Ok(text) = std::fs::read_to_string(path) else {
-        return Vec::new();
-    };
-    let Ok(doc) = serde_json::from_str::<Value>(&text) else {
-        return Vec::new();
-    };
+    let doc: oni_schema::files::ParticlesFile = crate::json::read_file(path);
     let base = path.parent().unwrap_or(Path::new("."));
-    let Some(arr) = doc["particles"].as_array() else {
-        return Vec::new();
-    };
-    arr.iter()
-        .filter_map(|p| {
-            let pos = &p["position"];
-            let position = Vec3::new(
-                pos["x"].as_f64()? as f32,
-                pos["y"].as_f64()? as f32,
-                pos["z"].as_f64()? as f32,
-            );
-            let size = p["size"].as_f64().unwrap_or(1.0) as f32;
-            let texture = p["texturePath"].as_str().map(|rel| normalize(base, rel));
-            Some(Particle {
-                position,
-                size,
-                texture,
-                additive: p["additive"].as_bool().unwrap_or(true),
-            })
+    doc.particles
+        .iter()
+        .map(|p| Particle {
+            position: Vec3::new(p.position.x, p.position.y, p.position.z),
+            size: p.size,
+            texture: p.texture_path.as_deref().map(|rel| normalize(base, rel)),
+            additive: p.additive,
         })
         .collect()
 }

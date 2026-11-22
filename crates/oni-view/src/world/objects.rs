@@ -52,7 +52,7 @@ pub struct Setup {
     pub animation: Option<String>,
     pub models: Vec<PathBuf>,
     /// Its attached particles (`particleArray`), as `objects.json` has them.
-    pub particles: Vec<serde_json::Value>,
+    pub particles: Vec<oni_schema::files::EnvParticle>,
     /// Its collision sphere's radius (as shipped: spec quirk 16, kept in
     /// both modes — the "largest coordinate" the code meant would wall off
     /// whole aisles round a truck).
@@ -95,52 +95,38 @@ pub struct Object {
 
 /// Loads a level's object setups (`objects.json`).
 pub fn load(level_dir: &Path) -> Vec<Setup> {
-    let doc: serde_json::Value = crate::json::load(level_dir.join("objects.json"));
+    let doc: oni_schema::files::ObjectsFile =
+        crate::json::read_file(level_dir.join("objects.json"));
     let common = level_dir.join("../../common");
-    let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
-    doc["objects"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    doc.objects
+        .iter()
         .map(|o| {
-            let flags = o["flags"]
-                .as_array()
-                .into_iter()
-                .flatten()
+            let flags = o
+                .flags
+                .iter()
                 .filter_map(|n| {
                     oni_schema::OBJECT_FLAGS
                         .iter()
-                        .position(|k| !k.is_empty() && Some(*k) == n.as_str())
+                        .position(|k| !k.is_empty() && k == n)
                 })
                 .fold(0, |acc, b| acc | (1 << b));
-            let q = &o["orientation"];
+            let [x, y, z, w] = o.orientation;
             Setup {
-                name: o["name"].as_str().unwrap_or("").to_string(),
-                script_id: o["scriptId"].as_u64().unwrap_or(0) as u32,
+                name: o.name.clone(),
+                script_id: o.script_id,
                 flags,
-                position: Vec3::new(
-                    f(&o["position"][0]),
-                    f(&o["position"][1]),
-                    f(&o["position"][2]),
-                ),
+                position: Vec3::from(o.position),
                 // (Oni's quaternion-to-matrix is the transpose of the usual.)
-                rotation: Quat::from_xyzw(f(&q[0]), f(&q[1]), f(&q[2]), f(&q[3]))
-                    .normalize()
-                    .conjugate(),
-                scale: f(&o["scale"]),
-                origin: crate::geom::mat4_json(&o["origin"]),
-                animation: o["animation"].as_str().map(str::to_string),
-                models: o["geometry"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|g| g.as_str())
-                    .map(|g| common.join(g))
-                    .collect(),
-                radius: f(&o["radius"]["shipped"]).max(1.0),
-                particles: o["particles"].as_array().cloned().unwrap_or_default(),
-                texture: o["geometry"][0]
-                    .as_str()
+                rotation: Quat::from_xyzw(x, y, z, w).normalize().conjugate(),
+                scale: o.scale,
+                origin: crate::geom::mat4_4x3(&o.origin),
+                animation: o.animation.clone(),
+                models: o.geometry.iter().map(|g| common.join(g)).collect(),
+                radius: o.radius.shipped.max(1.0),
+                particles: o.particles.clone(),
+                texture: o
+                    .geometry
+                    .first()
                     .and_then(|g| first_texture(&common.join(g))),
             }
         })

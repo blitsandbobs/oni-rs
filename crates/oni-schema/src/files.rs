@@ -747,6 +747,210 @@ pub struct AlarmSettings {
     pub attack_if_knocked_down: bool,
 }
 
+/// `levels/NN/env_particles.json`: the level's environmental particles.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct EnvParticlesFile {
+    pub particles: Vec<EnvParticle>,
+}
+
+/// An environmental particle (an `ENVP` array's or a particle object's):
+/// its class, its matrix (4×3, in its owner's space), its decal scale,
+/// where it came from (`env`, `object`), the tag scripts name it by.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EnvParticle {
+    pub class: String,
+    pub matrix: [f32; 12],
+    pub decal_scale: [f32; 2],
+    pub from: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    /// Held back at the start.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub not_initially_created: bool,
+}
+
+/// `levels/NN/particles.json`: the static viewer's sprites for the level's
+/// environmental particles.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ParticlesFile {
+    pub count: usize,
+    pub particles: Vec<StaticParticle>,
+}
+
+/// A static environmental particle sprite.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StaticParticle {
+    pub class: String,
+    pub texture: Option<String>,
+    /// Its texture's file, relative to the level's folder.
+    pub texture_path: Option<String>,
+    pub position: Xyz,
+    pub size: f32,
+    pub additive: bool,
+    pub self_illuminated: bool,
+}
+
+/// A point as an object.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Xyz {
+    pub x: f32,
+    pub y: f32,
+    pub z: f32,
+}
+
+/// `levels/NN/items.json`: the level's placed weapons and powerups.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ItemsFile {
+    pub weapons: Vec<PlacedWeapon>,
+    pub powerups: Vec<PlacedPowerup>,
+}
+
+/// A placed weapon: its class and where (yaw in degrees).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlacedWeapon {
+    pub id: u32,
+    pub class: String,
+    pub position: V3,
+    pub yaw: f32,
+}
+
+/// A placed powerup: its kind and where (yaw in degrees).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PlacedPowerup {
+    pub id: u32,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub position: V3,
+    pub yaw: f32,
+}
+
+/// `common/texture_flags.json`: the textures drawn additively and those
+/// lit by themselves (by file name).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureFlagsFile {
+    pub additive: Vec<String>,
+    pub self_illuminated: Vec<String>,
+}
+
+/// `levels/NN/sky.json`: the level's sky (`ONSK`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkyFile {
+    pub name: String,
+    /// The box's textures: top, left, right, front, back.
+    pub textures: Vec<Option<String>>,
+    pub planets: Vec<Planet>,
+    pub star_count: u32,
+}
+
+/// A sky's planet (the sun, moons).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Planet {
+    pub texture: String,
+    pub size: [f32; 2],
+    pub azimuth: f32,
+    pub bearing: f32,
+}
+
+/// `levels/NN/objects.json`: the level's placed objects (`OBOA`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ObjectsFile {
+    pub objects: Vec<PlacedObject>,
+}
+
+/// A placed object (`OBtObjectSetup`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedObject {
+    pub index: usize,
+    pub name: String,
+    pub script_id: u32,
+    /// `OBJECT_FLAGS` names.
+    pub flags: Vec<String>,
+    pub physics_level: String,
+    pub position: V3,
+    /// A quaternion.
+    pub orientation: [f32; 4],
+    pub scale: f32,
+    /// 4×3.
+    pub origin: [f32; 12],
+    /// Its models (paths under `common/`).
+    pub geometry: Vec<String>,
+    pub radius: ObjectRadius,
+    /// Its particles, in its own space.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub particles: Vec<EnvParticle>,
+    /// Its object animation's name.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<String>,
+}
+
+/// A placed object's collision sphere radius: as shipped, and fixed
+/// (`QUIRKS.md`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ObjectRadius {
+    pub shipped: f32,
+    pub fixed: f32,
+}
+
+/// `levels/NN/neutrals.json`: the level's neutral behaviours.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct NeutralsFile {
+    pub neutrals: Vec<Neutral>,
+}
+
+/// A neutral behaviour (`OBJtOSD_Neutral`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Neutral {
+    pub id: u16,
+    pub name: String,
+    pub flags: Vec<String>,
+    pub trigger_range: f32,
+    pub conversation_range: f32,
+    pub follow_range: f32,
+    pub abort_enemy_range: f32,
+    pub trigger_sound: String,
+    pub abort_sound: String,
+    pub enemy_sound: String,
+    pub end_script: String,
+    pub give: NeutralGive,
+    pub lines: Vec<NeutralLine>,
+}
+
+/// What a neutral gives the player.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeutralGive {
+    pub weapon: String,
+    pub ballistic_ammo: u8,
+    pub energy_ammo: u8,
+    pub hypos: u8,
+    pub flags: Vec<String>,
+}
+
+/// A neutral conversation's line.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NeutralLine {
+    pub flags: Vec<String>,
+    pub anim: Option<AnimRef>,
+    pub other_anim: Option<AnimRef>,
+    pub sound: String,
+}
+
+/// An animation type: by its `ANIM_TYPES` name, or its number when it has
+/// none.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum AnimRef {
+    Name(String),
+    Number(u16),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -269,20 +269,18 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
 
 /// Writes a level's placed weapons and powerups to `items.json`.
 pub fn write_items(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
-    let weapons: Vec<Value> = crate::objects::read(dat, raw, "Weapon")
+    let weapons: Vec<oni_schema::files::PlacedWeapon> = crate::objects::read(dat, raw, "Weapon")
         .1
         .iter()
-        .map(|o| {
-            json!({
-                "id": o.id,
-                "class": cstr(o.data, 0, 32),
-                "position": o.position,
-                // The editor keeps a placed weapon's yaw in the X rotation.
-                "yaw": o.rotation[0],
-            })
+        .map(|o| oni_schema::files::PlacedWeapon {
+            id: o.id,
+            class: cstr(o.data, 0, 32),
+            position: o.position,
+            // The editor keeps a placed weapon's yaw in the X rotation.
+            yaw: o.rotation[0],
         })
         .collect();
-    let powerups: Vec<Value> = crate::objects::read(dat, raw, "PowerUp")
+    let powerups: Vec<oni_schema::files::PlacedPowerup> = crate::objects::read(dat, raw, "PowerUp")
         .1
         .iter()
         .map(|o| {
@@ -291,7 +289,12 @@ pub fn write_items(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()
                 .iter()
                 .find(|(c, _)| c.as_slice() == code)
                 .map_or("ammoBallistic", |(_, n)| n);
-            json!({ "id": o.id, "type": kind, "position": o.position, "yaw": o.rotation[1] })
+            oni_schema::files::PlacedPowerup {
+                id: o.id,
+                kind: kind.to_string(),
+                position: o.position,
+                yaw: o.rotation[1],
+            }
         })
         .collect();
     if weapons.is_empty() && powerups.is_empty() {
@@ -299,7 +302,7 @@ pub fn write_items(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()
     }
     std::fs::write(
         root.join("items.json"),
-        serde_json::to_string_pretty(&json!({ "weapons": weapons, "powerups": powerups }))?,
+        serde_json::to_string_pretty(&oni_schema::files::ItemsFile { weapons, powerups })?,
     )
 }
 

@@ -1122,13 +1122,9 @@ impl World {
             let quads = &self.quads;
             self.fighters[k].snap_to_floor(quads);
         }
-        let flags: serde_json::Value = crate::json::load(common.join("texture_flags.json"));
-        self.additive_textures = flags["additive"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|t| t.as_str().map(str::to_string))
-            .collect();
+        let flags: oni_schema::files::TextureFlagsFile =
+            crate::json::read_file(common.join("texture_flags.json"));
+        self.additive_textures = flags.additive.into_iter().collect();
         self.texture_anims = crate::texanim::load(&common.join(".."));
         // The health colour ramp.
         let gs: serde_json::Value = crate::json::load(common.join("game_settings.json"));
@@ -1144,41 +1140,26 @@ impl World {
             })
             .collect();
         self.env_particles_started = false;
-        let Ok(text) = std::fs::read_to_string(self.level_dir.join("items.json")) else {
-            return;
-        };
-        let Ok(doc) = serde_json::from_str::<serde_json::Value>(&text) else {
-            return;
-        };
-        for w in doc["weapons"].as_array().into_iter().flatten() {
-            let Some(class) = w["class"].as_str().and_then(|n| self.armory.classes.get(n)) else {
+        let items: oni_schema::files::ItemsFile =
+            crate::json::read_file(self.level_dir.join("items.json"));
+        for w in &items.weapons {
+            let Some(class) = self.armory.classes.get(&w.class) else {
                 continue;
             };
-            let p = &w["position"];
-            let at = Vec3::new(
-                p[0].as_f64().unwrap_or(0.0) as f32,
-                p[1].as_f64().unwrap_or(0.0) as f32 + crate::weapons::PLACED_LIFT,
-                p[2].as_f64().unwrap_or(0.0) as f32,
-            );
-            let yaw = (w["yaw"].as_f64().unwrap_or(0.0) as f32).to_radians();
-            self.armory.weapons.push(Weapon::new(class, at, yaw, true));
-        }
-        for p in doc["powerups"].as_array().into_iter().flatten() {
-            let Some(kind) = POWERUP_DATA
-                .iter()
-                .position(|n| Some(*n) == p["type"].as_str())
-            else {
-                continue;
-            };
-            let v = &p["position"];
-            let at = Vec3::new(
-                v[0].as_f64().unwrap_or(0.0) as f32,
-                v[1].as_f64().unwrap_or(0.0) as f32,
-                v[2].as_f64().unwrap_or(0.0) as f32,
-            );
+            let at = Vec3::from(w.position) + Vec3::Y * crate::weapons::PLACED_LIFT;
             self.armory
-                .powerups
-                .push(Powerup::new(kind, POWERUP_DEFAULT[kind], at));
+                .weapons
+                .push(Weapon::new(class, at, w.yaw.to_radians(), true));
+        }
+        for p in &items.powerups {
+            let Some(kind) = POWERUP_DATA.iter().position(|n| *n == p.kind) else {
+                continue;
+            };
+            self.armory.powerups.push(Powerup::new(
+                kind,
+                POWERUP_DEFAULT[kind],
+                Vec3::from(p.position),
+            ));
         }
     }
 

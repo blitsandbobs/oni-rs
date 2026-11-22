@@ -32,6 +32,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
+use oni_schema::files;
 
 use crate::{cstr, le_f32, le_u16, le_u32, rel_path, sanitize};
 
@@ -171,24 +172,7 @@ fn decode_env_particles(dat: &Dat<'_>) -> Vec<Placed> {
 /// scales; placed by the object's position and XYZ rotation). Each: class,
 /// tag (what scripts' `particle` command names), matrix (12 floats, columns
 /// X Y Z then position), flags, decal scale.
-pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
-    const NOT_INITIALLY_CREATED: u16 = 0x2;
-    let entry = |class: String,
-                 tag: String,
-                 m: [f32; 12],
-                 flags: u16,
-                 decal: [f32; 2],
-                 from: &str| {
-        let mut e =
-            serde_json::json!({ "class": class, "matrix": m, "decalScale": decal, "from": from });
-        if !tag.is_empty() {
-            e["tag"] = serde_json::json!(tag);
-        }
-        if flags & NOT_INITIALLY_CREATED != 0 {
-            e["notInitiallyCreated"] = serde_json::json!(true);
-        }
-        e
-    };
+pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::EnvParticle> {
     let mut out = Vec::new();
     // (Not the arrays placed objects carry: theirs ride the object.)
     let owned = object_owned(dat);
@@ -222,7 +206,7 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
         } else {
             [1.0, 1.0]
         };
-        out.push(entry(
+        out.push(env_particle(
             cstr(d, 0, 64),
             cstr(d, 64, 48),
             m,
@@ -234,11 +218,31 @@ pub fn env_particles(dat: &Dat<'_>, raw: &[u8]) -> Vec<serde_json::Value> {
     out
 }
 
+/// An environmental particle (`decal`: its x / y scale; `flags` 0x2: not
+/// created at the start).
+fn env_particle(
+    class: String,
+    tag: String,
+    matrix: [f32; 12],
+    flags: u16,
+    decal: [f32; 2],
+    from: &str,
+) -> files::EnvParticle {
+    const NOT_INITIALLY_CREATED: u16 = 0x2;
+    files::EnvParticle {
+        class,
+        matrix,
+        decal_scale: decal,
+        from: from.to_string(),
+        tag: Some(tag).filter(|t| !t.is_empty()),
+        not_initially_created: flags & NOT_INITIALLY_CREATED != 0,
+    }
+}
+
 /// An `ENVP` array's particles: each its class, tag, matrix (12 floats,
 /// columns X Y Z then position — in the owner's space: the world's, or a
 /// placed object's), decal scale and whether held back at the start.
-pub fn envp_entries(d: &[u8], from: &str) -> Vec<serde_json::Value> {
-    const NOT_INITIALLY_CREATED: u16 = 0x2;
+pub fn envp_entries(d: &[u8], from: &str) -> Vec<files::EnvParticle> {
     let mut out = Vec::new();
     for k in 0..le_u16(d, 22) as usize {
         let o = ENVP_ARRAY_START + k * ENVP_PARTICLE_STRIDE;
@@ -249,16 +253,14 @@ pub fn envp_entries(d: &[u8], from: &str) -> Vec<serde_json::Value> {
         if class.is_empty() {
             continue;
         }
-        let m: [f32; 12] = std::array::from_fn(|i| le_f32(d, o + ENVP_MATRIX_OFF + i * 4));
-        let mut e = serde_json::json!({ "class": class, "matrix": m, "decalScale": [le_f32(d, o + 160), le_f32(d, o + 164)], "from": from });
-        let tag = cstr(d, o + 64, 48);
-        if !tag.is_empty() {
-            e["tag"] = serde_json::json!(tag);
-        }
-        if le_u16(d, o + 168) & NOT_INITIALLY_CREATED != 0 {
-            e["notInitiallyCreated"] = serde_json::json!(true);
-        }
-        out.push(e);
+        out.push(env_particle(
+            class,
+            cstr(d, o + 64, 48),
+            std::array::from_fn(|i| le_f32(d, o + ENVP_MATRIX_OFF + i * 4)),
+            le_u16(d, o + 168),
+            [le_f32(d, o + 160), le_f32(d, o + 164)],
+            from,
+        ));
     }
     out
 }
@@ -286,15 +288,16 @@ pub fn object_owned(dat: &Dat<'_>) -> std::collections::HashSet<usize> {
 
 /// Writes `<root>/env_particles.json` (see `env_particles`), if any.
 pub fn write_env_particles(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
-    let p = env_particles(dat, raw);
-    if !p.is_empty() {
+    let particles = env_particles(dat, raw);
+    let n = particles.len();
+    if n > 0 {
         std::fs::create_dir_all(root)?;
         std::fs::write(
             root.join("env_particles.json"),
-            serde_json::to_string_pretty(&serde_json::json!({ "particles": p }))?,
+            serde_json::to_string_pretty(&files::EnvParticlesFile { particles })?,
         )?;
     }
-    Ok(p.len())
+    Ok(n)
 }
 
 /// Writes `<root>/particles.json` — every placed environment particle with its
@@ -331,26 +334,31 @@ pub fn convert_particles(
         let texture_path = texture
             .as_deref()
             .map(|t| rel_path(this_root, &format!("common/textures/{}.png", sanitize(t))));
-        items.push(serde_json::json!({
-            "class": p.class,
-            "texture": texture.as_deref().map(sanitize),
-            "texturePath": texture_path,
-            "position": { "x": p.position[0], "y": p.position[1], "z": p.position[2] },
-            "size": size,
-            "additive": additive,
-            "selfIlluminated": self_illum,
-        }));
+        items.push(files::StaticParticle {
+            class: p.class.clone(),
+            texture: texture.as_deref().map(sanitize),
+            texture_path,
+            position: files::Xyz {
+                x: p.position[0],
+                y: p.position[1],
+                z: p.position[2],
+            },
+            size,
+            additive,
+            self_illuminated: self_illum,
+        });
     }
 
+    let count = items.len();
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("particles.json"),
-        serde_json::to_string(&serde_json::json!({
-            "count": items.len(),
-            "particles": items,
-        }))?,
+        serde_json::to_string(&files::ParticlesFile {
+            count,
+            particles: items,
+        })?,
     )?;
-    Ok(items.len())
+    Ok(count)
 }
 
 #[cfg(test)]

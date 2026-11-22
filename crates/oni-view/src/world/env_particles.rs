@@ -8,7 +8,6 @@
 use std::path::Path;
 
 use glam::{Mat3, Mat4, Vec3};
-use serde_json::Value;
 
 use super::weapons::ShotHost;
 use super::World;
@@ -54,25 +53,13 @@ pub(crate) struct EnvParticle {
 
 /// One particle of an `ENVP` array as `objects.json` / `env_particles.json`
 /// write it: class, tag, matrix, decal scale, held back at the start.
-pub(crate) fn parse(p: &Value, classes: &p3::Classes) -> EnvParticle {
-    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
-    let m: Vec<f32> = p["matrix"]
-        .as_array()
-        .map(|a| a.iter().map(f).collect())
-        .unwrap_or_default();
-    let c = |k: usize| {
-        Vec3::new(
-            m.get(k * 3).copied().unwrap_or(0.0),
-            m.get(k * 3 + 1).copied().unwrap_or(0.0),
-            m.get(k * 3 + 2).copied().unwrap_or(0.0),
-        )
-    };
+pub(crate) fn parse(p: &oni_schema::files::EnvParticle, classes: &p3::Classes) -> EnvParticle {
     EnvParticle {
-        class: p["class"].as_str().and_then(|n| classes.get(n)),
-        tag: p["tag"].as_str().unwrap_or("").to_string(),
-        matrix: Mat4::from_mat3_translation(Mat3::from_cols(c(0), c(1), c(2)), c(3)),
-        decal_scale: [f(&p["decalScale"][0]), f(&p["decalScale"][1])],
-        not_initially: p["notInitiallyCreated"].as_bool().unwrap_or(false),
+        class: classes.get(&p.class),
+        tag: p.tag.clone().unwrap_or_default(),
+        matrix: crate::geom::mat4_4x3(&p.matrix),
+        decal_scale: p.decal_scale,
+        not_initially: p.not_initially_created,
         handle: None,
         owner: None,
     }
@@ -81,15 +68,9 @@ pub(crate) fn parse(p: &Value, classes: &p3::Classes) -> EnvParticle {
 /// Loads a level's environmental particles (classes resolved against the
 /// particle system's).
 pub(crate) fn load(level_dir: &Path, classes: &p3::Classes) -> Vec<EnvParticle> {
-    let Some(j) = crate::json::read(level_dir.join("env_particles.json")) else {
-        return Vec::new();
-    };
-    j["particles"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|p| parse(p, classes))
-        .collect()
+    let file: oni_schema::files::EnvParticlesFile =
+        crate::json::read_file(level_dir.join("env_particles.json"));
+    file.particles.iter().map(|p| parse(p, classes)).collect()
 }
 
 impl World {

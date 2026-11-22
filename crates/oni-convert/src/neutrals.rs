@@ -8,7 +8,9 @@
 use std::path::Path;
 
 use oni_dat::Dat;
-use serde_json::{json, Value};
+use oni_schema::files;
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -28,24 +30,28 @@ const GIVE_FLAGS: [&str; 3] = ["shield", "invisibility", "lsi"];
 /// A line's flags (`AI2cNeutralLineFlag_*`).
 const LINE_FLAGS: [&str; 4] = ["playerLine", "giveItem", "animOnce", "otherAnimOnce"];
 
-fn flag_names(bits: u32, names: &[&'static str]) -> Vec<&'static str> {
+fn flag_names(bits: u32, names: &[&'static str]) -> Vec<String> {
     names
         .iter()
         .enumerate()
         .filter(|(k, _)| bits & (1 << k) != 0)
-        .map(|(_, n)| *n)
+        .map(|(_, n)| n.to_string())
         .collect()
 }
 
-fn anim(t: u16) -> Value {
+fn anim(t: u16) -> Option<files::AnimRef> {
     match t {
-        0 => Value::Null,
-        t => oni_schema::name(&oni_schema::ANIM_TYPES, t).map_or(json!(t), |n| json!(n)),
+        0 => None,
+        t => Some(
+            oni_schema::name(&oni_schema::ANIM_TYPES, t).map_or(files::AnimRef::Number(t), |n| {
+                files::AnimRef::Name(n.to_string())
+            }),
+        ),
     }
 }
 
 /// One behaviour from its object data (`version`: the object file's).
-fn behavior(d: &[u8], version: u32) -> Option<Value> {
+fn behavior(d: &[u8], version: u32) -> Option<files::Neutral> {
     let mut at = 0usize;
     let string = |at: &mut usize| -> Option<String> {
         d.get(*at..*at + NAME)?;
@@ -88,38 +94,38 @@ fn behavior(d: &[u8], version: u32) -> Option<Value> {
             0
         };
         let sound = string(&mut at)?;
-        lines.push(json!({
-            "flags": flag_names(u32::from(line_flags), &LINE_FLAGS),
-            "anim": anim(anim_type),
-            "otherAnim": anim(other),
-            "sound": sound,
-        }));
+        lines.push(files::NeutralLine {
+            flags: flag_names(u32::from(line_flags), &LINE_FLAGS),
+            anim: anim(anim_type),
+            other_anim: anim(other),
+            sound,
+        });
     }
-    Some(json!({
-        "id": id,
-        "name": name,
-        "flags": flag_names(flags, &BEHAVIOR_FLAGS),
-        "triggerRange": ranges[0],
-        "conversationRange": ranges[1],
-        "followRange": ranges[2],
-        "abortEnemyRange": ranges[3],
-        "triggerSound": trigger,
-        "abortSound": abort,
-        "enemySound": enemy,
-        "endScript": end_script,
-        "give": {
-            "weapon": give_weapon,
-            "ballisticAmmo": give[0],
-            "energyAmmo": give[1],
-            "hypos": give[2],
-            "flags": flag_names(u32::from(give[3]), &GIVE_FLAGS),
+    Some(files::Neutral {
+        id,
+        name,
+        flags: flag_names(flags, &BEHAVIOR_FLAGS),
+        trigger_range: ranges[0],
+        conversation_range: ranges[1],
+        follow_range: ranges[2],
+        abort_enemy_range: ranges[3],
+        trigger_sound: trigger,
+        abort_sound: abort,
+        enemy_sound: enemy,
+        end_script,
+        give: files::NeutralGive {
+            weapon: give_weapon,
+            ballistic_ammo: give[0],
+            energy_ammo: give[1],
+            hypos: give[2],
+            flags: flag_names(u32::from(give[3]), &GIVE_FLAGS),
         },
-        "lines": lines,
-    }))
+        lines,
+    })
 }
 
 /// The level's neutral behaviours.
-pub fn neutrals(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn neutrals(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Neutral> {
     let (version, objects) = crate::objects::read(dat, raw, "Neutral");
     objects
         .iter()
@@ -135,7 +141,7 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("neutrals.json"),
-        serde_json::to_string_pretty(&json!({ "neutrals": n }))?,
+        serde_json::to_string_pretty(&files::NeutralsFile { neutrals: n })?,
     )
 }
 
@@ -168,7 +174,7 @@ mod tests {
         d.extend_from_slice(&0u16.to_le_bytes());
         d.extend_from_slice(&0u16.to_le_bytes());
         d.extend(name("line1"));
-        let b = behavior(&d, 25).unwrap();
+        let b = serde_json::to_value(behavior(&d, 25).unwrap()).unwrap();
         assert_eq!(b["id"], 7);
         assert_eq!(b["flags"], json!(["noResume", "uninterruptable"]));
         assert_eq!(b["conversationRange"], 30.0);
