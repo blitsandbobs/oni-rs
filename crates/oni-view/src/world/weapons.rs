@@ -1750,7 +1750,7 @@ impl World {
         use std::f32::consts::{PI, TAU};
         const SHOULDER: f32 = 15.0;
         const MAX_OFF: f32 = 130.0 * PI / 180.0;
-        let wrap = |a: f32| crate::angle::wrap_pi(a);
+        use crate::angle::wrap_pi as wrap;
         let mut out = vec![0u32; self.fighters.len()];
         let mut varients = Vec::new();
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -3123,7 +3123,6 @@ impl World {
     /// reach of the aim — none when two qualify. It steers the gun only;
     /// the player's own aim stays where it is.
     fn auto_aim(&self, who: usize, w: usize) -> (f32, f32) {
-        use std::f32::consts::PI;
         let f = &self.fighters[who];
         let gun = &self.armory.weapons[w];
         let Some(shooter) = gun
@@ -3143,7 +3142,7 @@ impl World {
         let (aim_yaw, aim_pitch) = (f.facing.aim() + f.aiming_lr, f.aiming_ud);
         let me = f.team();
         let pelvis = f.feet() + Vec3::Y * f.motion.height();
-        let wrap = |a: f32| (a + PI).rem_euclid(2.0 * PI) - PI;
+        use crate::angle::wrap_pi as wrap;
         let mut found: Option<(f32, f32)> = None;
         for (i, t) in self.fighters.iter().enumerate() {
             if i == who
@@ -3221,7 +3220,7 @@ impl World {
             let exact = aim.and_then(|a| f.gun_screen().map(|s| (a, s)));
             let m = match exact {
                 Some(((yaw, pitch), s)) => {
-                    let wrap = |a: f32| crate::angle::wrap_pi(a);
+                    use crate::angle::wrap_pi as wrap;
                     let rel = wrap(yaw - f.facing.facing).clamp(
                         -s.yaw.0[0] * f32::from(s.yaw.1[0]),
                         s.yaw.0[1] * f32::from(s.yaw.1[1]),

@@ -3269,7 +3269,7 @@ impl World {
         use crate::anim::types::{strike, ty};
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-        let wrap = |x: f32| crate::angle::wrap_pi(x);
+        use crate::angle::wrap_pi as wrap;
         // A blow shows them both for a moment, if invisible
         // (`ONiCharacter_BecomeTemporarilyVisible`).
         self.reveal(a, b);

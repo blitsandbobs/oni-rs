@@ -1879,7 +1879,7 @@ impl Fighter {
             return None;
         }
         let s = self.screen(dont_aim);
-        let wrap = |a: f32| crate::angle::wrap_pi(a);
+        use crate::angle::wrap_pi as wrap;
         // (With the auto-aim's turn, as the gun has it: the original's aiming
         // screen adds `autoAimAdjustmentLR` / `UD` too.)
         let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing)
