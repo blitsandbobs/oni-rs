@@ -1,5 +1,5 @@
 """Lists the engine commands the levels' translated scripts use that the port
-doesn't implement (no match arm in `crates/oni/src/mission/commands.rs`),
+doesn't implement (no match arm in `crates/oni/src/mission/commands/`),
 with how often and on which levels. Run from oni-rs:
 
     python3 scripting/script_commands.py
@@ -12,7 +12,7 @@ import collections
 import glob
 import re
 
-src = open("crates/oni/src/mission/commands.rs").read()
+src = "".join(open(p).read() for p in glob.glob("crates/oni/src/mission/commands/*.rs"))
 arms = re.finditer(r'^\s*((?:"[a-z0-9_]+"\s*\|\s*)*"[a-z0-9_]+")\s*(?:if [^=]*)?=>', src, re.M)
 implemented = {n for m in arms for n in re.findall(r'"([a-z0-9_]+)"', m.group(1))}
 

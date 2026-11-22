@@ -28,7 +28,7 @@ stays the reference for *how* anything works; this page is the map of
   `mission::game_tick`, so a scenario runs what the game runs.
 - **Level scripts** — `mission/`: the original BSL scripts, translated to
   Lua by the converter, run as coroutines against the engine commands in
-  `mission/commands.rs` (`docs/lua.md`).
+  `mission/commands/` (`docs/lua.md`).
 - **Fidelity switch** — `quirks.rs`: the original's bugs, fixed by default
   and kept under `--faithful` (`docs/deviations.md`).
 
