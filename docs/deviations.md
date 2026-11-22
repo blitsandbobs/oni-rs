@@ -223,9 +223,6 @@ our own additions. Not affected by `--faithful`.
   on entering it), without the reuse cache or octree room lookup: so every
   room's obstructions on the way are read as they stand when the path is
   planned. Doors a character may not open also shut their portals to it.
-  An AI standing inside an obstruction isn't moved out of it, and a body met
-  while moving isn't passed through (`AI2rTryToPathfindThrough` at
-  collision time).
 - A melee AI lying down that has picked a technique whose positioning
   starts with getting up doesn't first wait to face its target
   (`AI2cMeleeStandingTurnAngle`: "turn on the spot"): a body on the ground

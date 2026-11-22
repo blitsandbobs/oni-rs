@@ -60,11 +60,24 @@ pub fn local_view<'a>(
     asker: usize,
     through: Vec<usize>,
 ) -> impl Fn(usize, (i32, i32)) -> bool + 'a {
+    view_in(obstructions, nav, now, snap, asker, through, Mode::Casual)
+}
+
+/// [`local_view`] in path mode `mode`.
+fn view_in<'a>(
+    obstructions: &'a Obstructions,
+    nav: &'a Navigation,
+    now: u64,
+    snap: &'a Snapshot,
+    asker: usize,
+    through: Vec<usize>,
+    mode: Mode,
+) -> impl Fn(usize, (i32, i32)) -> bool + 'a {
     move |r, c| {
         obstructions
             .room(nav, r, now, &snap.sources)
             .and_then(|s| s.at(c))
-            .is_some_and(|o| snap.blocks(asker, Mode::Casual, &|j| through.contains(&j), o))
+            .is_some_and(|o| snap.blocks(asker, mode, &|j| through.contains(&j), o))
     }
 }
 
@@ -213,6 +226,89 @@ impl World {
             through,
         );
         Some(nav.probe(from, dir, dist, crate::nav::Square::Border3, Some(&view)))
+    }
+
+    /// An AI just come into play standing inside an obstruction steps out
+    /// of it (`AI2iMovementState_FindClearPoint`): unless it is a body more
+    /// than 6 from where it really stands, or a door it may not open (it
+    /// mustn't come out on the wrong side), it moves to the first clear
+    /// point 15 away — straight ahead, then 30° at a time either side, six
+    /// tries a side. Returns whether it moved.
+    pub(super) fn step_out_of_obstruction(&mut self, id: usize) -> bool {
+        const DISTANCE: f32 = 15.0; // AI2cMovementState_ObstructionCheckDistance
+        const ATTEMPTS: u32 = 6; // AI2cMovementState_ObstructionCheckAttempts
+        const BODY_CLEAR: f32 = 6.0;
+        let Some(nav) = self.nav.clone() else {
+            return false;
+        };
+        let feet = self.fighters[id].feet();
+        let Some(room) = nav.room_at(feet) else {
+            return false;
+        };
+        let Some(g) = nav.rooms[room].grid.as_ref() else {
+            return false;
+        };
+        let cell = (
+            (((feet.x - g.origin.x) / crate::nav::grid::SQUARE).floor() as i32)
+                .clamp(0, g.width - 1),
+            (((feet.z - g.origin.y) / crate::nav::grid::SQUARE).floor() as i32)
+                .clamp(0, g.height - 1),
+        );
+        let snap = self.snapshot();
+        let now = self.now as u64;
+        let Some(o) = self
+            .obstructions
+            .room(&nav, room, now, &snap.sources)
+            .and_then(|s| s.at(cell))
+        else {
+            return false;
+        };
+        if !snap.blocks(id, Mode::ClearSpace, &|_| false, o) {
+            return false;
+        }
+        match o {
+            Obstruction::Character(j) => {
+                let other = self.fighters[j].feet();
+                if (other - feet).with_y(0.0).length() > BODY_CLEAR {
+                    return false;
+                }
+            }
+            Obstruction::Door(d) if !self.doors.list[d].may_open_either_side() => return false,
+            _ => {}
+        }
+        let view = view_in(
+            &self.obstructions,
+            &nav,
+            now,
+            &snap,
+            id,
+            Vec::new(),
+            Mode::ClearSpace,
+        );
+        let facing = self.fighters[id].facing.facing;
+        let step = std::f32::consts::PI / ATTEMPTS as f32;
+        let from = feet + glam::Vec3::Y * 2.0;
+        let found = std::iter::once(0.0)
+            .chain((1..=ATTEMPTS).flat_map(|k| [k as f32 * step, -(k as f32) * step]))
+            .map(|off| facing + off)
+            .find(|&a| {
+                let dir = glam::Vec2::new(a.sin(), a.cos());
+                nav.probe_escaping(
+                    from,
+                    dir,
+                    DISTANCE,
+                    crate::nav::Square::Danger,
+                    Some(&view),
+                    5,
+                )
+                .stopped
+                .is_none()
+            });
+        drop(view);
+        let Some(a) = found else { return false };
+        let to = feet + glam::Vec3::new(a.sin(), 0.0, a.cos()) * DISTANCE;
+        self.teleport(id, to, None);
+        true
     }
 
     /// Plans a path for every navigator that needs one, round what blocks

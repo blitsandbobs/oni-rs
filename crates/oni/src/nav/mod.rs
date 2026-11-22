@@ -318,8 +318,21 @@ impl Navigation {
         stop: Square,
         obstructed: Option<Obstructed>,
     ) -> LocalProbe {
+        self.probe_escaping(from, dir, dist, stop, obstructed, 3)
+    }
+
+    /// [`Self::probe`], leaving a bad area for up to `escape` squares.
+    pub fn probe_escaping(
+        &self,
+        from: Vec3,
+        dir: Vec2,
+        dist: f32,
+        stop: Square,
+        obstructed: Option<Obstructed>,
+        escape: u32,
+    ) -> LocalProbe {
         const STEP: f32 = grid::SQUARE * 0.5;
-        const ESCAPE: f32 = 3.0 * grid::SQUARE;
+        let escape_dist = escape as f32 * grid::SQUARE;
         let mut room = self.room_at(from);
         let mut worst = Square::Clear;
         let mut escaped = false;
@@ -354,7 +367,7 @@ impl Navigation {
             let into_wall = was_held && !held && sq == Square::Impassable;
             was_held = held;
             if sq >= stop {
-                if was_good || t > ESCAPE || into_wall {
+                if was_good || t > escape_dist || into_wall {
                     return LocalProbe {
                         free: last_good,
                         stopped: Some(sq),

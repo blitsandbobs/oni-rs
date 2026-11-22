@@ -363,12 +363,22 @@ impl World {
             ));
         }
         self.fighters.push(f);
-        // Its room's obstructions are made again before next used
-        // (`ONrGameState_NewActiveCharacter` → `PHrFlushDynamicGrid`).
-        if let Some(room) = self.nav.as_ref().and_then(|n| n.room_at(pos)) {
+        let id = self.fighters.len() - 1;
+        // An AI's movement starts up: out of any obstruction it stands in
+        // (`AI2rMovementState_Initialize`); then its room's obstructions are
+        // made again before next used (`ONrGameState_NewActiveCharacter` →
+        // `PHrFlushDynamicGrid`).
+        if !player {
+            self.step_out_of_obstruction(id);
+        }
+        if let Some(room) = self
+            .nav
+            .as_ref()
+            .and_then(|n| n.room_at(self.fighters[id].feet()))
+        {
             self.obstructions.flush(room);
         }
-        self.fighters.len() - 1
+        id
     }
 
     /// Makes fighter `id` fight fighter `target` with its class's melee AI.
@@ -2753,16 +2763,23 @@ impl World {
                             *m -= away * into;
                         }
                     }
-                    // (Counted, and the AI's movement told — not of its
-                    // combat target, `AI2rTryToPathfindThrough`; the plane
-                    // halfway in, through its pelvis less half the way.)
+                    // (Counted, and the AI's movement told — not of one it
+                    // may pass, `AI2rTryToPathfindThrough`: its combat
+                    // target, whom it goes to or follows, the player while
+                    // it talks to her; the plane halfway in, through its
+                    // pelvis less half the way.)
+                    let through = self.paths_through(me).contains(&other);
                     let f = &mut self.fighters[me];
                     f.collisions.2 += 1;
-                    let ai = match &f.brain {
-                        Some(crate::ai::Brain::Agent(a)) => a.opponent() != Some(other),
-                        Some(crate::ai::Brain::GoTo(_) | crate::ai::Brain::Route(_)) => true,
-                        _ => false,
-                    };
+                    let ai = !through
+                        && matches!(
+                            &f.brain,
+                            Some(
+                                crate::ai::Brain::Agent(_)
+                                    | crate::ai::Brain::GoTo(_)
+                                    | crate::ai::Brain::Route(_)
+                            )
+                        );
                     if ai {
                         let point = f.sight_points()[0] - away * 0.5;
                         let feet = f.feet();

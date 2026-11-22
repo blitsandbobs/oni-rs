@@ -49,6 +49,15 @@ assert(free < 14 and stopped == "impassable", "her body stops a's probe")
 free = nav_probe(a, 90, 15)
 assert(free >= 15, "the other way is clear")
 
+-- Come into play inside another body, an AI steps out of it, 15 away
+-- (`AI2iMovementState_FindClearPoint`).
+local c = spawn(bx + 1, by + 5, bz, 0)
+local cx2, _, cz2 = pos_of(c)
+local moved = math.sqrt((cx2 - bx) ^ 2 + (cz2 - bz) ^ 2)
+print(string.format("spawned on b: now %.1f from it", moved))
+assert(moved > 12, "it stepped out of b's body")
+teleport(c, px + 200, py + 5, pz + 200) -- (out of the way)
+
 -- An AI attacking the player may path through her (its combat target);
 -- another body still blocks it.
 local t = place("Bay2_Thug_1")
