@@ -9,7 +9,6 @@ use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
 use oni_schema::files;
-use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -111,7 +110,7 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> BTreeMap<Str
 /// The laser classes' sounds (`TRIG`): the ambient while active
 /// (`active_soundname[32]` @36) and the impulse when tripped
 /// (`trigger_soundname[32]` @68).
-pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
+pub fn class_sounds(dat: &Dat<'_>) -> BTreeMap<String, files::LaserClassSounds> {
     dat.instances
         .iter()
         .filter(|i| i.tag == TAG_TRIG)
@@ -124,7 +123,10 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
                         .unwrap_or("")
                         .trim_start_matches("TRIG")
                         .to_string(),
-                    json!({ "active": cstr(d, 36, 32), "trigger": cstr(d, 68, 32) }),
+                    files::LaserClassSounds {
+                        active: cstr(d, 36, 32),
+                        trigger: cstr(d, 68, 32),
+                    },
                 )
             })
         })

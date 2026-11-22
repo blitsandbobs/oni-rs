@@ -47,23 +47,6 @@ impl From<&oni_schema::files::Event> for Event {
     }
 }
 
-pub fn event(e: &serde_json::Value) -> Event {
-    let id = e["id"].as_u64().unwrap_or(0) as u16;
-    match e["type"].as_str().unwrap_or("") {
-        "script" => Event::Script(e["script"].as_str().unwrap_or("").to_string()),
-        "activateConsole" => Event::ActivateConsole(id),
-        "deactivateConsole" => Event::DeactivateConsole(id),
-        "activateAlarm" => Event::ActivateAlarm(id),
-        "lockDoor" => Event::LockDoor(id),
-        "unlockDoor" => Event::UnlockDoor(id),
-        "activateTrigger" => Event::ActivateLaser(id),
-        "deactivateTrigger" => Event::DeactivateLaser(id),
-        "activateTurret" => Event::ActivateTurret(id),
-        "deactivateTurret" => Event::DeactivateTurret(id),
-        other => Event::Other(other.to_string(), id),
-    }
-}
-
 #[derive(Clone, Debug)]
 pub struct Console {
     pub id: u16,
@@ -101,45 +84,36 @@ const WALK_IN_DONE: f32 = 2.0;
 const WALK_IN_TICKS: u64 = 180;
 
 pub fn load(level_dir: &Path) -> Vec<Console> {
-    let doc: serde_json::Value = crate::json::load(level_dir.join("consoles.json"));
-    use crate::json::vec3 as v3;
-    doc["consoles"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let doc: oni_schema::files::ConsolesFile =
+        crate::json::read_file(level_dir.join("consoles.json"));
+    doc.consoles
+        .iter()
         .map(|c| {
-            let has = |f: &str| {
-                c["flags"]
-                    .as_array()
-                    .is_some_and(|a| a.iter().any(|x| x == f))
-            };
-            let events = c["events"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(event)
-                .collect();
+            let has = |f: &str| c.flags.iter().any(|x| x == f);
             let initial_active = has("initialActive");
             Console {
-                id: c["id"].as_u64().unwrap_or(0) as u16,
-                class: c["class"].as_str().unwrap_or("").to_string(),
-                position: v3(&c["position"]),
-                marker: v3(&c["marker"]["position"]),
-                facing: c["marker"]["facing"].as_f64().unwrap_or(0.0) as f32,
-                events,
+                id: c.id,
+                class: c.class.clone(),
+                position: Vec3::from(c.position),
+                marker: Vec3::from(c.marker.position),
+                facing: c.marker.facing,
+                events: c.events.iter().map(Into::into).collect(),
                 initial_active,
                 punch: has("punch"),
                 is_alarm: has("isAlarm"),
                 active: initial_active,
                 triggered: false,
                 rotation: glam::Mat3::from_cols(
-                    v3(&c["axes"][0]),
-                    v3(&c["axes"][1]),
-                    v3(&c["axes"][2]),
+                    Vec3::from(c.axes[0]),
+                    Vec3::from(c.axes[1]),
+                    Vec3::from(c.axes[2]),
                 ),
-                screen_model: c["screenModel"].as_str().map(str::to_string),
-                screens: ["inactive", "active", "triggered"]
-                    .map(|k| c["screens"][k].as_str().unwrap_or("").to_string()),
+                screen_model: c.screen_model.clone(),
+                screens: [
+                    c.screens.inactive.clone(),
+                    c.screens.active.clone(),
+                    c.screens.triggered.clone(),
+                ],
             }
         })
         .collect()

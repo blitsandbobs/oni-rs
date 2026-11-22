@@ -6,8 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use oni_schema::files::Event;
-use serde_json::{json, Value};
+use oni_schema::files::{self, Event};
 
 use crate::{cstr, le_u16};
 
@@ -113,7 +112,11 @@ pub fn events(d: &[u8], at: usize) -> (Vec<Event>, usize) {
 }
 
 /// A level's consoles.
-pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> Vec<Value> {
+pub fn consoles(
+    dat: &Dat<'_>,
+    raw: &[u8],
+    classes: &HashMap<String, Class>,
+) -> Vec<files::Console> {
     let (_, objects) = crate::objects::read(dat, raw, "Console");
     objects
         .iter()
@@ -145,26 +148,28 @@ pub fn consoles(dat: &Dat<'_>, raw: &[u8], classes: &HashMap<String, Class>) -> 
                 o.position[2] + at[2],
             ];
             let facing = (-v[0]).atan2(-v[2]).rem_euclid(std::f32::consts::TAU);
-            let mut c = json!({
-                "id": id,
-                "class": class_name,
-                "position": o.position,
-                "axes": axes,
-                "marker": { "position": marker, "facing": facing },
-                "events": events,
-                "screens": { "inactive": screen(0), "active": screen(1), "triggered": screen(2) },
-            });
-            if let Some(m) = &class.screen_model {
-                c["screenModel"] = json!(m);
+            files::Console {
+                id,
+                class: class_name,
+                position: o.position,
+                axes,
+                marker: files::Marker {
+                    position: marker,
+                    facing,
+                },
+                events,
+                screens: files::Screens {
+                    inactive: screen(0),
+                    active: screen(1),
+                    triggered: screen(2),
+                },
+                screen_model: class.screen_model.clone(),
+                flags: oni_schema::bit_names(&oni_schema::CONSOLE_FLAGS, flags)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                alarm_prompt: class.flags & 1 != 0,
             }
-            let f = oni_schema::bit_names(&oni_schema::CONSOLE_FLAGS, flags);
-            if !f.is_empty() {
-                c["flags"] = json!(f);
-            }
-            if class.flags & 1 != 0 {
-                c["alarmPrompt"] = json!(true);
-            }
-            c
         })
         .collect()
 }
@@ -183,6 +188,6 @@ pub fn write(
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("consoles.json"),
-        serde_json::to_string_pretty(&json!({ "consoles": c }))?,
+        serde_json::to_string_pretty(&files::ConsolesFile { consoles: c })?,
     )
 }

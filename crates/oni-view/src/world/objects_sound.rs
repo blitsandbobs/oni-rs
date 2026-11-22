@@ -63,38 +63,36 @@ fn read(path: &Path) -> Value {
 impl GameSounds {
     pub fn load(common: &Path) -> GameSounds {
         let gs = read(&common.join("game_settings.json"));
-        let doors = read(&common.join("door_classes.json"));
-        let lasers = read(&common.join("laser_classes.json"));
-        let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+        let doors: oni_schema::files::DoorClassesFile =
+            crate::json::read_file(common.join("door_classes.json"));
+        let lasers: oni_schema::files::LaserClassesFile =
+            crate::json::read_file(common.join("laser_classes.json"));
         GameSounds {
             events: names(&gs["eventSounds"]),
             conditions: names(&gs["conditionSounds"]),
             boosted_health: gs["boostedHealth"].as_f64().unwrap_or(1.5) as f32,
-            doors: doors["classes"]
-                .as_object()
+            doors: doors
+                .classes
                 .into_iter()
-                .flatten()
                 .map(|(k, c)| {
-                    let ai = c["ai"].is_object().then(|| {
-                        let kind = match c["ai"]["type"].as_str() {
-                            Some("interesting") => {
-                                crate::ai::perception::Stimulus::SoundInteresting
-                            }
-                            Some("danger") => crate::ai::perception::Stimulus::SoundDanger,
-                            Some("melee") => crate::ai::perception::Stimulus::SoundMelee,
-                            Some("gunshot") => crate::ai::perception::Stimulus::SoundGunshot,
-                            _ => crate::ai::perception::Stimulus::SoundIgnore,
+                    let ai = c.ai.map(|ai| {
+                        use crate::ai::perception::Stimulus;
+                        let kind = match ai.kind.as_str() {
+                            "interesting" => Stimulus::SoundInteresting,
+                            "danger" => Stimulus::SoundDanger,
+                            "melee" => Stimulus::SoundMelee,
+                            "gunshot" => Stimulus::SoundGunshot,
+                            _ => Stimulus::SoundIgnore,
                         };
-                        (kind, c["ai"]["radius"].as_f64().unwrap_or(0.0) as f32)
+                        (kind, ai.radius)
                     });
-                    (k.clone(), (s(&c["open"]), s(&c["close"]), ai))
+                    (k, (c.open, c.close, ai))
                 })
                 .collect(),
-            lasers: lasers["classes"]
-                .as_object()
+            lasers: lasers
+                .classes
                 .into_iter()
-                .flatten()
-                .map(|(k, c)| (k.clone(), (s(&c["active"]), s(&c["trigger"]))))
+                .map(|(k, c)| (k, (c.active, c.trigger)))
                 .collect(),
             ..Default::default()
         }

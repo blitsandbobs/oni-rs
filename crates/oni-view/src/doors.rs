@@ -14,6 +14,7 @@ use glam::{Mat4, Vec3};
 use oni_geom::objanim::ObjectAnimation;
 
 use crate::consoles::Event;
+use oni_schema::files;
 
 /// Door animations: open at this frame, closed again at the last.
 pub const OPEN_FRAME: u16 = 50;
@@ -353,65 +354,51 @@ impl Door {
 }
 
 pub fn load(level_dir: &Path) -> Vec<Door> {
-    let doc: serde_json::Value = crate::json::load(level_dir.join("doors.json"));
-    use crate::json::vec3 as v3;
-    // The classes' leaf animations (`common/door_classes.json`).
-    let classes: serde_json::Value =
-        crate::json::load(level_dir.join("../../common/door_classes.json"));
-    let mut anims: std::collections::HashMap<String, Option<Rc<ObjectAnimation>>> =
+    let doc: files::DoorsFile = crate::json::read_file(level_dir.join("doors.json"));
+    // The classes' leaf animations and sounds (`common/door_classes.json`).
+    let classes: files::DoorClassesFile =
+        crate::json::read_file(level_dir.join("../../common/door_classes.json"));
+    let mut anims: std::collections::HashMap<&str, Option<Rc<ObjectAnimation>>> =
         Default::default();
-    doc["doors"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    doc.doors
+        .iter()
         .map(|d| {
-            let has = |f: &str| {
-                d["flags"]
-                    .as_array()
-                    .is_some_and(|a| a.iter().any(|x| x == f))
-            };
-            let events = d["events"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(crate::consoles::event)
-                .collect();
-            let initial_locked = has("initialLocked");
-            let class = d["class"].as_str().unwrap_or("").to_string();
+            let has = |f: &str| d.flags.iter().any(|x| x == f);
+            let class = classes.classes.get(&d.class);
             let anim = anims
-                .entry(class.clone())
-                .or_insert_with(|| object_animation(&classes["classes"][&class]["animation"]))
+                .entry(d.class.as_str())
+                .or_insert_with(|| {
+                    class
+                        .and_then(|c| c.animation.as_ref())
+                        .map(object_animation)
+                })
                 .clone();
-            let leaves = d["leaves"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|l| crate::geom::mat4_json(&l["origin"]))
-                .collect();
-            let c = &classes["classes"][&class];
-            let sound_allow = match c["soundAllow"].as_str() {
+            let sound_allow = match class.map(|c| c.sound_allow.as_str()) {
                 Some("all") => SoundAllow::All,
                 Some("shouting") => SoundAllow::Shouting,
                 Some("none") => SoundAllow::None,
                 _ => SoundAllow::Gunfire,
             };
-            let sound_muffle = c["soundMuffle"].as_f64().unwrap_or(0.5) as f32;
             Door {
-                id: d["id"].as_u64().unwrap_or(0) as u16,
-                object_id: d["objectId"].as_u64().unwrap_or(0) as u32,
-                class,
-                position: v3(&d["position"]),
-                axes: [v3(&d["axes"][0]), v3(&d["axes"][1]), v3(&d["axes"][2])],
-                radius: d["radius"].as_f64().unwrap_or(30.0) as f32,
-                key: d["key"].as_u64().map(|k| k as u16),
+                id: d.id,
+                object_id: d.object_id,
+                class: d.class.clone(),
+                position: Vec3::from(d.position),
+                axes: d.axes.map(Vec3::from),
+                radius: d.radius,
+                key: d.key,
                 manual: has("manual"),
                 one_way: has("oneWay"),
                 reverse: has("reverse"),
-                locked: initial_locked,
+                locked: has("initialLocked"),
                 jammed: false,
-                events,
+                events: d.events.iter().map(Into::into).collect(),
                 state: State::Closed,
-                leaves,
+                leaves: d
+                    .leaves
+                    .iter()
+                    .map(|l| crate::geom::mat4_4x3(&l.origin))
+                    .collect(),
                 anim,
                 paused: [0; 2],
                 blocked: 0,
@@ -419,46 +406,40 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
                 proximity_off: 0,
                 blocker: None,
                 sound_allow,
-                sound_muffle,
+                sound_muffle: class.map_or(0.5, |c| c.sound_muffle),
             }
         })
         .collect()
 }
 
-/// An object animation from `object_animations.json`'s form.
-pub fn object_animation(j: &serde_json::Value) -> Option<Rc<ObjectAnimation>> {
-    let keys = j["keyframes"].as_array()?;
-    let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
-    let flags = j["flags"]
-        .as_array()
-        .into_iter()
-        .flatten()
+/// An object animation from its file form.
+pub fn object_animation(a: &files::ObjectAnimation) -> Rc<ObjectAnimation> {
+    let flags = a
+        .flags
+        .iter()
         .filter_map(|n| {
             oni_schema::OBJECT_ANIMATION_FLAGS
                 .iter()
-                .position(|k| Some(*k) == n.as_str())
+                .position(|k| k == n)
         })
         .fold(0, |acc, b| acc | (1 << b));
-    let scale = j["scale"]
-        .as_array()
-        .map(|a| std::array::from_fn(|i| a.get(i).map_or(0.0, f)))
-        .unwrap_or([1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0]);
-    Some(Rc::new(ObjectAnimation {
-        name: j["name"].as_str().map(str::to_string),
+    Rc::new(ObjectAnimation {
+        name: a.name.clone(),
         flags,
-        ticks_per_frame: j["ticksPerFrame"].as_u64().unwrap_or(1) as u16,
-        num_frames: j["numFrames"].as_u64().unwrap_or(0) as u16,
-        door_open_frames: j["doorOpenFrames"].as_u64().unwrap_or(0) as u16,
-        keys: keys
+        ticks_per_frame: a.ticks_per_frame,
+        num_frames: a.num_frames,
+        door_open_frames: a.door_open_frames,
+        keys: a
+            .keyframes
             .iter()
             .map(|k| oni_geom::objanim::ObjAnimKey {
-                frame: k["frame"].as_i64().unwrap_or(0) as i32,
-                translation: std::array::from_fn(|i| f(&k["translation"][i])),
-                rotation: std::array::from_fn(|i| f(&k["rotation"][i])),
+                frame: k.frame,
+                translation: k.translation,
+                rotation: k.rotation,
             })
             .collect(),
-        scale,
-    }))
+        scale: a.scale,
+    })
 }
 
 /// Splits each double door's closed leaves in the level's geometry into its

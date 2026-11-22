@@ -415,17 +415,17 @@ pub fn convert_with(
                 anim_sounds::write(&dat, raw, &root)?;
                 std::fs::write(
                     root.join("laser_classes.json"),
-                    serde_json::to_string_pretty(
-                        &serde_json::json!({ "classes": lasers::class_sounds(&dat) }),
-                    )?,
+                    serde_json::to_string_pretty(&oni_schema::files::LaserClassesFile {
+                        classes: lasers::class_sounds(&dat),
+                    })?,
                 )?;
                 let door_classes = doors::class_sounds(&dat);
                 if !door_classes.is_empty() {
                     std::fs::write(
                         root.join("door_classes.json"),
-                        serde_json::to_string_pretty(
-                            &serde_json::json!({ "classes": door_classes }),
-                        )?,
+                        serde_json::to_string_pretty(&oni_schema::files::DoorClassesFile {
+                            classes: door_classes,
+                        })?,
                     )?;
                 }
                 let profiles = patrols::combat_profiles(&dat, raw);
@@ -1984,35 +1984,37 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
     Ok(films.len())
 }
 
-/// Emits `<root>/object_animations.json` — every `OBAN` scripted object
-/// animation (sliding doors, lifts, driving vehicles) as keyframed transforms.
-/// Returns the number of clips written.
 /// An object animation as `object_animations.json` writes it (and the door
 /// classes theirs): its name, flags by name, timing, the `scale` matrix (4×3,
 /// column-major) and its keys.
-pub(crate) fn object_animation_json(a: &oni_geom::objanim::ObjectAnimation) -> serde_json::Value {
-    let keys: Vec<serde_json::Value> = a
-        .keys
-        .iter()
-        .map(|k| {
-            serde_json::json!({
-                "frame": k.frame,
-                "translation": [k.translation[0], k.translation[1], k.translation[2]],
-                "rotation": [k.rotation[0], k.rotation[1], k.rotation[2], k.rotation[3]],
+pub(crate) fn object_animation_file(
+    a: &oni_geom::objanim::ObjectAnimation,
+) -> oni_schema::files::ObjectAnimation {
+    oni_schema::files::ObjectAnimation {
+        name: a.name.clone(),
+        flags: oni_schema::bit_names(&oni_schema::OBJECT_ANIMATION_FLAGS, a.flags)
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        ticks_per_frame: a.ticks_per_frame,
+        num_frames: a.num_frames,
+        door_open_frames: a.door_open_frames,
+        scale: a.scale,
+        keyframes: a
+            .keys
+            .iter()
+            .map(|k| oni_schema::files::ObjectAnimationKey {
+                frame: k.frame,
+                translation: [k.translation[0], k.translation[1], k.translation[2]],
+                rotation: [k.rotation[0], k.rotation[1], k.rotation[2], k.rotation[3]],
             })
-        })
-        .collect();
-    serde_json::json!({
-        "name": a.name,
-        "flags": oni_schema::bit_names(&oni_schema::OBJECT_ANIMATION_FLAGS, a.flags),
-        "ticksPerFrame": a.ticks_per_frame,
-        "numFrames": a.num_frames,
-        "doorOpenFrames": a.door_open_frames,
-        "scale": a.scale,
-        "keyframes": keys,
-    })
+            .collect(),
+    }
 }
 
+/// Emits `<root>/object_animations.json` — every `OBAN` scripted object
+/// animation (sliding doors, lifts, driving vehicles) as keyframed transforms.
+/// Returns the number of clips written.
 fn convert_object_animations(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
     use oni_geom::objanim::{decode_object_animation, TAG_OBAN};
 
@@ -2021,22 +2023,22 @@ fn convert_object_animations(dat: &Dat<'_>, root: &Path) -> std::io::Result<usiz
         let Some(a) = decode_object_animation(dat, inst) else {
             continue;
         };
-        clips.push(object_animation_json(&a));
+        clips.push(object_animation_file(&a));
     }
     if clips.is_empty() {
         return Ok(0);
     }
-    let doc = serde_json::json!({
-        "ticksPerSecond": 60,
-        "count": clips.len(),
-        "animations": clips,
-    });
+    let doc = oni_schema::files::ObjectAnimationsFile {
+        ticks_per_second: 60,
+        count: clips.len(),
+        animations: clips,
+    };
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("object_animations.json"),
         serde_json::to_string(&doc)?,
     )?;
-    Ok(clips.len())
+    Ok(doc.count)
 }
 
 /// Relative URI from `<this_root>/environment.glb` to a texture's PNG, routed

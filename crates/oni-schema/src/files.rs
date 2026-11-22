@@ -72,6 +72,172 @@ pub struct LaserEye {
     pub frames: Vec<[f32; 12]>,
 }
 
+fn is_false(b: &bool) -> bool {
+    !*b
+}
+
+/// `levels/NN/consoles.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ConsolesFile {
+    pub consoles: Vec<Console>,
+}
+
+/// A console (`OBJtOSD_Console`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Console {
+    pub id: u16,
+    pub class: String,
+    pub position: V3,
+    pub axes: [V3; 3],
+    /// Where its user stands and faces.
+    pub marker: Marker,
+    pub events: Vec<Event>,
+    /// Its screen's textures when inactive, active and used.
+    pub screens: Screens,
+    /// Its screen's model (a path under `common/`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen_model: Option<String>,
+    /// `CONSOLE_FLAGS` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    /// Its class prompts as an alarm console.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub alarm_prompt: bool,
+}
+
+/// A console's marker: where its user stands, and the way they face.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Marker {
+    pub position: V3,
+    pub facing: f32,
+}
+
+/// A console's screen textures.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Screens {
+    pub inactive: String,
+    pub active: String,
+    pub triggered: String,
+}
+
+/// `levels/NN/doors.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DoorsFile {
+    pub doors: Vec<Door>,
+}
+
+/// A door (`OBJtOSD_Door`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Door {
+    pub id: u16,
+    /// Its object id (its level quads' tag).
+    pub object_id: u32,
+    pub class: String,
+    pub position: V3,
+    pub axes: [V3; 3],
+    /// How near someone must come to open it.
+    pub radius: f32,
+    /// The key it needs.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<u16>,
+    /// `DOOR_FLAGS` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub events: Vec<Event>,
+    /// Its moving leaves.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub leaves: Vec<DoorLeaf>,
+}
+
+/// A door leaf: its object setup's origin (4×3, column by column).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DoorLeaf {
+    pub origin: [f32; 12],
+}
+
+/// `common/door_classes.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct DoorClassesFile {
+    pub classes: BTreeMap<String, DoorClass>,
+}
+
+/// A door class (`DOOR`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DoorClass {
+    /// The impulses played opening and closing.
+    pub open: String,
+    pub close: String,
+    /// Its leaves' animation.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animation: Option<ObjectAnimation>,
+    /// What sound passes it while it isn't open (`all`, `shouting`,
+    /// `gunfire`, `none`) and how much it muffles what does (1: all).
+    pub sound_allow: String,
+    pub sound_muffle: f32,
+    /// The noise the AI hears it make.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai: Option<AiNoise>,
+}
+
+/// A noise the AI hears: its kind (`AI_SOUNDS`) and how far.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AiNoise {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub radius: f32,
+}
+
+/// `common/laser_classes.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct LaserClassesFile {
+    pub classes: BTreeMap<String, LaserClassSounds>,
+}
+
+/// A laser class's sounds (`TRIG`): the ambient while active, the impulse
+/// when tripped.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct LaserClassSounds {
+    pub active: String,
+    pub trigger: String,
+}
+
+/// `object_animations.json` (common and per level).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectAnimationsFile {
+    pub ticks_per_second: u32,
+    pub count: usize,
+    pub animations: Vec<ObjectAnimation>,
+}
+
+/// A scripted object animation (`OBAN`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ObjectAnimation {
+    pub name: Option<String>,
+    /// `OBJECT_ANIMATION_FLAGS` names.
+    pub flags: Vec<String>,
+    pub ticks_per_frame: u16,
+    pub num_frames: u16,
+    pub door_open_frames: u16,
+    /// 4×3, column by column.
+    pub scale: [f32; 12],
+    pub keyframes: Vec<ObjectAnimationKey>,
+}
+
+/// An object animation's key: its frame, translation and rotation
+/// (a quaternion).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ObjectAnimationKey {
+    pub frame: i32,
+    pub translation: V3,
+    pub rotation: [f32; 4],
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

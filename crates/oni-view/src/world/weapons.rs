@@ -1105,12 +1105,12 @@ impl World {
             common.join("object_animations.json"),
             self.level_dir.join("object_animations.json"),
         ] {
-            let doc: serde_json::Value = crate::json::load(&path);
-            for a in doc["animations"].as_array().into_iter().flatten() {
-                if let (Some(name), Some(anim)) =
-                    (a["name"].as_str(), crate::doors::object_animation(a))
-                {
-                    self.placed.anims.insert(name.to_string(), anim);
+            let doc: oni_schema::files::ObjectAnimationsFile = crate::json::read_file(&path);
+            for a in &doc.animations {
+                if let Some(name) = &a.name {
+                    self.placed
+                        .anims
+                        .insert(name.clone(), crate::doors::object_animation(a));
                 }
             }
         }
