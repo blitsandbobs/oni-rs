@@ -109,8 +109,9 @@ pub struct Report {
 struct FileCtx {
     level: u32,
     root: String, // "common" or "levels/NN"
-    path: PathBuf,
     bytes: Vec<u8>,
+    raw: Option<Vec<u8>>,
+    sep: Option<Vec<u8>>,
 }
 
 /// Converts every `*.dat` in `input_dir` into the modern tree at `output_dir`.
@@ -229,14 +230,49 @@ pub fn convert_with(
 ) -> std::io::Result<Report> {
     std::fs::create_dir_all(output_dir)?;
     copy_movies(input_dir, output_dir)?;
+    let (files, source_files) = load_files(input_dir)?;
+    let dats = files
+        .iter()
+        .map(|f| Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}"))))
+        .collect::<std::io::Result<Vec<_>>>()?;
+    let index = index(&files, &dats);
+    set_case_shadowed(index.global_named.keys().map(|(_, n)| n.as_str()));
+
+    let mut report = Report {
+        levels: BTreeMap::new(),
+        refs_resolved: 0,
+        refs_dangling: 0,
+    };
+    let registry = oni_template::Registry::load();
+    let level0 = files.first().filter(|f| f.level == 0).map(|_| &dats[0]);
+    let mut common = Common::new();
+    // Per file, export canonical-named + unnamed assets, resolving refs.
+    for (fi, (f, dat)) in files.iter().zip(&dats).enumerate() {
+        let x = Pass {
+            fi,
+            index: &index,
+            registry: &registry,
+            level0,
+            output_dir,
+            scripts_dir,
+        };
+        let stats = convert_file(&x, f, dat, &mut common, &mut report)?;
+        report.levels.insert(f.root.clone(), stats);
+    }
+    write_common(output_dir, common, &index)?;
+    write_manifest(output_dir, &report, &source_files)?;
+    Ok(report)
+}
+
+/// Reads every `*.dat` in `input_dir` with its `.raw` and `.sep` (level 0
+/// first, so it wins name ties), and the source files' manifest entries.
+fn load_files(input_dir: &Path) -> std::io::Result<(Vec<FileCtx>, Vec<serde_json::Value>)> {
     let mut dats: Vec<PathBuf> = std::fs::read_dir(input_dir)?
         .flatten()
         .map(|e| e.path())
         .filter(|p| p.extension().and_then(|x| x.to_str()) == Some("dat"))
         .collect();
     dats.sort();
-
-    // Load file contexts (level0 first so it wins name ties).
     let mut files: Vec<FileCtx> = Vec::new();
     let mut source_files = Vec::new();
     for p in &dats {
@@ -245,8 +281,9 @@ pub fn convert_with(
         };
         let bytes = std::fs::read(p)?;
         source_files.push(source_entry(p, &bytes));
-        if let Ok(rb) = std::fs::read(p.with_extension("raw")) {
-            source_files.push(source_entry(&p.with_extension("raw"), &rb));
+        let raw = std::fs::read(p.with_extension("raw")).ok();
+        if let Some(rb) = &raw {
+            source_files.push(source_entry(&p.with_extension("raw"), rb));
         }
         let root = if level == 0 {
             "common".to_string()
@@ -256,28 +293,42 @@ pub fn convert_with(
         files.push(FileCtx {
             level,
             root,
-            path: p.clone(),
             bytes,
+            raw,
+            // Retail PC / Mac CDs keep texture pixels in a companion `.sep`.
+            sep: std::fs::read(p.with_extension("sep")).ok(),
         });
     }
     files.sort_by_key(|f| f.level);
+    Ok((files, source_files))
+}
 
-    // --- Pass 1: global named-asset index: (tag, name) -> canonical file index.
-    // Also collect texture render flags (additive / self-illuminated) by name,
-    // so a placeholder reference in one level resolves to the real flags. ---
-    let mut global_named: BTreeMap<(FourCc, String), usize> = BTreeMap::new();
-    let mut texture_flags: BTreeMap<String, (bool, bool)> = BTreeMap::new();
-    // The textures that break like glass (their material is glass).
-    let mut glass_textures = std::collections::BTreeSet::new();
-    // Particle classes (PAR3 binary data) are globally named; level0 wins ties.
-    let mut particle_classes: BTreeMap<String, particles::ParticleClass> = BTreeMap::new();
-    for (fi, f) in files.iter().enumerate() {
-        let dat = Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let raw = std::fs::read(f.path.with_extension("raw")).ok();
-        particles::collect_particle_classes(&dat, raw.as_deref(), &mut particle_classes);
-        if let (0, Some(raw)) = (f.level, raw.as_deref()) {
-            let glass = materials::breakable(&dat);
-            glass_textures = materials::texture_materials(&dat, raw)
+/// What the first pass gathers from every file.
+struct Index {
+    /// The global named-asset index: (tag, name) → canonical file index.
+    global_named: BTreeMap<(FourCc, String), usize>,
+    /// Texture render flags (additive, self-illuminated) by name, so a
+    /// placeholder reference in one level resolves to the real flags.
+    texture_flags: BTreeMap<String, (bool, bool)>,
+    /// The textures that break like glass (their material is glass).
+    glass_textures: std::collections::BTreeSet<String>,
+    /// Particle classes (PAR3 binary data), globally named; level0 wins ties.
+    particle_classes: BTreeMap<String, particles::ParticleClass>,
+}
+
+/// The first pass: what every file's conversion needs from all of them.
+fn index(files: &[FileCtx], dats: &[Dat<'_>]) -> Index {
+    let mut x = Index {
+        global_named: BTreeMap::new(),
+        texture_flags: BTreeMap::new(),
+        glass_textures: std::collections::BTreeSet::new(),
+        particle_classes: BTreeMap::new(),
+    };
+    for (fi, (f, dat)) in files.iter().zip(dats).enumerate() {
+        particles::collect_particle_classes(dat, f.raw.as_deref(), &mut x.particle_classes);
+        if let (0, Some(raw)) = (f.level, f.raw.as_deref()) {
+            let glass = materials::breakable(dat);
+            x.glass_textures = materials::texture_materials(dat, raw)
                 .into_iter()
                 .filter(|(_, m)| glass.contains(m))
                 .map(|(t, _)| t)
@@ -287,12 +338,12 @@ pub fn convert_with(
             if let Some(name) = &inst.name {
                 if !name.is_empty() {
                     if let Some(d) = dat.instance_data(inst) {
-                        global_named.entry((inst.tag, name.clone())).or_insert(fi);
+                        x.global_named.entry((inst.tag, name.clone())).or_insert(fi);
                         if let Some(fl) = (inst.tag == TAG_TXMP_)
                             .then(|| at::u32(d, oni_texture::OFF_FLAGS))
                             .flatten()
                         {
-                            texture_flags.entry(name.clone()).or_insert((
+                            x.texture_flags.entry(name.clone()).or_insert((
                                 fl & oni_texture::FLAG_BLEND_ADDITIVE != 0,
                                 fl & oni_texture::FLAG_SELF_ILLUMINENT != 0,
                             ));
@@ -302,259 +353,367 @@ pub fn convert_with(
             }
         }
     }
+    x
+}
 
-    set_case_shadowed(global_named.keys().map(|(_, n)| n.as_str()));
+/// What converting one file needs besides the file.
+struct Pass<'a> {
+    fi: usize,
+    index: &'a Index,
+    registry: &'a oni_template::Registry,
+    /// Level 0, parsed (the levels' skies name its textures).
+    level0: Option<&'a Dat<'a>>,
+    output_dir: &'a Path,
+    scripts_dir: Option<&'a Path>,
+}
 
-    let mut report = Report {
-        levels: BTreeMap::new(),
-        refs_resolved: 0,
-        refs_dangling: 0,
-    };
-    let registry = oni_template::Registry::load();
-    // Character classes (ONCC) are named/global; accumulate the canonical ones
-    // across files into a single catalog written at the end.
-    let mut character_classes: Vec<oni_schema::files::CharacterClass> = Vec::new();
-    let mut melee_profiles: Vec<melee::Profile> = Vec::new();
-    let mut game_settings: Option<oni_schema::files::GameSettingsFile> = None;
-    let mut part_specs = BTreeMap::new();
-    let mut console_classes = std::collections::HashMap::new();
-    let mut laser_classes = std::collections::BTreeMap::new();
-    // The text console dialog's text font (level 0's), the pages' base.
-    let mut console_font = text_consoles::Font {
-        size: 7,
-        style: 0,
-        shade: Some(0xFFFF_FFFF),
-    };
-    // The pause screen's main area font (level 0's), its pages' base.
-    let mut pause_font = text_consoles::Font {
-        size: 10,
-        style: 1,
-        shade: Some(0xFFFF_7F00),
-    };
-    // The animated textures (by file stem), from every file.
-    let mut texture_anims = oni_schema::files::TextureAnimationsFile::default();
+/// What the files' conversions gather for the shared files written at the
+/// end (and level 0's classes and fonts the levels build on).
+struct Common {
+    /// Character classes (ONCC) are named/global: the canonical ones across
+    /// files, for one catalog.
+    character_classes: Vec<oni_schema::files::CharacterClass>,
+    melee_profiles: Vec<melee::Profile>,
+    game_settings: Option<oni_schema::files::GameSettingsFile>,
+    part_specs: BTreeMap<String, oni_schema::files::PartSpec>,
+    console_classes: std::collections::HashMap<String, consoles::Class>,
+    laser_classes: BTreeMap<String, lasers::Class>,
+    /// The text console dialog's text font (level 0's), the pages' base.
+    console_font: text_consoles::Font,
+    /// The pause screen's main area font (level 0's), its pages' base.
+    pause_font: text_consoles::Font,
+    /// The animated textures (by file stem), from every file.
+    texture_anims: oni_schema::files::TextureAnimationsFile,
+}
 
-    // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
-    for (fi, f) in files.iter().enumerate() {
-        let dat = Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}")))?;
-        let raw = std::fs::read(f.path.with_extension("raw")).ok();
-        // Retail PC / Mac CDs keep texture pixels in a companion `.sep`.
-        let sep = std::fs::read(f.path.with_extension("sep")).ok();
-        let root = output_dir.join(&f.root);
+impl Common {
+    fn new() -> Common {
+        Common {
+            character_classes: Vec::new(),
+            melee_profiles: Vec::new(),
+            game_settings: None,
+            part_specs: BTreeMap::new(),
+            console_classes: std::collections::HashMap::new(),
+            laser_classes: BTreeMap::new(),
+            console_font: text_consoles::Font {
+                size: 7,
+                style: 0,
+                shade: Some(0xFFFF_FFFF),
+            },
+            pause_font: text_consoles::Font {
+                size: 10,
+                style: 1,
+                shade: Some(0xFFFF_7F00),
+            },
+            texture_anims: oni_schema::files::TextureAnimationsFile::default(),
+        }
+    }
+}
 
-        let mut stats = LevelStats::default();
-        if raw.is_none() {
+/// Converts one file: its assets, then (with its `.raw`) its level's or
+/// level 0's data, its interface, and a level's own files.
+fn convert_file(
+    x: &Pass,
+    f: &FileCtx,
+    dat: &Dat<'_>,
+    c: &mut Common,
+    report: &mut Report,
+) -> std::io::Result<LevelStats> {
+    let root = &x.output_dir.join(&f.root);
+    let mut stats = LevelStats::default();
+    if f.raw.is_none() {
+        stats
+            .warnings
+            .push("no .raw: textures and audio skipped".into());
+    }
+    let env_objects = convert_assets(x, f, dat, root, c, &mut stats, report)?;
+    if let Some(raw) = f.raw.as_deref() {
+        convert_messages(dat, raw, root)?;
+        convert_navigation(dat, raw, root)?;
+        convert_quads(dat, root)?;
+        if f.level != 0 {
+            convert_level_data(x, dat, raw, root, c, &mut stats)?;
+        } else {
+            convert_common_data(x, dat, raw, root, c)?;
+        }
+    }
+    stats.object_animations = convert_object_animations(dat, root)?;
+    stats.particles = particles::convert_particles(
+        dat,
+        &f.root,
+        root,
+        &x.index.particle_classes,
+        &x.index.texture_flags,
+    )?;
+    stats.strings = convert_strings(dat, root)? + convert_ui_text(dat, root)?;
+    stats.films = convert_films(dat, root)?;
+    stats.fonts = fonts::convert(dat, root)?;
+    collect_character_classes(
+        dat,
+        &f.root,
+        x.fi,
+        &x.index.global_named,
+        x.registry,
+        &mut c.character_classes,
+    );
+    for (k, v) in collect_part_specs(dat, x.registry) {
+        c.part_specs.entry(k).or_insert(v);
+    }
+    match &mut c.game_settings {
+        None => c.game_settings = collect_game_settings(dat, x.registry),
+        Some(gs) => powerup_models(dat, gs),
+    }
+    for p in melee::collect(dat, f.raw.as_deref()) {
+        if !c.melee_profiles.iter().any(|q| q.id == p.id) {
+            c.melee_profiles.push(p);
+        }
+    }
+    write_animation_collections(dat, &f.root, x.fi, &x.index.global_named, x.output_dir)?;
+
+    convert_interface(x, f, dat, root, c, &mut stats)?;
+    if f.level != 0 {
+        convert_level_files(x, dat, root, &env_objects, &mut stats);
+    }
+    Ok(stats)
+}
+
+/// A file's assets: textures, sounds, meshes, characters, animations and
+/// the environment (whose objects it returns).
+fn convert_assets(
+    x: &Pass,
+    f: &FileCtx,
+    dat: &Dat<'_>,
+    root: &Path,
+    c: &mut Common,
+    stats: &mut LevelStats,
+    report: &mut Report,
+) -> std::io::Result<Vec<EnvObjectInfo>> {
+    convert_textures(
+        dat,
+        f.raw.as_deref(),
+        f.sep.as_deref(),
+        &f.root,
+        root,
+        x.fi,
+        &x.index.global_named,
+        stats,
+    )?;
+    texture_animations(
+        dat,
+        &f.root,
+        x.fi,
+        &x.index.global_named,
+        &mut c.texture_anims.animations,
+    );
+    convert_sounds(
+        dat,
+        f.raw.as_deref(),
+        &f.root,
+        root,
+        x.fi,
+        &x.index.global_named,
+        stats,
+    )?;
+    convert_meshes(
+        dat,
+        &f.root,
+        root,
+        x.fi,
+        &x.index.global_named,
+        stats,
+        report,
+    )?;
+    convert_characters(
+        dat,
+        f.raw.as_deref(),
+        root,
+        x.fi,
+        &x.index.global_named,
+        stats,
+    )?;
+    convert_animations(
+        dat,
+        f.raw.as_deref(),
+        root,
+        x.fi,
+        &x.index.global_named,
+        stats,
+    )?;
+    convert_environment(
+        dat,
+        &f.root,
+        root,
+        &x.index.texture_flags,
+        &x.index.glass_textures,
+        stats,
+    )
+}
+
+/// A level's own data from its `.raw`: characters, patrols, consoles,
+/// neutrals, doors, placed objects, lasers, items, turrets, sound and
+/// particle objects, and its scripts.
+fn convert_level_data(
+    x: &Pass,
+    dat: &Dat<'_>,
+    raw: &[u8],
+    root: &Path,
+    c: &Common,
+    stats: &mut LevelStats,
+) -> std::io::Result<()> {
+    characters::write(dat, raw, root)?;
+    patrols::write(dat, raw, root)?;
+    consoles::write(dat, raw, root, &c.console_classes)?;
+    neutrals::write(dat, raw, root)?;
+    doors::write(dat, raw, root)?;
+    placed::write(dat, root)?;
+    lasers::write(dat, raw, root, &c.laser_classes)?;
+    weapons::write_items(dat, raw, root)?;
+    turrets::write(dat, raw, root)?;
+    sounds::write_objects(dat, raw, root)?;
+    particles::write_env_particles(dat, raw, root)?;
+    if let Some(dir) = x.scripts_dir {
+        let bad = convert_scripts(dat, dir, root)?;
+        if bad > 0 {
             stats
                 .warnings
-                .push("no .raw: textures and audio skipped".into());
+                .push(format!("{bad} script lines not translated"));
         }
+    }
+    Ok(())
+}
 
-        convert_textures(
-            &dat,
-            raw.as_deref(),
-            sep.as_deref(),
-            &f.root,
-            &root,
-            fi,
-            &global_named,
-            &mut stats,
+/// Level 0's shared data: the console, laser, weapon and turret classes,
+/// sounds, impacts, animation sounds, laser and door class sounds and the
+/// combat profiles.
+fn convert_common_data(
+    x: &Pass,
+    dat: &Dat<'_>,
+    raw: &[u8],
+    root: &Path,
+    c: &mut Common,
+) -> std::io::Result<()> {
+    c.console_classes = consoles::classes(dat, x.registry);
+    c.laser_classes = lasers::classes(dat, x.registry);
+    weapons::write_classes(dat, x.registry, root)?;
+    turrets::write_classes(dat, x.registry, root)?;
+    sounds::write(dat, raw, root)?;
+    impacts::write(dat, x.registry, raw, root)?;
+    anim_sounds::write(dat, raw, root)?;
+    std::fs::write(
+        root.join("laser_classes.json"),
+        serde_json::to_string_pretty(&oni_schema::files::LaserClassesFile {
+            classes: lasers::class_sounds(dat),
+        })?,
+    )?;
+    let door_classes = doors::class_sounds(dat);
+    if !door_classes.is_empty() {
+        std::fs::write(
+            root.join("door_classes.json"),
+            serde_json::to_string_pretty(&oni_schema::files::DoorClassesFile {
+                classes: door_classes,
+            })?,
         )?;
-        texture_animations(
-            &dat,
-            &f.root,
-            fi,
-            &global_named,
-            &mut texture_anims.animations,
-        );
-        convert_sounds(
-            &dat,
-            raw.as_deref(),
-            &f.root,
-            &root,
-            fi,
-            &global_named,
-            &mut stats,
+    }
+    let profiles = patrols::combat_profiles(dat, raw);
+    if !profiles.is_empty() {
+        let dir = x.output_dir.join("common");
+        std::fs::create_dir_all(&dir)?;
+        std::fs::write(
+            dir.join("combat_profiles.json"),
+            serde_json::to_string_pretty(&oni_schema::files::CombatProfilesFile { profiles })?,
         )?;
-        convert_meshes(
-            &dat,
-            &f.root,
-            &root,
-            fi,
-            &global_named,
-            &mut stats,
-            &mut report,
-        )?;
-        convert_characters(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
-        convert_animations(&dat, raw.as_deref(), &root, fi, &global_named, &mut stats)?;
-        let env_objects = convert_environment(
-            &dat,
-            &f.root,
-            &root,
-            &texture_flags,
-            &glass_textures,
-            &mut stats,
-        )?;
-        if let Some(raw) = raw.as_deref() {
-            convert_messages(&dat, raw, &root)?;
-            convert_navigation(&dat, raw, &root)?;
-            convert_quads(&dat, &root)?;
-            if f.level != 0 {
-                characters::write(&dat, raw, &root)?;
-                patrols::write(&dat, raw, &root)?;
-                consoles::write(&dat, raw, &root, &console_classes)?;
-                neutrals::write(&dat, raw, &root)?;
-                doors::write(&dat, raw, &root)?;
-                placed::write(&dat, &root)?;
-                lasers::write(&dat, raw, &root, &laser_classes)?;
-                weapons::write_items(&dat, raw, &root)?;
-                turrets::write(&dat, raw, &root)?;
-                sounds::write_objects(&dat, raw, &root)?;
-                particles::write_env_particles(&dat, raw, &root)?;
-                if let Some(dir) = scripts_dir {
-                    let bad = convert_scripts(&dat, dir, &root)?;
-                    if bad > 0 {
-                        stats
-                            .warnings
-                            .push(format!("{bad} script lines not translated"));
-                    }
-                }
-            } else {
-                console_classes = consoles::classes(&dat, &registry);
-                laser_classes = lasers::classes(&dat, &registry);
-                weapons::write_classes(&dat, &registry, &root)?;
-                turrets::write_classes(&dat, &registry, &root)?;
-                sounds::write(&dat, raw, &root)?;
-                impacts::write(&dat, &registry, raw, &root)?;
-                anim_sounds::write(&dat, raw, &root)?;
-                std::fs::write(
-                    root.join("laser_classes.json"),
-                    serde_json::to_string_pretty(&oni_schema::files::LaserClassesFile {
-                        classes: lasers::class_sounds(&dat),
-                    })?,
-                )?;
-                let door_classes = doors::class_sounds(&dat);
-                if !door_classes.is_empty() {
-                    std::fs::write(
-                        root.join("door_classes.json"),
-                        serde_json::to_string_pretty(&oni_schema::files::DoorClassesFile {
-                            classes: door_classes,
-                        })?,
-                    )?;
-                }
-                let profiles = patrols::combat_profiles(&dat, raw);
-                if !profiles.is_empty() {
-                    let dir = output_dir.join("common");
-                    std::fs::create_dir_all(&dir)?;
-                    std::fs::write(
-                        dir.join("combat_profiles.json"),
-                        serde_json::to_string_pretty(&oni_schema::files::CombatProfilesFile {
-                            profiles,
-                        })?,
-                    )?;
-                }
-            }
-        }
-        stats.object_animations = convert_object_animations(&dat, &root)?;
-        stats.particles =
-            particles::convert_particles(&dat, &f.root, &root, &particle_classes, &texture_flags)?;
-        stats.strings = convert_strings(&dat, &root)? + convert_ui_text(&dat, &root)?;
-        stats.films = convert_films(&dat, &root)?;
-        stats.fonts = fonts::convert(&dat, &root)?;
-        collect_character_classes(
-            &dat,
-            &f.root,
-            fi,
-            &global_named,
-            &registry,
-            &mut character_classes,
-        );
-        for (k, v) in collect_part_specs(&dat, &registry) {
-            part_specs.entry(k).or_insert(v);
-        }
-        match &mut game_settings {
-            None => game_settings = collect_game_settings(&dat, &registry),
-            Some(gs) => powerup_models(&dat, gs),
-        }
-        for p in melee::collect(&dat, raw.as_deref()) {
-            if !melee_profiles.iter().any(|q| q.id == p.id) {
-                melee_profiles.push(p);
-            }
-        }
-        write_animation_collections(&dat, &f.root, fi, &global_named, output_dir)?;
+    }
+    Ok(())
+}
 
-        // The text console dialog (level 0), then each level's consoles.
-        if f.level == 0 {
-            if let Some((dialog, font)) = text_consoles::dialog(&dat, &registry) {
-                text_consoles::write_dialog(&dialog, &root_to_common(&root))?;
-                console_font = font;
-            }
-            if let Some(help) = pause_pages::hud_help(&dat) {
-                std::fs::write(
-                    root_to_common(&root).join("hud_help.json"),
-                    serde_json::to_string_pretty(&help)?,
-                )?;
-            }
-            if let Some((doc, font)) = pause_pages::common(&dat, &registry) {
-                pause_pages::write(&doc, &root_to_common(&root).join("pause_screen.json"))?;
-                pause_font = font;
-            }
-            if let Some(doc) = menus::common(&dat, &registry) {
-                menus::write(&doc, &root_to_common(&root).join("menus.json"))?;
-            }
-        } else {
-            if let Err(e) = text_consoles::write(
-                text_consoles::consoles(&dat, &registry, console_font),
-                &root,
-            ) {
-                stats.warnings.push(format!("text_consoles.json: {e}"));
-            }
-            if let Some(doc) = pause_pages::level(&dat, &registry, pause_font) {
-                pause_pages::write(&doc, &root.join("pause_pages.json"))?;
-            }
+/// The text console dialog, HUD help, pause screen and menus (level 0),
+/// or a level's text consoles and pause pages.
+fn convert_interface(
+    x: &Pass,
+    f: &FileCtx,
+    dat: &Dat<'_>,
+    root: &Path,
+    c: &mut Common,
+    stats: &mut LevelStats,
+) -> std::io::Result<()> {
+    if f.level == 0 {
+        if let Some((dialog, font)) = text_consoles::dialog(dat, x.registry) {
+            text_consoles::write_dialog(&dialog, &root_to_common(root))?;
+            c.console_font = font;
         }
-
-        // level.json for playable levels.
-        if f.level != 0 {
-            match level_json::write_level_json(&dat, &root, &registry, &env_objects) {
-                Ok(n) => stats.objects = n,
-                Err(e) => stats.warnings.push(format!("level.json: {e}")),
-            }
-            if let Err(e) = characters::write_setups(&dat, &registry, &root) {
-                stats.warnings.push(format!("setups.json: {e}"));
-            }
-            if let Some(level0) = files
-                .first()
-                .filter(|z| z.level == 0)
-                .and_then(|z| Dat::parse(&z.bytes).ok())
-            {
-                if let Err(e) = sky::write(&dat, &level0, &registry, &root) {
-                    stats.warnings.push(format!("sky.json: {e}"));
-                }
-            }
-            if let Err(e) = corpses::write(&dat, &registry, &root) {
-                stats.warnings.push(format!("corpses.json: {e}"));
-            }
+        if let Some(help) = pause_pages::hud_help(dat) {
+            std::fs::write(
+                root_to_common(root).join("hud_help.json"),
+                serde_json::to_string_pretty(&help)?,
+            )?;
         }
-
-        report.levels.insert(f.root.clone(), stats);
+        if let Some((doc, font)) = pause_pages::common(dat, x.registry) {
+            pause_pages::write(&doc, &root_to_common(root).join("pause_screen.json"))?;
+            c.pause_font = font;
+        }
+        if let Some(doc) = menus::common(dat, x.registry) {
+            menus::write(&doc, &root_to_common(root).join("menus.json"))?;
+        }
+    } else {
+        if let Err(e) = text_consoles::write(
+            text_consoles::consoles(dat, x.registry, c.console_font),
+            root,
+        ) {
+            stats.warnings.push(format!("text_consoles.json: {e}"));
+        }
+        if let Some(doc) = pause_pages::level(dat, x.registry, c.pause_font) {
+            pause_pages::write(&doc, &root.join("pause_pages.json"))?;
+        }
     }
 
+    Ok(())
+}
+
+/// A playable level's `level.json`, setups, sky and corpses.
+fn convert_level_files(
+    x: &Pass,
+    dat: &Dat<'_>,
+    root: &Path,
+    env_objects: &[EnvObjectInfo],
+    stats: &mut LevelStats,
+) {
+    match level_json::write_level_json(dat, root, x.registry, env_objects) {
+        Ok(n) => stats.objects = n,
+        Err(e) => stats.warnings.push(format!("level.json: {e}")),
+    }
+    if let Err(e) = characters::write_setups(dat, x.registry, root) {
+        stats.warnings.push(format!("setups.json: {e}"));
+    }
+    if let Some(level0) = x.level0 {
+        if let Err(e) = sky::write(dat, level0, x.registry, root) {
+            stats.warnings.push(format!("sky.json: {e}"));
+        }
+    }
+    if let Err(e) = corpses::write(dat, x.registry, root) {
+        stats.warnings.push(format!("corpses.json: {e}"));
+    }
+}
+
+/// The shared files gathered from every file: the character classes and
+/// melee profiles, part specs, game settings, texture flags, texture
+/// animations and particle classes.
+fn write_common(output_dir: &Path, mut c: Common, index: &Index) -> std::io::Result<()> {
     // Write the character-class catalog (ONCC): body, variant, textures, aiming
     // screens, and the exact animation set per class.
-    if !character_classes.is_empty() {
+    if !c.character_classes.is_empty() {
         let dir = output_dir.join("common/characters");
         std::fs::create_dir_all(&dir)?;
         // Each class's melee profile, by name (the data links them by id).
-        for c in &mut character_classes {
-            c.melee_profile = c
+        for class in &mut c.character_classes {
+            class.melee_profile = class
                 .melee_profile_id
                 .take()
-                .and_then(|id| melee_profiles.iter().find(|p| i64::from(p.id) == id))
+                .and_then(|id| c.melee_profiles.iter().find(|p| i64::from(p.id) == id))
                 .map(|p| p.name.clone());
         }
-        if !melee_profiles.is_empty() {
+        if !c.melee_profiles.is_empty() {
             let doc = oni_schema::files::MeleeProfilesFile {
-                profiles: melee_profiles.iter().map(|p| p.file.clone()).collect(),
+                profiles: c.melee_profiles.iter().map(|p| p.file.clone()).collect(),
             };
             std::fs::write(
                 dir.join("melee_profiles.json"),
@@ -562,8 +721,8 @@ pub fn convert_with(
             )?;
         }
         let doc = oni_schema::files::CharacterClassesFile {
-            count: character_classes.len(),
-            classes: character_classes,
+            count: c.character_classes.len(),
+            classes: c.character_classes,
         };
         std::fs::write(
             dir.join("classes.json"),
@@ -571,15 +730,17 @@ pub fn convert_with(
         )?;
     }
 
-    if !part_specs.is_empty() {
+    if !c.part_specs.is_empty() {
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(
             dir.join("part_specs.json"),
-            serde_json::to_string_pretty(&oni_schema::files::PartSpecsFile { part_specs })?,
+            serde_json::to_string_pretty(&oni_schema::files::PartSpecsFile {
+                part_specs: c.part_specs,
+            })?,
         )?;
     }
-    if let Some(gs) = game_settings {
+    if let Some(gs) = c.game_settings {
         // (A geometry no level holds: drawn as its glow alone — the
         // geometry's name isn't written.)
         let dir = output_dir.join("common");
@@ -593,7 +754,8 @@ pub fn convert_with(
     // The textures drawn additively / self-lit (by file name).
     {
         let pick = |k: usize| -> Vec<String> {
-            texture_flags
+            index
+                .texture_flags
                 .iter()
                 .filter(|(_, f)| if k == 0 { f.0 } else { f.1 })
                 .map(|(n, _)| sanitize(n))
@@ -613,18 +775,18 @@ pub fn convert_with(
     // The animated textures: their frames and how they run.
     std::fs::write(
         output_dir.join("common/texture_animations.json"),
-        serde_json::to_string_pretty(&texture_anims)?,
+        serde_json::to_string_pretty(&c.texture_anims)?,
     )?;
 
     // Every particle class, decoded in full (`particle_defs`).
-    let defs: BTreeMap<String, &[u8]> = particle_classes
+    let defs: BTreeMap<String, &[u8]> = index
+        .particle_classes
         .iter()
         .map(|(n, c)| (n.clone(), c.def.as_slice()))
         .collect();
     particle_defs::write(&defs, &output_dir.join("common"))?;
 
-    write_manifest(output_dir, &report, &source_files)?;
-    Ok(report)
+    Ok(())
 }
 
 /// The part specifications (`PSpc`, `WM_PartSpecification.h`): nine-slice
