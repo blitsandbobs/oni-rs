@@ -687,8 +687,7 @@ impl ApplicationHandler for App {
                         && st.front.is_some()
                     {
                         let free = st.play.as_ref().is_some_and(|p| {
-                            !p.world.in_cutscene
-                                && !p.world.hud.modal()
+                            p.world.menu_allowed()
                                 && p.flow.as_ref().is_some_and(|f| f.splash.is_none())
                         });
                         if free {
@@ -1089,17 +1088,17 @@ impl State {
                 None if ticks > 0 => ticks -= 1,
                 None => break,
             }
-            // The player from the controls, dummies idle (AI later); then
-            // melee hits resolve and reactions play.
-            pw.world.step(controls);
-            if let Some((m, classes)) = pw.mission.as_mut() {
-                let mut host = PlayHost {
-                    world: &mut pw.world,
-                    classes,
-                    renderer: &mut self.renderer,
-                    gpu: &self.gpu,
-                };
-                m.tick(&mut host);
+            match pw.mission.as_mut() {
+                Some((m, classes)) => {
+                    let mut host = PlayHost {
+                        world: &mut pw.world,
+                        classes,
+                        renderer: &mut self.renderer,
+                        gpu: &self.gpu,
+                    };
+                    crate::mission::game_tick(&mut host, Some(m), controls);
+                }
+                None => pw.world.step(controls),
             }
         }
 

@@ -15,6 +15,15 @@ use mlua::{Function, Lua, MultiValue, Thread, ThreadStatus, Value, Variadic};
 
 use crate::world::{CharKind, World};
 
+/// One game tick, as the play app and the scenario host both run it: the
+/// world steps with the player's `controls`, then the level's scripts run.
+pub fn game_tick(host: &mut dyn Host, mission: Option<&mut Mission>, controls: u32) {
+    host.world().step(controls);
+    if let Some(m) = mission {
+        m.tick(host);
+    }
+}
+
 /// What the mission needs from whoever runs it.
 pub trait Host {
     fn world(&mut self) -> &mut World;

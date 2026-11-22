@@ -201,11 +201,9 @@ impl ScriptHost {
             // (Each tick a frame: a cutscene being skipped runs 32 a frame.)
             let ticks = self.world.skip_frame().unwrap_or(1);
             for _ in 0..ticks {
-                self.world.step(controls);
-                if let Some(mut m) = self.mission.take() {
-                    m.tick(self);
-                    self.mission = Some(m);
-                }
+                let mut m = self.mission.take();
+                crate::mission::game_tick(self, m.as_mut(), controls);
+                self.mission = m;
             }
             self.world.skip_drawn();
         }

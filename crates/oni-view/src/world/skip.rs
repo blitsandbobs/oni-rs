@@ -34,6 +34,13 @@ pub enum Skip {
 impl World {
     /// A skip asked for (`ONrGameState_SkipCutscene`): in a cutscene settled
     /// for 10 ticks, with none under way, the fade to black starts and the
+    /// Whether Esc may bring up the main menu over play: not in a
+    /// cutscene, nor over a modal screen (`ONiGameState_ProcessMiscActions`;
+    /// the front-end adds its own splash).
+    pub fn menu_allowed(&self) -> bool {
+        !self.in_cutscene && !self.hud.modal()
+    }
+
     /// sound goes off (`OSrSetEnabled`).
     pub fn skip_cutscene(&mut self) {
         if self.quirks.cutscenes_unskippable() {
