@@ -102,25 +102,20 @@ fn mission_level(
     let kind = classes.kind(&set.player, |ch| renderer.add_character(gpu, ch))?;
     // (A level begun: the place last played, the level unlocked.)
     crate::game::level_begun(level);
-    let mut world = crate::world::World::new();
-    if set.faithful {
-        world.set_quirks(crate::quirks::Quirks::FAITHFUL);
-    }
-    world.difficulty = classes.difficulty(&set.difficulty);
-    progress(30);
-    world.nav = crate::nav::Navigation::load(&level_dir)
-        .ok()
-        .map(std::rc::Rc::new);
-    progress(35);
-    world.spawn(&kind, Vec3::ZERO, 0.0, false);
-    world.load_level(&level_dir);
-    world.attach_corpse_models(|c| {
-        classes
-            .kind(c, |ch| renderer.add_character(gpu, ch))
-            .ok()
-            .map(|k| k.model)
-    });
-    progress(55);
+    let mut world = crate::opening::open_world(
+        gpu,
+        &mut renderer,
+        &scene,
+        &mut classes,
+        crate::opening::Opening {
+            level_dir: &level_dir,
+            faithful: set.faithful,
+            difficulty: &set.difficulty,
+            player: &kind,
+            at: Vec3::ZERO,
+        },
+        progress,
+    );
     world.hud.subtitles_on = set.subtitles;
     world.saved = saved;
     world.persist_continues = true;
@@ -133,15 +128,6 @@ fn mission_level(
     if save_point == 0 {
         world.hud.level_started();
     }
-    world.attach_doors(crate::door_meshes(&scene));
-    world.attach_glass(crate::glass_parts(&scene));
-    progress(65);
-    world.attach_weapons(&oni_root.join("common"));
-    // (After the weapons: that is where the level quads load.)
-    renderer.attach_quads(&scene, &world.quads);
-    renderer.attach_texture_anims(gpu, world.texture_anims());
-    renderer.attach_sky(gpu, &level_dir);
-    progress(70);
     let mut m = crate::mission::Mission::load(&level_dir)?;
     m.state
         .vars
@@ -156,10 +142,7 @@ fn mission_level(
         m.begin(&mut host);
     }
     progress(85);
-    world.audio.mixer.lock().unwrap().law = set.sound_law;
-    world.audio.set_volume(set.volume);
-    let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
-    world.audio.realtime = audio.is_some();
+    let audio = open_audio(&mut world, set.sound_law, set.volume);
     progress(90);
     progress(100);
     Ok((
@@ -180,6 +163,22 @@ fn mission_level(
             }),
         },
     ))
+}
+
+/// The world's sound to the audio device (none: played silently).
+fn open_audio(
+    world: &mut crate::world::World,
+    law: crate::audio::mixer::Law,
+    volume: f32,
+) -> Option<crate::audio::output::Output> {
+    world.audio.mixer.lock().unwrap().law = law;
+    world.audio.set_volume(volume);
+    let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
+    world.audio.realtime = audio.is_some();
+    if audio.is_none() {
+        eprintln!("audio: no output device; playing silently");
+    }
+    audio
 }
 
 /// What the level's scripts reach in play mode.
@@ -500,37 +499,26 @@ impl ApplicationHandler for App {
             match (charview.take(), kinds) {
                 (Some(cv), Some((Ok(kind), Ok(opponent_kind)))) => {
                     let spawn_pos = cv.placement.transform_point3(Vec3::ZERO);
-                    let mut world = crate::world::World::new();
-                    if self.faithful {
-                        world.set_quirks(crate::quirks::Quirks::FAITHFUL);
-                    }
-                    if let Some(c) = self.classes.as_ref() {
-                        world.difficulty = c.difficulty(&self.cast.difficulty);
-                    }
-                    world.nav = crate::nav::Navigation::load(&self.cast.level_dir)
-                        .ok()
-                        .map(std::rc::Rc::new);
+                    // (The kinds came from the classes.)
+                    let classes = self.classes.as_mut().expect("classes");
                     // Player faces +Z (yaw 0); a passive training dummy 14 units
                     // ahead faces back toward the player, within easy reach.
-                    world.spawn(&kind, spawn_pos, 0.0, false);
+                    let mut world = crate::opening::open_world(
+                        &gpu,
+                        &mut renderer,
+                        &scene,
+                        classes,
+                        crate::opening::Opening {
+                            level_dir: &self.cast.level_dir,
+                            faithful: self.faithful,
+                            difficulty: &self.cast.difficulty,
+                            player: &kind,
+                            at: spawn_pos,
+                        },
+                        &mut |_| {},
+                    );
                     let mut mission = None;
-                    world.load_level(&self.cast.level_dir);
-                    if let Some(classes) = self.classes.as_mut() {
-                        world.attach_corpse_models(|c| {
-                            classes
-                                .kind(c, |ch| renderer.add_character(&gpu, ch))
-                                .ok()
-                                .map(|k| k.model)
-                        });
-                    }
                     world.hud.subtitles_on = self.subtitles;
-                    world.attach_doors(crate::door_meshes(&scene));
-                    world.attach_glass(crate::glass_parts(&scene));
-                    world.attach_weapons(&self.cast.level_dir.join("../../common"));
-                    // (After the weapons: that is where the level quads load.)
-                    renderer.attach_quads(&scene, &world.quads);
-                    renderer.attach_texture_anims(&gpu, world.texture_anims());
-                    renderer.attach_sky(&gpu, &self.cast.level_dir);
                     if self.mission {
                         // The level's own scripts populate it.
                         match (
@@ -570,12 +558,7 @@ impl ApplicationHandler for App {
                                 Some(crate::ai::Brain::Spar(crate::ai::Spar::new(0, 1)));
                         }
                     }
-                    world.audio.mixer.lock().unwrap().law = self.sound_law;
-                    let audio = crate::audio::output::Output::open(world.audio.mixer.clone());
-                    world.audio.realtime = audio.is_some();
-                    if audio.is_none() {
-                        eprintln!("audio: no output device; playing silently");
-                    }
+                    let audio = open_audio(&mut world, self.sound_law, settings.volume);
                     (
                         None,
                         Some(PlayWorld {

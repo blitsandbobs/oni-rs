@@ -137,34 +137,21 @@ impl ScriptHost {
         let format = wgpu::TextureFormat::Rgba8UnormSrgb;
         let mut renderer = Renderer::new(&gpu, &scene, particles, format);
         let kind = classes.kind(&cast.player, |ch| renderer.add_character(&gpu, ch))?;
-        let spawn_pos = charview.placement.transform_point3(Vec3::ZERO);
-        let mut world = World::new();
-        if faithful {
-            world.set_quirks(Quirks::FAITHFUL);
-        }
-        world.difficulty = classes.difficulty(&cast.difficulty);
-        world.nav = crate::nav::Navigation::load(&cast.level_dir)
-            .ok()
-            .map(Rc::new);
-        world.load_level(&cast.level_dir);
-        world.attach_corpse_models(|c| {
-            classes
-                .kind(c, |ch| renderer.add_character(&gpu, ch))
-                .ok()
-                .map(|k| k.model)
-        });
-        world.attach_doors(crate::door_meshes(&scene));
-        world.attach_glass(crate::glass_parts(&scene));
-        world.attach_weapons(&cast.level_dir.join("../../common"));
-        // (After the weapons: that is where the level quads load.)
-        renderer.attach_quads(&scene, &world.quads);
-        renderer.attach_texture_anims(&gpu, world.texture_anims());
-        renderer.attach_sky(&gpu, &cast.level_dir);
-        if world.nav.is_none() {
-            eprintln!("  (no navigation data for this level)");
-        }
         // Player = fighter 0, facing +Z.
-        world.spawn(&kind, spawn_pos, 0.0, false);
+        let world = crate::opening::open_world(
+            &gpu,
+            &mut renderer,
+            &scene,
+            &mut classes,
+            crate::opening::Opening {
+                level_dir: &cast.level_dir,
+                faithful,
+                difficulty: &cast.difficulty,
+                player: &kind,
+                at: charview.placement.transform_point3(Vec3::ZERO),
+            },
+            &mut |_| {},
+        );
         let oni_root = cast.level_dir.join("../..");
 
         Ok(ScriptHost {

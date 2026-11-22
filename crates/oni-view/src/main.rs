@@ -37,6 +37,7 @@ mod movie;
 mod nav;
 mod neutrals;
 mod objphys;
+mod opening;
 mod p3;
 mod particles;
 mod physics;
