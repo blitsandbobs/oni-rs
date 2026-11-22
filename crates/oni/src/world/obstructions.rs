@@ -513,3 +513,58 @@ fn adjust_point(
     let line = crate::nav::grid::line(g, a, b, crate::nav::Square::Border2, 3, blocked);
     line.reached && !line.escaping
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use crate::nav::{Grid, Navigation, Room};
+
+    /// One 10 × 10 room of clear squares with a wall down column 5.
+    fn walled_room() -> Navigation {
+        let mut cells = vec![0u8; 100];
+        for j in 0..10 {
+            cells[5 + j * 10] = 9; // impassable
+        }
+        Navigation {
+            rooms: vec![Room {
+                flags: 0,
+                planes: Vec::new(),
+                min: Vec3::ZERO,
+                max: Vec3::new(40.0, 20.0, 40.0),
+                stair: None,
+                grid: Some(Grid {
+                    origin: glam::Vec2::ZERO,
+                    width: 10,
+                    height: 10,
+                    cells,
+                }),
+                portals: Vec::new(),
+            }],
+        }
+    }
+
+    /// A kept stretch's end may move a little always, far never, between
+    /// only along a clear line (`AI2iMovementState_AdjustPathPoint`).
+    #[test]
+    fn a_stretch_end_moves_only_so_far() {
+        let nav = walled_room();
+        let at = |x: f32, z: f32| Vec3::new(x, 0.0, z);
+        assert!(
+            adjust_point(&nav, 0, at(2.0, 2.0), at(4.0, 4.0), None),
+            "under 4"
+        );
+        assert!(
+            !adjust_point(&nav, 0, at(2.0, 2.0), at(2.0, 30.0), None),
+            "over 25"
+        );
+        assert!(
+            adjust_point(&nav, 0, at(2.0, 2.0), at(2.0, 14.0), None),
+            "clear, 12 along"
+        );
+        assert!(
+            !adjust_point(&nav, 0, at(14.0, 10.0), at(26.0, 10.0), None),
+            "across the wall"
+        );
+    }
+}

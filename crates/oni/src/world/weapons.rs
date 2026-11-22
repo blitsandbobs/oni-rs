@@ -2805,3 +2805,41 @@ fn gun_release(
     let mut host = ShotHost::new(fighters, sight, now);
     weapons[w].release_trigger(particles, &mut host, false);
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rays_meet_boxes_and_spheres() {
+        let (lo, hi) = (Vec3::splat(-1.0), Vec3::splat(1.0));
+        let (t, n) = ray_box(Vec3::new(-5.0, 0.0, 0.0), Vec3::X * 10.0, lo, hi).unwrap();
+        assert!((t - 0.4).abs() < 1e-5 && n == Vec3::NEG_X, "{t} {n}");
+        assert!(ray_box(Vec3::new(-5.0, 3.0, 0.0), Vec3::X * 10.0, lo, hi).is_none());
+        assert_eq!(
+            ray_sphere(Vec3::ZERO, Vec3::X, Vec3::ZERO, 1.0),
+            Some(0.0),
+            "inside"
+        );
+        let t = ray_sphere(Vec3::new(-5.0, 0.0, 0.0), Vec3::X * 10.0, Vec3::ZERO, 1.0).unwrap();
+        assert!((t - 0.4).abs() < 1e-5);
+        assert!(
+            ray_sphere(Vec3::new(-5.0, 0.0, 0.0), Vec3::X * 2.0, Vec3::ZERO, 1.0).is_none(),
+            "short"
+        );
+    }
+
+    #[test]
+    fn gun_matrices_blend_place_and_turn() {
+        let a = Mat4::IDENTITY;
+        let b = Mat4::from_rotation_translation(
+            glam::Quat::from_rotation_y(std::f32::consts::FRAC_PI_2),
+            Vec3::new(10.0, 0.0, 0.0),
+        );
+        let m = matrix_lerp(a, b, 0.5);
+        let (_, r, t) = m.to_scale_rotation_translation();
+        assert!(t.distance(Vec3::new(5.0, 0.0, 0.0)) < 1e-4);
+        let yaw = (r * Vec3::Z).x.atan2((r * Vec3::Z).z);
+        assert!((yaw - std::f32::consts::FRAC_PI_4).abs() < 1e-3, "{yaw}");
+    }
+}

@@ -2310,3 +2310,24 @@ pub fn spawn(
         .get("spawn")
         .map(|s| (s.clone(), placed.name.clone()))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Script arguments read as BSL reads them: numbers from strings, a
+    /// flag true only for a non-zero number (or `true`).
+    #[test]
+    fn arguments_read_as_bsl_reads_them() {
+        let lua = mlua::Lua::new();
+        let s = |t: &str| Value::String(lua.create_string(t).unwrap());
+        assert_eq!(int(Some(&s(" 12 "))), Some(12));
+        assert_eq!(int(Some(&Value::Number(3.9))), Some(3));
+        assert_eq!(int(Some(&Value::Boolean(true))), Some(1));
+        assert_eq!(int(Some(&s("twelve"))), None);
+        assert_eq!(float(Some(&s("2.5"))), Some(2.5));
+        assert!(truthy(Some(&s("1"))) && truthy(Some(&Value::Integer(-1))));
+        assert!(!truthy(Some(&s("0"))) && !truthy(Some(&s("yes"))) && !truthy(None));
+        assert_eq!(text(&Value::Integer(7)).as_deref(), Some("7"));
+    }
+}

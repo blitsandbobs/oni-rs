@@ -3164,3 +3164,20 @@ fn picks_up(c: &crate::skel::Clip) -> bool {
     use crate::anim::types::flag;
     c.has_flag(flag::CAN_PICKUP) && !c.has_flag(flag::NO_AI_PICKUP)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A world with nothing in it steps: every phase copes with no fighters,
+    /// no level, no navigation — and asks to keep nothing.
+    #[test]
+    fn an_empty_world_steps() {
+        let mut w = World::new();
+        for _ in 0..3 {
+            w.step(0);
+        }
+        assert_eq!(w.now, 3);
+        assert!(w.persist.is_empty());
+    }
+}

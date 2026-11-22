@@ -1646,3 +1646,24 @@ pub(super) fn held_gun(v: &View) -> (bool, bool) {
         r & (var::RIGHTY_RIFLE | var::LEFTY_RIFLE) != 0,
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Moving a way the floor probe found: nothing if a wall comes first,
+    /// shading off within 10 of a ledge past the move, else full.
+    #[test]
+    fn a_move_is_as_safe_as_the_floor_ahead() {
+        let p = |free: f32, ledge: Option<f32>| crate::chrphys::Probe { free, ledge };
+        assert_eq!(safety(p(5.0, None), 8.0), 0.0, "a wall first");
+        assert_eq!(safety(p(50.0, None), 8.0), 1.0, "clear");
+        assert_eq!(
+            safety(p(50.0, Some(13.0)), 8.0),
+            0.5,
+            "a ledge 5 past the move"
+        );
+        assert_eq!(safety(p(50.0, Some(6.0)), 8.0), 0.0, "over the edge");
+        assert_eq!(safety(p(0.0, None), 0.0), 1.0, "no move");
+    }
+}
