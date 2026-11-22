@@ -495,6 +495,9 @@ pub struct GunView {
     pub usable: bool,
     /// Firing now (its trigger held).
     pub firing: bool,
+    /// A gun that fires one shot a press for the AI, still chambering or
+    /// reloading: its trigger isn't pressed meanwhile (`WPrMustWaitToFire`).
+    pub must_wait: bool,
     /// The gun stuns, or knocks down (its shots set the AI on to melee the
     /// reeling / fallen target).
     pub stuns: bool,
@@ -3413,7 +3416,9 @@ impl Agent {
         // firing — it doesn't fire.)
         let dodging = k.dodge.is_some() && stops_firing;
         let backing = (k.primary == Primary::Retreat && k.too_close > 0.2) || dodging;
-        let fire = targeting.execute(shooting && k.have_los && !backing, g.matrix);
+        // (A one-shot gun still chambering isn't pressed — before the boss
+        // hears whether it fired, `AI2iCombat_Trigger`.)
+        let fire = targeting.execute(shooting && k.have_los && !backing, g.matrix) && !g.must_wait;
         let speed = targeting.aim_speed;
         if shooting || boss.is_some() {
             self.aim = Some(dir);

@@ -1591,6 +1591,8 @@ impl World {
             params: f.targeting,
             usable: gun.ammo > 0 || self.has_reload(who, w) || f.reloading(),
             firing: gun.firing,
+            must_wait: gun.class.has(flag::AI_SINGLE_SHOT)
+                && (gun.chamber > 0 || gun.reload_time > 0),
             stuns: gun.class.has(flag::AI_STUN),
             knocks_down: gun.class.has(flag::AI_KNOCKDOWN),
         })
