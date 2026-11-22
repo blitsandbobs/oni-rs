@@ -223,9 +223,12 @@ our own additions. Not affected by `--faithful`.
 - A lobbed gun's line of fire is the straight line plus "some arc reaches";
   the original traces the arc in 20-unit steps.
 - Pathfinding plans the whole path at once (the original plans a room's grid
-  on entering it), without the reuse cache or octree room lookup.
-  Obstructions are other characters only, stamped at plan time, none exempt;
-  doors a character may not open shut their portals instead of being stamped.
+  on entering it), without the reuse cache or octree room lookup: so every
+  room's obstructions on the way are read as they stand when the path is
+  planned. Doors a character may not open also shut their portals to it.
+  An AI standing inside an obstruction isn't moved out of it, and a body met
+  while moving isn't passed through (`AI2rTryToPathfindThrough` at
+  collision time).
 - Melee look-ahead on levels without nav data: danger is a floor drop beyond
   the class's fall-damage height, found by a collision probe. The melee AI
   plans with its own class's animations, not the profile's `char_classname`.
