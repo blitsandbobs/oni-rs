@@ -605,7 +605,47 @@ impl Weapon {
         if self.owner.is_none() {
             return;
         }
+        // (`ONI_TRACE_SHOTS=1`: each shot's new particles — where they start
+        // and which way they go.)
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let trace = *TRACE.get_or_init(|| std::env::var_os("ONI_TRACE_SHOTS").is_some());
+        let before: std::collections::HashSet<p3::Handle> = if trace {
+            sys.iter().map(|(h, _)| h).collect()
+        } else {
+            Default::default()
+        };
         self.send(sys, host, event::PULSE, shooter, motion);
+        if trace {
+            let m = self.matrix.get();
+            let (at, x) = (m.w_axis.truncate(), m.x_axis.truncate().normalize_or_zero());
+            eprintln!(
+                "pulse {} {:?} gun {} attachment {i} at {:.1} {:.1} {:.1} barrel {:.3} {:.3} {:.3} yaw {:.0} pitch {:.0} new particles {}",
+                sys.tick,
+                self.owner,
+                self.class.name,
+                at.x, at.y, at.z,
+                x.x, x.y, x.z,
+                x.x.atan2(x.z).to_degrees().rem_euclid(360.0),
+                x.y.asin().to_degrees(),
+                sys.iter().filter(|(h, _)| !before.contains(h)).count(),
+            );
+            for (_, p) in sys.iter().filter(|(h, _)| !before.contains(h)) {
+                let (at, v) = (sys.world_position(p), p.velocity);
+                let d = v.normalize_or_zero();
+                eprintln!(
+                    "shot {} {:?} gun {} class {} at {:.1} {:.1} {:.1} dir {:.3} {:.3} {:.3} speed {:.0} yaw {:.0} pitch {:.0}",
+                    sys.tick,
+                    self.owner,
+                    self.class.name,
+                    sys.classes.list[p.class].name,
+                    at.x, at.y, at.z,
+                    d.x, d.y, d.z,
+                    v.length(),
+                    d.x.atan2(d.z).to_degrees().rem_euclid(360.0),
+                    d.y.asin().to_degrees(),
+                );
+            }
+        }
         let a = self.class.attachments[i].clone();
         if !self.infinite_ammo {
             self.ammo = self.ammo.saturating_sub(a.ammo_used);

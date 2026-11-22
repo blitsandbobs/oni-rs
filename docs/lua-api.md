@@ -249,6 +249,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | Function | Description |
 |---|---|
 | `faithful(on: bool?)` | Switches reproducing the original's known bugs (`docs/deviations.md`) on or off (omitted: left as is) → whether it is on now. |
+| `tick()` | The world's tick now (what `ONI_TRACE_SHOTS` and other traces print). |
 | `seed(n: int)` | Reseeds every fighter's weighted animation pick, for repeatable runs. |
 | `temp_path(name: string)` | a path in the temp folder of this process's own (`oni_<pid>_<name>`): for a screenshot a scenario reads back, which a copy running at once (the fixed and faithful passes) mustn't share. |
 | `image_mean(path: string, x0: number, y0: number, x1: number, y1: number)` | r, g, b (0–1): a saved screenshot's mean colour over a region (fractions of its width and height). |

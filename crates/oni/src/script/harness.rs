@@ -13,6 +13,9 @@ pub(super) fn register(r: &Reg) -> mlua::Result<()> {
         Ok(host.world.quirks.faithful)
     })?;
 
+    // The world's tick now (what `ONI_TRACE_SHOTS` and other traces print).
+    r.def("tick", |_, host, ()| Ok(host.world.tick()))?;
+
     // Reseeds every fighter's weighted animation pick, for repeatable runs.
     r.def("seed", |_, host, n: u32| {
         for f in &host.world.fighters {

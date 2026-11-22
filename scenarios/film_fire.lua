@@ -1,9 +1,11 @@
 -- A film plays its actor's recorded input in full (#94): its turns turn
--- and aim (unscaled: a port choice, docs/deviations.md) and its fire
--- buttons fire the gun it holds, as the player's do — not strike. Level 3's
--- intro: Barabas starts IntroSubboss01 side-on to the road (182°), sweeps
--- while firing his first burst as Konoko comes, and has turned to +x, where
--- she lands after jumping him, for his second (from about its tick 280).
+-- and aim (scaled by the held gun's aiming speed) and its fire buttons fire
+-- the gun it holds, as the player's do — not strike. Level 3's intro:
+-- Barabas starts IntroSubboss01 side-on to the road (182°) and fires his
+-- first shot that way (his gun charges first); his startle as Konoko jumps
+-- him turns him to +x, where she lands — an animation's turn turns what he
+-- wants to face too (`ONrCharacter_AdjustFacing`), so he stays turned — and
+-- his second shot goes after her (film tick ~350).
 --
 --   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
@@ -27,16 +29,16 @@ for t = 1, 1000 do
         local _, _, f = weapon(b)
         if f then
             firing = (firing or 0) + 1
-            -- The second burst's gun heading (film ticks 280-320).
+            -- The second shot's gun heading (film tick ~350).
             local g = held_gun(b)
-            if t - t0 >= 280 and t - t0 <= 320 and g then
+            if t - t0 >= 340 and t - t0 <= 360 and g then
                 second = second or yaw(g.x[1], g.x[3])
             end
         end
     end
 end
-print("Barabas fires for", firing, "ticks; his second burst heads", second)
+print("Barabas fires for", firing, "ticks; his second shot heads", second)
 assert(firing and firing > 50, "his recorded trigger fires his gun")
 assert(aim_moved, "his recorded turns aim it")
-assert(second and second > 40 and second < 140, "turned to +x, where Konoko landed")
+assert(second and second > 60 and second < 110, "turned to +x, where Konoko landed")
 print("film fire ok")

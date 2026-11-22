@@ -89,6 +89,14 @@ impl Facing {
         self.facing = wrap_2pi(self.facing + amount);
     }
 
+    /// Turns the body and what it wants to face alike by `amount` radians
+    /// (`ONrCharacter_AdjustFacing`): an animation's own turn, which leaves
+    /// the body no less facing what it wanted relative to itself.
+    pub fn adjust(&mut self, amount: f32) {
+        self.facing = wrap_2pi(self.facing + amount);
+        self.desired_facing = wrap_2pi(self.desired_facing + amount);
+    }
+
     /// Sets the facing modifier: the body is asked to face `modifier` away
     /// from the aim direction (a diagonal run leans the body ±45°, a turned
     /// sidestep ±90°). The aim direction itself does not move.
