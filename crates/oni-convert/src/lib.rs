@@ -46,6 +46,7 @@ mod pause_pages;
 mod placed;
 mod sky;
 mod sounds;
+pub mod source;
 mod text_consoles;
 mod turrets;
 mod weapons;
