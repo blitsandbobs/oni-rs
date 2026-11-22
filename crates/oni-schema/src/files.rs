@@ -2086,6 +2086,220 @@ pub struct CollectionEntry {
     pub weight: u16,
 }
 
+/// A name from a table, or the number when the table has none.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum Named {
+    Name(String),
+    Number(u32),
+}
+
+impl Named {
+    /// Its name (none for a bare number).
+    pub fn name(&self) -> Option<&str> {
+        match self {
+            Named::Name(n) => Some(n),
+            Named::Number(_) => None,
+        }
+    }
+}
+
+/// `common/particle_classes.json`: the particle classes (`BINA` `PAR3`), by
+/// name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ParticleClassesFile {
+    #[serde(default)]
+    pub count: usize,
+    pub classes: BTreeMap<String, ParticleClass>,
+}
+
+/// A particle value (`P3tValue`): a number, a string, a variable, a range
+/// or bell curve, a shade or shade range or bell, an enum, a cycle.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ParticleValue {
+    Number(f32),
+    Text(String),
+    Var {
+        var: String,
+    },
+    Range {
+        range: [f32; 2],
+    },
+    Bell {
+        bell: [f32; 2],
+    },
+    Shade {
+        shade: String,
+    },
+    ShadeRange {
+        #[serde(rename = "shadeRange")]
+        shade_range: [String; 2],
+    },
+    ShadeBell {
+        #[serde(rename = "shadeBell")]
+        shade_bell: [String; 2],
+    },
+    Enum {
+        #[serde(rename = "enum")]
+        value: u32,
+    },
+    Cycle {
+        cycle: [f32; 2],
+    },
+    Unknown {
+        unknown: u32,
+    },
+}
+
+/// A particle class: its flags, appearance, variables, event action lists,
+/// emitters and attractor.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticleClass {
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite_type: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags2: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_mask: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lifetime: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub collision_radius: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dodge_radius: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alert_radius: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flyby_sound: Option<String>,
+    #[serde(default)]
+    pub appearance: Appearance,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attractor: Option<Attractor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variables: Vec<ParticleVariable>,
+    /// Each event's actions: `[first, end)` into `actions`.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub events: BTreeMap<String, [u16; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ParticleAction>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub emitters: Vec<ParticleEmitter>,
+}
+
+/// How a particle class looks.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Appearance {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub scale: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y_scale: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotation: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpha: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tint: Option<ParticleValue>,
+    /// Contrails: fading out edge-on, and the longest link drawn.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_fade_min: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edge_fade_max: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_contrail: Option<ParticleValue>,
+    /// Lens flares: how far behind something one still shows, the frames
+    /// it fades in and out over.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lensflare_dist: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lens_in_frames: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub lens_out_frames: Option<u16>,
+    /// Decals: how many at once, frames to fade out, how far one wraps.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_decals: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decal_fade_frames: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub decal_wrap: Option<ParticleValue>,
+    /// Its sprite's or geometry's texture.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+}
+
+/// A particle class's attractor: what it is drawn to and how.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Attractor {
+    pub iterator: Named,
+    pub selector: Named,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_distance: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_angle: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theta_min: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theta_max: Option<ParticleValue>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theta_weight: Option<ParticleValue>,
+}
+
+/// A particle class's variable: its name, data type, initial value.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParticleVariable {
+    pub name: String,
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub init: Option<ParticleValue>,
+}
+
+/// An action: its type, the variables it works on and its parameters
+/// (unset slots null, trailing ones left out).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ParticleAction {
+    #[serde(rename = "type")]
+    pub kind: Named,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub vars: Vec<Option<String>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub params: Vec<Option<ParticleValue>>,
+}
+
+/// An emitter: the class it emits and how (rate, position, direction,
+/// speed, each a kind and its values), linked and oriented how.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ParticleEmitter {
+    pub class: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    pub limit: u16,
+    pub chance: u16,
+    pub burst: f32,
+    pub link: Named,
+    pub rate: EmitterSpec,
+    pub position: EmitterSpec,
+    pub direction: EmitterSpec,
+    pub speed: EmitterSpec,
+    pub orient_dir: Named,
+    pub orient_up: Named,
+}
+
+/// An emitter's rate, position, direction or speed: its kind and values.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct EmitterSpec {
+    #[serde(rename = "type")]
+    pub kind: Named,
+    pub values: Vec<Option<ParticleValue>>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

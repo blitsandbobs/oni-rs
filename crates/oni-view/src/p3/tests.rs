@@ -228,7 +228,7 @@ fn classes() -> Rc<Classes> {
             "events": { "brokenLink": [0, 1] }
         }
     } });
-    Rc::new(Classes::from_json(&doc))
+    Rc::new(Classes::from_file(&serde_json::from_value(doc).unwrap()))
 }
 
 fn spawn(sys: &mut System, name: &str, at: Vec3, velocity: Vec3, host: &mut Fake) -> Handle {
@@ -587,7 +587,7 @@ fn motion_classes() -> Rc<Classes> {
             "events": { "create": [0, 1] }
         }
     } });
-    Rc::new(Classes::from_json(&doc))
+    Rc::new(Classes::from_file(&serde_json::from_value(doc).unwrap()))
 }
 
 #[test]

@@ -18,7 +18,9 @@
 
 use std::collections::BTreeMap;
 
-use serde_json::{json, Map, Value};
+use oni_schema::files::{self, Named, ParticleValue as V};
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -253,47 +255,69 @@ const ITERATORS: [&str; 9] = [
 ];
 const SELECTORS: [&str; 2] = ["distance", "conical"];
 
-fn name<const N: usize>(table: &[&str; N], i: u32) -> Value {
-    table.get(i as usize).map_or(json!(i), |s| json!(s))
+fn name<const N: usize>(table: &[&str; N], i: u32) -> Named {
+    table
+        .get(i as usize)
+        .map_or(Named::Number(i), |s| Named::Name(s.to_string()))
 }
 
-fn flag_names(bits: u32, table: &[(u32, &'static str)]) -> Vec<&'static str> {
+fn flag_names(bits: u32, table: &[(u32, &'static str)]) -> Vec<String> {
     table
         .iter()
         .filter(|(b, _)| bits & (1 << b) != 0)
-        .map(|(_, n)| *n)
+        .map(|(_, n)| n.to_string())
         .collect()
 }
 
-fn shade(c: u32) -> Value {
-    json!(format!("#{c:08x}"))
+fn shade(c: u32) -> String {
+    format!("#{c:08x}")
 }
 
-/// A `P3tValue` at `o` (see the module docs for the encoding).
-fn value(d: &[u8], o: usize) -> Value {
+/// A `P3tValue` at `o` (see the module docs for the encoding); `None`: unset.
+fn value(d: &[u8], o: usize) -> Option<V> {
     let p = o + 4;
-    match le_u32(d, o) {
+    Some(match le_u32(d, o) {
         0 => {
             let n = cstr(d, p, 16);
             if n.is_empty() {
-                Value::Null
-            } else {
-                json!({ "var": n })
+                return None;
             }
+            V::Var { var: n }
         }
-        1 => json!(le_u16(d, p) as f32),
-        2 => json!({ "range": [le_u16(d, p) as f32, le_u16(d, p + 2) as f32] }),
-        3 => json!(le_f32(d, p)),
-        4 => json!({ "range": [le_f32(d, p), le_f32(d, p + 4)] }),
-        5 => json!({ "bell": [le_f32(d, p), le_f32(d, p + 4)] }),
-        6 => json!(cstr(d, p, 16)),
-        7 => json!({ "shade": shade(le_u32(d, p)) }),
-        8 => json!({ "shadeRange": [shade(le_u32(d, p)), shade(le_u32(d, p + 4))] }),
-        9 => json!({ "shadeBell": [shade(le_u32(d, p)), shade(le_u32(d, p + 4))] }),
-        10 => json!({ "enum": le_u32(d, p) }),
-        11 => json!({ "cycle": [le_f32(d, p), le_f32(d, p + 4)] }),
-        t => json!({ "unknown": t }),
-    }
+        1 => V::Number(le_u16(d, p) as f32),
+        2 => V::Range {
+            range: [le_u16(d, p) as f32, le_u16(d, p + 2) as f32],
+        },
+        3 => V::Number(le_f32(d, p)),
+        4 => V::Range {
+            range: [le_f32(d, p), le_f32(d, p + 4)],
+        },
+        5 => V::Bell {
+            bell: [le_f32(d, p), le_f32(d, p + 4)],
+        },
+        6 => V::Text(cstr(d, p, 16)),
+        7 => V::Shade {
+            shade: shade(le_u32(d, p)),
+        },
+        8 => V::ShadeRange {
+            shade_range: [shade(le_u32(d, p)), shade(le_u32(d, p + 4))],
+        },
+        9 => V::ShadeBell {
+            shade_bell: [shade(le_u32(d, p)), shade(le_u32(d, p + 4))],
+        },
+        10 => V::Enum {
+            value: le_u32(d, p),
+        },
+        11 => V::Cycle {
+            cycle: [le_f32(d, p), le_f32(d, p + 4)],
+        },
+        t => V::Unknown { unknown: t },
+    })
+}
+
+/// A value set to something other than 0.
+fn nonzero(v: Option<V>) -> Option<V> {
+    v.filter(|v| *v != V::Number(0.0))
 }
 
 /// A variable's data type (`P3tDataType`).
@@ -309,16 +333,16 @@ fn data_type(t: u32) -> &'static str {
     }
 }
 
-/// Drops trailing `null`s (unset slots) from a list.
-fn trim(mut v: Vec<Value>) -> Vec<Value> {
-    while v.last().is_some_and(Value::is_null) {
+/// Drops trailing unset slots from a list.
+fn trim<T>(mut v: Vec<Option<T>>) -> Vec<Option<T>> {
+    while v.last().is_some_and(Option::is_none) {
         v.pop();
     }
     v
 }
 
-/// One class definition as JSON; `None` when it is not a well-formed v18 one.
-pub fn decode(d: &[u8]) -> Option<Value> {
+/// One class definition; `None` when it is not a well-formed v18 one.
+pub fn decode(d: &[u8]) -> Option<files::ParticleClass> {
     if d.len() < FIXED || le_u16(d, 2) != 18 {
         return None;
     }
@@ -330,174 +354,98 @@ pub fn decode(d: &[u8]) -> Option<Value> {
     if d.len() < FIXED + nv * VAR + na * ACTION + ne * EMITTER {
         return None;
     }
-    let mut c = Map::new();
+    let mut c = files::ParticleClass::default();
     let flags = le_u32(d, 4);
-    let mut names = flag_names(flags, &CLASS_FLAGS);
-    names.extend(flag_names(flags, &CLASS_FLAGS_MORE));
-    if !names.is_empty() {
-        c.insert("flags".into(), json!(names));
-    }
+    c.flags = flag_names(flags, &CLASS_FLAGS);
+    c.flags.extend(flag_names(flags, &CLASS_FLAGS_MORE));
     let sprite = (flags >> 5) & 7;
-    if sprite != 0 {
-        c.insert("spriteType".into(), json!(sprite));
-    }
-    let names2 = flag_names(le_u32(d, 8), &CLASS_FLAGS2);
-    if !names2.is_empty() {
-        c.insert("flags2".into(), json!(names2));
-    }
+    c.sprite_type = (sprite != 0).then_some(sprite);
+    c.flags2 = flag_names(le_u32(d, 8), &CLASS_FLAGS2);
     let mask = le_u32(d, 12);
-    if mask != 0 {
-        c.insert("actionMask".into(), json!(mask));
-    }
-    for (key, off) in [("lifetime", 88), ("collisionRadius", 116)] {
-        let v = value(d, off);
-        if !v.is_null() && v != json!(0.0) {
-            c.insert(key.into(), v);
-        }
-    }
-    for (key, off) in [("dodgeRadius", 144), ("alertRadius", 148)] {
-        let v = le_f32(d, off);
-        if v != 0.0 {
-            c.insert(key.into(), json!(v));
-        }
-    }
+    c.action_mask = (mask != 0).then_some(mask);
+    c.lifetime = nonzero(value(d, 88));
+    c.collision_radius = nonzero(value(d, 116));
+    let nonzero_f32 = |off: usize| Some(le_f32(d, off)).filter(|&v| v != 0.0);
+    c.dodge_radius = nonzero_f32(144);
+    c.alert_radius = nonzero_f32(148);
     let flyby = cstr(d, 152, 16);
-    if !flyby.is_empty() {
-        c.insert("flybySound".into(), json!(flyby));
-    }
-    let mut app = Map::new();
-    for (key, off) in [
-        ("scale", 168),
-        ("yScale", 196),
-        ("rotation", 224),
-        ("alpha", 252),
-        ("tint", 368),
-    ] {
-        let v = value(d, off);
-        if !v.is_null() {
-            app.insert(key.into(), v);
-        }
-    }
-    // Contrails: fading out edge-on (between these, when the class fades at
-    // its edges) and the longest link drawn (0: any).
-    for (key, off) in [
-        ("edgeFadeMin", 396),
-        ("edgeFadeMax", 424),
-        ("maxContrail", 452),
-    ] {
-        let v = value(d, off);
-        if !v.is_null() && v != json!(0.0) {
-            app.insert(key.into(), v);
-        }
-    }
-    // Lens flares: how far behind something one can still be seen, and the
-    // frames it fades in and out over as it is seen or hidden.
-    let dist = value(d, 480);
-    if !dist.is_null() && dist != json!(0.0) {
-        app.insert("lensflareDist".into(), dist);
-    }
-    for (key, off) in [("lensInFrames", 508), ("lensOutFrames", 510)] {
-        let v = le_u16(d, off);
-        if v != 0 {
-            app.insert(key.into(), json!(v));
-        }
-    }
-    // Decals: how many may live at once, frames to fade out, how far (in
-    // degrees) one wraps round a corner.
-    for (key, off) in [("maxDecals", 512), ("decalFadeFrames", 514)] {
-        app.insert(key.into(), json!(le_u16(d, off)));
-    }
-    let wrap = value(d, 516);
-    if !wrap.is_null() {
-        app.insert("decalWrap".into(), wrap);
-    }
+    c.flyby_sound = (!flyby.is_empty()).then_some(flyby);
     let inst = cstr(d, 280, 32);
-    if !inst.is_empty() {
-        app.insert("instance".into(), json!(crate::sanitize(&inst)));
-    }
-    c.insert("appearance".into(), Value::Object(app));
+    let nonzero_u16 = |off: usize| Some(le_u16(d, off)).filter(|&v| v != 0);
+    c.appearance = files::Appearance {
+        scale: value(d, 168),
+        y_scale: value(d, 196),
+        rotation: value(d, 224),
+        alpha: value(d, 252),
+        tint: value(d, 368),
+        // Contrails: fading out edge-on (between these, when the class
+        // fades at its edges) and the longest link drawn (0: any).
+        edge_fade_min: nonzero(value(d, 396)),
+        edge_fade_max: nonzero(value(d, 424)),
+        max_contrail: nonzero(value(d, 452)),
+        // Lens flares: how far behind something one can still be seen, and
+        // the frames it fades in and out over as it is seen or hidden.
+        lensflare_dist: nonzero(value(d, 480)),
+        lens_in_frames: nonzero_u16(508),
+        lens_out_frames: nonzero_u16(510),
+        // Decals: how many may live at once, frames to fade out, how far
+        // (in degrees) one wraps round a corner.
+        max_decals: Some(le_u16(d, 512)),
+        decal_fade_frames: Some(le_u16(d, 514)),
+        decal_wrap: value(d, 516),
+        instance: (!inst.is_empty()).then(|| crate::sanitize(&inst)),
+    };
     let iterator = le_u32(d, 544);
     if iterator != 0 {
-        let mut a = Map::new();
-        a.insert("iterator".into(), name(&ITERATORS, iterator));
-        a.insert("selector".into(), name(&SELECTORS, le_u32(d, 548)));
         let n = cstr(d, 556, 64);
-        if !n.is_empty() {
-            a.insert("name".into(), json!(n));
-        }
-        for (key, off) in [
-            ("maxDistance", 620),
-            ("maxAngle", 648),
-            ("thetaMin", 676),
-            ("thetaMax", 704),
-            ("thetaWeight", 732),
-        ] {
-            let v = value(d, off);
-            if !v.is_null() {
-                a.insert(key.into(), v);
-            }
-        }
-        c.insert("attractor".into(), Value::Object(a));
+        c.attractor = Some(files::Attractor {
+            iterator: name(&ITERATORS, iterator),
+            selector: name(&SELECTORS, le_u32(d, 548)),
+            name: (!n.is_empty()).then_some(n),
+            max_distance: value(d, 620),
+            max_angle: value(d, 648),
+            theta_min: value(d, 676),
+            theta_max: value(d, 704),
+            theta_weight: value(d, 732),
+        });
     }
-    let vars: Vec<Value> = (0..nv)
+    c.variables = (0..nv)
         .map(|i| {
             let o = FIXED + i * VAR;
-            json!({ "name": cstr(d, o, 16), "type": data_type(le_u32(d, o + 16)), "init": value(d, o + 24) })
+            files::ParticleVariable {
+                name: cstr(d, o, 16),
+                kind: data_type(le_u32(d, o + 16)).to_string(),
+                init: value(d, o + 24),
+            }
         })
         .collect();
-    if !vars.is_empty() {
-        c.insert("variables".into(), json!(vars));
-    }
-    let mut events = Map::new();
     for (e, ev) in EVENTS.iter().enumerate() {
         let (s, t) = (le_u16(d, 24 + e * 4), le_u16(d, 26 + e * 4));
         if t > s {
-            events.insert((*ev).into(), json!([s, t]));
+            c.events.insert(ev.to_string(), [s, t]);
         }
     }
-    if !events.is_empty() {
-        c.insert("events".into(), Value::Object(events));
-    }
     let base = FIXED + nv * VAR;
-    let actions: Vec<Value> = (0..na)
+    c.actions = (0..na)
         .map(|i| {
             let o = base + i * ACTION;
             let t = le_u32(d, o);
-            let mut a = Map::new();
-            a.insert(
-                "type".into(),
-                ACTIONS
+            files::ParticleAction {
+                kind: ACTIONS
                     .iter()
                     .find(|x| x.0 == t)
-                    .map_or(json!(t), |x| json!(x.1)),
-            );
-            let vars = trim(
-                (0..8)
-                    .map(|k| {
-                        let n = cstr(d, o + 8 + k * 24, 16);
-                        if n.is_empty() {
-                            Value::Null
-                        } else {
-                            json!(n)
-                        }
-                    })
-                    .collect(),
-            );
-            if !vars.is_empty() {
-                a.insert("vars".into(), json!(vars));
+                    .map_or(Named::Number(t), |x| Named::Name(x.1.to_string())),
+                vars: trim(
+                    (0..8)
+                        .map(|k| Some(cstr(d, o + 8 + k * 24, 16)).filter(|n| !n.is_empty()))
+                        .collect(),
+                ),
+                params: trim((0..8).map(|k| value(d, o + 200 + k * VALUE)).collect()),
             }
-            let params = trim((0..8).map(|k| value(d, o + 200 + k * VALUE)).collect());
-            if !params.is_empty() {
-                a.insert("params".into(), json!(params));
-            }
-            Value::Object(a)
         })
         .collect();
-    if !actions.is_empty() {
-        c.insert("actions".into(), json!(actions));
-    }
     let base = base + na * ACTION;
-    let emitters: Vec<Value> = (0..ne)
+    c.emitters = (0..ne)
         .map(|i| {
             let o = base + i * EMITTER;
             let vals = |from: usize, n: usize| {
@@ -507,47 +455,30 @@ pub fn decode(d: &[u8]) -> Option<Value> {
                         .collect(),
                 )
             };
-            let mut e = Map::new();
-            e.insert("class".into(), json!(cstr(d, o, 64)));
+            let spec = |kind: Named, values| files::EmitterSpec { kind, values };
             let f = le_u32(d, o + 68);
-            let fl: Vec<&str> = EMITTER_FLAGS
-                .iter()
-                .enumerate()
-                .filter(|(b, _)| f & (1 << b) != 0)
-                .map(|(_, n)| *n)
-                .collect();
-            if !fl.is_empty() {
-                e.insert("flags".into(), json!(fl));
+            files::ParticleEmitter {
+                class: cstr(d, o, 64),
+                flags: EMITTER_FLAGS
+                    .iter()
+                    .enumerate()
+                    .filter(|(b, _)| f & (1 << b) != 0)
+                    .map(|(_, n)| n.to_string())
+                    .collect(),
+                limit: le_u16(d, o + 72),
+                chance: le_u16(d, o + 74),
+                burst: le_f32(d, o + 76),
+                link: name(&LINKS, le_u32(d, o + 80)),
+                rate: spec(name(&RATES, le_u32(d, o + 84)), vals(0, 2)),
+                position: spec(name(&POSITIONS, le_u32(d, o + 88)), vals(2, 3)),
+                direction: spec(name(&DIRECTIONS, le_u32(d, o + 92)), vals(5, 3)),
+                speed: spec(name(&SPEEDS, le_u32(d, o + 96)), vals(8, 3)),
+                orient_dir: name(&ORIENTS, le_u32(d, o + 100)),
+                orient_up: name(&ORIENTS, le_u32(d, o + 104)),
             }
-            e.insert("limit".into(), json!(le_u16(d, o + 72)));
-            e.insert("chance".into(), json!(le_u16(d, o + 74)));
-            e.insert("burst".into(), json!(le_f32(d, o + 76)));
-            e.insert("link".into(), name(&LINKS, le_u32(d, o + 80)));
-            e.insert(
-                "rate".into(),
-                json!({ "type": name(&RATES, le_u32(d, o + 84)), "values": vals(0, 2) }),
-            );
-            e.insert(
-                "position".into(),
-                json!({ "type": name(&POSITIONS, le_u32(d, o + 88)), "values": vals(2, 3) }),
-            );
-            e.insert(
-                "direction".into(),
-                json!({ "type": name(&DIRECTIONS, le_u32(d, o + 92)), "values": vals(5, 3) }),
-            );
-            e.insert(
-                "speed".into(),
-                json!({ "type": name(&SPEEDS, le_u32(d, o + 96)), "values": vals(8, 3) }),
-            );
-            e.insert("orientDir".into(), name(&ORIENTS, le_u32(d, o + 100)));
-            e.insert("orientUp".into(), name(&ORIENTS, le_u32(d, o + 104)));
-            Value::Object(e)
         })
         .collect();
-    if !emitters.is_empty() {
-        c.insert("emitters".into(), json!(emitters));
-    }
-    Some(Value::Object(c))
+    Some(c)
 }
 
 /// Writes every class in `classes` (raw definitions by name) to
@@ -556,17 +487,18 @@ pub fn write(
     classes: &BTreeMap<String, &[u8]>,
     common: &std::path::Path,
 ) -> std::io::Result<usize> {
-    let mut out = Map::new();
-    for (n, d) in classes {
-        if let Some(v) = decode(d) {
-            out.insert(n.clone(), v);
-        }
-    }
+    let out: BTreeMap<String, files::ParticleClass> = classes
+        .iter()
+        .filter_map(|(n, d)| Some((n.clone(), decode(d)?)))
+        .collect();
     std::fs::create_dir_all(common)?;
     let count = out.len();
     std::fs::write(
         common.join("particle_classes.json"),
-        serde_json::to_string(&json!({ "count": count, "classes": out }))?,
+        serde_json::to_string(&files::ParticleClassesFile {
+            count,
+            classes: out,
+        })?,
     )?;
     Ok(count)
 }
@@ -610,7 +542,7 @@ mod tests {
         put_u32(&mut d, e + 68, 0x7);
         put_u32(&mut d, e + 84, 2);
 
-        let c = decode(&d).unwrap();
+        let c = serde_json::to_value(decode(&d).unwrap()).unwrap();
         assert_eq!(c["flags"], json!(["collideEnv", "hasVelocity"]));
         assert_eq!(c["lifetime"], json!(30.0));
         assert_eq!(

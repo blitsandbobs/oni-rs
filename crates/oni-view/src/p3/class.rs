@@ -7,7 +7,7 @@ use std::ops::Range;
 use std::path::Path;
 use std::rc::Rc;
 
-use serde_json::Value as Json;
+use oni_schema::files;
 
 /// A class index into [`Classes::list`].
 pub type ClassId = usize;
@@ -591,25 +591,18 @@ impl Classes {
 
     /// Loads `particle_classes.json`; empty when missing.
     pub fn load(path: &Path) -> Classes {
-        let Ok(text) = std::fs::read_to_string(path) else {
-            return Classes::default();
-        };
-        let Ok(doc) = serde_json::from_str::<Json>(&text) else {
-            return Classes::default();
-        };
-        Classes::from_json(&doc)
+        Classes::from_file(&crate::json::read_file(path))
     }
 
-    pub fn from_json(doc: &Json) -> Classes {
-        let Some(map) = doc["classes"].as_object() else {
-            return Classes::default();
-        };
-        let by_name: HashMap<String, ClassId> = map
+    pub fn from_file(doc: &files::ParticleClassesFile) -> Classes {
+        let by_name: HashMap<String, ClassId> = doc
+            .classes
             .keys()
             .enumerate()
             .map(|(i, k)| (k.clone(), i))
             .collect();
-        let list = map
+        let list = doc
+            .classes
             .iter()
             .map(|(name, c)| class(name, c, &by_name))
             .collect();
@@ -617,56 +610,44 @@ impl Classes {
     }
 }
 
-fn f32_of(j: &Json) -> f32 {
-    j.as_f64().unwrap_or(0.0) as f32
+fn shade_of(s: &str) -> u32 {
+    u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0)
 }
 
-fn shade_of(j: &Json) -> u32 {
-    j.as_str()
-        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
-        .unwrap_or(0)
-}
-
-/// A JSON value (see `docs/ASSET_FORMAT.md`), with `{"var"}` resolved
-/// against `vars`.
-fn value(j: &Json, vars: &[VarDef]) -> Value {
-    let pair = |k: &str| (f32_of(&j[k][0]), f32_of(&j[k][1]));
+/// A value (see `docs/ASSET_FORMAT.md`), with a variable resolved against
+/// `vars`.
+fn value(j: Option<&files::ParticleValue>, vars: &[VarDef]) -> Value {
+    use files::ParticleValue as P;
     match j {
-        Json::Null => Value::Null,
-        Json::Number(n) => Value::Float(n.as_f64().unwrap_or(0.0) as f32),
-        Json::String(s) => Value::Str(s.as_str().into()),
-        Json::Object(o) => {
-            if let Some(n) = o.get("var").and_then(Json::as_str) {
-                vars.iter()
-                    .position(|v| v.name == n)
-                    .map_or(Value::Null, Value::Var)
-            } else if o.contains_key("range") {
-                let (a, b) = pair("range");
-                Value::Range(a, b)
-            } else if o.contains_key("bell") {
-                let (a, b) = pair("bell");
-                Value::Bell(a, b)
-            } else if let Some(s) = o.get("shade") {
-                Value::Shade(shade_of(s))
-            } else if let Some(s) = o.get("shadeRange") {
-                Value::ShadeRange(shade_of(&s[0]), shade_of(&s[1]))
-            } else if let Some(s) = o.get("shadeBell") {
-                Value::ShadeBell(shade_of(&s[0]), shade_of(&s[1]))
-            } else if let Some(e) = o.get("enum") {
-                Value::Enum(e.as_u64().unwrap_or(0) as u32)
-            } else if o.contains_key("cycle") {
-                let (a, b) = pair("cycle");
-                Value::Cycle(a, b)
-            } else {
-                Value::Null
-            }
-        }
-        _ => Value::Null,
+        None | Some(P::Unknown { .. }) => Value::Null,
+        Some(P::Number(n)) => Value::Float(*n),
+        Some(P::Text(s)) => Value::Str(s.as_str().into()),
+        Some(P::Var { var }) => vars
+            .iter()
+            .position(|v| &v.name == var)
+            .map_or(Value::Null, Value::Var),
+        Some(P::Range { range: [a, b] }) => Value::Range(*a, *b),
+        Some(P::Bell { bell: [a, b] }) => Value::Bell(*a, *b),
+        Some(P::Shade { shade }) => Value::Shade(shade_of(shade)),
+        Some(P::ShadeRange {
+            shade_range: [a, b],
+        }) => Value::ShadeRange(shade_of(a), shade_of(b)),
+        Some(P::ShadeBell { shade_bell: [a, b] }) => Value::ShadeBell(shade_of(a), shade_of(b)),
+        Some(P::Enum { value }) => Value::Enum(*value),
+        Some(P::Cycle { cycle: [a, b] }) => Value::Cycle(*a, *b),
     }
 }
 
-fn values<const N: usize>(j: &Json, vars: &[VarDef]) -> [Value; N] {
-    std::array::from_fn(|k| value(&j[k], vars))
+fn values<const N: usize>(j: &[Option<files::ParticleValue>], vars: &[VarDef]) -> [Value; N] {
+    std::array::from_fn(|k| value(j.get(k).and_then(Option::as_ref), vars))
+}
+
+/// A number value's number (else 0).
+fn number(j: Option<&files::ParticleValue>) -> f32 {
+    match j {
+        Some(files::ParticleValue::Number(n)) => *n,
+        _ => 0.0,
+    }
 }
 
 fn orient(s: &str) -> Orient {
@@ -693,18 +674,10 @@ fn orient(s: &str) -> Orient {
     }
 }
 
-fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
-    let names = |k: &str| -> Vec<String> {
-        c[k].as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|x| x.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default()
-    };
+fn class(name: &str, c: &files::ParticleClass, by_name: &HashMap<String, ClassId>) -> Class {
+    let has = |list: &[String], n: &str| list.iter().any(|x| x == n);
     let mut flags = 0;
-    for n in names("flags").iter().chain(names("flags2").iter()) {
+    for n in c.flags.iter().chain(&c.flags2) {
         if let Some((_, b)) = CLASS_FLAGS.iter().find(|(k, _)| k == n) {
             flags |= b;
         }
@@ -714,135 +687,117 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
         flags |= cflag::DECORATIVE;
     }
     // Variables first: values refer to them by name.
-    let mut vars: Vec<VarDef> = c["variables"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|v| VarDef {
-                    name: v["name"].as_str().unwrap_or("").to_string(),
-                    kind: match v["type"].as_str() {
-                        Some("float") => VarKind::Float,
-                        Some("string") => VarKind::Str,
-                        Some("shade") => VarKind::Shade,
-                        Some("enum") => VarKind::Enum,
-                        _ => VarKind::Sound,
-                    },
-                    init: Value::Null,
-                })
-                .collect()
+    let mut vars: Vec<VarDef> = c
+        .variables
+        .iter()
+        .map(|v| VarDef {
+            name: v.name.clone(),
+            kind: match v.kind.as_str() {
+                "float" => VarKind::Float,
+                "string" => VarKind::Str,
+                "shade" => VarKind::Shade,
+                "enum" => VarKind::Enum,
+                _ => VarKind::Sound,
+            },
+            init: Value::Null,
         })
-        .unwrap_or_default();
-    let inits: Vec<Value> = c["variables"]
-        .as_array()
-        .map(|a| a.iter().map(|v| value(&v["init"], &vars)).collect())
-        .unwrap_or_default();
+        .collect();
+    let inits: Vec<Value> = c
+        .variables
+        .iter()
+        .map(|v| value(v.init.as_ref(), &vars))
+        .collect();
     for (v, i) in vars.iter_mut().zip(inits) {
         v.init = i;
     }
-    let actions = c["actions"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|x| {
-                    let mut slot = [None; 8];
-                    if let Some(vs) = x["vars"].as_array() {
-                        for (k, v) in vs.iter().take(8).enumerate() {
-                            slot[k] = v
-                                .as_str()
-                                .and_then(|n| vars.iter().position(|d| d.name == n));
-                        }
-                    }
-                    Action {
-                        kind: x["type"].as_str().map_or(Kind::Other, Kind::from_name),
-                        vars: slot,
-                        params: x["params"]
-                            .as_array()
-                            .map(|p| p.iter().map(|v| value(v, &vars)).collect())
-                            .unwrap_or_default(),
-                    }
-                })
-                .collect()
+    let actions = c
+        .actions
+        .iter()
+        .map(|x| {
+            let mut slot = [None; 8];
+            for (k, v) in x.vars.iter().take(8).enumerate() {
+                slot[k] = v
+                    .as_ref()
+                    .and_then(|n| vars.iter().position(|d| &d.name == n));
+            }
+            Action {
+                kind: x.kind.name().map_or(Kind::Other, Kind::from_name),
+                vars: slot,
+                params: x.params.iter().map(|v| value(v.as_ref(), &vars)).collect(),
+            }
         })
-        .unwrap_or_default();
+        .collect();
     let events = std::array::from_fn(|e| {
-        let r = &c["events"][EVENT_NAMES[e]];
-        (r[0].as_u64().unwrap_or(0) as usize)..(r[1].as_u64().unwrap_or(0) as usize)
+        let r = c.events.get(EVENT_NAMES[e]).copied().unwrap_or([0, 0]);
+        usize::from(r[0])..usize::from(r[1])
     });
-    let emitters = c["emitters"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|e| {
-                    let fl = e["flags"].as_array().map_or(0, |f| {
-                        f.iter()
-                            .filter_map(|n| {
-                                EMITTER_FLAGS.iter().position(|k| Some(*k) == n.as_str())
-                            })
-                            .fold(0, |acc, b| acc | 1 << b)
-                    });
-                    let ty = |k: &str| e[k]["type"].as_str().unwrap_or("").to_string();
-                    Emitter {
-                        class: e["class"].as_str().and_then(|n| by_name.get(n).copied()),
-                        flags: fl,
-                        limit: e["limit"].as_u64().unwrap_or(0) as u16,
-                        chance: e["chance"].as_u64().unwrap_or(65535) as u16,
-                        burst: f32_of(&e["burst"]),
-                        link: match e["link"].as_str().unwrap_or("none") {
-                            "emitter" => Link::Emitter,
-                            "ourLink" => Link::Inherited,
-                            s if s.starts_with("lastEmission") => Link::LastEmission(
-                                s.trim_start_matches("lastEmission").parse().unwrap_or(0),
-                            ),
-                            _ => Link::None,
-                        },
-                        rate: (
-                            match ty("rate").as_str() {
-                                "random" => Rate::Random,
-                                "instant" => Rate::Instant,
-                                "distance" => Rate::Distance,
-                                "attractor" => Rate::Attractor,
-                                _ => Rate::Continuous,
-                            },
-                            values(&e["rate"]["values"], &vars),
-                        ),
-                        position: (
-                            match ty("position").as_str() {
-                                "line" => Position::Line,
-                                "circle" => Position::Circle,
-                                "sphere" => Position::Sphere,
-                                "offset" => Position::Offset,
-                                "cylinder" => Position::Cylinder,
-                                "bodySurface" => Position::BodySurface,
-                                "bodyBones" => Position::BodyBones,
-                                _ => Position::Point,
-                            },
-                            values(&e["position"]["values"], &vars),
-                        ),
-                        direction: (
-                            match ty("direction").as_str() {
-                                "random" => Direction::Random,
-                                "cone" => Direction::Cone,
-                                "ring" => Direction::Ring,
-                                "offset" => Direction::Offset,
-                                "inaccurate" => Direction::Inaccurate,
-                                "attractor" => Direction::Attractor,
-                                _ => Direction::Straight,
-                            },
-                            values(&e["direction"]["values"], &vars),
-                        ),
-                        speed: (
-                            ty("speed") == "stratified",
-                            values(&e["speed"]["values"], &vars),
-                        ),
-                        orient_dir: orient(e["orientDir"].as_str().unwrap_or("parentPosY")),
-                        orient_up: orient(e["orientUp"].as_str().unwrap_or("parentPosZ")),
-                    }
-                })
-                .collect()
+    let emitters = c
+        .emitters
+        .iter()
+        .map(|e| {
+            let fl = e
+                .flags
+                .iter()
+                .filter_map(|n| EMITTER_FLAGS.iter().position(|k| k == n))
+                .fold(0, |acc, b| acc | 1 << b);
+            let ty = |s: &files::EmitterSpec| s.kind.name().unwrap_or("").to_string();
+            Emitter {
+                class: by_name.get(&e.class).copied(),
+                flags: fl,
+                limit: e.limit,
+                chance: e.chance,
+                burst: e.burst,
+                link: match e.link.name().unwrap_or("none") {
+                    "emitter" => Link::Emitter,
+                    "ourLink" => Link::Inherited,
+                    s if s.starts_with("lastEmission") => Link::LastEmission(
+                        s.trim_start_matches("lastEmission").parse().unwrap_or(0),
+                    ),
+                    _ => Link::None,
+                },
+                rate: (
+                    match ty(&e.rate).as_str() {
+                        "random" => Rate::Random,
+                        "instant" => Rate::Instant,
+                        "distance" => Rate::Distance,
+                        "attractor" => Rate::Attractor,
+                        _ => Rate::Continuous,
+                    },
+                    values(&e.rate.values, &vars),
+                ),
+                position: (
+                    match ty(&e.position).as_str() {
+                        "line" => Position::Line,
+                        "circle" => Position::Circle,
+                        "sphere" => Position::Sphere,
+                        "offset" => Position::Offset,
+                        "cylinder" => Position::Cylinder,
+                        "bodySurface" => Position::BodySurface,
+                        "bodyBones" => Position::BodyBones,
+                        _ => Position::Point,
+                    },
+                    values(&e.position.values, &vars),
+                ),
+                direction: (
+                    match ty(&e.direction).as_str() {
+                        "random" => Direction::Random,
+                        "cone" => Direction::Cone,
+                        "ring" => Direction::Ring,
+                        "offset" => Direction::Offset,
+                        "inaccurate" => Direction::Inaccurate,
+                        "attractor" => Direction::Attractor,
+                        _ => Direction::Straight,
+                    },
+                    values(&e.direction.values, &vars),
+                ),
+                speed: (ty(&e.speed) == "stratified", values(&e.speed.values, &vars)),
+                orient_dir: orient(e.orient_dir.name().unwrap_or("parentPosY")),
+                orient_up: orient(e.orient_up.name().unwrap_or("parentPosZ")),
+            }
         })
-        .unwrap_or_default();
-    let attractor = c.get("attractor").map(|a| AttractorDef {
-        iterator: match a["iterator"].as_str().unwrap_or("none") {
+        .collect();
+    let attractor = c.attractor.as_ref().map(|a| AttractorDef {
+        iterator: match a.iterator.name().unwrap_or("none") {
             "link" => Iterator::Link,
             "particleClass" => Iterator::ParticleClass,
             "particleTag" => Iterator::ParticleTag,
@@ -853,64 +808,58 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
             "allCharacters" => Iterator::AllCharacters,
             _ => Iterator::None,
         },
-        conical: a["selector"].as_str() == Some("conical"),
-        max_distance: value(&a["maxDistance"], &vars),
-        max_angle: value(&a["maxAngle"], &vars),
-        theta_min: value(&a["thetaMin"], &vars),
-        theta_max: value(&a["thetaMax"], &vars),
-        theta_weight: value(&a["thetaWeight"], &vars),
+        conical: a.selector.name() == Some("conical"),
+        max_distance: value(a.max_distance.as_ref(), &vars),
+        max_angle: value(a.max_angle.as_ref(), &vars),
+        theta_min: value(a.theta_min.as_ref(), &vars),
+        theta_max: value(a.theta_max.as_ref(), &vars),
+        theta_weight: value(a.theta_weight.as_ref(), &vars),
     });
-    let collision_radius = match value(&c["collisionRadius"], &vars) {
+    let collision_radius = match value(c.collision_radius.as_ref(), &vars) {
         Value::Float(r) if r > 0.0 => r,
         _ => 0.0,
     };
+    let a = &c.appearance;
     Class {
         name: name.to_string(),
         flags,
-        action_mask: c["actionMask"].as_u64().unwrap_or(0) as u32,
-        lifetime: value(&c["lifetime"], &vars),
+        action_mask: c.action_mask.unwrap_or(0),
+        lifetime: value(c.lifetime.as_ref(), &vars),
         collision_radius,
-        dodge_radius: f32_of(&c["dodgeRadius"]),
-        alert_radius: f32_of(&c["alertRadius"]),
-        flyby: c["flybySound"]
-            .as_str()
+        dodge_radius: c.dodge_radius.unwrap_or(0.0),
+        alert_radius: c.alert_radius.unwrap_or(0.0),
+        flyby: c
+            .flyby_sound
+            .as_deref()
             .filter(|s| !s.is_empty())
             .map(Rc::from),
-        scale: value(&c["appearance"]["scale"], &vars),
-        y_scale: names("flags")
-            .iter()
-            .any(|n| n == "separateYScale")
-            .then(|| value(&c["appearance"]["yScale"], &vars)),
-        sprite_type: SpriteType::from_data(c["spriteType"].as_u64().unwrap_or(0)),
-        rotation: value(&c["appearance"]["rotation"], &vars),
-        alpha: value(&c["appearance"]["alpha"], &vars),
-        tint: value(&c["appearance"]["tint"], &vars),
-        instance: c["appearance"]["instance"]
-            .as_str()
-            .unwrap_or("")
-            .to_string(),
-        max_decals: c["appearance"]["maxDecals"].as_u64().unwrap_or(100) as u16,
-        decal_fade_frames: c["appearance"]["decalFadeFrames"].as_u64().unwrap_or(60) as u16,
-        decal_wrap: value(&c["appearance"]["decalWrap"], &vars),
-        lens: names("flags2")
-            .iter()
-            .any(|n| n == "lensFlare")
-            .then(|| Lens {
-                dist: value(&c["appearance"]["lensflareDist"], &vars),
-                fade: names("flags")
-                    .iter()
-                    .any(|n| n == "hasLensFrames")
-                    .then(|| {
-                        let f = |k: &str| c["appearance"][k].as_u64().unwrap_or(0) as u16;
-                        (f("lensInFrames").max(1), f("lensOutFrames").max(1))
-                    }),
+        scale: value(a.scale.as_ref(), &vars),
+        y_scale: has(&c.flags, "separateYScale").then(|| value(a.y_scale.as_ref(), &vars)),
+        sprite_type: SpriteType::from_data(u64::from(c.sprite_type.unwrap_or(0))),
+        rotation: value(a.rotation.as_ref(), &vars),
+        alpha: value(a.alpha.as_ref(), &vars),
+        tint: value(a.tint.as_ref(), &vars),
+        instance: a.instance.clone().unwrap_or_default(),
+        max_decals: a.max_decals.unwrap_or(100),
+        decal_fade_frames: a.decal_fade_frames.unwrap_or(60),
+        decal_wrap: value(a.decal_wrap.as_ref(), &vars),
+        lens: has(&c.flags2, "lensFlare").then(|| Lens {
+            dist: value(a.lensflare_dist.as_ref(), &vars),
+            fade: has(&c.flags, "hasLensFrames").then(|| {
+                (
+                    a.lens_in_frames.unwrap_or(0).max(1),
+                    a.lens_out_frames.unwrap_or(0).max(1),
+                )
             }),
-        edge_fade: names("flags2").iter().any(|n| n == "edgeFade").then(|| {
-            let f = |k: &str| c["appearance"][k].as_f64().unwrap_or(0.0) as f32;
-            (f("edgeFadeMin"), f("edgeFadeMax"))
         }),
-        max_contrail: c["appearance"]["maxContrail"].as_f64().unwrap_or(0.0) as f32,
-        contrail_emitter: names("flags2").iter().any(|n| n == "contrailEmitter"),
+        edge_fade: has(&c.flags2, "edgeFade").then(|| {
+            (
+                number(a.edge_fade_min.as_ref()),
+                number(a.edge_fade_max.as_ref()),
+            )
+        }),
+        max_contrail: number(a.max_contrail.as_ref()),
+        contrail_emitter: has(&c.flags2, "contrailEmitter"),
         attractor,
         vars,
         actions,
