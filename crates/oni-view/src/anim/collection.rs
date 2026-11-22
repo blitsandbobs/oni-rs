@@ -97,23 +97,15 @@ impl AnimCollection {
             }
             let path = anim_dir.join("collections").join(format!("{n}.json"));
             let text = std::fs::read_to_string(&path)?;
-            let doc: serde_json::Value = serde_json::from_str(&text)
+            let doc: oni_schema::files::AnimationCollectionFile = serde_json::from_str(&text)
                 .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
-            let entries = doc["entries"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .filter_map(|e| {
-                            Some((
-                                e["anim"].as_str()?.to_string(),
-                                e["weight"].as_u64()? as u32,
-                            ))
-                        })
-                        .collect()
-                })
-                .unwrap_or_default();
-            docs.push(entries);
-            cur = doc["recursive"].as_str().map(String::from);
+            docs.push(
+                doc.entries
+                    .into_iter()
+                    .map(|e| (e.anim, u32::from(e.weight)))
+                    .collect(),
+            );
+            cur = doc.recursive;
         }
 
         // Load each referenced clip once.

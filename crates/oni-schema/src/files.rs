@@ -2069,6 +2069,23 @@ pub struct MeleeMove {
     pub closeness_angle: Option<f32>,
 }
 
+/// `common/animations/collections/<name>.json`: an animation collection
+/// (`TRAC`) — its clips (files beside the collections folder) and their
+/// weights, and the collection it extends.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimationCollectionFile {
+    pub name: String,
+    pub recursive: Option<String>,
+    pub entries: Vec<CollectionEntry>,
+}
+
+/// A collection's clip and its weight.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct CollectionEntry {
+    pub anim: String,
+    pub weight: u16,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

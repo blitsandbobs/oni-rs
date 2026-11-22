@@ -1219,16 +1219,18 @@ fn write_animation_collections(
             continue;
         };
         std::fs::create_dir_all(&dir)?;
-        let entries: Vec<serde_json::Value> = c
-            .entries
-            .iter()
-            .map(|e| serde_json::json!({ "anim": e.animation, "weight": e.weight }))
-            .collect();
-        let doc = serde_json::json!({
-            "name": c.name,
-            "recursive": c.recursive,
-            "entries": entries,
-        });
+        let doc = oni_schema::files::AnimationCollectionFile {
+            name: c.name.clone(),
+            recursive: c.recursive.clone(),
+            entries: c
+                .entries
+                .iter()
+                .map(|e| oni_schema::files::CollectionEntry {
+                    anim: e.animation.clone(),
+                    weight: e.weight,
+                })
+                .collect(),
+        };
         std::fs::write(
             dir.join(format!("{}.json", sanitize(&c.name))),
             serde_json::to_string_pretty(&doc)?,
