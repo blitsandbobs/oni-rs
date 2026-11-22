@@ -213,11 +213,10 @@ What we do differently on purpose — simplifications, approximations, and
 our own additions. Not affected by `--faithful`.
 
 **Simulation**
-- AI bodies turn at the generic cap (2π/100 a tick, half walking); the
-  original scales it by the class's `turning_nimbleness` (ninjas 2.0) and
-  turns a standing AI through step-turn clips. Our route follower turns on
-  the spot when the next point is over 90° off or inside its turning circle,
-  so characters don't orbit corners.
+- Our route follower turns on the spot when the next point is over 90° off
+  or inside its turning circle (worked out from the generic turn rate and
+  Konoko's speeds, not the class's), so characters don't orbit corners; the
+  original slows to a walk when it would overturn.
 - Avoidance leaves out the movement modifiers the original also steers
   round; the combat advance has no hazard cut-off (dodges steer separately)
   and tests blockage against the level only.
