@@ -62,8 +62,10 @@ pub struct AnimCollection {
     /// The level being played: clips whose `firstLevel` is later are skipped.
     level: u16,
     /// Seeded generator for weighted picks (deterministic per seed), shared
-    /// by every fighter of the class — as the original draws them all from
-    /// its one random stream (`UUmRandomRange` in `TRrCollection_Lookup`).
+    /// by every fighter of the class. (The original draws every pick, of
+    /// every class, from the game's one random stream — `UUmRandomRange` in
+    /// `TRrCollection_Lookup`; a stream per class is the nearer of the two
+    /// to that, not the same.)
     rng: Cell<u32>,
 }
 

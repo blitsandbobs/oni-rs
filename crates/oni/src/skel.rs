@@ -481,6 +481,7 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
                 };
 
                 let vcount = pos.len() / 3;
+                gltf::check_primitive(vcount, &[(nrm.as_ref(), 3), (uv.as_ref(), 2)], &idx)?;
                 let mut verts = Vec::with_capacity(vcount);
                 for v in 0..vcount {
                     let normal = nrm

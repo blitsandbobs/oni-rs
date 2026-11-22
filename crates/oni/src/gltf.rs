@@ -138,6 +138,26 @@ pub(crate) fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> std::io:
     Ok(words(bin, off, count)?.map(u32::from_le_bytes).collect())
 }
 
+/// Checks a primitive's attributes and indices against its `n` vertices
+/// (`per`: each attribute's components a vertex — 3 for normals and
+/// colours, 2 for UVs): a short attribute or an index past the vertices is
+/// an error, not a panic later.
+pub(crate) fn check_primitive(
+    n: usize,
+    attrs: &[(Option<&Vec<f32>>, usize)],
+    idx: &[u32],
+) -> std::io::Result<()> {
+    for &(a, per) in attrs {
+        if a.is_some_and(|a| a.len() < n * per) {
+            return Err(bad("attribute shorter than the positions"));
+        }
+    }
+    if idx.iter().any(|&i| i as usize >= n) {
+        return Err(bad("index past the vertices"));
+    }
+    Ok(())
+}
+
 /// Each node's parent (from the nodes' `children`).
 pub(crate) fn parents(nodes: &[Value]) -> std::io::Result<Vec<Option<usize>>> {
     let mut parent = vec![None; nodes.len()];
@@ -303,6 +323,11 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
             let full_bright = additive || self_illum;
 
             let n = pos.len() / 3;
+            check_primitive(
+                n,
+                &[(nrm.as_ref(), 3), (uv.as_ref(), 2), (col.as_ref(), 3)],
+                &idx,
+            )?;
             let mut verts = Vec::with_capacity(n);
             for v in 0..n {
                 let p = wm.transform_point3(Vec3::new(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]));
@@ -380,31 +405,86 @@ pub(crate) fn normalize(dir: &Path, uri: &str) -> PathBuf {
 mod tests {
     use super::*;
 
-    /// A file cut short anywhere is an error, never a panic.
+    /// A small `.glb`: one node with a triangle (positions, normals, UVs,
+    /// indices — `normals` of them, and the index `last`) and a one-key
+    /// rotation clip on it.
+    fn glb(normals: usize, last: u32) -> Vec<u8> {
+        let mut bin: Vec<u8> = Vec::new();
+        let mut put = |v: &[f32]| v.iter().for_each(|x| bin.extend(x.to_le_bytes()));
+        put(&[0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0]); // positions @0
+        put(&[0.0; 9]); // normals @36
+        put(&[0.0; 6]); // uvs @72
+        put(&[0.0]); // time @96
+        put(&[0.0, 0.0, 0.0, 1.0]); // rotation @100
+        for i in [0u32, 1, last] {
+            bin.extend(i.to_le_bytes()); // indices @116
+        }
+        let view = |off: usize, len: usize| serde_json::json!({"buffer": 0, "byteOffset": off, "byteLength": len});
+        let acc = |v: usize, n: usize, ty: &str| serde_json::json!({"bufferView": v, "count": n, "type": ty});
+        let json = serde_json::json!({
+            "nodes": [{"name": "pelvis", "mesh": 0}],
+            "meshes": [{"primitives": [{"attributes": {"POSITION": 0, "NORMAL": 1, "TEXCOORD_0": 2}, "indices": 3}]}],
+            "accessors": [acc(0, 3, "VEC3"), acc(1, normals, "VEC3"), acc(2, 3, "VEC2"), acc(5, 3, "SCALAR"),
+                          acc(3, 1, "SCALAR"), acc(4, 1, "VEC4")],
+            "bufferViews": [view(0, 36), view(36, 36), view(72, 24), view(96, 4), view(100, 16), view(116, 12)],
+            "animations": [{"samplers": [{"input": 4, "output": 5}],
+                            "channels": [{"sampler": 0, "target": {"node": 0, "path": "rotation"}}]}],
+        });
+        let mut j = serde_json::to_vec(&json).unwrap();
+        while !j.len().is_multiple_of(4) {
+            j.push(b' ');
+        }
+        let mut out = Vec::new();
+        out.extend(b"glTF");
+        out.extend(2u32.to_le_bytes());
+        out.extend(((12 + 8 + j.len() + 8 + bin.len()) as u32).to_le_bytes());
+        out.extend((j.len() as u32).to_le_bytes());
+        out.extend(0x4E4F_534Au32.to_le_bytes());
+        out.extend(&j);
+        out.extend((bin.len() as u32).to_le_bytes());
+        out.extend(0x004E_4942u32.to_le_bytes());
+        out.extend(&bin);
+        out
+    }
+
+    fn write(name: &str, bytes: &[u8]) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("oni_glb_{}_{name}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("model.glb");
+        std::fs::write(&path, bytes).unwrap();
+        path
+    }
+
+    /// A whole file loads; one cut short anywhere, with an attribute
+    /// shorter than its positions, or an index past its vertices is an
+    /// error — through every loader, never a panic.
     #[test]
-    fn a_truncated_glb_is_an_error() {
-        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../generated/oni/common/characters/konoko_body_high");
-        let Ok(bytes) = std::fs::read(dir.join("model.glb")) else {
-            eprintln!("SKIP: generated character not found");
-            return;
-        };
-        let tmp = std::env::temp_dir().join(format!("oni_trunc_{}", std::process::id()));
-        std::fs::create_dir_all(&tmp).unwrap();
-        let path = tmp.join("model.glb");
-        for cut in [0, 10, 19, 40, bytes.len() / 2, bytes.len() - 4] {
-            std::fs::write(&path, &bytes[..cut]).unwrap();
+    fn a_malformed_glb_is_an_error() {
+        let good = glb(3, 2);
+        let path = write("good", &good);
+        assert!(load(&path).is_ok(), "a scene");
+        assert!(crate::skel::load_character(&path).is_ok(), "a character");
+        assert!(crate::skel::load_clip(&path).is_ok(), "a clip");
+        for cut in [0, 10, 19, 40, good.len() / 2, good.len() - 4] {
+            let path = write("cut", &good[..cut]);
             assert!(load(&path).is_err(), "scene cut at {cut}");
             assert!(
                 crate::skel::load_character(&path).is_err(),
                 "character cut at {cut}"
             );
+            // (The last cut loses only index bytes, which a clip never reads.)
+            if cut < good.len() - 12 {
+                assert!(crate::skel::load_clip(&path).is_err(), "clip cut at {cut}");
+            }
         }
-        std::fs::write(&path, &bytes).unwrap();
-        assert!(
-            crate::skel::load_character(&path).is_ok(),
-            "the whole file loads"
-        );
-        let _ = std::fs::remove_dir_all(&tmp);
+        for (what, bytes) in [("short normals", glb(2, 2)), ("index past", glb(3, 3))] {
+            let path = write("bad", &bytes);
+            assert!(load(&path).is_err(), "scene: {what}");
+            assert!(
+                crate::skel::load_character(&path).is_err(),
+                "character: {what}"
+            );
+        }
+        let _ = std::fs::remove_dir_all(path.parent().unwrap());
     }
 }
