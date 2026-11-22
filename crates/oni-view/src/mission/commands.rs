@@ -572,67 +572,14 @@ pub fn dispatch(
             nil()
         }
         "begin_cutscene" => {
-            // `ONrGameState_BeginCutscene`: letterboxed, input off; the player
-            // out of fight mode, standing, the gun put away, visible; every
-            // AI passive; no jello; the dangerous projectiles cleared — each
-            // but the first two unless a flag keeps it (`weapon`, `jello`,
-            // `ai`, `invis`, `keepparticles`, `animation`; `nosync` — the
-            // clock not kept up with — and `nojump` no shipped script uses).
-            let keep: Vec<String> = args
-                .iter()
-                .filter_map(text)
-                .map(|s| s.to_ascii_lowercase())
-                .collect();
-            let keeps = |f: &str| keep.iter().any(|k| k == f);
-            for k in &keep {
-                if ![
-                    "weapon",
-                    "jello",
-                    "ai",
-                    "invis",
-                    "nosync",
-                    "keepparticles",
-                    "animation",
-                    "nojump",
-                ]
-                .contains(&k.as_str())
-                {
-                    state.warn(format!("begin_cutscene: unknown flag {k}"));
-                }
+            // (`docs/GAME_FLOW.md`; `World::begin_cutscene`.)
+            let names: Vec<String> = args.iter().filter_map(text).collect();
+            let (keep, unknown) =
+                crate::world::cutscene::CutsceneKeeps::parse(names.iter().map(String::as_str));
+            for k in unknown {
+                state.warn(format!("begin_cutscene: unknown flag {k}"));
             }
-            let world = host.world();
-            world.in_cutscene = true;
-            world.cutscene_ticks = 0;
-            // (It keeps up with the clock, unless told not to.)
-            world.sync_enabled = !keeps("nosync");
-            world.sync_behind = 0;
-            world.skip = crate::world::skip::Skip::Idle;
-            world.sound_enabled(true);
-            world.letterbox = true;
-            world.input_enabled = false;
-            if !world.fighters.is_empty() {
-                let f = &mut world.fighters[0];
-                f.motion.exit_fight_mode();
-                if !keeps("animation") {
-                    let ch = f.character.clone();
-                    f.motion.force_stand(&ch);
-                }
-                if !keeps("invis") {
-                    f.inventory.invisibility = 0;
-                }
-                if !keeps("weapon") {
-                    world.cinematic_holster(0);
-                }
-            }
-            if !keeps("ai") {
-                world.set_all_passive(true);
-            }
-            if !keeps("jello") {
-                world.camera.jello = false;
-            }
-            if !keeps("keepparticles") {
-                world.remove_dangerous_projectiles();
-            }
+            host.world().begin_cutscene(keep);
             nil()
         }
         // --- cutscene inserts (`hud/cinematic.rs`) ---------------------------
@@ -664,22 +611,7 @@ pub fn dispatch(
             nil()
         }
         "end_cutscene" => {
-            // `ONrGameState_EndCutscene`: input and jello back, every AI out
-            // of passivity (those a script made passive too), the letterbox
-            // gone, the gun put away for it drawn again.
-            let world = host.world();
-            world.in_cutscene = false;
-            world.sync_enabled = false;
-            world.cancel_skipping();
-            world.sound_enabled(true);
-            world.letterbox = false;
-            world.input_enabled = true;
-            world.camera.jello = true;
-            world.hud.cinematics.clear();
-            world.set_all_passive(false);
-            if world.fighters.first().is_some_and(|f| f.hand.is_none()) {
-                world.force_holster(0, false);
-            }
+            host.world().end_cutscene();
             nil()
         }
         "p3_removedangerous" => {

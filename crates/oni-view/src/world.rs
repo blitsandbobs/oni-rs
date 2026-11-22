@@ -27,6 +27,7 @@ pub mod anim_particles;
 pub mod camera;
 pub mod cheats;
 pub mod corpses;
+pub mod cutscene;
 mod env_particles;
 mod flow;
 pub mod fog;
