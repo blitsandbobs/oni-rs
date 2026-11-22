@@ -25,9 +25,41 @@ use glam::Vec3;
 use crate::anim::input::key;
 use crate::control::Facing;
 
-/// The most an AI turns its body per tick (radians), running; half when
-/// walking or creeping.
+/// The most an AI turns its body per tick (radians) at nimbleness 1
+/// (`AI2cExecutor_MaxDeltaFacingPerFrame`).
 pub const MAX_TURN: f32 = TAU / 100.0;
+
+/// How fast an AI's body may turn: its class's nimbleness, and whether it
+/// is in danger (not about its everyday business: it turns as fast walking
+/// as running).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Turning {
+    pub nimbleness: f32,
+    pub danger: bool,
+}
+
+impl Default for Turning {
+    fn default() -> Self {
+        Turning {
+            nimbleness: 1.0,
+            danger: false,
+        }
+    }
+}
+
+impl Turning {
+    /// The most it turns per tick at `pace` (`AI2rExecutor_GetMaxDeltaFacingPerFrame`):
+    /// [`MAX_TURN`] times its nimbleness, half that walking or creeping
+    /// unless in danger.
+    pub fn cap(self, pace: Pace) -> f32 {
+        let cap = MAX_TURN * self.nimbleness;
+        if !self.danger && pace != Pace::Run {
+            cap * 0.5
+        } else {
+            cap
+        }
+    }
+}
 
 /// Which way to move relative to the body.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -71,8 +103,9 @@ pub struct Steer {
     pub mode: goals::MoveMode,
 }
 
-/// Turns orders into control bits and turns the body. Returns the bits.
-pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
+/// Turns orders into control bits and turns the body (at most
+/// `turning.cap`). Returns the bits.
+pub fn execute(orders: Orders, facing: &mut Facing, turning: Turning) -> u32 {
     let mut keys = match orders.direction {
         Direction::Stopped => 0,
         Direction::Forward => key::FORWARD,
@@ -86,11 +119,7 @@ pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
         Pace::Creep => key::CROUCH,
     };
     if let Some(target) = orders.face {
-        let cap = if orders.pace == Pace::Run {
-            MAX_TURN
-        } else {
-            MAX_TURN * 0.5
-        };
+        let cap = turning.cap(orders.pace);
         let delta = relative(target - facing.facing);
         facing.rotate(delta.clamp(-cap, cap));
     }
@@ -222,6 +251,8 @@ pub struct Senses {
     pub target: Option<Vec3>,
     /// Game time (ticks).
     pub now: u64,
+    /// Its class's turning nimbleness (`ai2_behavior.turning_nimbleness`).
+    pub nimbleness: f32,
 }
 
 /// What drives a non-player character.
@@ -248,6 +279,16 @@ pub enum Brain {
 impl Brain {
     /// This tick's control bits; turns `facing` as ordered.
     pub fn think(&mut self, senses: &Senses, facing: &mut Facing, avoid: &mut avoid::Avoid) -> u32 {
+        // (`turn_danger`: an AI whose goal isn't casual turns as fast walking
+        // as running.)
+        let turning = Turning {
+            nimbleness: senses.nimbleness,
+            danger: match self {
+                Brain::Agent(a) => !a.goal_casual(),
+                Brain::Spar(_) | Brain::Melee(_) => true,
+                _ => false,
+            },
+        };
         // The AI's own movement steers round what it keeps bumping into
         // (`ai/avoid.rs`); wedged, its path fails.
         let steer = |orders: Orders, avoid: &mut avoid::Avoid, facing: &Facing| {
@@ -286,9 +327,10 @@ impl Brain {
             Brain::Route(r) => execute(
                 steer(r.orders(senses.feet, facing.facing), avoid, facing),
                 facing,
+                turning,
             ),
-            Brain::Hold(o) => execute(*o, facing),
-            Brain::Spar(s) => s.think(senses, facing),
+            Brain::Hold(o) => execute(*o, facing, turning),
+            Brain::Spar(s) => s.think(senses, facing, turning),
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
             Brain::Agent(a) => {
                 let (orders, press) = a.orders(senses.feet, facing.facing, senses.now);
@@ -298,7 +340,7 @@ impl Brain {
                         n.collision_stuck(senses.now);
                     }
                 }
-                execute(orders, facing) | press
+                execute(orders, facing, turning) | press
             }
             Brain::Steer(s) => {
                 let now = senses.now;
@@ -320,7 +362,7 @@ impl Brain {
                 if o.direction == Direction::Stopped && !walking {
                     o.face = s.face;
                 }
-                execute(o, facing)
+                execute(o, facing, turning)
             }
             Brain::GoTo(n) => {
                 let now = senses.now;
@@ -328,7 +370,7 @@ impl Brain {
                 if std::mem::take(&mut avoid.stuck) {
                     n.collision_stuck(now);
                 }
-                execute(orders, facing)
+                execute(orders, facing, turning)
             }
         }
     }
@@ -480,11 +522,11 @@ impl Spar {
         lo + x % (hi - lo + 1)
     }
 
-    fn think(&mut self, s: &Senses, facing: &mut Facing) -> u32 {
+    fn think(&mut self, s: &Senses, facing: &mut Facing, turning: Turning) -> u32 {
         self.tick = self.tick.wrapping_add(1);
         if s.reeling {
             self.combo = None;
-            return execute(Orders::default(), facing);
+            return execute(Orders::default(), facing, turning);
         }
         // Knocked down: lie dazed, then press forward to get up.
         if s.lying {
@@ -504,7 +546,7 @@ impl Spar {
 
         let Some(target) = s.target else {
             self.combo = None;
-            return execute(Orders::default(), facing); // nobody left to fight
+            return execute(Orders::default(), facing, turning); // nobody left to fight
         };
         let face = yaw_toward(s.feet, target);
         let flat = Vec3::new(target.x - s.feet.x, 0.0, target.z - s.feet.z);
@@ -521,6 +563,7 @@ impl Spar {
                     ..Orders::default()
                 },
                 facing,
+                turning,
             );
             if done != c.seen {
                 c.seen = done;
@@ -562,6 +605,7 @@ impl Spar {
                     face: Some(face),
                 },
                 facing,
+                turning,
             );
         }
 
@@ -573,6 +617,7 @@ impl Spar {
                 ..Orders::default()
             },
             facing,
+            turning,
         );
         if self.pause == 0 && dist <= STRIKE_DISTANCE && off < 0.35 {
             let pick = self.random(0, PATTERNS.len() as u32 - 1) as usize;
@@ -600,18 +645,29 @@ mod tests {
             face: None,
         };
         assert_eq!(
-            execute(o(Direction::Forward, Pace::Run), &mut f),
+            execute(o(Direction::Forward, Pace::Run), &mut f, Turning::default()),
             key::FORWARD
         );
         assert_eq!(
-            execute(o(Direction::Backpedal, Pace::Walk), &mut f),
+            execute(
+                o(Direction::Backpedal, Pace::Walk),
+                &mut f,
+                Turning::default()
+            ),
             key::BACKWARD | key::WALK
         );
         assert_eq!(
-            execute(o(Direction::SidestepLeft, Pace::Creep), &mut f),
+            execute(
+                o(Direction::SidestepLeft, Pace::Creep),
+                &mut f,
+                Turning::default()
+            ),
             key::STEP_LEFT | key::CROUCH
         );
-        assert_eq!(execute(o(Direction::Stopped, Pace::Run), &mut f), 0);
+        assert_eq!(
+            execute(o(Direction::Stopped, Pace::Run), &mut f, Turning::default()),
+            0
+        );
     }
 
     #[test]
@@ -621,7 +677,7 @@ mod tests {
             face: Some(1.0),
             ..Orders::default()
         };
-        execute(orders, &mut f);
+        execute(orders, &mut f, Turning::default());
         assert!(
             (f.facing - MAX_TURN).abs() < 1e-5,
             "one capped step, got {}",
@@ -637,10 +693,21 @@ mod tests {
             ..Orders::default()
         };
         let before = f.facing;
-        execute(walking, &mut f);
+        execute(walking, &mut f, Turning::default());
         assert!(
             (f.facing - before - MAX_TURN * 0.5).abs() < 1e-5,
             "half the rate walking"
+        );
+        // A ninja (nimbleness 2) in danger turns twice the rate, walking too.
+        let ninja = Turning {
+            nimbleness: 2.0,
+            danger: true,
+        };
+        let before = f.facing;
+        execute(walking, &mut f, ninja);
+        assert!(
+            (f.facing - before - MAX_TURN * 2.0).abs() < 1e-5,
+            "twice the rate"
         );
     }
 

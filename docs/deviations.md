@@ -44,6 +44,7 @@ method on `Quirks` (`crates/oni/src/quirks.rs`).
 | Q27 | Cutscenes | The cutscene inserts (portraits, name tags) are placed on a 1024 × 768 virtual screen scaled to the window on each axis alone: on a wide screen they stretch (the original knew only 4:3 modes; the Daodan DLL's `widescreenportraits` narrows them). | Each keeps its shape (the smaller scale both ways), pinned by the edge or middle its position aligns it to. | Yes — every cutscene portrait on a wide screen. |
 | Q28 | Lens flares | A fading lens flare is faded by the fog at its screen depth (`P3rModifyAlphaByFogFromDepth`), but `gl_calculate_fog_factor` returns 1 past the fog's end where its linear ramp reaches 0: a light beyond the fog shines on whole. | Gone beyond the fog's end, as the ramp it follows. | In fog-heavy places: distant lights no longer burn through the fog. |
 | Q29 | Pathfinding | A placed object is stamped into the pathfinding grid (`PHrAddObjectToGrid`) as the squares round its sphere, but the row loop runs `for (v = radius; v <= radius; v++)`: only the square's last row is stamped, so paths run through objects and AIs walk into them. | The whole square. | Yes — AIs path round forklifts, trucks and crates instead of into them. |
+| Q30 | AI turning | Turning its body, the AI asks for a step-turn clip (`pleaseTurnLeft` / `pleaseTurnRight`, played by a standing body) with the sign the other way round from the movement system's: `AI2rExecutor_Update` asks for the left turn when its facing falls, where `HandleStandingTurn` turns left for a rising one (facing +Z, +X is the left). | The clip of the way it turns. | Cosmetic: a standing AI's feet shuffle against its turn (shipped). |
 | Q22 | Melee AI | Weighing a rifle disarm throw, `AI2iMelee_WeightTechnique` tests that the target holds a *pistol* (`!has_pistol`, copied from the pistol branch); the throw then aborts, the target having no rifle out. | It tests for a rifle. | AIs disarm only pistols (shipped) or rifles too (fixed). |
 | Q21 | Corpses | Every level's corpse array (`max_corpses`) holds 20 bodies, its pre-placed ones among them (level 3 starts with 17): past that the oldest of the dead of play is recycled — a body vanishes — so on busy levels bodies disappear almost at once. | The array holds 50. | Bodies left lying in a fight's aftermath (shipped: at most 20 in the level). |
 | Q13 | Corpses | A body killed in the air keeps its flight in its own frame but drifts as if that were the world's (the flight unturned). | The flight turned by the body's facing. | Bodies knocked out of the air drift the wrong way. |
@@ -229,6 +230,11 @@ our own additions. Not affected by `--faithful`.
   An AI standing inside an obstruction isn't moved out of it, and a body met
   while moving isn't passed through (`AI2rTryToPathfindThrough` at
   collision time).
+- A melee AI lying down that has picked a technique whose positioning
+  starts with getting up doesn't first wait to face its target
+  (`AI2cMeleeStandingTurnAngle`: "turn on the spot"): a body on the ground
+  can't turn (`ONrCharacter_IsUnableToTurn`), and at the first position step
+  the original has no timer, so it would lie there for good.
 - Melee look-ahead on levels without nav data: danger is a floor drop beyond
   the class's fall-damage height, found by a collision probe. The melee AI
   plans with its own class's animations, not the profile's `char_classname`.

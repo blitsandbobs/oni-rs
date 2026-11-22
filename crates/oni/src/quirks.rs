@@ -194,6 +194,14 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q30: an AI turning its body asks for the step-turn clip of the other
+    /// way (`AI2rExecutor_Update` sets `pleaseTurnLeft` for a negative turn,
+    /// where the movement system turns left for a positive one), so a
+    /// standing AI shuffles its feet against its turn.
+    pub fn ai_step_turn_mirrored(self) -> bool {
+        self.faithful
+    }
+
     /// Whether the level scripts run as shipped, without our fixes to their
     /// most glaring mistakes (`docs/deviations.md`).
     pub fn scripts_as_shipped(self) -> bool {

@@ -120,6 +120,9 @@ pub struct ClassCombat {
     pub dodge_react: u32,
     pub dodge_time_scale: f32,
     pub dodge_weight_scale: f32,
+    /// How fast it turns (`ai2_behavior.turning_nimbleness`: times the
+    /// standard rate).
+    pub turning_nimbleness: f32,
 }
 
 impl Default for ClassCombat {
@@ -137,6 +140,7 @@ impl Default for ClassCombat {
             dodge_react: 0,
             dodge_time_scale: 1.0,
             dodge_weight_scale: 1.0,
+            turning_nimbleness: 1.0,
         }
     }
 }
@@ -175,6 +179,7 @@ impl ClassCombat {
             dodge_react: u(p.dodge.react_ticks),
             dodge_time_scale: p.dodge.time_scale,
             dodge_weight_scale: p.dodge.weight_scale,
+            turning_nimbleness: p.turning_nimbleness,
         }
     }
 }
@@ -1208,6 +1213,16 @@ impl Agent {
             Goal::Path(p) => !p.locked,
             _ => false,
         }
+    }
+
+    /// Whether its goal is an everyday one (`AI2cGoalIsCasual`): not
+    /// fighting, pursuing, raising the alarm or panicking. It turns faster
+    /// otherwise.
+    pub fn goal_casual(&self) -> bool {
+        matches!(
+            self.goal,
+            Goal::None | Goal::Job | Goal::Idle | Goal::Path(_) | Goal::Neutral
+        )
     }
 
     /// Whether it is following a patrol path (its job's or a script's).

@@ -786,19 +786,46 @@ impl Fighter {
     }
 
     /// Applies a melee AI's decision: turns toward where it wants to face (at
-    /// the AI turn rate, not mid-reaction or mid-throw) and, for a fresh
-    /// attack, forgets the combo in progress.
+    /// its class's turn rate in danger, not mid-reaction or mid-throw) and,
+    /// for a fresh attack, forgets the combo in progress.
     pub fn follow(&mut self, d: &crate::ai::melee::brain::Output) {
         let locked = crate::anim::decide::cannot_turn(&self.motion, false);
+        let before = self.facing.facing;
         if let (Some(yaw), false) = (d.face, locked) {
-            let cap = crate::ai::MAX_TURN;
+            let cap = self.turning(true).cap(crate::ai::Pace::Run);
             let delta = crate::angle::wrap_pi(yaw - self.facing.facing);
             self.facing.rotate(delta.clamp(-cap, cap));
             self.facing.desired_facing = self.facing.facing;
         }
+        self.ask_step_turn(before, locked);
         if d.fresh_attack {
             self.motion.last_attack = ty::NONE;
         }
+    }
+
+    /// How fast its AI turns its body (`danger`: not about its everyday
+    /// business).
+    fn turning(&self, danger: bool) -> crate::ai::Turning {
+        crate::ai::Turning {
+            nimbleness: self.class_combat.turning_nimbleness,
+            danger,
+        }
+    }
+
+    /// After its AI turned the body from `before` (`AI2rExecutor_Update`):
+    /// asks for a step-turn the way it turned (`pleaseTurnLeft` /
+    /// `pleaseTurnRight`), which a standing body plays. Q30: as shipped the
+    /// executor asks for the other way.
+    fn ask_step_turn(&mut self, before: f32, locked: bool) {
+        let turned = crate::angle::wrap_pi(self.facing.facing - before);
+        let (pos, neg) = (turned > 0.001 && !locked, turned < -0.001 && !locked);
+        let (left, right) = if self.quirks.ai_step_turn_mirrored() {
+            (neg, pos)
+        } else {
+            (pos, neg)
+        };
+        self.motion.turn_left = left;
+        self.motion.turn_right = right;
     }
 
     /// Keeps `throwing` in step with the clips: any new clip ends a throw this
@@ -1407,14 +1434,17 @@ impl Fighter {
             attacks_started: m.attacks_started,
             target,
             now: m.now,
+            nimbleness: self.class_combat.turning_nimbleness,
         };
         // (The AI turns only a body whose clip lets it: not lying, blocking,
         // reeling or in a throw — `AI2rExecutor` asks `ONrCharacter_IsUnableToTurn`.)
         let locked = crate::anim::decide::cannot_turn(&self.motion, false).then_some(self.facing);
+        let before = self.facing.facing;
         let keys = self.think_turning(senses);
         if let Some(f) = locked {
             self.facing = f;
         }
+        self.ask_step_turn(before, locked.is_some());
         keys
     }
 
@@ -1430,7 +1460,7 @@ impl Fighter {
                     } else {
                         let d = at - self.feet();
                         let want = crate::angle::yaw_of(d);
-                        let cap = crate::ai::MAX_TURN;
+                        let cap = self.turning(false).cap(crate::ai::Pace::Run);
                         let delta = crate::angle::wrap_pi(want - self.facing.facing);
                         self.facing.rotate(delta.clamp(-cap, cap));
                         self.facing.desired_facing = self.facing.facing;

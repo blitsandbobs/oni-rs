@@ -42,6 +42,8 @@ local t = type_of(a)
 assert(t == STAND or t == IDLE, "comes to rest at the end, got type " .. t)
 
 -- 2. Held orders, sidestep right: facing +Z, the character's right is -X.
+-- (Konoko steps out of its way.)
+teleport(0, 200, 8, 360)
 set_facing(a, 0)
 ai_order(a, "stop")
 step(30)

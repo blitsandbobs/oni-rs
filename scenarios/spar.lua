@@ -51,7 +51,7 @@ assert(up, "the sparring partner got up after a knockdown")
 
 -- Once its opponent is dead it stops attacking.
 set_hp(d, 1)
-for _ = 1, 600 do step(1); if dead(d) then break end end
+for _ = 1, 1200 do step(1); if dead(d) then break end end
 assert(dead(d), "it finished its opponent")
 step(120)
 local busy = 0

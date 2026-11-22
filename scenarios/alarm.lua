@@ -30,9 +30,15 @@ step(30)
 assert(console_state(6) == "active", "the alarm console is armed")
 alarm(c, 6)
 assert(goal_of(c):find("alarm"), "it sets off for the alarm")
-local took = wait_for(function() return console_state(6) == "triggered" end, 600)
-print("raised the alarm after", took, anim_of(c))
-assert(took and anim_of(c):find("console"), "it runs there and uses the console")
+-- (At the console clip's action frame the alarm goes off and the comguy
+-- turns back to its job: the step-turn cuts the clip's tail.)
+local used = false
+local took = wait_for(function()
+    used = used or anim_of(c):find("console") ~= nil
+    return console_state(6) == "triggered"
+end, 600)
+print("raised the alarm after", took, "console clip played:", used)
+assert(took and used, "it runs there and uses the console")
 took = wait_for(function() return goal_of(c):find("job") ~= nil end, 120)
 assert(took, "then goes back to its job")
 -- (A friend raising it: the striker doesn't come running — the level's

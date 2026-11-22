@@ -393,7 +393,11 @@ fn position(
         .or_else(|| (cur == MeleeState::None).then_some(goal.maintain_keys()));
     let Some(keys) = keys else { return Step::Abort };
     m.mv.last_keys = keys;
-    out.held = if facing_delta(me, target, p.dir) > STANDING_TURN {
+    // Far off facing: turn on the spot first (`AI2cMeleeStandingTurnAngle`) —
+    // except lying down, where the body can't turn until it is up (port
+    // choice: the original waits there for good).
+    let lying = cur == MeleeState::Prone;
+    out.held = if facing_delta(me, target, p.dir) > STANDING_TURN && !lying {
         0
     } else {
         keys
