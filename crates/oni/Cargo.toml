@@ -3,7 +3,7 @@ name = "oni"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
-rust-version = "1.87"
+rust-version = "1.93"
 description = "The Oni engine and game: plays the converted asset tree (simulation, AI, rendering, audio, UI, level scripts, scenario host)"
 
 [dependencies]
