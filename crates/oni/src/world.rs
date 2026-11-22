@@ -2299,15 +2299,15 @@ impl World {
         });
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         // (A film's actor's guns, as the player's: its fire buttons strike
-        // only unarmed; a gun scales its turns.)
-        let film_guns: Vec<(bool, bool, Option<f32>)> = (0..self.fighters.len())
+        // only unarmed.)
+        let film_guns: Vec<(bool, bool)> = (0..self.fighters.len())
             .map(|i| {
                 let alternate = self.fighters[i].hand.is_some_and(|w| {
                     self.armory.weapons[w]
                         .class
                         .has(crate::weapons::flag::HAS_ALTERNATE)
                 });
-                (self.armed(i), alternate, self.aiming_speed(i))
+                (self.armed(i), alternate)
             })
             .collect();
         let ai_control = self.input.ai_control;
@@ -2336,8 +2336,8 @@ impl World {
                 moves.push(f.plan(0, 0, &others));
                 continue;
             }
-            let (armed_i, alternate_i, speed) = film_guns[i];
-            if let Some(m) = f.film_move(armed_i, alternate_i, speed, &others) {
+            let (armed_i, alternate_i) = film_guns[i];
+            if let Some(m) = f.film_move(armed_i, alternate_i, &others) {
                 moves.push(m);
                 continue;
             }

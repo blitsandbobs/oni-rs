@@ -609,15 +609,15 @@ impl Fighter {
     /// just ended (it is dropped).
     /// One tick of the film it plays, as the original reads a film's frame
     /// for its input (`ONrFilm_GetFrame` into `ONrCharacter_UpdateInput`):
-    /// its turns (scaled by a held gun's aiming speed, `HandleTurnInput`;
-    /// up/down aims, left/right turns — or, in look mode, aims), its
-    /// buttons (fire strikes only while `armed` is false, as for the
-    /// player), kept for its gun in [`Fighter::film_keys`].
+    /// its turns (up/down aims, left/right turns — or, in look mode, aims;
+    /// not scaled by a held gun's aiming speed, a port choice in
+    /// `docs/deviations.md`), its buttons (fire strikes only while `armed`
+    /// is false, as for the player), kept for its gun in
+    /// [`Fighter::film_keys`].
     pub fn film_move(
         &mut self,
         armed: bool,
         alternate: bool,
-        aiming_speed: Option<f32>,
         opponents: &[Opponent],
     ) -> Option<Option<Vec3>> {
         self.film_keys = None;
@@ -632,8 +632,7 @@ impl Fighter {
         }
         match frame {
             Some((keys, turn_lr, turn_ud)) => {
-                let scale = aiming_speed.map_or(1.0, |s| s * 0.5);
-                let (x, y) = (turn_lr * scale / 64.0, turn_ud * scale / 64.0);
+                let (x, y) = (turn_lr / 64.0, turn_ud / 64.0);
                 if keys & crate::anim::input::key::LOOK != 0 {
                     self.aim.lr -= x;
                 } else {

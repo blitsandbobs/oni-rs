@@ -270,6 +270,11 @@ our own additions. Not affected by `--faithful`.
 - The sky draws its box only (no planets, stars or sky flare; no visible data
   needs them), with clamp-to-edge seams.
 - The HUD is laid out in the window's logical pixels.
+- A film's recorded turns play unscaled. The original scales them, like
+  the mouse, by the held gun's aiming speed (`HandleTurnInput`: × aiming
+  speed / 2); with Barabas's `w11_ba1` (0.25) his level 3 intro film's
+  ±70° sweep shrinks to an eighth and he never turns from side-on to the
+  road toward Konoko, which the shipped game shows him doing (#94).
 - No debug manual fly camera (a developer tool); scenarios place the
   camera with `cam()`.
 
