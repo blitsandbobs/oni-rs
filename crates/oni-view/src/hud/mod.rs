@@ -1607,23 +1607,13 @@ impl PartSpec {
     /// One slice drawn stretched over `width` × `height` from `at`.
     fn slice(&self, c: usize, r: usize, at: [f32; 2], width: f32, height: f32) -> OverlayDraw {
         let [u0, v0, u1, v1] = self.slices[c][r];
-        let (u0, v0, u1, v1) = (
-            u0 / self.size[0],
-            v0 / self.size[1],
-            u1 / self.size[0],
-            v1 / self.size[1],
-        );
-        let (l, t, rr, b) = (at[0], at[1], at[0] + width, at[1] + height);
+        let [w, h] = self.size;
         OverlayDraw {
             texture: Some(self.texture.clone()),
-            tris: vec![
-                [l, t, u0, v0],
-                [rr, t, u1, v0],
-                [rr, b, u1, v1],
-                [l, t, u0, v0],
-                [rr, b, u1, v1],
-                [l, b, u0, v1],
-            ],
+            tris: crate::frame::uv_quad(
+                [at[0], at[1], at[0] + width, at[1] + height],
+                [u0 / w, v0 / h, u1 / w, v1 / h],
+            ),
             color: [1.0, 1.0, 1.0, 1.0],
             additive: false,
         }
@@ -1684,27 +1674,7 @@ impl PartSpec {
                 if w <= 0.0 || h <= 0.0 {
                     continue;
                 }
-                let [u0, v0, u1, v1] = s[c][r];
-                let (u0, v0, u1, v1) = (
-                    u0 / self.size[0],
-                    v0 / self.size[1],
-                    u1 / self.size[0],
-                    v1 / self.size[1],
-                );
-                let (l, t, rr, b) = (x, y, x + w, y + h);
-                out.push(OverlayDraw {
-                    texture: Some(self.texture.clone()),
-                    tris: vec![
-                        [l, t, u0, v0],
-                        [rr, t, u1, v0],
-                        [rr, b, u1, v1],
-                        [l, t, u0, v0],
-                        [rr, b, u1, v1],
-                        [l, b, u0, v1],
-                    ],
-                    color: [1.0, 1.0, 1.0, 1.0],
-                    additive: false,
-                });
+                out.push(self.slice(c, r, [x, y], w, h));
             }
         }
         out
@@ -1712,17 +1682,9 @@ impl PartSpec {
 }
 
 pub(super) fn rect(texture: Option<PathBuf>, r: [f32; 4], color: [f32; 4]) -> OverlayDraw {
-    let [l, t, rr, b] = r;
     OverlayDraw {
         texture,
-        tris: vec![
-            [l, t, 0.0, 0.0],
-            [rr, t, 1.0, 0.0],
-            [rr, b, 1.0, 1.0],
-            [l, t, 0.0, 0.0],
-            [rr, b, 1.0, 1.0],
-            [l, b, 0.0, 1.0],
-        ],
+        tris: crate::frame::quad(r),
         color,
         additive: false,
     }

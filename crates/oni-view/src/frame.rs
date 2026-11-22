@@ -133,15 +133,22 @@ pub fn black(w: f32, h: f32, a: f32) -> OverlayDraw {
     }
 }
 
-/// A screen rectangle's two triangles (x, y, u, v).
+/// A screen rectangle's two triangles (x, y, u, v), the whole texture.
 pub fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
+    uv_quad(r, [0.0, 0.0, 1.0, 1.0])
+}
+
+/// A screen rectangle `r` (left, top, right, bottom) showing the texture's
+/// part `uv` (the same order): its two triangles (x, y, u, v).
+pub fn uv_quad(r: [f32; 4], uv: [f32; 4]) -> Vec<[f32; 4]> {
     let [l, t, rr, b] = r;
+    let [u0, v0, u1, v1] = uv;
     vec![
-        [l, t, 0.0, 0.0],
-        [rr, t, 1.0, 0.0],
-        [rr, b, 1.0, 1.0],
-        [l, t, 0.0, 0.0],
-        [rr, b, 1.0, 1.0],
-        [l, b, 0.0, 1.0],
+        [l, t, u0, v0],
+        [rr, t, u1, v0],
+        [rr, b, u1, v1],
+        [l, t, u0, v0],
+        [rr, b, u1, v1],
+        [l, b, u0, v1],
     ]
 }
