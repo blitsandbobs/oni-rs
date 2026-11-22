@@ -9,7 +9,6 @@ use std::path::Path;
 
 use glam::{Mat3, Mat4, Vec3};
 
-use super::weapons::ShotHost;
 use super::World;
 use crate::p3::{self, Handle};
 
@@ -89,7 +88,7 @@ impl World {
             return;
         }
         let m = e.matrix;
-        let (tick, now) = (self.armory.particles.tick, self.now as u64);
+        let tick = self.armory.particles.tick;
         let time = f64::from(tick) / p3::HZ;
         let mut p = self.armory.particles.create(class, tick);
         p.position = m.w_axis.truncate();
@@ -108,9 +107,7 @@ impl World {
                 p.matrix = Some(cell.clone());
             }
         }
-        let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        let h = particles.created(p, time, &mut host);
+        let h = self.with_shots(|a, host| a.particles.created(p, time, host));
         self.env_particles[k].handle = h;
     }
 
@@ -205,10 +202,7 @@ impl World {
     /// Kills environmental particle `k`'s particle, if it has one.
     fn env_kill(&mut self, k: usize) {
         if let Some(h) = self.env_particles[k].handle.take() {
-            let now = self.now as u64;
-            let super::weapons::Armory { particles, .. } = &mut self.armory;
-            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-            particles.kill(h, &mut host);
+            self.with_shots(|a, host| a.particles.kill(h, host));
         }
     }
 
@@ -221,7 +215,6 @@ impl World {
     pub fn remove_dangerous_projectiles(&mut self) {
         use p3::class::cflag;
         use p3::pflag;
-        let now = self.now as u64;
         let super::weapons::Armory { particles, .. } = &mut self.armory;
         let mut die = Vec::new();
         let mut expire = Vec::new();
@@ -246,10 +239,11 @@ impl World {
                 p.lifetime = 0.01;
             }
         }
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        for h in die {
-            particles.kill(h, &mut host);
-        }
+        self.with_shots(|a, host| {
+            for h in die {
+                a.particles.kill(h, host);
+            }
+        });
     }
 
     /// The level's start: every environmental particle not held back is
@@ -302,11 +296,8 @@ impl World {
                         self.env_particles[k].handle = None;
                         continue;
                     }
-                    let now = self.now as u64;
                     let time = f64::from(self.armory.particles.tick) / p3::HZ;
-                    let super::weapons::Armory { particles, .. } = &mut self.armory;
-                    let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-                    particles.send(h, e, time, &mut host);
+                    self.with_shots(|a, host| a.particles.send(h, e, time, host));
                 }
                 _ => {}
             }

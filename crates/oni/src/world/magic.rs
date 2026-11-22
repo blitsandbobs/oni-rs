@@ -253,16 +253,11 @@ impl World {
         };
         if !f.alive() || f.motion.dying {
             if let Some(hs) = f.super_handles.take() {
-                let now = self.now as u64;
-                let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
-                let mut host = crate::world::weapons::ShotHost::new(
-                    &mut self.fighters,
-                    Some(&self.quads),
-                    now,
-                );
-                for h in hs {
-                    particles.kill(h, &mut host);
-                }
+                self.with_shots(|a, host| {
+                    for h in hs {
+                        a.particles.kill(h, host);
+                    }
+                });
             }
             return;
         }
@@ -323,13 +318,11 @@ impl World {
         let ev = if on { event::START } else { event::STOP };
         let handles = self.fighters[who].super_handles.clone().unwrap_or_default();
         let t = f64::from(self.armory.particles.tick) / 60.0;
-        let now = self.now as u64;
-        let crate::world::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host =
-            crate::world::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        for h in handles {
-            particles.send(h, ev, t, &mut host);
-        }
+        self.with_shots(|a, host| {
+            for h in handles {
+                a.particles.send(h, ev, t, host);
+            }
+        });
         self.fighters[who].super_running = on;
     }
 

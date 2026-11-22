@@ -1483,16 +1483,60 @@ impl World {
         self.set_weapon_varient(who);
     }
 
+    /// Runs `work` on the guns and particles with a shot host that sees the
+    /// whole world, as the tick's particle update does — the fighters, the
+    /// level, its glass panes, the doors, the placed objects, the aim
+    /// spreads — then shatters the panes it broke and spreads the noises it
+    /// made. Every particle event goes through here (#95): a script's or an
+    /// animation's blast breaks glass and is heard just as one in the update.
+    pub(crate) fn with_shots<R>(
+        &mut self,
+        work: impl FnOnce(&mut Armory, &mut ShotHost<'_>) -> R,
+    ) -> R {
+        let now = self.now as u64;
+        let pane_quads: Vec<u32> = self.glass.panes.iter().map(|p| p.quad).collect();
+        let panes: Vec<(bool, Vec3, f32)> = self
+            .glass
+            .panes
+            .iter()
+            .map(|p| (p.broken, p.centre, p.radius))
+            .collect();
+        let inaccuracy = self.inaccuracies();
+        let spread = self.turret_spread();
+        let objects = self.object_spheres();
+        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
+        host.pane_quads = pane_quads;
+        host.doors = &self.doors.boxes;
+        host.objects = objects;
+        host.set_spread(inaccuracy, spread);
+        host.panes = panes;
+        host.quads = Some(&self.quads);
+        let out = work(&mut self.armory, &mut host);
+        let sounds = std::mem::take(&mut host.sounds);
+        let broke = std::mem::take(&mut host.broke);
+        drop(host);
+        for (k, damage, blast) in broke {
+            self.shatter(k, damage, blast);
+        }
+        for (at, volume, maker) in sounds {
+            self.sound(
+                crate::ai::perception::Stimulus::SoundGunshot,
+                at,
+                volume,
+                maker,
+                None,
+            );
+        }
+        out
+    }
+
     /// Removes gun `w` from the world (its particles go).
     fn delete_weapon(&mut self, w: usize) {
-        let Armory {
-            particles, weapons, ..
-        } = &mut self.armory;
-        let now = self.now as u64;
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        weapons[w].stow(particles, &mut host);
-        weapons[w].owner = None;
-        weapons[w].gone = true;
+        self.with_shots(|a, host| {
+            a.weapons[w].stow(&mut a.particles, host);
+            a.weapons[w].owner = None;
+            a.weapons[w].gone = true;
+        });
     }
 
     /// A cutscene or console putting the gun in hand away (`on`), into the
@@ -1869,13 +1913,8 @@ impl World {
     }
 
     fn drop_weapon_index(&mut self, w: usize, kick: Option<Vec3>) {
-        let Armory {
-            particles, weapons, ..
-        } = &mut self.armory;
-        let now = self.now as u64;
         let reset = self.quirks.drop_resets_cooldown();
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        weapons[w].release(particles, &mut host, kick, reset);
+        self.with_shots(|a, host| a.weapons[w].release(&mut a.particles, host, kick, reset));
     }
 
     /// The pistol / rifle animation variant for what fighter `who` holds.
@@ -2061,14 +2100,7 @@ impl World {
             self.drop_weapon(who, false);
             return;
         }
-        {
-            let Armory {
-                particles, weapons, ..
-            } = &mut self.armory;
-            let now = self.now as u64;
-            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-            weapons[w].stow(particles, &mut host);
-        }
+        self.with_shots(|a, host| a.weapons[w].stow(&mut a.particles, host));
         let f = &mut self.fighters[who];
         f.hand = None;
         if magic {
@@ -2120,12 +2152,7 @@ impl World {
             if action == Some(o.frame) && slot == crate::fighter::INVENTORY {
                 if crate::anim::types::ty::is_reload(kind) {
                     if let Some(w) = f.hand {
-                        let Armory {
-                            particles, weapons, ..
-                        } = &mut self.armory;
-                        let now = self.now as u64;
-                        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-                        weapons[w].reloaded(particles, &mut host);
+                        self.with_shots(|a, host| a.weapons[w].reloaded(&mut a.particles, host));
                     }
                 } else if kind == crate::anim::types::ty::HOLSTER {
                     self.put_away(who, o.magic);
@@ -2407,46 +2434,34 @@ impl World {
             return;
         };
         let motion = Vec3::ZERO;
-        let now = self.now as u64;
         // (A gun through a wall stops firing.)
         let busy = self.fighters[who].weapon_empty
             || self.fighters[who].overlays[crate::fighter::INVENTORY].is_some()
             || self.gun_through_wall(who);
-        let inaccuracy = self.inaccuracies();
-        let Armory {
-            particles, weapons, ..
-        } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        host.inaccuracy = inaccuracy;
-        let gun = &mut weapons[w];
-        if busy {
-            gun.release_trigger(particles, &mut host, false);
-            return;
-        }
-        let mut empty = false;
-        let mut single = false;
-        if held & key::FIRE1 != 0 {
-            single = pressed & key::FIRE1 != 0;
-            let (_, e) = gun.depress(particles, &mut host, false, false, motion);
-            empty = e;
-        } else if released & key::FIRE1 != 0 {
-            gun.release_trigger(particles, &mut host, false);
-        } else if pressed & key::FIRE2 != 0 && gun.class.has(flag::HAS_ALTERNATE) {
-            single = true;
-            empty = gun.depress(particles, &mut host, true, false, motion).1;
-        } else if released & key::FIRE2 != 0 {
-            gun.release_trigger(particles, &mut host, false);
-        }
-        drop(host);
+        let (empty, single) = self.with_shots(|a, host| {
+            let (particles, gun) = (&mut a.particles, &mut a.weapons[w]);
+            if busy {
+                gun.release_trigger(particles, host, false);
+                return (false, false);
+            }
+            if held & key::FIRE1 != 0 {
+                let single = pressed & key::FIRE1 != 0;
+                (gun.depress(particles, host, false, false, motion).1, single)
+            } else if released & key::FIRE1 != 0 {
+                gun.release_trigger(particles, host, false);
+                (false, false)
+            } else if pressed & key::FIRE2 != 0 && gun.class.has(flag::HAS_ALTERNATE) {
+                (gun.depress(particles, host, true, false, motion).1, true)
+            } else {
+                if released & key::FIRE2 != 0 {
+                    gun.release_trigger(particles, host, false);
+                }
+                (false, false)
+            }
+        });
         if empty {
             // Out of ammo: a single press reloads; a held trigger just clicks.
-            gun_release(
-                &mut self.armory,
-                &mut self.fighters,
-                Some(&self.quads),
-                now,
-                w,
-            );
+            self.with_shots(|a, host| a.weapons[w].release_trigger(&mut a.particles, host, false));
             let click = if single || !self.fighters[who].player {
                 let reloaded = self.reload(who);
                 if !reloaded {
@@ -2609,12 +2624,8 @@ impl World {
             };
             let before = self.armory.weapons[w].position;
             self.armory.weapons[w].infinite_ammo = self.fighters[who].infinite_ammo;
-            let Armory {
-                particles, weapons, ..
-            } = &mut self.armory;
-            let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
             let motion = m.w_axis.truncate() - before;
-            weapons[w].tick_held(particles, &mut host, m, motion);
+            self.with_shots(|a, host| a.weapons[w].tick_held(&mut a.particles, host, m, motion));
         }
         // Overlays and pickups.
         for who in 0..self.fighters.len() {
@@ -2695,42 +2706,12 @@ impl World {
         self.powerups_tick();
         // The shots.
         let tick = self.now as u32;
-        let pane_quads: Vec<u32> = self.glass.panes.iter().map(|p| p.quad).collect();
-        let panes: Vec<(bool, Vec3, f32)> = self
-            .glass
-            .panes
-            .iter()
-            .map(|p| (p.broken, p.centre, p.radius))
-            .collect();
-        let inaccuracy = self.inaccuracies();
-        let spread = self.turret_spread();
-        let objects = self.object_spheres();
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        host.pane_quads = pane_quads;
-        host.doors = &self.doors.boxes;
-        host.objects = objects;
-        host.set_spread(inaccuracy, spread);
-        host.panes = panes;
-        host.quads = Some(&self.quads);
-        for f in host.fighters.iter_mut() {
-            f.update_part_cells();
-        }
-        self.armory.particles.update(tick, &mut host);
-        let sounds = std::mem::take(&mut host.sounds);
-        let broke = std::mem::take(&mut host.broke);
-        drop(host);
-        for (k, damage, blast) in broke {
-            self.shatter(k, damage, blast);
-        }
-        for (at, volume, maker) in sounds {
-            self.sound(
-                crate::ai::perception::Stimulus::SoundGunshot,
-                at,
-                volume,
-                maker,
-                None,
-            );
-        }
+        self.with_shots(|a, host| {
+            for f in host.fighters.iter_mut() {
+                f.update_part_cells();
+            }
+            a.particles.update(tick, host);
+        });
         // Recoil settling.
         for f in &mut self.fighters {
             let Some(w) = f.hand else {
@@ -2815,20 +2796,6 @@ fn oni_type(name: &str) -> u16 {
         .iter()
         .position(|n| *n == name)
         .unwrap_or(0) as u16
-}
-
-fn gun_release(
-    armory: &mut Armory,
-    fighters: &mut [Fighter],
-    sight: Option<&crate::quads::Quads>,
-    now: u64,
-    w: usize,
-) {
-    let Armory {
-        particles, weapons, ..
-    } = armory;
-    let mut host = ShotHost::new(fighters, sight, now);
-    weapons[w].release_trigger(particles, &mut host, false);
 }
 
 #[cfg(test)]

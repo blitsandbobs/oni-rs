@@ -535,10 +535,7 @@ impl World {
 
     /// `particle_temp_kill`: the temporary particles go.
     pub fn kill_temporary_particles(&mut self) {
-        let now = self.now as u64;
-        let weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        particles.kill_temporary(&mut host);
+        self.with_shots(|a, host| a.particles.kill_temporary(host));
     }
 
     /// A roll in `[0, 1)` for others (`UUrLocalRandom`'s uses).
@@ -1523,11 +1520,10 @@ impl World {
             normal,
             d,
         };
-        let now = self.now as u64;
-        let weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        host.quads = Some(&self.quads);
-        particles.break_glass(class, &pane, damage, blast, 2, &mut host);
+        self.with_shots(|a, host| {
+            a.particles
+                .break_glass(class, &pane, damage, blast, 2, host)
+        });
     }
 
     /// How many of the script references `from..=to` have no unbroken
@@ -2632,11 +2628,7 @@ impl World {
         spec: &crate::p3::effect::Spec,
         data: &crate::p3::effect::Data,
     ) -> Option<crate::p3::Handle> {
-        let now = self.now as u64;
-        let weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        host.quads = Some(&self.quads);
-        particles.create_effect(spec, data, &mut host)
+        self.with_shots(|a, host| a.particles.create_effect(spec, data, host))
     }
 
     /// A character's health as a colour (`ONrCharacter_GetHealthShade`):

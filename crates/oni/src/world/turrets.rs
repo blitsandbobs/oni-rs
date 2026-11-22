@@ -11,7 +11,6 @@ use std::rc::Rc;
 use glam::{Mat3, Mat4, Quat, Vec3};
 use oni_schema::files;
 
-use super::weapons::ShotHost;
 use super::World;
 use crate::p3::{self, event, Handle};
 
@@ -252,20 +251,16 @@ impl World {
             .filter(|(a, _)| group == -1 || a.shooter == -1 || a.shooter == group)
             .filter_map(|(_, h)| *h)
             .collect();
-        let now = self.now as u64;
         let time = f64::from(self.armory.particles.tick) / p3::HZ;
-        let inaccuracy = self.inaccuracies();
-        let spread = self.turret_spread();
-        let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        host.set_spread(inaccuracy, spread);
-        for h in handles {
-            if let Some(p) = particles.get_mut(h) {
-                p.velocity = Vec3::ZERO;
-                p.owner = owner;
+        self.with_shots(|a, host| {
+            for h in handles {
+                if let Some(p) = a.particles.get_mut(h) {
+                    p.velocity = Vec3::ZERO;
+                    p.owner = owner;
+                }
+                a.particles.send(h, ev, time, host);
             }
-            particles.send(h, ev, time, &mut host);
-        }
+        });
     }
 
     /// Creates turret `k`'s attachment particles (riding its barrel), with
@@ -273,25 +268,23 @@ impl World {
     fn turret_particles(&mut self, k: usize) {
         let t = &self.turrets[k];
         let (class, matrix) = (t.class.clone(), t.matrix.clone());
-        let now = self.now as u64;
         let tick = self.armory.particles.tick;
         let time = f64::from(tick) / p3::HZ;
-        let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        let handles = class
-            .attachments
-            .iter()
-            .map(|a| {
-                let c = a.class?;
-                let mut p = particles.create(c, tick);
-                p.position = a.matrix.w_axis.truncate();
-                p.orientation = Mat3::from_mat4(a.matrix);
-                p.matrix = Some(matrix.clone());
-                p.lifetime = 0.0;
-                particles.created(p, time, &mut host)
-            })
-            .collect();
-        drop(host);
+        let handles = self.with_shots(|armory, host| {
+            class
+                .attachments
+                .iter()
+                .map(|a| {
+                    let c = a.class?;
+                    let mut p = armory.particles.create(c, tick);
+                    p.position = a.matrix.w_axis.truncate();
+                    p.orientation = Mat3::from_mat4(a.matrix);
+                    p.matrix = Some(matrix.clone());
+                    p.lifetime = 0.0;
+                    armory.particles.created(p, time, host)
+                })
+                .collect()
+        });
         self.turrets[k].particles = handles;
         self.turret_send(k, event::BG_STOP, -1);
     }

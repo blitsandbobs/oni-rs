@@ -283,17 +283,11 @@ impl World {
     }
 
     fn send_particle(&mut self, h: Handle, ev: usize, t: f64) {
-        let now = self.now as u64;
-        let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = super::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        particles.send(h, ev, t, &mut host);
+        self.with_shots(|a, host| a.particles.send(h, ev, t, host));
     }
 
     fn kill_particle(&mut self, h: Handle) {
-        let now = self.now as u64;
-        let super::weapons::Armory { particles, .. } = &mut self.armory;
-        let mut host = super::weapons::ShotHost::new(&mut self.fighters, Some(&self.quads), now);
-        particles.kill(h, &mut host);
+        self.with_shots(|a, host| a.particles.kill(h, host));
     }
 }
 
