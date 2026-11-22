@@ -45,6 +45,8 @@ pub struct View<'a> {
     /// Its movement met something last tick (a wall, an object, a
     /// character).
     pub colliding: bool,
+    /// Its movement met a character last tick.
+    pub touching_character: bool,
 }
 
 impl View<'_> {
@@ -1132,6 +1134,7 @@ pub fn view<'a>(
         facing: f.facing.facing,
         velocity: f.velocity,
         colliding: f.collisions != (0, 0, 0),
+        touching_character: f.collisions.2 > 0,
         motion: &f.motion,
         env,
         nav,

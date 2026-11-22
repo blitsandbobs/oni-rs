@@ -26,6 +26,9 @@ const THROW_FACING: f32 = 45.0 * PI / 180.0;
 const NOT_FACING_TICKS: u32 = 60;
 const END_OF_CLIP: u16 = 3;
 const MAX_RUN_IN_TICKS: u32 = 120;
+/// Slack on a run-in's reach before a strike that won't connect is given
+/// up (`AI2cMelee_AdditionalDelayTolerance`).
+const ADDITIONAL_DELAY_TOLERANCE: f32 = 5.0;
 /// A request not realised within this long has failed.
 const REQUEST_TIMEOUT: u32 = 30;
 
@@ -339,6 +342,19 @@ fn position(
                 return Step::Abort;
             }
             if !in_reach_after_run_in(m, me, target) {
+                // Facing the target but not in reach: maybe this strike won't
+                // connect from any run-in (`AI2iMelee_Position_Update`).
+                if let (Some(r), Some(delay)) = (run_in, delay_distance(m, me, target)) {
+                    let touching = me.touching_character
+                        && distance(me, target) <= me.planning.0 + target.planning.0 + 1.0;
+                    if facing_delta(me, target, p.dir) < START_ANGLE
+                        && (delay < 0.0
+                            || delay > r.max + r.tolerance + ADDITIONAL_DELAY_TOLERANCE
+                            || touching)
+                    {
+                        return Step::Abort;
+                    }
+                }
                 // Running in along a clear way only.
                 let want = bearing(me, target) + p.dir.offset().unwrap_or(0.0);
                 let fearless = m.technique.is_some_and(|t| {
@@ -509,7 +525,9 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
             clip: Some(target.motion.current()),
             tick: target.motion.frame,
         };
-        return dist <= info.ideal_range && geometry::bounds(&attacker, &victim, true);
+        // (The strike's reach alone: from here on running in would only
+        // close the gap, `TRrCheckAnimationBounds`.)
+        return geometry::bounds(&attacker, &victim, true);
     }
     if let Some(ti) = info.throw {
         if let Some(Move::Throw(i)) = m.profile.techniques[t].moves.get(ti) {
@@ -517,6 +535,30 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
         }
     }
     true
+}
+
+/// How much farther a run-in has to go before the technique's strike
+/// would be at its ideal range — or, ending in a jump, at the middle of its
+/// jump's reach (`AI2iMelee_Position_Update`'s `delay_distance`). None for
+/// a technique with no strike to run in to.
+fn delay_distance(m: &Melee, me: &View, target: &View) -> Option<f32> {
+    let t = m.technique?;
+    let info = &m.info[t];
+    info.attack?;
+    let dist = distance(me, target) - target.planning.0;
+    let jump = m.profile.techniques[t]
+        .moves
+        .iter()
+        .find_map(|mv| match mv {
+            Move::Position { index, .. } if POSITIONS[*index].jump != tables::JumpKind::None => {
+                Some(POSITIONS[*index].jump)
+            }
+            _ => None,
+        });
+    Some(match jump {
+        Some(kind) => dist - m.jumps.vel(kind) * 0.5 * (m.jumps.min + m.jumps.max),
+        None => dist - info.ideal_range,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
