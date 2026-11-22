@@ -1,4 +1,4 @@
--- Objects in the camera's way go see-through (docs/CAMERA.md, *See-through
+-- Objects in the camera's way go see-through (*See-through
 -- walls*): the ray the walls' test uses, from the camera to beside the
 -- player's head, flags each placed object whose sphere it passes through,
 -- drawn that frame at 31 of 255 (`CAiTrackJello`, `OBrDraw`). As shipped the

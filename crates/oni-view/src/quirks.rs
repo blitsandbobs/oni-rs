@@ -3,7 +3,7 @@
 //! By default the engine behaves as the designers evidently intended; with
 //! `--faithful` (or Lua `faithful(true)`) it reproduces the shipped game's
 //! behaviour, bugs included. Each quirk is one named method so the choice is
-//! visible at the point of use; `docs/QUIRKS.md` describes each one.
+//! visible at the point of use; `docs/deviations.md` describes each one.
 
 use crate::anim::types::ty;
 
@@ -92,7 +92,7 @@ impl Quirks {
     /// The animation type a jump with step-right held asks for. The shipped
     /// game names the right-landing type here (and in the matching "already
     /// jumping" check), so that request never finds a takeoff clip and the
-    /// jump falls through to a neutral one (Q1 in `docs/QUIRKS.md`).
+    /// jump falls through to a neutral one (Q1 in `docs/deviations.md`).
     pub fn jump_right(self) -> u16 {
         if self.faithful {
             ty::LAND_RIGHT
@@ -102,7 +102,7 @@ impl Quirks {
     }
 }
 
-/// Goals (`docs/GOALS.md`).
+/// Goals.
 impl Quirks {
     /// Q10: how often an investigator checks its view of the spot it is
     /// heading for (meant every 15 ticks; shipped, every tick).
@@ -188,7 +188,7 @@ impl Quirks {
     }
 
     /// Whether the level scripts run as shipped, without our fixes to their
-    /// most glaring mistakes (`docs/SCRIPT_FIXES.md`).
+    /// most glaring mistakes (`docs/deviations.md`).
     pub fn scripts_as_shipped(self) -> bool {
         self.faithful
     }

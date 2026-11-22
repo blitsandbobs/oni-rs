@@ -126,7 +126,7 @@ fn default_scripts_dir(input_dir: &Path) -> Option<PathBuf> {
     p.is_dir().then_some(p)
 }
 
-/// The game's movies (`docs/MOVIES.md`): `outro.bik`, the ending, copied as
+/// The game's movies: `outro.bik`, the ending, copied as
 /// it is to `movies/` (the viewer decodes Bink itself, `oni-bink`). Looked
 /// for in the game data folder (where the game keeps it), then in a
 /// `movies/` folder beside it; quietly skipped when absent.
@@ -162,7 +162,10 @@ fn level_name(dat: &Dat<'_>) -> Option<String> {
 }
 
 /// Translates the level's scripts (`scripts_dir/<level name>/*.bsl`, any
-/// case) to `scripts.lua` (`scripting/PORT.md`). Returns the number of
+/// case) to `levels/NN/scripts.lua` (`docs/lua.md`): not data but a
+/// Lua chunk the engine's mission runtime loads. Written when the scripts
+/// are available (the `--scripts` folder, or the extracted Anniversary
+/// Edition's vanilla scripts next to the game data). Returns the number of
 /// lines that couldn't be translated.
 fn convert_scripts(dat: &Dat<'_>, scripts_dir: &Path, root: &Path) -> std::io::Result<usize> {
     let Some(name) = level_name(dat) else {
@@ -874,7 +877,7 @@ fn collect_game_settings(
     })
 }
 
-/// A class's AI perception tuning (`docs/PERCEPTION.md`): vision (the
+/// A class's AI perception tuning: vision (the
 /// stored cosines turned back into angles, radians), hearing, memory and
 /// alert decay (ticks), behaviour flags, turning speed.
 fn perception_json(rec: &oni_template::Record) -> oni_schema::files::ClassPerception {
@@ -1552,13 +1555,25 @@ fn env_texture_flags(
         .unwrap_or((false, false))
 }
 
-/// Emits the level world geometry as `<root>/environment.glb`: the AKEV static
-/// world (one material-bound node per texture) plus every placed object as its
-/// own pivot node (doors, consoles, furniture — separate, transformable). The
-/// object list is returned for cross-linking in `level.json`.
-/// Writes `quads.bin` (`docs/ASSET_FORMAT.md`): every quad of the level
-/// with its corners, flags, plane, corner shades and texture — what decals
-/// are built on and particles hit.
+/// Writes `levels/NN/quads.bin`: every quad of the level as collision and
+/// decals see it, drawn or not (read by `oni-view`'s `quads::Quads::parse`).
+/// Little-endian:
+///
+/// - `ONIQ`; the counts of points, planes, textures and quads (u32 each);
+/// - the points (3 f32 each);
+/// - the planes (`a b c d`, 4 f32 each: `a·x + b·y + c·z + d = 0`);
+/// - the texture names (a length byte, then the name as the PNGs are
+///   named; empty: none);
+/// - per quad 76 bytes: 4 point indices (a triangle uses the first three);
+///   flags (u32, `AKcGQ_Flag_*`: 1<<6 triangle, 1<<7 transparent, 1<<9
+///   both sides, 1<<11 no collision, 1<<13 invisible, 1<<14 no object
+///   collision, 1<<15 no character collision, 1<<18 broken glass, 1<<19
+///   floor or ceiling, 1<<20 wall (`|n.y| ≤ 0.5`), 1<<23 no decal, bits
+///   25–26 the projection 1 XY / 2 XZ / 3 YZ); its plane (index; the top
+///   bit negates it); 4 corner shades (`0xAARRGGBB`); texture (index);
+///   object tag (`0xFFFFFFFF`: the static world); its bounding box (min,
+///   max: 6 f32); the script reference that shows and hides it
+///   (`env_show`; `0xFFFFFFFF`: none).
 fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
     let Some(akev) = dat
         .instances
@@ -1610,9 +1625,11 @@ fn convert_quads(dat: &Dat<'_>, root: &Path) -> std::io::Result<()> {
     std::fs::write(root.join("quads.bin"), b)
 }
 
-/// Writes the level's navigation data (`docs/PATHFINDING.md`,
-/// `docs/ASSET_FORMAT.md`): `navigation.json` (rooms, their hulls, links and
-/// portals) and `navigation.bin` (every room's grid, one byte per square).
+/// Writes the level's navigation data:
+/// `navigation.json` ([`oni_schema::files::NavigationFile`]: rooms, their
+/// hulls, links and portals) and `navigation.bin`: every room's grid back
+/// to back, one byte per 4-unit square indexing `squareTypes`, each room's
+/// at its `grid.offset` (layout on [`oni_schema::files::NavGrid`]).
 fn convert_navigation(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
     use oni_geom::nav;
     use oni_schema as sc;
@@ -1676,6 +1693,30 @@ fn convert_navigation(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result
     Ok(())
 }
 
+/// Writes `levels/NN/environment.glb`: the level's quads (`AKEV`) grouped by
+/// texture, as glTF nodes. Returns the placed objects for `level.json`.
+///
+/// - Static world: one root node `env_<texture>` per texture. Placed
+///   objects: a pivot node (`door_0x…`, `console_0x…`, `furniture_0x…`,
+///   `turret_0x…`) at the object's pivot, with a child per texture.
+/// - A name ending `__invisible` holds quads never drawn that still collide
+///   (invisible walls, ramps); `__nocollide` quads drawn but not collided
+///   with by characters (no collision / no character collision / broken
+///   glass: stair steps over the ramp characters walk). Placed objects
+///   carry `__nocollide` because the object itself collides in the
+///   original (the engine collides with their geometry).
+/// - `__ref<N>` in a name marks quads scripts show and hide as a group
+///   (`env_show N 0/1`; the level's quad-remap tables).
+/// - A name ending `__glass<Q>` is one breakable pane, quad `Q`: its
+///   texture's material is glass or below it in level 0's material tree
+///   (not under `Unbreak_Glass`).
+/// - Each quad is wound to face along its plane (its front: the side the
+///   original draws it from). Its material is `doubleSided` only for quads
+///   the original keeps two-sided (`AKcGQ_Flag_2Sided`: transparent, jello,
+///   draw-both-sides); the rest are culled from behind. Transparent and
+///   additive materials are `alphaMode: BLEND`; material `extras` carry
+///   `additive` and `selfIllum` when either is set.
+/// - Room-graph portals (door / ghost / stair-entry quads) are left out.
 fn convert_environment(
     dat: &Dat<'_>,
     this_root: &str,
@@ -1822,7 +1863,7 @@ fn convert_environment(
 
 /// Marks a level node's surface kind in its name: `__invisible` (collides,
 /// never drawn) or `__nocollide` (drawn; characters pass through — e.g.
-/// stair steps over the ramp they walk on). See `docs/ASSET_FORMAT.md`.
+/// stair steps over the ramp they walk on). See [`convert_environment`].
 fn surface_suffix(g: &oni_geom::level::TextureGroup) -> &'static str {
     match (g.visible, g.collide) {
         (false, _) => "__invisible",
@@ -2130,8 +2171,8 @@ fn anim_set_prefix(name: &str) -> &str {
     &name[..end]
 }
 
-/// Builds an animation's glTF `extras` JSON from a decoded clip, in the
-/// schema of `docs/ASSET_FORMAT.md`: enumerations as names (`oni-schema`),
+/// Builds an animation's glTF `extras` JSON from a decoded clip, as
+/// [`oni_schema::files::ClipExtras`]: enumerations as names (`oni-schema`),
 /// ranges as objects, defaults omitted.
 fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     use oni_schema as sc;
@@ -2287,7 +2328,17 @@ fn animation_extras(clip: &oni_geom::character::Clip) -> String {
 }
 
 /// Emits shared animation clips as `common/animations/<name>.glb` — a named-bone
-/// reference skeleton plus the animation, retargetable by bone name.
+/// reference skeleton plus the animation, retargetable by bone name — and
+/// `common/animations/index.json` (the clips by set prefix).
+///
+/// One clip per file: a rotation track per bone (glTF animation channels,
+/// times in seconds), its metadata in `animations[0].extras`
+/// ([`oni_schema::files::ClipExtras`]). The rotations are standard glTF
+/// quaternions. Oni's own are their conjugates (its quaternion-to-matrix is
+/// the transpose of the usual), so the stored ones (compressions 8 and 16:
+/// the aiming screens and overlays) are conjugated on the way out, and its
+/// Euler packing comes out conjugated by the standard product; every clip
+/// shares the one convention.
 fn convert_animations(
     dat: &Dat<'_>,
     raw: Option<&[u8]>,
@@ -2404,6 +2455,17 @@ fn decode_trma_maps(dat: &Dat<'_>, trma_name: &str) -> Vec<Option<String>> {
         .collect()
 }
 
+/// Writes each character body (`TRBS`) to `common/characters/<BODY>/`:
+/// `model.glb`, `low.glb` and `character.json`.
+///
+/// `model.glb` has a node per body part (bone), in Oni's part order, with
+/// its mesh, posed in the neutral stance (frame 0 of `NINJAidle1`) and
+/// textured with the body's default skin (classes give their own, as
+/// `partTextures`). Each node's `extras.boundSphere` is `[cx, cy, cz,
+/// radius]` in the node's own space: the sphere the game tests to decide
+/// whether two bodies (or a strike and a body) touch. `low.glb` is the same
+/// body at low detail (`TRcBody_Low`), untextured: magic effects are drawn
+/// over it.
 fn convert_characters(
     dat: &Dat<'_>,
     raw: Option<&[u8]>,

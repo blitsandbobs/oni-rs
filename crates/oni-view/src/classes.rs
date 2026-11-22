@@ -1,6 +1,7 @@
 //! Character classes: everything needed to spawn a given kind of character
 //! (Konoko, a Striker, a Ninja, …), read from the converter's
-//! `common/characters/classes.json` (`docs/ASSET_FORMAT.md`).
+//! `common/characters/classes.json`
+//! (`oni_schema::files::CharacterClassesFile`).
 //!
 //! A class names a body model, its own skin (one texture per body part —
 //! several classes share a body with differently coloured skins), an

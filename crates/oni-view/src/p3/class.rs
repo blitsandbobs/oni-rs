@@ -1,5 +1,5 @@
 //! Particle classes, loaded from `common/particle_classes.json`
-//! (`docs/ASSET_FORMAT.md`, *Particle classes*) into typed definitions with
+//! (`oni_schema::files::ParticleClassesFile`) into typed definitions with
 //! variable references, emitter classes and effect classes resolved.
 
 use std::collections::HashMap;
@@ -404,7 +404,7 @@ pub mod cflag {
     pub const OWNER: u32 = 1 << 9;
     pub const ATTRACTOR: u32 = 1 << 10;
     /// Its texture's animation starts at a random point / runs from its
-    /// birth (`docs/PARTICLES.md`, *Animated textures*).
+    /// birth.
     pub const TEXTURE_INDEX: u32 = 1 << 11;
     pub const TEXTURE_TIME: u32 = 1 << 12;
     // flags2
@@ -614,7 +614,7 @@ fn shade_of(s: &str) -> u32 {
     u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0)
 }
 
-/// A value (see `docs/ASSET_FORMAT.md`), with a variable resolved against
+/// A value (`oni_schema::files::ParticleValue`), with a variable resolved against
 /// `vars`.
 fn value(j: Option<&files::ParticleValue>, vars: &[VarDef]) -> Value {
     use files::ParticleValue as P;

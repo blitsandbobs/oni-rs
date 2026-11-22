@@ -1,4 +1,4 @@
-//! The out-of-game menus (`Oni_OutGameUI.c`, `docs/MENU.md`): level 0's
+//! The out-of-game menus (`Oni_OutGameUI.c`): level 0's
 //! dialogs — the main menu, load game, options, the new-game, quit and
 //! change-restart prompts, the level-load progress — every item with its
 //! window type, style bits, place and font; and the level descriptors

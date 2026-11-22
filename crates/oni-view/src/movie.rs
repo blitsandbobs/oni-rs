@@ -1,4 +1,4 @@
-//! Movies (`docs/MOVIES.md`): Oni's one, the ending (`outro.bik`, played
+//! Movies: Oni's one, the ending (`outro.bik`, played
 //! after level 19's win splash). Bink decoded by `oni-bink`; this keeps the
 //! picture on its frame for the time played and hands the sound on in
 //! stretches for the mixer to queue (`Oni_Bink.c`, `BFW_Bink.c`).

@@ -1,5 +1,5 @@
 //! AI melee profiles → `common/characters/melee_profiles.json`
-//! (`docs/MELEE_AI.md`, `docs/ASSET_FORMAT.md`).
+//! (`oni_schema::files::MeleeProfilesFile`).
 //!
 //! Profiles are objects of the "Melee Profile" group, stored once (in level
 //! 0) as a binary-data blob: an object file of size-prefixed chunks, one per

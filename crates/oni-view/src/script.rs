@@ -21,7 +21,7 @@
 //! - `punch()` / `kick()` / `crouch_tap()` — tap a button for one tick
 //! - `fire(n)` — tap fire 1/2/3 (mouse left/right/middle; unarmed: punch/kick/crouch)
 //! - `state()` / `anim_type()` — the body state / current animation type
-//! - `faithful(on)` — reproduce the original's known bugs (`docs/QUIRKS.md`)
+//! - `faithful(on)` — reproduce the original's known bugs (`docs/deviations.md`)
 //! - `seed(n)` — reseed the weighted animation pick (repeatable runs)
 //! - `type_of(id)` / `state_of(id)` / `facing_of(id)` / `dead(id)` / `set_hp(id, n)` — any fighter
 //! - `knock(id, anim_type)` / `set_facing(id, deg)` — test hooks on any fighter
@@ -318,6 +318,8 @@ pub fn run_script(
 fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let g = lua.globals();
 
+    // Holds (or lets go of) the forward / backward move keys (W / S) for the
+    // player.
     let h = host.clone();
     g.set(
         "input",
@@ -363,6 +365,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Holds (or lets go of) the turn-left / turn-right keys (lying down: rolls
+    // up).
     let h = host.clone();
     g.set(
         "turn_keys",
@@ -374,6 +378,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Taps the action key for one tick (in a fight: taunt).
     let h = host.clone();
     g.set(
         "action",
@@ -383,6 +388,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Holds (or lets go of) the strafe keys (A / D sidestep).
     let h = host.clone();
     g.set(
         "strafe",
@@ -394,6 +400,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Holds (or lets go of) the walk modifier (CapsLock).
     let h = host.clone();
     g.set(
         "walk",
@@ -403,6 +410,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Holds (or lets go of) the crouch key.
     let h = host.clone();
     g.set(
         "crouch",
@@ -429,6 +437,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Taps crouch for one tick (unarmed: the crouch attack button).
     let h = host.clone();
     g.set(
         "crouch_tap",
@@ -438,10 +447,11 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Switches reproducing the original's known bugs (`docs/deviations.md`) on
+    // or off (omitted: left as is) → whether it is on now.
     let h = host.clone();
     g.set(
         "faithful",
-        // faithful(on) sets the mode; faithful() tells it.
         lua.create_function(move |_, on: Option<bool>| {
             if let Some(on) = on {
                 h.borrow_mut()
@@ -452,6 +462,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Reseeds every fighter's weighted animation pick, for repeatable runs.
     let h = host.clone();
     g.set(
         "seed",
@@ -463,7 +474,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Per-fighter inspection (any id) and a test hook to set health.
+    // --- per-fighter inspection (any id) ---
     // Whether fighter `id` is still in the level (not removed).
     let h = host.clone();
     g.set(
@@ -503,6 +514,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Test hook: sets fighter `id`'s hit points outright (no reaction).
     let h = host.clone();
     g.set(
         "set_hp",
@@ -601,6 +613,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Whether fighter `id` has finished its `patrol` route (true too when it has
+    // none).
     let h = host.clone();
     g.set(
         "route_done",
@@ -642,6 +656,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s current animation type number (0: no such fighter).
     let h = host.clone();
     g.set(
         "type_of",
@@ -655,6 +670,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s body state number (the current clip's end state; 0: no such
+    // fighter).
     let h = host.clone();
     g.set(
         "state_of",
@@ -791,9 +808,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, ()| Ok(h.borrow().world.audio.volume()))?,
     )?;
     // pause_toggle(): F1 (the pause screen opened, or closed once up a
-    // second). pause_screen() → {tab, page (from 1), pages, lines, hint,
-    // previous, next} or nil. pause_press(button): "objective", "items",
-    // "weapons", "diary", "help", "previous", "next" or "close".
+    // second).
     let h = host.clone();
     g.set(
         "pause_toggle",
@@ -802,6 +817,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // The pause screen → {tab, page (from 1), pages, lines, hint, previous,
+    // next}, or nil when it is not up.
     let h = host.clone();
     g.set(
         "pause_screen",
@@ -822,7 +839,6 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // cheats(on): typing the cheat codes allowed (as once the game is won).
-    // type_keys(s) → the last message: letters typed on the pause screen.
     let h = host.clone();
     g.set(
         "cheats",
@@ -831,6 +847,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Types the letters of `s` on the pause screen (cheat codes) → the message
+    // the last finished code shows, or nil.
     let h = host.clone();
     g.set(
         "type_keys",
@@ -880,20 +898,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
-    // frame_ticks(n) → the ticks a frame runs with n passed on the clock;
-    // time_scale() → 2 in slow motion, else 1; env_shade_of(ref) → {r, g, b}
-    // or nil; obj_shades() → each live object's flat shade ({r, g, b} or
-    // false).
+    // frame_ticks(n) → the ticks a frame runs with n passed on the clock
+    // (at most 6, plus any the clock is behind).
     let h = host.clone();
     g.set(
         "frame_ticks",
         lua.create_function(move |_, n: u32| Ok(h.borrow_mut().world.frame_ticks(n)))?,
     )?;
+    // How much slower than the clock the game runs: 2 in slow motion, else 1.
     let h = host.clone();
     g.set(
         "time_scale",
         lua.create_function(move |_, ()| Ok(h.borrow().world.time_scale()))?,
     )?;
+    // The flat shade `env_shade` put on level part `r` (its script
+    // reference) → {r, g, b} (0–1), or nil.
     let h = host.clone();
     g.set(
         "env_shade_of",
@@ -923,6 +942,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .collect::<Vec<_>>())
         })?,
     )?;
+    // Each live placed object's flat shade, in order: {r, g, b} (0–1), or false
+    // for none.
     let h = host.clone();
     g.set(
         "obj_shades",
@@ -959,6 +980,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "magic_drawn",
         lua.create_function(move |_, ()| Ok(h.borrow().magic_drawn))?,
     )?;
+    // Clicks a pause-screen button: "objective", "items", "weapons", "diary",
+    // "help", "previous", "next" or "close" (errors on any other).
     let h = host.clone();
     g.set(
         "pause_press",
@@ -982,12 +1005,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // text_console() → {name, page, pages, last, lines} or nil: the data
-    // console showing its text (page from 1; lines: the page's strings).
-    // text_console_key("next" | "close"): Space / Esc on it.
-    // text_console_click(x, y): the left button at screen x, y (640 × 480;
-    // `button` in text_console() is its button's {x, y, w, h}) → whether it
-    // was on the button (Next / Close).
+    // text_console() → {name, page, pages, last, lines, button} or nil: the
+    // data console showing its text (page from 1; lines: the page's strings;
+    // button: its Next / Close button's {x, y, w, h} on a 640 × 480 screen).
     let h = host.clone();
     g.set(
         "text_console",
@@ -1014,6 +1034,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(Some(t))
         })?,
     )?;
+    // Presses a key on the data console's text: "next" (Space) turns the page;
+    // anything else (Esc) closes it.
     let h = host.clone();
     g.set(
         "text_console_key",
@@ -1026,6 +1048,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Clicks the left button at screen x, y (640 × 480) on the data console's
+    // text → whether it was on its Next / Close button.
     let h = host.clone();
     g.set(
         "text_console_click",
@@ -1051,6 +1075,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .map_or(0, |f| f.motion.lock_frames))
         })?,
     )?;
+    // Fighter `id`'s body yaw (degrees; 0: no such fighter).
     let h = host.clone();
     g.set(
         "facing_of",
@@ -1064,6 +1089,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Whether fighter `id` is dying or dead (false: no such fighter).
     let h = host.clone();
     g.set(
         "dead",
@@ -1076,6 +1102,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // The player's body state number (`state_of(0)`).
     let h = host.clone();
     g.set(
         "state",
@@ -1088,6 +1115,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // The player's current animation type number (`type_of(0)`).
     let h = host.clone();
     g.set(
         "anim_type",
@@ -1110,6 +1138,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Whether the player is in the air.
     let h = host.clone();
     g.set(
         "airborne",
@@ -1132,6 +1161,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Queues a kick (fires on the next step's first tick).
     let h = host.clone();
     g.set(
         "kick",
@@ -1141,8 +1171,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // `facing(deg)` snaps the player body (and its target); `turn(delta)` nudges
-    // the target so the body slews toward it over subsequent ticks (mouse turn).
+    // Snaps the player's body (and its facing target) to an absolute yaw
+    // (degrees).
     let h = host.clone();
     g.set(
         "facing",
@@ -1154,6 +1184,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Nudges the player's facing target by `delta` degrees; the body slews toward
+    // it over the next ticks (as the mouse turns).
     let h = host.clone();
     g.set(
         "turn",
@@ -1165,7 +1197,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Read-back of the player body yaw and the (mouse) target, in degrees.
+    // The player's body yaw (degrees).
     let h = host.clone();
     g.set(
         "facing_deg",
@@ -1192,6 +1224,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // The player's facing target yaw (degrees), which the body slews toward.
     let h = host.clone();
     g.set(
         "desired_deg",
@@ -1221,10 +1254,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         )?,
     )?;
 
-    // Goals (`docs/GOALS.md`): place one of the level's characters by name
-    // (its class, position, job, alerts, profiles) and return its id; give a
-    // spawned character default goals (idle, its class's combat profile);
-    // read what an agent is doing.
+    // Goals: places one of the level's characters by name
+    // (its class, position, job, alerts, profiles) → its fighter id; errors
+    // if the level places no such character.
     let h = host.clone();
     g.set(
         "place",
@@ -1250,10 +1282,10 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(id as u32)
         })?,
     )?;
-    // The level's own scripts (`scripting/PORT.md`): begin the level (the
+    // The level's own scripts (`docs/lua.md`): begins the level (the
     // player at its placement, the characters present from the start,
-    // `main`); what the scripts are doing; a character by name; run a
-    // script function.
+    // `main`). `run` false: the scripts loaded but the level's start not
+    // run; `save_point` n: begun from the level's save point n.
     let h = host.clone();
     g.set(
         "mission_begin",
@@ -1326,6 +1358,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .collect::<Vec<_>>())
         })?,
     )?;
+    // What the level scripts are doing → {tasks, waiting = {…}, errors = {…},
+    // objective, outcome, spawned, messages = {…}, stubbed = {command, …}}; an
+    // empty table before `mission_begin`.
     let h = host.clone();
     g.set(
         "mission_info",
@@ -1347,6 +1382,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // The fighter id of the live scripted character called `name` (its
+    // `chr_create` name; case matters), or nil.
     let h = host.clone();
     g.set(
         "named",
@@ -1481,12 +1518,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Weapons (`docs/WEAPONS.md`): give_weapon(id, class) puts a new gun in
-    // a fighter's hand; weapon(id) → class, ammo, firing, the ticks till it
-    // fires again (nil: unarmed);
-    // aim(id, pitch) sets its aim pitch (radians, up positive);
-    // reload(id), drop_weapon(id[, knock]); give_ammo(id, clips, cells);
-    // shots() → live particles; weapons_lying() → guns on the floor.
+    // Weapons: puts a new gun of `class` in fighter
+    // `id`'s hand (the one it held is deleted, as `chr_giveweapon`) →
+    // whether it did (false: no such fighter or class).
     let h = host.clone();
     g.set(
         "give_weapon",
@@ -1494,6 +1528,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(h.borrow_mut().world.give_weapon(id, &class))
         })?,
     )?;
+    // The gun in fighter `id`'s hand → class, ammo, firing, chamber (the ticks
+    // till it can fire again); all nil unarmed.
     let h = host.clone();
     g.set(
         "weapon",
@@ -1513,6 +1549,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             ))
         })?,
     )?;
+    // Sets fighter `id`'s aim pitch (radians, up positive).
     let h = host.clone();
     g.set(
         "aim",
@@ -1523,7 +1560,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // The HUD (docs/HUD.md): the lines in its message area, subtitles and
+    // The HUD: the lines in its message area, subtitles and
     // console strip; the objective (and whether it is unread); the compass
     // target; the letterbox's depth; the fade's opacity; the elements filled
     // and flashing; the rings shown; the player's hit ring.
@@ -1561,7 +1598,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
-    // The game flow (docs/GAME_FLOW.md): the level's outcome (true won,
+    // The game flow: the level's outcome (true won,
     // false lost), a splash screen asked for, the save point kept.
     let h = host.clone();
     g.set(
@@ -1580,7 +1617,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // Lens flares: how many there are, and how many are shown now
-    // (docs/PARTICLES.md, *Lens flares*).
+    //.
     let h = host.clone();
     g.set(
         "lens_flares",
@@ -1622,13 +1659,14 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .map(|v| v.1))
         })?,
     )?;
-    // use_hypo(id) → whether fighter `id` used a hypo (as Tab does);
-    // hypo_left(id) → the health its hypo still has to give.
+    // use_hypo(id) → whether fighter `id` used a hypo (as Tab does).
     let h = host.clone();
     g.set(
         "use_hypo",
         lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.use_hypo(id)))?,
     )?;
+    // The health fighter `id`'s hypo still has to give (0: none, or no such
+    // fighter).
     let h = host.clone();
     g.set(
         "hypo_left",
@@ -1674,8 +1712,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(draws.iter().map(|d| d.tris.len() / 3).sum::<usize>())
         })?,
     )?;
-    // The game camera: where it is, which way it looks, whether a script
-    // waits on it, and how many walls it makes see-through.
+    // The game camera → x, y, z (where it is), vx, vy, vz (which way it
+    // looks), busy (whether a script waits on it).
     let h = host.clone();
     g.set(
         "camera",
@@ -1686,6 +1724,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((p.x, p.y, p.z, v.x, v.y, v.z, c.busy))
         })?,
     )?;
+    // How many level quads are see-through (jello) for the camera this tick.
     let h = host.clone();
     g.set(
         "jello",
@@ -1715,6 +1754,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(p.aim.lr)
         })?,
     )?;
+    // Fighter `id`'s aim pitch (radians, up positive; 0: no such fighter).
     let h = host.clone();
     g.set(
         "aim_of",
@@ -1722,11 +1762,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(h.borrow().world.fighters.get(id).map_or(0.0, |f| f.aim.ud))
         })?,
     )?;
+    // Fighter `id` starts reloading its gun (`WPrTryReload`) → whether it did
+    // (refused when full, busy, just fired, or out of clips).
     let h = host.clone();
     g.set(
         "reload",
         lua.create_function(move |_, id: usize| Ok(h.borrow_mut().world.reload(id)))?,
     )?;
+    // Fighter `id` lets go of the gun in its hand (`knock`: thrown clear, as a
+    // knockdown does).
     let h = host.clone();
     g.set(
         "drop_weapon",
@@ -1735,6 +1779,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Adds `clips` ammo clips and `cells` energy cells to fighter `id`'s
+    // inventory (no carry limit).
     let h = host.clone();
     g.set(
         "give_ammo",
@@ -1770,11 +1816,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
+    // How many particles are alive (shots and every other effect).
     let h = host.clone();
     g.set(
         "shots",
         lua.create_function(move |_, ()| Ok(h.borrow().world.particles().iter().count()))?,
     )?;
+    // Taps the swap-weapon key for one tick (holster / draw).
     let h = host.clone();
     g.set(
         "swap",
@@ -1783,6 +1831,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Puts a new gun of `class` at a point (falling: with physics, else resting
+    // as placed) → whether the class exists.
     let h = host.clone();
     g.set(
         "spawn_weapon",
@@ -1795,7 +1845,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             },
         )?,
     )?;
-    // loose_guns() → {{class, at={x,y,z}, falling}, …}: the guns no one holds.
+    // loose_guns() → {{class, at={x,y,z}, moving}, …}: the guns no one holds
+    // (moving: still sliding or falling).
     let h = host.clone();
     g.set(
         "loose_guns",
@@ -1818,6 +1869,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // The class of the gun fighter `id` has holstered, or nil.
     let h = host.clone();
     g.set(
         "holster_of",
@@ -1852,9 +1904,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // impulse(name [, x, y, z [, volume]]) plays an impulse sound (placed,
-    // or not) → its channel (0–15) or nil; channels() → the 16 channels,
-    // each {clip, locked, volume (linear), left, right (output gains)};
-    // sound_volume(v) sets the overall volume to head for.
+    // or not) → its channel (0–15) or nil.
     let h = host.clone();
     g.set(
         "impulse",
@@ -1877,6 +1927,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             },
         )?,
     )?;
+    // The 16 sound channels → each {clip, locked, volume (linear), left, right
+    // (output gains)}.
     let h = host.clone();
     g.set(
         "channels",
@@ -1921,6 +1973,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(list)
         })?,
     )?;
+    // Sets the overall sound volume to head for (0–1).
     let h = host.clone();
     g.set(
         "sound_volume",
@@ -1939,8 +1992,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // env_particles(tag) → how many of the level's environmental particles
-    // tagged `tag` are alive; particle(tag, command [, event]) sends them a
-    // command as scripts do.
+    // tagged `tag` are alive.
     let h = host.clone();
     g.set(
         "env_particles",
@@ -1982,9 +2034,6 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(out)
         })?,
     )?;
-    // particles_of(class) → { {x, y, z, dx, dy, dz [, tint]}, … }: where
-    // each live particle of a class is, its forward (Y) axis, and its colour
-    // when that is a variable.
     // health_shade(id) → the colour of a fighter's health (melee flashes'
     // tint).
     let h = host.clone();
@@ -2000,6 +2049,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(host.world.health_shade(f.hp, f.max_hp))
         })?,
     )?;
+    // particles_of(class) → { {x, y, z, dx, dy, dz [, tint]}, … }: where
+    // each live particle of a class is, its forward (Y) axis, and its colour
+    // when that is a variable.
     let h = host.clone();
     g.set(
         "particles_of",
@@ -2091,8 +2143,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(Some(t))
         })?,
     )?;
-    // bone(id, k) / held_gun(id) → {x={…}, y={…}, z={…}, at={…}}: a
-    // fighter's posed bone k, or the gun in its hand (nil without one).
+    // (A matrix as {x={…}, y={…}, z={…}, at={…}}: its axes and origin.)
     let mat = |lua: &mlua::Lua, m: glam::Mat4| -> mlua::Result<mlua::Table> {
         let t = lua.create_table()?;
         for (k, c) in [
@@ -2105,6 +2156,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         }
         Ok(t)
     };
+    // Fighter `id`'s posed bone k in world space → {x={…}, y={…}, z={…},
+    // at={…}} (axes and position); nil: no such fighter or bone.
     let h = host.clone();
     g.set(
         "bone",
@@ -2121,6 +2174,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             mat(lua, m).map(Some)
         })?,
     )?;
+    // The gun in fighter `id`'s hand, as `bone` → {x, y, z, at}; nil unarmed.
     let h = host.clone();
     g.set(
         "held_gun",
@@ -2136,7 +2190,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     // sight(id) → {from, to, target, laser, tunnel}: fighter id's gun sight
     // this tick (nil without one); target "none" | "environment" | "object" |
     // "character", laser its {r, g, b} (nil without one), tunnel how many
-    // sprites. gun_through_wall(id) → whether its gun pokes through a wall.
+    // sprites.
     let h = host.clone();
     g.set(
         "sight",
@@ -2162,6 +2216,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(Some(t))
         })?,
     )?;
+    // Whether fighter `id`'s gun pokes through a wall
+    // (`ONrCharacter_IsGunThroughWall`): such a gun neither fires nor shows its
+    // sight.
     let h = host.clone();
     g.set(
         "gun_through_wall",
@@ -2176,7 +2233,6 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // quad_plane(q) → a, b, c, d: a level quad's plane.
     // jello_drawn() → how many see-through (jello) triangles the last
     // screenshot drew, and how many of them were doors'.
     let h = host.clone();
@@ -2253,6 +2309,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             },
         )?,
     )?;
+    // Level quad `q`'s plane → a, b, c (its normal), d.
     let h = host.clone();
     g.set(
         "quad_plane",
@@ -2263,6 +2320,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((n.x, n.y, n.z, d))
         })?,
     )?;
+    // Sends the environmental particles tagged `tag` a command, as the BSL
+    // `particle` does ("create", "kill", "reset", "do" with `event`, or an event
+    // name) → false for an unknown command.
     let h = host.clone();
     g.set(
         "particle",
@@ -2313,9 +2373,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .and_then(|f| f.speech.saying().map(str::to_string)))
         })?,
     )?;
-    // Turrets: turret(id, "activate" | "deactivate" | "reset");
-    // turret_state(id) → active, yaw, pitch (degrees), target, firing, shots
-    // (the first turret with that script id; nil: none).
+    // Turrets: orders the turrets with script id `id`: "activate",
+    // "deactivate" or "reset".
     let h = host.clone();
     g.set(
         "turret",
@@ -2324,6 +2383,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // The first turret with script id `id` → {active, yaw, pitch (degrees),
+    // target, firing, shots, idle_effect}, or nil: none.
     let h = host.clone();
     g.set(
         "turret_state",
@@ -2343,6 +2404,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(mlua::Value::Table(r))
         })?,
     )?;
+    // Agent `id`'s dodge → dx, dz (the way it dodges; nil: not dodging), weight
+    // (how strongly), projectiles (how many of the dangers are projectiles).
     let h = host.clone();
     g.set(
         "dodge_of",
@@ -2361,6 +2424,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             ))
         })?,
     )?;
+    // Sets agent `id`'s chance (percent) of going for a gun when it has none.
     let h = host.clone();
     g.set(
         "gun_chance",
@@ -2395,6 +2459,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Shows or hides level part `r` (`env_show`): drawn, solid and blocking sight
+    // only while shown; hiding glass breaks it.
     let h = host.clone();
     g.set(
         "env_show",
@@ -2403,6 +2469,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // How many of the script references `from..=to` (`to` defaults to `from`)
+    // have no unbroken glass pane left (`env_broken`).
     let h = host.clone();
     g.set(
         "env_broken",
@@ -2410,6 +2478,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(h.borrow().world.env_broken(from, to.unwrap_or(from)))
         })?,
     )?;
+    // Fighter `id`'s inventory → ammo clips, energy cells, hypos (0s: no such
+    // fighter).
     let h = host.clone();
     g.set(
         "inventory",
@@ -2424,6 +2494,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok((i.ammo, i.cells, i.hypos))
         })?,
     )?;
+    // How many powerups lie about the level.
     let h = host.clone();
     g.set(
         "powerups_lying",
@@ -2447,6 +2518,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // How many guns no one holds.
     let h = host.clone();
     g.set(
         "weapons_lying",
@@ -2461,8 +2533,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Orders laser trigger `id` ("activate", "deactivate", "reset", "hide",
-    // "show", "speed" with a factor); laser_state(id): active, on,
-    // triggered, and how many beams are out (nil: no such laser).
+    // "show", "speed" with a factor).
     let h = host.clone();
     g.set(
         "laser",
@@ -2473,6 +2544,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Laser trigger `id` → active, on, triggered, and how many beams are out (all
+    // nil: no such laser).
     let h = host.clone();
     g.set(
         "laser_state",
@@ -2551,6 +2624,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             }
         })?,
     )?;
+    // Starts level-script function `name` as a new task (with one string
+    // argument, if given) → whether it exists (false without a mission).
     let h = host.clone();
     g.set(
         "mission_call",
@@ -2560,6 +2635,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(host.mission.as_mut().is_some_and(|m| m.start(&name, &args)))
         })?,
     )?;
+    // Gives fighter `id` the default goals (idle, its class's combat profile).
     let h = host.clone();
     g.set(
         "goals",
@@ -2568,9 +2644,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // skip_cutscene() asks to skip the cutscene (as Space does);
-    // cutscene_skip() → "idle" / "starting" / "black" / "skipping" /
-    // "fading in", and the screen's black (0–1; nil: none).
+    // Asks to skip the cutscene (as Space does).
     let h = host.clone();
     g.set(
         "skip_cutscene",
@@ -2579,6 +2653,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // The cutscene skip → mode ("idle" / "starting" / "black" / "skipping" /
+    // "fading in") and the screen's black (0–1; nil: none).
     let h = host.clone();
     g.set(
         "cutscene_skip",
@@ -2620,13 +2696,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
-    // The main menu (docs/MENU.md): menu_open([in_game]) brings it up;
-    // menu_state() → {dialog, depth, rows, selected, checks = {id = on},
-    // sliders = {id = value}, popups = {id = item}} of the dialog on top (nil:
-    // none up); menu_click(id) clicks a control (its middle) and
-    // menu_key(name) presses a key ("enter", "escape", "up", "down", …), each
-    // returning what the menu asks for ("new_game", "new_game faithful",
-    // "load L S", "resume", "quit", "options"; nil: nothing); menu_close().
+    // The main menu: brings it up (`in_game`: the in-game
+    // menu, with Resume); screenshots then draw it.
     let h = host.clone();
     g.set(
         "menu_open",
@@ -2646,6 +2717,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Takes the main menu down.
     let h = host.clone();
     g.set(
         "menu_close",
@@ -2654,6 +2726,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // The menu dialog on top → {dialog, depth, rows, selected, visible = {id =
+    // title}, checks = {id = on}, sliders = {id = value}, popups = {id = item}},
+    // or nil when none is up.
     let h = host.clone();
     g.set(
         "menu_state",
@@ -2727,6 +2802,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         }
         out
     }
+    // Clicks control `id` of the menu dialog on top (near its middle) → what the
+    // menu asks for ("new_game", "new_game faithful", "load L S", "resume",
+    // "quit", "options"), or nil; errors if the control isn't showing.
     let h = host.clone();
     g.set(
         "menu_click",
@@ -2753,10 +2831,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(run(&mut host, cmds))
         })?,
     )?;
-    // menu_press(id, f): the left button down on a control, a fraction `f`
-    // of the way across it (held: menu_timer(n) fires the window manager's
-    // timer n times, a slider pressing on); menu_release() lets go. Each
-    // returns what the menu asks for, as menu_click.
+    // menu_press(id, f): the left button down on control `id`, a fraction
+    // `f` of the way across it (held, for menu_timer / menu_release) → what
+    // the menu asks for, as menu_click.
     let h = host.clone();
     g.set(
         "menu_press",
@@ -2782,6 +2859,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(run(&mut host, cmds))
         })?,
     )?;
+    // Fires the menu's timer `n` times (200 ms each) while `menu_press` holds the
+    // button, so a held slider steps on → what the menu asks for, as menu_click.
     let h = host.clone();
     g.set(
         "menu_timer",
@@ -2803,6 +2882,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(run(&mut host, cmds))
         })?,
     )?;
+    // Lets go of the button `menu_press` held → what the menu asks for, as
+    // menu_click (nil: nothing held).
     let h = host.clone();
     g.set(
         "menu_release",
@@ -2851,6 +2932,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Presses a key on the menu: "enter", "escape", "up", "down", "left",
+    // "right", "home", "end", "pageup", "pagedown" → what the menu asks for, as
+    // menu_click.
     let h = host.clone();
     g.set(
         "menu_key",
@@ -3002,8 +3086,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
     // passive_of(id) → whether fighter id's AI is passive (`ai2_passive`, a
-    // cutscene); script_id_of(id) → the id the scripts know it by (the
-    // player 0, a `chr_create`d character its setup's; nil for the rest).
+    // cutscene); nil: no such fighter.
     let h = host.clone();
     g.set(
         "passive_of",
@@ -3011,6 +3094,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(h.borrow().world.fighters.get(id).map(|f| f.passive))
         })?,
     )?;
+    // The id the level scripts know fighter `id` by: the player 0, a
+    // `chr_create`d character its setup's; nil for the rest.
     let h = host.clone();
     g.set(
         "script_id_of",
@@ -3024,6 +3109,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             }))
         })?,
     )?;
+    // What fighter `id`'s AI is doing, as one line ("job idle", "pursuit …", …);
+    // "other" for a test brain, "none" without one.
     let h = host.clone();
     g.set(
         "goal_of",
@@ -3044,7 +3131,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // neutral_of(id) → fighter id's neutral interaction (`docs/NEUTRAL.md`):
+    // neutral_of(id) → fighter id's neutral interaction:
     // {behavior (id), with (whom it talks with), line (0-based, nil before
     // the conversation), accepted, begun, items_given, completed, resume_at}
     // — nil without a behaviour or an interaction.
@@ -3105,8 +3192,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Navigation: fighter `id` walks (pace "run" / "walk") to a point
-    // through the level; nav_state(id) reads "planning" / "following" /
-    // "arrived" / "failed: …".
+    // through the level, pathfinding; nav_state(id) reads its progress.
     let h = host.clone();
     g.set(
         "go_to",
@@ -3125,6 +3211,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             },
         )?,
     )?;
+    // The waypoints fighter `id` is following (`go_to` or an agent's) → {{x, z,
+    // radius, next}, …} (next: the one it heads for); empty without a path.
     let h = host.clone();
     g.set(
         "nav_path",
@@ -3150,6 +3238,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // Fighter `id`'s navigation → "planning", "following", "arrived", "failed:
+    // …", or "none".
     let h = host.clone();
     g.set(
         "nav_state",
@@ -3173,9 +3263,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Perception: make a placed character an AI that watches and listens
-    // (not a passive dummy); its alert; what it knows about another; teams;
-    // making a noise.
+    // Perception: makes fighter `id` an AI that watches and listens (not a
+    // passive dummy).
     let h = host.clone();
     g.set(
         "watch",
@@ -3186,6 +3275,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Fighter `id`'s alert level name ("lull", "low", "medium", "high",
+    // "combat"), or nil without perception.
     let h = host.clone();
     g.set(
         "alert_of",
@@ -3198,6 +3289,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .map(|p| p.alert.name()))
         })?,
     )?;
+    // What fighter `id` knows of fighter `other` → "dead", "forgotten", "weak",
+    // "strong" or "definite", or nil: nothing.
     let h = host.clone();
     g.set(
         "contact_of",
@@ -3211,6 +3304,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .map(|c| c.strength.name()))
         })?,
     )?;
+    // Sets fighter `id`'s team: "konoko", "tctf", "syndicate", "securityGuard",
+    // "rogueKonoko", "switzerland", "syndicateAccessory" (else neutral).
     let h = host.clone();
     g.set(
         "team",
@@ -3227,6 +3322,9 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(())
         })?,
     )?;
+    // Makes a noise at a point for the AI to hear: kind "interesting", "danger",
+    // "melee" or "gunshot" (else ignored), volume its reach (world units, times
+    // each listener's hearing), maker the fighter who made it.
     let h = host.clone();
     g.set(
         "noise",
@@ -3274,18 +3372,21 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s character class name, or nil.
     let h = host.clone();
     g.set(
         "class_of",
         lua.create_function(move |_, id: usize| Ok(h.borrow().class_names.get(id).cloned()))?,
     )?;
 
+    // How many fighters there are (the player included, removed ones too).
     let h = host.clone();
     g.set(
         "count",
         lua.create_function(move |_, ()| Ok(h.borrow().world.fighters.len() as u32))?,
     )?;
 
+    // Fighter `id`'s hit points (0: no such fighter).
     let h = host.clone();
     g.set(
         "hp",
@@ -3294,6 +3395,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s feet → x, y, z (0, 0, 0: no such fighter).
     let h = host.clone();
     g.set(
         "pos_of",
@@ -3309,6 +3411,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s current clip name ("": no such fighter).
     let h = host.clone();
     g.set(
         "anim_of",
@@ -3322,6 +3425,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Advances `n` 60 Hz game ticks (default 1): held keys apply each tick,
+    // tapped buttons on the first; the level scripts run along.
     let h = host.clone();
     g.set(
         "step",
@@ -3331,6 +3436,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Places the screenshot camera: eye ex, ey, ez looking at tx, ty, tz (world
+    // units), overriding the game camera from then on.
     let h = host.clone();
     g.set(
         "cam",
@@ -3344,6 +3451,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         )?,
     )?;
 
+    // The player's feet → x, y, z.
     let h = host.clone();
     g.set(
         "pos",
@@ -3358,6 +3466,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Whether the player is on the ground.
     let h = host.clone();
     g.set(
         "grounded",
@@ -3384,6 +3493,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // The player's current clip name.
     let h = host.clone();
     g.set(
         "anim",
@@ -3396,6 +3506,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Renders one frame (default 800 × 600) to a PNG at `path`: the game camera,
+    // or `cam`'s, with the HUD or menu on top.
     let h = host.clone();
     g.set(
         "screenshot",

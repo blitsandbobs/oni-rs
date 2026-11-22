@@ -945,7 +945,7 @@ pub fn apply_pose(body: &mut Body, quats: &[[f32; 4]], zero_root: bool) {
 /// packing (`MUrXYZrEulerToQuat`) comes out conjugated by the standard
 /// product below on its own; the stored ones (8, 16) are conjugated here — so
 /// every clip shares one convention, and composing them reverses the
-/// original's order (`docs/WEAPONS.md`, *Overlays*).
+/// original's order.
 fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
     let u16le = |o: usize| -> Option<u16> { Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
     let i16le = |o: usize| -> Option<i16> { Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]])) };

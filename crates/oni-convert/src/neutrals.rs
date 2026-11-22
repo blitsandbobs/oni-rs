@@ -1,5 +1,5 @@
-//! Neutral behaviours (`OT_Neutral`, `OBJiNeutral_Read`; `docs/ASSET_FORMAT.md`,
-//! *Neutral behaviours*): the conversations a neutral character starts with
+//! Neutral behaviours (`OT_Neutral`, `OBJiNeutral_Read`;
+//! `oni_schema::files::NeutralsFile`): the conversations a neutral character starts with
 //! the player — its ranges, its trigger / abort / enemy lines, the script
 //! run at its end, what it gives, and up to ten lines, each said by it or by
 //! the player, with an animation for each side.

@@ -1,4 +1,4 @@
-//! Sound (`docs/AUDIO.md`; the design: `docs/SOUND_ENGINE.md`).
+//! Sound (the design:).
 //!
 //! Layers, as in the original: the game's (`game`: placed ambients' earshot
 //! and muffling, the impulse gate) over the sound system's (`system`: the 16
@@ -106,7 +106,7 @@ impl Audio {
     }
 
     /// Sound's own random numbers in [0, 1) (the original draws on the
-    /// gameplay's; here sound leaves gameplay alone — `docs/QUIRKS.md`).
+    /// gameplay's; here sound leaves gameplay alone — `docs/deviations.md`).
     fn random(&mut self) -> f32 {
         self.rng ^= self.rng << 13;
         self.rng ^= self.rng >> 7;

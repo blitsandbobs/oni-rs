@@ -1,4 +1,4 @@
--- Level 2's Deadly Brain (docs/PARTICLES.md, *Actions*): started, its
+-- Level 2's Deadly Brain: started, its
 -- particles throw holographic readouts that stand around the brain, each
 -- spiralled out to its own angle and radius (30–90) from the emitter —
 -- `moveSpiral` sets their offset position. Unported, they stayed inside it.

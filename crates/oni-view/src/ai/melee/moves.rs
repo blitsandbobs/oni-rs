@@ -1,4 +1,4 @@
-//! Carrying out a technique's moves (behaviour per `docs/MELEE_AI.md`,
+//! Carrying out a technique's moves (
 //! *Running moves*): attacks wait for their moment and are asked for with
 //! the keys the movement rules need; position moves step through the
 //! transition graph and run in; maneuvers move or hold keys for a while;

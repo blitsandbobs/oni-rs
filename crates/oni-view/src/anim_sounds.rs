@@ -1,5 +1,4 @@
-//! Animation sounds (`docs/AUDIO.md`, *Animation sounds*;
-//! `docs/sound/ORIGINAL_TRIGGERS.md` §2): the swoosh of a punch or kick, a
+//! Animation sounds (//!): the swoosh of a punch or kick, a
 //! jump, a roll, a reload — by the clip's animation type and the
 //! character's variant (`common/anim_sounds.json`).
 

@@ -1,4 +1,4 @@
-//! Hypos (`docs/WEAPONS.md`, *Hypos*): a hypo taken heals over time —
+//! Hypos: a hypo taken heals over time —
 //! a point every class's `hypoTime` ticks — a quarter of full health, or
 //! past full a boost up to double; above full, health drains back a point
 //! every 10 ticks; a hurt eats into what is still to come; and a super-hypo

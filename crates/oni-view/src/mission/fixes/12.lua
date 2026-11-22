@@ -1,4 +1,4 @@
--- Level 12 (roof): our fixes to the shipped scripts (docs/SCRIPT_FIXES.md).
+-- Level 12 (roof): our fixes to the shipped scripts (docs/deviations.md).
 
 -- S5: Mukade can be stranded off the roof. Knocked off its open north end,
 -- he lands on a lower roof, still above the height (550) at which his AI

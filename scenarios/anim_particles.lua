@@ -1,4 +1,4 @@
--- Animation particles (#70; docs/PARTICLES.md, *Animation particles*): a
+-- Animation particles (#70): a
 -- clip puts its class's particles on the body, each on a body part, on over
 -- a run of its frames — Konoko's running kick draws a trail from her foot
 -- (frames 15–28), and it goes when the clip ends.

@@ -1,4 +1,4 @@
--- The gun's sight (docs/WEAPONS.md, *Sight*): from the sight on the gun
+-- The gun's sight: from the sight on the gun
 -- along its direction to what it meets, stopping 2 short; a laser in the
 -- class's colour for the guns that have one, a tunnel of sprites for
 -- others; the player's only; none with an empty gun or one poking through a

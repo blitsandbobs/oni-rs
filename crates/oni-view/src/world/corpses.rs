@@ -1,4 +1,4 @@
-//! Corpses (`ONtCorpseArray`; `levels/NN/corpses.json`, `docs/CORPSES.md`):
+//! Corpses (`ONtCorpseArray`; `levels/NN/corpses.json`):
 //! the bodies a level starts with, lying as the designers left them, and
 //! after them a ring for the dead of play — each its class's body drawn
 //! with its parts' stored matrices (`ONrCorpse_*`).

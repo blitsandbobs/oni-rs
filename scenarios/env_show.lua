@@ -1,4 +1,4 @@
--- env_show (scripting/BSL.md): level parts the scripts show and hide — the
+-- env_show (docs/lua.md): level parts the scripts show and hide — the
 -- training room's barriers (reference 2010) stop Konoko while shown and let
 -- her through once a script hides them.
 --

@@ -1,4 +1,4 @@
--- Level 3's opening: Barabus (docs/AI.md, *Placed characters*). He is
+-- Level 3's opening: Barabus. He is
 -- placed unkillable with infinite ammo: he fires without his gun running
 -- down, and a blow that would kill him leaves him on 1 and defeats him
 -- (`ONrCharacter_TakeDamage`) — knocked down, his defeated script runs: the

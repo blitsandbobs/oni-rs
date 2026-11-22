@@ -1,6 +1,6 @@
 //! Steering round what an AI bumps into (`Oni_AI2_MovementState.c`: the
-//! collision records, their ageing, and the "badness" ring; behaviour per
-//! `docs/AI.md`, *Collisions*). Each wall, door leaf or character the
+//! collision records, their ageing, and the "badness" ring).
+//! Each wall, door leaf or character the
 //! character's movement meets is noted; one met for a while weighs against
 //! moving toward it, and the AI moves in the least bad direction near the one
 //! it wants. Met for 30 frames running, the AI is stuck against it and its

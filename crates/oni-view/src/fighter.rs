@@ -3,7 +3,7 @@
 //! every spawned character (e.g. a training dummy) are fighters; the
 //! [`World`](crate::world::World) holds them and steps them together.
 //!
-//! Each tick (`docs/MOVEMENT.md`): the controls feed the decision step
+//! Each tick: the controls feed the decision step
 //! ([`decide::think`]), which requests animations and turns the body; then the
 //! character moves — by the current clip's root motion on the ground, or by
 //! its own airborne velocity under gravity — collides with the level, and
@@ -164,7 +164,7 @@ pub struct Fighter {
     /// Each body part's bounding sphere in its bone's space (bone index,
     /// centre, radius) — for detecting characters touching each other.
     part_spheres: Vec<(usize, Vec3, f32)>,
-    // --- combat (see docs/COMBAT.md) ---
+    // --- combat ---
     pub hp: i32,
     /// Its full health.
     pub max_hp: i32,
@@ -248,7 +248,7 @@ pub struct Fighter {
     pub death: Death,
     /// Its neutral interactions (`world/neutral.rs`).
     pub talk: Talk,
-    /// Where it aims (`docs/WEAPONS.md`, *Aiming*).
+    /// Where it aims.
     pub aim: Aim,
     /// The floor's height last tick (`deferred_maximum_height`): a floor up to
     /// 6 above it may still be stepped onto.
@@ -304,7 +304,7 @@ pub struct Fighter {
     /// Hurts this tick: damage, the least pain it calls for (0 light, 1
     /// medium, 2 heavy), and whether it killed.
     pub hurts: Vec<(u32, u32, bool)>,
-    /// What it is saying, and how it cries out (`docs/AUDIO.md`, *Voices*).
+    /// What it is saying, and how it cries out.
     pub speech: crate::world::Speech,
     pub pain: crate::world::PainState,
     /// Its class's say in its impacts.
@@ -317,7 +317,7 @@ pub struct Fighter {
     /// startle clip (nothing else happens meanwhile).
     pub startling: Option<(f32, f32)>,
     /// The gun in its hand and the one holstered (indices into the world's
-    /// weapons; `docs/WEAPONS.md`).
+    /// weapons).
     pub hand: Option<usize>,
     pub holster: Option<usize>,
     /// Where a cutscene or console puts the gun in hand away.
@@ -384,7 +384,7 @@ pub struct Lift {
     pub owner_at: Option<Vec3>,
 }
 
-/// What a character carries besides guns (`docs/WEAPONS.md`, *Powerups*).
+/// What a character carries besides guns.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Inventory {
     pub ammo: u16,
@@ -668,8 +668,7 @@ impl Fighter {
         self.played = Some(played);
 
         // Footfalls (on the ground): an impact effect of the kind its clip
-        // makes — the sound, and the noise the AI hears (`docs/AUDIO.md`,
-        // *Impact effects*) — at the foot that came down.
+        // makes — the sound, and the noise the AI hears (// *Impact effects*) — at the foot that came down.
         let clip = self.motion.clip_of(played.0);
         if let Some(k) = clip
             .footsteps
@@ -1196,7 +1195,7 @@ impl Fighter {
         }
     }
 
-    /// One poisoning at tick `now` (behaviour per `docs/COMBAT.md`, *Poison*):
+    /// One poisoning at tick `now`:
     /// every call counts; at `initial` it takes `amount` and counts again
     /// from `initial - every`; 30 ticks without one and the count restarts.
     pub fn poison(&mut self, now: u64, amount: i32, every: i32, initial: i32) {
@@ -1767,7 +1766,7 @@ impl Fighter {
 
     /// Posed bone world-matrices (placement baked in) for rendering: the
     /// body's clip, the overlays on it, and — holding a gun, when the clip
-    /// allows — the aim pose (`docs/WEAPONS.md`, *Aim poses*).
+    /// allows — the aim pose.
     pub fn bones(&self) -> Vec<Mat4> {
         let key = self.pose_key();
         if let Some((k, pose)) = &*self.pose_cache.borrow() {

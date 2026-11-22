@@ -1,4 +1,4 @@
--- The pause screen (docs/HUD.md, *Pause screen*): F1 opens it on the
+-- The pause screen: F1 opens it on the
 -- objectives — the current one first, Previous back to older ones — with
 -- items and weapons only once met, the diary up to this level (starting on
 -- its first page) and the help, with the help overlay naming the rings'

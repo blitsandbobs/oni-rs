@@ -1,5 +1,5 @@
-//! The **mission**: a level's own scripts, running (`scripting/PORT.md`,
-//! `scripting/BSL.md`). The converter translated the level's BSL to Lua
+//! The **mission**: a level's own scripts, running (`docs/lua.md`,
+//! `docs/lua.md`). The converter translated the level's BSL to Lua
 //! (`levels/NN/scripts.lua`); here a Lua state runs it — `main` at the
 //! start, event functions as the level calls for them — on a cooperative
 //! scheduler (`sleep` suspends a task for N ticks, `fork` starts another),
@@ -185,7 +185,7 @@ impl Mission {
         })
     }
 
-    /// Starts the level (`scripting/BSL.md`, *Level start*): the player is
+    /// Starts the level (`docs/lua.md`, *Level start*): the player is
     /// put at its placement, every character present from the start is
     /// spawned (their spawn scripts run on the first tick), then `main`
     /// runs.
@@ -225,7 +225,7 @@ impl Mission {
         }
     }
 
-    /// Our fixes to the level's scripts (`docs/SCRIPT_FIXES.md`), by the
+    /// Our fixes to the level's scripts (`docs/deviations.md`), by the
     /// level folder's name (`NN`).
     pub fn apply_fixes(&mut self, level_dir: &Path) {
         let level = level_dir.file_name().and_then(|n| n.to_str()).unwrap_or("");

@@ -1,4 +1,4 @@
--- S3 (docs/SCRIPT_FIXES.md): on level 18, the volume past door 14 locks the
+-- S3 (docs/deviations.md): on level 18, the volume past door 14 locks the
 -- door behind Konoko, open or not: still open, she can walk back out and be
 -- locked out (--faithful). Fixed: it closes, then locks.
 --

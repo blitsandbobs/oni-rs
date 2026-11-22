@@ -1,5 +1,4 @@
-//! Placed characters → `levels/NN/characters.json` (`docs/PERCEPTION.md`,
-//! *Data*; `docs/ASSET_FORMAT.md`): every character the level's editor
+//! Placed characters → `levels/NN/characters.json` (//! *Data*; `oni_schema::files::CharactersFile`): every character the level's editor
 //! placed — who, where, which team, what job, how alert, how it pursues.
 
 use std::path::Path;
@@ -154,7 +153,7 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
 
 /// A level's character setups (`AISA`, `AItCharacterSetup`) as JSON: the
 /// characters `chr_create` makes by script id — for the cutscenes — at their
-/// default flag (`docs/ASSET_FORMAT.md`, *Character setups*).
+/// default flag (`oni_schema::files::SetupsFile`).
 pub fn setups(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<files::CharacterSetup> {
     let tag = oni_dat::FourCc::from_bytes(*b"AISA");
     let Some(layout) = registry.get(tag) else {

@@ -1,4 +1,4 @@
--- Contrails (#73; docs/PARTICLES.md, *Contrails*): level 9's generators
+-- Contrails (#73): level 9's generators
 -- crackle with electric arcs, contrail particles joined link by link into
 -- bands. Each live link draws one band.
 --

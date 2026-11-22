@@ -1,4 +1,4 @@
-//! Level navigation (behaviour per `docs/PATHFINDING.md`): the room volumes
+//! Level navigation: the room volumes
 //! and their portals, finding the room a point is in, and planning a path —
 //! a search over rooms ([`plan`]) and, inside each room, over its grid of
 //! 4-unit squares ([`grid`]).
@@ -187,7 +187,7 @@ impl Navigation {
         Ok(nav)
     }
 
-    /// The portals (behaviour per `docs/PATHFINDING.md`, *The room graph*).
+    /// The portals.
     fn build_portals(&mut self, links: &[Vec<RawLink>]) {
         const TOUCH: f32 = 0.1;
         for (r, room_links) in links.iter().enumerate() {
@@ -291,7 +291,7 @@ impl Navigation {
         }
     }
 
-    /// The local probe (`AI2rDoLocalMovement`; `docs/PATHFINDING.md`,
+    /// The local probe (`AI2rDoLocalMovement`;,
     /// *Local probe*): along the floor from `from` in direction `dir` up to
     /// `dist`, square by square across rooms, stopping at the first square
     /// at or above `stop` once on good ground (it may leave a bad area for 3
@@ -344,7 +344,7 @@ impl Navigation {
         }
     }
 
-    /// The room a point is in (behaviour per `docs/PATHFINDING.md`): inside
+    /// The room a point is in: inside
     /// beats a little outside (≤ 5, not through a floor or ceiling), a stair
     /// room beats another, then the nearer, then the smaller room. Rooms
     /// whose floor is more than 5 above the point don't count.

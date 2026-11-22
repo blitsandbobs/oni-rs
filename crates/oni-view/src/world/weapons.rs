@@ -1,4 +1,4 @@
-//! The world's guns and particles (`docs/WEAPONS.md`): placed and dropped
+//! The world's guns and particles: placed and dropped
 //! guns, the guns in characters' hands — aimed, fired, reloaded — and the
 //! particle system their shots fly through, which reaches back into the
 //! world through [`ShotHost`] for collision and damage.
@@ -1612,8 +1612,8 @@ impl World {
             .collect()
     }
 
-    /// The AIs' aim and triggers this tick (`AI2rExecutor_UpdateAim`;
-    /// `docs/AI.md`, *Aiming and looking*): each aim — kept to the body as it
+    /// The AIs' aim and triggers this tick (`AI2rExecutor_UpdateAim`):
+    /// each aim — kept to the body as it
     /// turns — swings toward what the AI wants to aim or look at
     /// (`Agent::aim_want`, from the shoulder 15 up) by at most a sixth of a
     /// turn a second × its speed (× the gun's aiming speed, gun in hand),
@@ -2076,7 +2076,7 @@ impl World {
     }
 
     /// Overlays advance a frame; each acts at its clip's action frame first
-    /// (`docs/WEAPONS.md`, *Overlays*). A knockdown cancels the inventory
+    ///. A knockdown cancels the inventory
     /// one — a reload not yet at its action frame giving back the clip it
     /// took (shipped, the clip is lost: Q26).
     fn overlays_tick(&mut self, who: usize) {
@@ -2161,7 +2161,7 @@ impl World {
     }
 
     /// A pickup under way: at the pickup clip's action frame the item is
-    /// taken, if still within the wider reach (`docs/WEAPONS.md`, *Pickup*).
+    /// taken, if still within the wider reach.
     fn pickup_tick(&mut self, who: usize) {
         let f = &mut self.fighters[who];
         let Some((item, started, waited)) = f.pickup else {
@@ -2258,8 +2258,7 @@ impl World {
     }
 
     /// The gun fighter `who` could reach for: the nearest free one within
-    /// reach of its feet, if its holster is empty (`docs/WEAPONS.md`,
-    /// *Pickup*).
+    /// reach of its feet, if its holster is empty (/// *Pickup*).
     pub fn weapon_in_reach(&self, who: usize) -> Option<usize> {
         let f = self.fighters.get(who)?;
         if f.holster.is_some() {
@@ -2367,8 +2366,7 @@ impl World {
         }
     }
 
-    /// Fighter `who`'s fire controls this tick → its gun (`docs/WEAPONS.md`,
-    /// *Firing*). Fire 1 shoots (and wins over fire 2, the alternate).
+    /// Fighter `who`'s fire controls this tick → its gun (/// *Firing*). Fire 1 shoots (and wins over fire 2, the alternate).
     fn fire_controls(&mut self, who: usize, held: u32) {
         if self.armory.last_fire.len() < self.fighters.len() {
             self.armory.last_fire.resize(self.fighters.len(), 0);
@@ -2472,7 +2470,7 @@ impl World {
             .impulse_play(&sound, Some(at), None, Some(&self.quads));
     }
 
-    /// The player's auto-aim (`docs/WEAPONS.md`, *Auto-aim*): the turn
+    /// The player's auto-aim: the turn
     /// (yaw, pitch) that would put gun `w`'s shot on the one hostile within
     /// reach of the aim — none when two qualify. It steers the gun only;
     /// the player's own aim stays where it is.
@@ -2723,7 +2721,7 @@ impl World {
                 None,
             );
         }
-        // Recoil settling (`docs/WEAPONS.md`, *Recoil*).
+        // Recoil settling.
         for f in &mut self.fighters {
             let Some(w) = f.hand else {
                 f.aim.recoil = 0.0;

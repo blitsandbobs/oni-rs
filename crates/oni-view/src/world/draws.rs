@@ -128,7 +128,7 @@ impl World {
     /// scale — facing the camera, or stretched along its flight for the
     /// directional sprite kinds. (Models, contrails' trails, tint and fading
     /// aren't drawn yet.)
-    /// The decals to draw from `eye` (`docs/PARTICLES.md`, *Decals*): the
+    /// The decals to draw from `eye`: the
     /// level's, then the rest, oldest first — each only while the quad it
     /// was laid on is drawn (not one-sided and seen from behind), at the
     /// quad's see-through opacity while it is see-through, full otherwise

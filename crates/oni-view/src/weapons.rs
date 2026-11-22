@@ -1,4 +1,4 @@
-//! Weapons (`docs/WEAPONS.md`): the classes from `common/weapons.json`, and
+//! Weapons: the classes from `common/weapons.json`, and
 //! each gun in the level — lying on the floor or in someone's hand. A held
 //! gun carries particles on its attachment points; pulling the trigger sends
 //! them events, and the shooter's particles emit the shots (`crate::p3`).
@@ -13,7 +13,7 @@ use oni_schema::files;
 
 use crate::p3::{self, event, Handle, Host, System};
 
-/// Weapon class flags (`docs/ASSET_FORMAT.md`, *Weapon classes*).
+/// Weapon class flags (`oni_schema::files::WeaponClass`).
 pub mod flag {
     pub const BIG: u32 = 1 << 0;
     pub const UNSTORABLE: u32 = 1 << 1;
@@ -123,7 +123,7 @@ pub struct WeaponClass {
     pub pickup_offset: Vec3,
     /// How loud a shot is to the AI (ranges of hearing), per shooter.
     pub detection_volume: [f32; 2],
-    /// How the AI shoots it (`docs/AI.md`, *Shooting*).
+    /// How the AI shoots it.
     pub ai: AiGun,
     /// The cone its fire makes, for others to dodge: length, base radius,
     /// half-angle (0 length: none).
@@ -133,7 +133,7 @@ pub struct WeaponClass {
     pub sphere_radius: f32,
     /// The click it makes empty (an impulse sound).
     pub empty_sound: String,
-    /// Its sight (`docs/WEAPONS.md`, *Sight*): where on the gun and which
+    /// Its sight: where on the gun and which
     /// way (gun space; a zero vector: none), how far it reaches, the laser's
     /// colour (RGB), and the tunnel drawn along it.
     pub sight: (Vec3, Vec3),
@@ -358,7 +358,7 @@ pub struct Weapon {
     /// Without physics: in a hand, or placed by the level (floating where
     /// it was put until someone takes it).
     pub resting: bool,
-    /// Its physics context while loose (`docs/OBJECTS.md`, *Loose things*).
+    /// Its physics context while loose.
     pub body: Option<crate::objphys::Body>,
     /// It has touched something since it was let go (only then can AIs
     /// kick it about).

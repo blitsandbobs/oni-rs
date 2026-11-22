@@ -1,4 +1,4 @@
-//! The named vocabulary of the converted assets (`docs/ASSET_FORMAT.md`).
+//! The named vocabulary of the converted assets (their formats: [`files`]).
 //!
 //! The original data stores enumerations as numbers (animation type 31,
 //! state 7, variant bit `0x200`). The converted assets spell them out as

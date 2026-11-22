@@ -1,4 +1,4 @@
--- Hypos (docs/WEAPONS.md, *Hypos*): one taken heals a quarter of full health
+-- Hypos: one taken heals a quarter of full health
 -- over time, a point each time her class's 6-tick wait runs out (every 7); at full it boosts instead (up
 -- to double, with no wait between points), and above full health drains back
 -- a point every 10 ticks; a hurt eats two and a half times its damage from

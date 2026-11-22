@@ -1,4 +1,4 @@
--- Going for a gun (#6; docs/AI.md, *Shooting*): an unarmed enemy whose
+-- Going for a gun (#6): an unarmed enemy whose
 -- profile shoots, rolling its class's chance to look for a gun, runs to a
 -- loaded one lying near, bends for it (the pickup clip) and then shoots.
 -- Rolling its running-pickup chance, it rolls over the gun instead and takes

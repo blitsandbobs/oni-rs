@@ -1,4 +1,4 @@
--- Goals and jobs (issue #4, docs/GOALS.md): a level's character patrols its
+-- Goals and jobs (issue #4): a level's character patrols its
 -- path (guarding two flags in turn), fights an enemy it sees, checks the
 -- body and goes back to its patrol; a noise sends it to investigate; a
 -- character too calm for its job stands idle; a non-combatant panics.

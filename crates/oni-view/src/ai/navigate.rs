@@ -1,5 +1,5 @@
-//! Walking to a point through the level (behaviour per
-//! `docs/PATHFINDING.md`, *Following a path*): a planned path is followed
+//! Walking to a point through the level:
+//! a planned path is followed
 //! waypoint by waypoint (each with its own arrival radius); being stuck,
 //! straying off the path or a failed plan leads to planning again, and
 //! repeated failure to giving up.

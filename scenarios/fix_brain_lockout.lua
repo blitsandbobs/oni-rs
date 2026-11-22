@@ -1,4 +1,4 @@
--- S1 (docs/SCRIPT_FIXES.md): the Deadly Brain's save point (level 2) locks
+-- S1 (docs/deviations.md): the Deadly Brain's save point (level 2) locks
 -- door 26 wherever Konoko is. Run back out past it as the save comes and
 -- the shipped game locks her out, the door left open and the save made with
 -- her outside (--faithful). Fixed: the save waits until she is back in the

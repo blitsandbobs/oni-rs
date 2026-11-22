@@ -1,4 +1,4 @@
--- Aiming with the gun, or just looking (#67; docs/AI.md, *Aiming and
+-- Aiming with the gun, or just looking (#67;, *Aiming and
 -- looking*): an AI at ease moves in the no-aim modes, its gun in hand but
 -- its gun's poses off (`ONcCharacterFlag_DontUseGunVarient`) — the unarmed
 -- clips. In a fight its targeting makes it aim with the gun: the pistol

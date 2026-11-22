@@ -1,5 +1,5 @@
--- Turrets (#19; docs/TURRETS.md): level 2's pistol wall turret (script id
--- 3), switched on, hums (its in sound, then the loop: docs/AUDIO.md), turns
+-- Turrets (#19): level 2's pistol wall turret (script id
+-- 3), switched on, hums (its in sound, then the loop:), turns
 -- toward the player, fires while its barrel is on her and hurts her;
 -- "deactivate every turret" (−1) switches none, as shipped; after its time
 -- (900 ticks) it goes back to rest and off, and its hum plays out.

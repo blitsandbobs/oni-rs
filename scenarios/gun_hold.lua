@@ -1,4 +1,4 @@
--- The gun in the hand (docs/WEAPONS.md, *Holding*): as the original builds
+-- The gun in the hand: as the original builds
 -- its matrix — riding the hand while the clip has no gun aiming screen (a
 -- pickup: reaching down for the gun, it moves with the hand), swinging to
 -- the aim when it has one (standing: the barrel straight down the aim), the

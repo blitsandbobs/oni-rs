@@ -1,4 +1,4 @@
--- Body emitters (#74; docs/PARTICLES.md, *Emitters*): overpowered, Konoko
+-- Body emitters (#74): overpowered, Konoko
 -- glows all over — the glow's emitter puts its particles on her bones, at
 -- a radius (`bodyBones`; Muro's glows and his bolts' emitter use her
 -- surface the same way), riding the parts they came from. Before, all

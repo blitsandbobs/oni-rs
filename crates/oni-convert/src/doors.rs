@@ -1,4 +1,4 @@
-//! Doors (`OT_Door`; `docs/ASSET_FORMAT.md`, *Doors*): each level's doors —
+//! Doors (`OT_Door`; `oni_schema::files::DoorsFile`): each level's doors —
 //! which open for whom, and the event lists they run. Their closed geometry
 //! is the environment's `door_0x<object id>` nodes.
 

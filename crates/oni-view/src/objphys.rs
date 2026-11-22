@@ -1,6 +1,6 @@
 //! Physics for loose things — guns and powerups lying about or falling
-//! (`BFW_Physics.c`, the linear level of `OBiPhysics_Update`; behaviour per
-//! `docs/OBJECTS.md`, *Loose things*): a sphere pulled down by gravity,
+//! (`BFW_Physics.c`, the linear level of `OBiPhysics_Update`):
+//! a sphere pulled down by gravity,
 //! moving its velocity a tick, reflected off the level's quads and other
 //! bodies (characters, placed objects, other loose things) one plane a pass
 //! (then halted if it still pushes into something), and slowed by friction

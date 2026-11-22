@@ -1,4 +1,4 @@
-//! Sound definitions (`docs/AUDIO.md`): the ambient sounds and sound groups
+//! Sound definitions: the ambient sounds and sound groups
 //! (level 0's `OSBD` instances, each a binary blob in the `.raw`) →
 //! `common/sounds.json`. The sounds themselves are the WAVs under `audio/`.
 //!

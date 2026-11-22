@@ -1,4 +1,4 @@
--- Laser emitters' eyes (#78; docs/LASERS.md): each emitter is drawn — its
+-- Laser emitters' eyes (#78): each emitter is drawn — its
 -- class's emitter model, moving along the rail with it (`OBJiTrigger_Draw`).
 -- Level 1's three training lasers: an eye at each beam's start, staying
 -- there as the beams sweep.

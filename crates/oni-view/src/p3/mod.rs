@@ -1,8 +1,7 @@
 //! Oni's particle system ("Particle3"): the classes the converter exports
 //! (`common/particle_classes.json`) run here — emitters, the action lists
 //! each event runs, collision with the level and with characters, damage.
-//! Weapon shots are particles (`docs/WEAPONS.md`); the behaviour is
-//! described in `docs/PARTICLES.md`.
+//! Weapon shots are particles.
 //!
 //! The system knows nothing of the world: what it needs (rays against the
 //! level and characters, damage, attractor targets) it asks a [`Host`].
@@ -186,7 +185,7 @@ pub struct EnvHit {
     pub quad: Option<u32>,
 }
 
-/// What a particle wants heard (`docs/AUDIO.md`, *Particles*): the world
+/// What a particle wants heard: the world
 /// plays these after the particles' turn.
 #[derive(Clone, Debug)]
 pub enum SoundEvent {
@@ -200,7 +199,7 @@ pub enum SoundEvent {
     },
     /// … or stops it (it plays out).
     AmbientStop { particle: Handle },
-    /// An impact effect (`docs/AUDIO.md`, *Impact effects*): by name and
+    /// An impact effect: by name and
     /// weight, where, how fast, what it hit, whose.
     /// (With the particle's orientation and flags, for the effect's
     /// particles.)

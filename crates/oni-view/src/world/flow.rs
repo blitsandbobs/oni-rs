@@ -1,4 +1,4 @@
-//! The world's side of the game flow (`docs/GAME_FLOW.md`): a level's
+//! The world's side of the game flow: a level's
 //! outcome, splash screens the scripts ask for, and save points
 //! (`save_game` keeps the player; `restore_game` puts them back).
 

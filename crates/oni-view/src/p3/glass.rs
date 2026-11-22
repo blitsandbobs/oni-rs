@@ -1,6 +1,6 @@
 //! Breaking glass (`P3iDamageQuad`, `ONrParticle3_EmitGlassPieces`): a pane
 //! that breaks bursts into `glass_shard` particles spread over it, thrown
-//! by what broke it (`docs/PARTICLES.md`, *Breaking glass*).
+//! by what broke it.
 
 use glam::{Mat3, Vec3};
 

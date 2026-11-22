@@ -1,4 +1,4 @@
--- Consoles and alarms (#19, #4; scripting/BSL.md, *Consoles*): an AI sent
+-- Consoles and alarms (#19, #4; docs/lua.md, *Consoles*): an AI sent
 -- to raise the alarm runs to the alarm console, uses it (the console
 -- animation; the console fires on its action frame) and goes back to its
 -- job; when Konoko trips the same alarm, the AIs answering it learn where

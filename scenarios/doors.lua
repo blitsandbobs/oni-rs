@@ -1,4 +1,4 @@
--- Doors (#17; docs/DOORS.md): a door opens for anyone allowed through who
+-- Doors (#17): a door opens for anyone allowed through who
 -- comes near, and its leaf blocks only while closed — Konoko runs through
 -- an open one; locked, it stops her; unlocked again, it opens as she comes.
 -- An AI plans no way through a door it may not open.

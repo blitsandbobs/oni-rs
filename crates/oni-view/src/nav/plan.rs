@@ -1,4 +1,4 @@
-//! Planning a path (behaviour per `docs/PATHFINDING.md`): the rooms to pass
+//! Planning a path: the rooms to pass
 //! through (A\* over portals), where to cross each portal (looking ahead and
 //! projecting back — cheap string pulling), and the grid path inside each
 //! room, joined into one list of waypoints.

@@ -1,7 +1,8 @@
 //! The level's quads as the engine's collision queries see them
-//! (`levels/NN/quads.bin`, `docs/ASSET_FORMAT.md`): every quad with its
+//! (`levels/NN/quads.bin`; its layout is on the writer, `oni-convert`'s
+//! `convert_quads`): every quad with its
 //! corners, flags, plane and baked shades — what decals are built on
-//! (`docs/PARTICLES.md`, *Decals*). The two queries are the original's
+//!. The two queries are the original's
 //! (`BFW_Akira_Collision.c`): a sphere swept along a vector, and a ray.
 
 use std::path::Path;

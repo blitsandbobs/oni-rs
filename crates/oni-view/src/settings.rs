@@ -1,4 +1,4 @@
-//! The player's options (`Oni_Persistance.c`'s game options; `docs/MENU.md`,
+//! The player's options (`Oni_Persistance.c`'s game options;,
 //! *Options*), kept apart from the saved games: `$ONI_SAVE_DIR/settings.json`,
 //! else `~/.oni-rs/settings.json`. A missing or unreadable file gives the
 //! original's defaults (`ONrPersistance_Initialize`).
@@ -19,12 +19,12 @@ pub struct Settings {
     /// The gamma slider, 0–1 (default 0.5: unchanged).
     pub gamma: f32,
     /// Graphics quality 0–2: kept for the settings file, but always high —
-    /// the options' slider is frozen there (`docs/MENU.md`).
+    /// the options' slider is frozen there.
     pub quality: u8,
     /// The resolution chosen (default 640 × 480; shown, not used: the window
     /// is sized freely).
     pub resolution: (u32, u32),
-    /// Not the original's (#58, `docs/PARTICLES.md`, *Lens flares*):
+    /// Not the original's (#58):
     /// characters hide the lens flares behind them (default on; off draws
     /// them as shipped). The options' "Hide Lens Flares" box.
     pub flares_behind_characters: bool,

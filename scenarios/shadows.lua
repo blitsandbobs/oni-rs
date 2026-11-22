@@ -1,4 +1,4 @@
--- Character shadows (docs/PARTICLES.md, *Shadows*): standing, Konoko's
+-- Character shadows: standing, Konoko's
 -- shadow lies flat on the floor under her pelvis, 0.05 up, at her class's
 -- opacity (48) and size (6 each way); jumping, it shrinks and fades with her
 -- height; a script's `chr_shadow` takes it away and gives it back.

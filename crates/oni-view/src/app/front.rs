@@ -1,4 +1,4 @@
-//! The out-of-game menus in the window (`docs/MENU.md`): the main menu at
+//! The out-of-game menus in the window: the main menu at
 //! start-up (no level loaded) and over a level (Esc), its dialogs taking
 //! the mouse and keys, its music, and what it starts — a new game, a level
 //! from a continue — or ends.

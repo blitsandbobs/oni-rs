@@ -1,4 +1,4 @@
-//! Goals and jobs (behaviour per `docs/GOALS.md`): what an AI character
+//! Goals and jobs: what an AI character
 //! does over time. It has a **job** (stand idle, or patrol along a waypoint
 //! program) and a **current goal** — the job, or a transient goal that
 //! perception starts (**pursuit** of a threat, **combat** with an enemy),
@@ -27,7 +27,7 @@ use super::{relative, yaw_toward, Direction, Orders, Pace, MAX_TURN};
 use crate::anim::input::key;
 use crate::quirks::Quirks;
 
-// --- constants (`docs/GOALS.md`, *Constants*) -----------------------------------
+// --- constants -----------------------------------
 
 /// A resumed patrol is back on its path within this of where it left it.
 const RETURN_TO_PATH: f32 = 40.0;
@@ -70,7 +70,7 @@ const MELEE_NO_TECHNIQUE: u32 = 30;
 const TRY_ADVANCE: u32 = 90;
 /// Recently punched by the target (for "fight back if punched").
 const RECENTLY_HURT: u64 = 240;
-/// Target switching (`docs/PERCEPTION.md`, *Memory*).
+/// Target switching.
 const SWITCH_CLOSER: f32 = 0.8;
 const DONT_SWITCH_FARTHER: f32 = 3.5;
 const SWITCH_IF_NOT_SHOT: u64 = 150;
@@ -996,13 +996,13 @@ pub struct Combat {
     /// trace).
     dodges: Vec<Dodge>,
     dodge: Option<(Vec3, f32)>,
-    /// A boss's own state (`docs/AI.md`, *Bosses*).
+    /// A boss's own state.
     pub boss: super::bosses::Boss,
     /// How far it will look for a gun (a boss's; none: anywhere).
     pub gun_search: Option<(f32, f32)>,
 }
 
-/// An AI character's goals (behaviour per `docs/GOALS.md`).
+/// An AI character's goals.
 #[derive(Clone, Debug)]
 pub struct Agent {
     pub name: String,
@@ -1318,8 +1318,8 @@ impl Agent {
         self.look = Look::None;
     }
 
-    /// The advance's viability check (`AI2iManeuver_CheckAdvance`;
-    /// `docs/AI.md`, *Combat advance*): its weight now — and how it moves,
+    /// The advance's viability check (`AI2iManeuver_CheckAdvance`):
+    /// its weight now — and how it moves,
     /// or None if it doesn't. `weight` is its weight so far, `second` the
     /// best other choice's.
     ///
@@ -1584,7 +1584,7 @@ impl Agent {
         cx.perception.locked = false;
     }
 
-    /// Goes back to its job (`docs/GOALS.md`, *Returning to the job*):
+    /// Goes back to its job:
     /// idle where it stands if its alert is below its job alert.
     pub fn return_to_job(&mut self, set_idle: bool, even_if_alerted: bool, cx: &mut Ctx) {
         let idle = cx.alert() < self.job_alert;
@@ -1811,7 +1811,7 @@ impl Agent {
         }
     }
 
-    // --- patrol (`docs/GOALS.md`, *Patrol*) -----------------------------------
+    // --- patrol -----------------------------------
 
     fn patrol(&mut self) -> &mut Patrol {
         match (&mut self.goal, &mut self.job) {
@@ -2228,7 +2228,7 @@ impl Agent {
         }
     }
 
-    // --- pursuit (`docs/GOALS.md`, *Pursuit*) ---------------------------------
+    // --- pursuit ---------------------------------
 
     fn enter_pursuit(&mut self, id: u32, cx: &mut Ctx) {
         let Some(c) = cx.perception.contact(id).cloned() else {
@@ -2629,7 +2629,7 @@ impl Agent {
         self.begin_mode(cx);
     }
 
-    // --- combat (`docs/GOALS.md`, *Combat*) -----------------------------------
+    // --- combat -----------------------------------
 
     fn enter_combat(&mut self, who: usize, cx: &mut Ctx) {
         let Some(c) = cx.perception.about(who).cloned() else {
@@ -3075,7 +3075,7 @@ impl Agent {
         self.shoot(target, cx);
     }
 
-    /// The dangers it sees (each decision; `docs/AI.md`, *Dodging*): guns
+    /// The dangers it sees (each decision): guns
     /// firing toward it and projectiles about to reach it. Each lasts a
     /// while and fades; it reacts once one has lasted its class's reaction
     /// time. The way to go is the dodges' weighted sum.
@@ -3209,7 +3209,7 @@ impl Agent {
         k.dodge = (max > 0.0).then(|| (sum.normalize_or(Vec3::X), max));
     }
 
-    /// The gun this tick (`docs/AI.md`, *Shooting*): lead the target, aim
+    /// The gun this tick: lead the target, aim
     /// the barrel (the shot's line through the aim point, with the skill's
     /// error), and hold the trigger while the gun points close enough.
     fn shoot(&mut self, target: usize, cx: &mut Ctx) {
@@ -3473,7 +3473,7 @@ impl Agent {
                 w[HOLD] = w[HOLD].max(0.2);
                 k.have_los = true;
             }
-            // Too close for the gun (`docs/AI.md`, *Shooting*): back off — or,
+            // Too close for the gun: back off — or,
             // if it would fight back hand to hand, melee.
             let min_safe = cx.gun.map_or(0.0, |g| g.ai.min_safe_distance);
             k.too_close = 0.0;
@@ -3726,7 +3726,7 @@ impl Agent {
         true
     }
 
-    // --- alarm (`docs/GOALS.md`, *Alarm*) --------------------------------------
+    // --- alarm --------------------------------------
 
     /// The nearest alarm console it can use (for scripts' orders).
     pub fn nearest_alarm(&self, cx: &Ctx) -> Option<usize> {
@@ -3924,7 +3924,7 @@ impl Agent {
 }
 
 impl Agent {
-    // --- panic (`docs/GOALS.md`, *Alarm, panic*) ----------------------------
+    // --- panic ----------------------------
 
     /// A non-combatant's reaction to news: a danger panics it; anything
     /// else it glances at.

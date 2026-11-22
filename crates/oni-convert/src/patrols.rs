@@ -1,5 +1,4 @@
-//! Patrol paths, flags and combat profiles (`docs/GOALS.md`,
-//! `docs/ASSET_FORMAT.md`): the waypoint programs patrolling characters
+//! Patrol paths, flags and combat profiles (//! `oni_schema::files`): the waypoint programs patrolling characters
 //! follow, the marker flags they (and scripts) refer to, and the combat
 //! profiles placed characters fight by.
 

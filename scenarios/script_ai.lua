@@ -1,4 +1,4 @@
--- Scripts steering characters (docs/AI.md, *Scripted movement*; #54):
+-- Scripts steering characters (#54):
 -- chr_create makes a level's character setup by script id at its flag;
 -- begin_cutscene makes every AI passive and puts the player's gun away,
 -- end_cutscene undoes both; ai2_takecontrol hands the player to the AI

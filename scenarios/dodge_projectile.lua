@@ -1,4 +1,4 @@
--- Q24, projectile dodging (docs/QUIRKS.md; docs/AI.md, *Dodging*): a Super
+-- Q24, projectile dodging (docs/deviations.md): a Super
 -- Ball fired past an armed soldier (22 to its side: inside the ball's dodge
 -- radius, clear of its body) is, as with the Daodan DLL's `projaware`, a
 -- direct hit at full weight: the soldier sidesteps, square to the ball's path

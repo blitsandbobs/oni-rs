@@ -1,4 +1,4 @@
-//! Laser triggers (`OT_Trigger`; `docs/ASSET_FORMAT.md`, *Laser triggers*):
+//! Laser triggers (`OT_Trigger`; `oni_schema::files::LasersFile`):
 //! each level's laser emitters with their timing and event lists, and each
 //! class's emitter track — where the beam starts and which way it points at
 //! every frame of the class's animation (from level 0's `TRIG` / `TRGE` /

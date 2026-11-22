@@ -1,7 +1,7 @@
 //! A character's animation collection and the lookup that picks a clip for
 //! `(type, from-state, variant)` — the behaviour of Oni's `TRrCollection_Lookup`.
 //!
-//! How Oni resolves a request (see `docs/MOVEMENT.md` for anchors):
+//! How Oni resolves a request ( for anchors):
 //!
 //! * A collection (`TRAC`) is a list of clips. At load time each entry is keyed
 //!   by `(type, from_state)` and the list is sorted by that key, ties ordered

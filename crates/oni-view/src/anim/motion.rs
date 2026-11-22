@@ -1,6 +1,6 @@
 //! A character's animation state and the rules for changing it.
 //!
-//! The model (behaviour per `docs/MOVEMENT.md`):
+//! The model:
 //!
 //! * The character plays one clip at a time. Each clip ends in a body *state*;
 //!   every request for a new animation type is looked up from that state, so

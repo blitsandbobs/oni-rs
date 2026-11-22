@@ -1,5 +1,5 @@
-//! The engine commands level scripts call (`scripting/BSL.md`, *Command
-//! surface*; semantics in `scripting/BSL.md`, *Runtime*), and the world
+//! The engine commands level scripts call (`docs/lua.md`, *Command
+//! surface*; semantics in `docs/lua.md`, *Runtime*), and the world
 //! events that start scripts — character events and trigger volumes.
 //! Commands the engine can't carry out yet are no-ops, counted in
 //! [`State::stubbed`].
@@ -288,7 +288,7 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
     }
 
     // Trigger volumes: each active character's vertical extent against
-    // each enabled volume (`docs`: `scripting/BSL.md`, *Trigger volumes*).
+    // each enabled volume (`docs`: `docs/lua.md`, *Trigger volumes*).
     let bodies: Vec<(usize, Vec3, Vec3, u32)> = host
         .world()
         .fighters
@@ -399,6 +399,8 @@ pub fn dispatch(
                 None => nil(),
             }
         }
+        // A `sleep` argument (`SLEEP`) as ticks: a number as is, a word by its value
+        // (0 if none); never negative.
         "@ticks" => {
             let n = match a(0) {
                 Some(Value::String(s)) => state.ticks_of_word(&s.to_string_lossy()),
@@ -406,6 +408,9 @@ pub fn dispatch(
             };
             done(Value::Integer(n.max(0)))
         }
+        // Runs a coroutine as a new task (`@adopt`: one the prelude already started
+        // and that yielded) after `delay` ticks, labelled for `mission_info()`.waiting.
+        // (No prelude code sends `@fork` now.)
         "@fork" | "@adopt" => {
             if let Some(Value::Thread(t)) = a(0) {
                 let delay = int(a(1)).unwrap_or(0).max(0) as u64;
@@ -414,6 +419,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // A script error (`ERR`, a missing script function): printed and kept in
+        // `mission_info()`.errors, once each.
         "@error" => {
             let msg = a(0).and_then(text).unwrap_or_default();
             if !state.errors.contains(&msg) {
@@ -422,6 +429,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // Reads an engine variable (`G.name`): the fog's `gl_fog_*` from the draw
+        // engine, else what a script set (0 if unset).
         "@get" => {
             let k = a(0).and_then(text).unwrap_or_default();
             // (The fog's are the draw engine's.)
@@ -439,6 +448,9 @@ pub fn dispatch(
                 None => done(state.vars.get(&k).cloned().unwrap_or(Value::Integer(0))),
             }
         }
+        // Sets an engine variable (`G.name = v`); `gl_fog_*`, `ai2_boss_battle` and
+        // the camera's `cm_distance` / `cm_height` / `cm_canter_*` also change the
+        // engine.
         "@set" => {
             let k = a(0).and_then(text).unwrap_or_default();
             // (The fog's and the camera's tunables are engine variables.)
@@ -467,9 +479,13 @@ pub fn dispatch(
             state.vars.insert(k, a(1).cloned().unwrap_or(Value::Nil));
             nil()
         }
+        // Does nothing (no prelude code sends it now).
         "@still" => nil(),
 
         // --- output ----------------------------------------------------------
+        // Prints its words to the terminal; `dmsg` also shows them in the HUD's
+        // message area for 10 s (`dprint` went to the developer console, unseen in
+        // the shipped game).
         "dprint" | "dmsg" => {
             let words: Vec<String> = args.iter().filter_map(text).collect();
             eprintln!("script: {}", words.join(" "));
@@ -480,6 +496,9 @@ pub fn dispatch(
             }
             nil()
         }
+        // `message name [ticks]` (`AIiScript_Message`): shows a message from the
+        // messages table (else a subtitle in the console strip), for `ticks` if
+        // given; warns if it is in neither.
         "message" => {
             if let Some(m) = a(0).and_then(text) {
                 match state.message_text(&m) {
@@ -503,6 +522,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `message_remove [name]`: that message (every one, without a name) fades
+        // from the HUD.
         "message_remove" => {
             let m = a(0).and_then(text);
             host.world().hud.message_remove(m.as_deref());
@@ -538,6 +559,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `objective_set n [silent]`: the objective becomes text `n`; the HUD prompts
+        // the new one with its sound unless `silent`.
         "objective_set" => {
             state.objective = int(a(0));
             eprintln!("script: objective {:?}", state.objective);
@@ -550,19 +573,27 @@ pub fn dispatch(
                 .objective_set(int(a(0)).unwrap_or(0), silent);
             nil()
         }
+        // Plays the objective-complete sound (no other effect).
         "objective_complete" => {
             host.world().event_sound("objectiveComplete", None);
             nil()
         }
+        // `save_game n [autosave]` (`ONrGameState_MakeContinue`): keeps the player as
+        // she is now for a restart at save point `n`; an autosave shows its message
+        // and sound.
         "save_game" => {
             let autosave = a(1).and_then(text).is_some_and(|t| t == "autosave");
             host.world().save_continue(int(a(0)).unwrap_or(0), autosave);
             nil()
         }
+        // Puts the player back as last saved (`ONrGameState_UseContinue`):
+        // health, place, facing, inventory and guns.
         "restore_game" => {
             host.world().restore_continue();
             nil()
         }
+        // `splash_screen name`: asks for that splash screen (kept for the game flow
+        // to show, `game()`.splash).
         "splash_screen" => {
             if let Some(name) = a(0).and_then(text) {
                 host.world().progress.pending_splash = Some(name);
@@ -570,7 +601,7 @@ pub fn dispatch(
             nil()
         }
         "begin_cutscene" => {
-            // (`docs/GAME_FLOW.md`; `World::begin_cutscene`.)
+            // (`World::begin_cutscene`.)
             let names: Vec<String> = args.iter().filter_map(text).collect();
             let (keep, unknown) =
                 crate::world::cutscene::CutsceneKeeps::parse(names.iter().map(String::as_str));
@@ -597,6 +628,8 @@ pub fn dispatch(
                 .start(&name, texture, n(1), n(2), n(3), n(4), speed, mirror);
             nil()
         }
+        // `cinematic_stop name end speed` (`OCrCinematic_Stop`): the first insert of
+        // that texture slides to position `end` and goes.
         "cinematic_stop" => {
             let Some(name) = a(0).and_then(text) else {
                 return nil();
@@ -608,15 +641,22 @@ pub fn dispatch(
             );
             nil()
         }
+        // Ends a cutscene (`ONrGameState_EndCutscene`): input and jello back, every
+        // AI out of passivity, the letterbox gone, the holstered gun drawn again.
         "end_cutscene" => {
             host.world().end_cutscene();
             nil()
         }
+        // Clears dangerous projectiles for a cutscene
+        // (`P3iRemoveDangerousProjectiles`): particles of classes marked to die on a
+        // cutscene die, those marked to expire expire next tick.
         "p3_removedangerous" => {
             host.world().remove_dangerous_projectiles();
             nil()
         }
-        // --- the HUD (`docs/HUD.md`, *Scripts*) ------------------------------------
+        // --- the HUD ------------------------------------
+        // `ui_show_element left|right on`: shows or hides the HUD's left or right
+        // ring; warns on any other element.
         "ui_show_element" => {
             let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else {
                 return nil();
@@ -633,6 +673,8 @@ pub fn dispatch(
             host.world().hud.help_on = int(a(0)).unwrap_or(0) > 0;
             nil()
         }
+        // `ui_fill_element` / `ui_flash_element element on`: fills or flashes a
+        // HUD element (`health`, `damage`, `invis`, …, or `all`), or stops.
         "ui_fill_element" | "ui_flash_element" => {
             let (Some(which), on) = (a(0).and_then(text), int(a(1)).unwrap_or(0) > 0) else {
                 return nil();
@@ -654,18 +696,21 @@ pub fn dispatch(
             }
             nil()
         }
+        // `fade_out r g b ticks`: fades the screen to that colour (each 0–1) over
+        // `ticks`.
         "fade_out" => {
             let c = |k: usize| float(a(k)).unwrap_or(0.0).clamp(0.0, 1.0);
             let ticks = int(a(3)).unwrap_or(0).max(0) as u32;
             host.world().hud.fade_out([c(0), c(1), c(2)], ticks);
             nil()
         }
+        // `fade_in ticks`: fades back from wherever a fade got to (no fade: nothing).
         "fade_in" => {
             let ticks = int(a(0)).unwrap_or(0).max(0) as u32;
             host.world().hud.fade_in(ticks);
             nil()
         }
-        // --- the camera (`docs/CAMERA.md`, *Scripts*) ---------------------------
+        // --- the camera ---------------------------
         // A `_block` form waits while the camera is busy (easing or riding a
         // clip), then does as the plain one.
         "cm_interpolate"
@@ -678,6 +723,9 @@ pub fn dispatch(
         {
             Ok((Value::Nil, Value::Boolean(true), None, None))
         }
+        // `cm_interpolate clip ticks`: the camera eases to the camera clip's first
+        // frame over `ticks` (`_block`: once the camera is free); warns if there is
+        // no such clip.
         "cm_interpolate" | "cm_interpolate_block" => {
             let Some(clip) = a(0).and_then(text) else {
                 return nil();
@@ -700,25 +748,36 @@ pub fn dispatch(
             }
             nil()
         }
+        // `cm_orbit speed [stop]`: the camera circles the player at `speed` degrees a
+        // tick, stopping at angle `stop` if given (`_block`: once free).
         "cm_orbit" | "cm_orbit_block" => {
             let speed = float(a(0)).unwrap_or(0.0);
             host.world().camera_orbit(speed, float(a(1)));
             nil()
         }
         "cm_wait" if host.world().camera.busy => Ok((Value::Nil, Value::Boolean(true), None, None)),
+        // Waits while the camera is busy (easing or riding a clip; the guarded
+        // arm just above does the waiting).
         "cm_wait" => nil(),
+        // The camera follows the player again, snapped into place
+        // (`CArFollow_Enter`).
         "cm_reset" => {
             host.world().camera_follow();
             nil()
         }
+        // The camera holds still where it is.
         "cm_detach" => {
             host.world().camera_detach();
             nil()
         }
+        // `cm_jello on`: whether walls between camera and player turn see-through.
         "cm_jello" => {
             host.world().camera.jello = int(a(0)).is_some_and(|i| i > 0);
             nil()
         }
+        // `cm_barabus who away up ticks`: the camera eases over `ticks` to a view of
+        // `who` from `away` back along the line from the camera, `up` higher (world
+        // units).
         "cm_barabus" => {
             let (Some(who), Some(away), Some(up), Some(ticks)) =
                 (fighter(host, a(0)), float(a(1)), float(a(2)), int(a(3)))
@@ -729,6 +788,7 @@ pub fn dispatch(
             host.world().camera_barabus(who, away, up, ticks);
             nil()
         }
+        // `gs_fov_set deg`: the camera's vertical field of view (degrees).
         "gs_fov_set" => {
             if let Some(deg) = float(a(0)) {
                 host.world().camera.fov = deg.to_radians();
@@ -748,16 +808,19 @@ pub fn dispatch(
             }
             nil()
         }
+        // `gs_farclipplane_set d`: the camera's far clip plane (world units).
         "gs_farclipplane_set" => {
             if let Some(far) = float(a(0)) {
                 host.world().camera.far = far;
             }
             nil()
         }
+        // `letterbox on`: slides the cutscene letterbox bars in (1) or out (0).
         "letterbox" => {
             host.world().cutscene.letterbox = truthy(a(0)) && int(a(0)) != Some(0);
             nil()
         }
+        // `win` / `lose`: ends the level as won or lost (`game()`.victory).
         "win" | "lose" => {
             state.outcome = Some(name == "win");
             host.world().progress.victory = Some(name == "win");
@@ -765,7 +828,10 @@ pub fn dispatch(
             nil()
         }
 
-        // --- environmental particles (`docs/PARTICLES.md`) ----------------------
+        // --- environmental particles ----------------------
+        // `particle tag command [event]`: sends the environmental particles tagged
+        // `tag` a command ("create", "kill", "reset", "do event", or an event name);
+        // warns on an unknown command.
         "particle" => {
             let (Some(tag), Some(command)) = (a(0).and_then(text), a(1).and_then(text)) else {
                 return nil();
@@ -779,7 +845,7 @@ pub fn dispatch(
             }
             nil()
         }
-        // --- sound (`docs/AUDIO.md`, *Scripts*) ---------------------------------
+        // --- sound ---------------------------------
         // One dialogue voice: a line still on drops a plain play, holds a
         // `_block` play until it is over, is cut off by `_interrupt`. Its
         // subtitle shows for its length and a second.
@@ -825,12 +891,17 @@ pub fn dispatch(
             }
             nil()
         }
+        // `sound_music_stop` / `sound_ambient_stop name`: the first slot playing that
+        // sound plays out its end.
         "sound_music_stop" | "sound_ambient_stop" => {
             if let Some(sound) = a(0).and_then(text) {
                 host.world().audio.script_stop(&sound);
             }
             nil()
         }
+        // `sound_music_volume` / `sound_ambient_volume name volume [seconds]`: the
+        // first slot of that name fades to `volume` (0–1) over `seconds` (even one
+        // that has ended, as shipped).
         "sound_music_volume" | "sound_ambient_volume" => {
             let (Some(sound), Some(volume)) = (a(0).and_then(text), float(a(1))) else {
                 return nil();
@@ -839,6 +910,8 @@ pub fn dispatch(
             host.world().audio.script_volume(&sound, volume, seconds);
             nil()
         }
+        // `sound_impulse_play name [volume]`: plays an impulse sound, unplaced, at
+        // `volume` (0–1).
         "sound_impulse_play" => {
             let Some(sound) = a(0).and_then(text) else {
                 return nil();
@@ -893,6 +966,9 @@ pub fn dispatch(
         }
 
         // --- characters ------------------------------------------------------
+        // `ai2_spawn name [force]`: spawns the level's placed character `name` (the
+        // first placement not yet spawned, unless `force` or it may spawn many times)
+        // with its goals; its spawn script runs at once.
         "ai2_spawn" => {
             let Some(who) = a(0).and_then(text) else {
                 return nil();
@@ -926,12 +1002,15 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_delete who`: removes the character from the level.
         "chr_delete" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().remove(id);
             }
             nil()
         }
+        // `chr_teleport who flag`: puts the character at the flag's position (keeping
+        // its facing); warns if there is no such flag.
         "chr_teleport" => {
             let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else {
                 return nil();
@@ -943,6 +1022,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_facetoflag who flag`: turns the character to the flag's facing where
+        // it stands.
         "chr_facetoflag" => {
             let (Some(id), Some(flag)) = (fighter(host, a(0)), int(a(1))) else {
                 return nil();
@@ -954,6 +1035,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_set_health who hp`: sets its hit points; 0 or less kills it outright,
+        // even if invincible or unkillable.
         "chr_set_health" => {
             let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else {
                 return nil();
@@ -972,12 +1055,14 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_full_health who`: restores its hit points to its full health.
         "chr_full_health" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.hp = f.max_hp;
             }
             nil()
         }
+        // `chr_invincible who on`: whether it takes no damage.
         "chr_invincible" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.invincible = truthy(a(1));
@@ -985,6 +1070,9 @@ pub fn dispatch(
             nil()
         }
         // --- placed objects (`world/objects.rs`) -----------------------------
+        // `obj_create` / `obj_kill` / `obj_show` / `obj_hide a [b]`: placed objects
+        // with script ids `a`–`b` made anew, removed, or shown / hidden (drawn and
+        // solid, or neither; `OBrShow`).
         "obj_create" | "obj_kill" | "obj_show" | "obj_hide" => {
             let Some(lo) = int(a(0)) else { return nil() };
             let hi = int(a(1)).unwrap_or(lo);
@@ -999,6 +1087,9 @@ pub fn dispatch(
             }
             nil()
         }
+        // `env_anim a [b]`: the placed objects `a`–`b` start their animation from the
+        // beginning; `_block` waits while one plays on (as shipped, only when given
+        // `b`).
         "env_anim" | "env_anim_block" => {
             let Some(lo) = int(a(0)) else { return nil() };
             let hi = int(a(1)).map(|h| h.max(0) as u32);
@@ -1010,6 +1101,9 @@ pub fn dispatch(
             }
             nil()
         }
+        // `env_setanim id clip` (`OBrSetAnimationByName`): those objects take the
+        // named clip and start it; `_block` with one still playing does nothing, as
+        // shipped. Warns if no such object or clip.
         "env_setanim" | "env_setanim_block" => {
             let (Some(id), Some(clip)) = (int(a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1023,6 +1117,8 @@ pub fn dispatch(
             nil()
         }
         // --- collision and environment animations --------------------------
+        // `chr_nocollision who on`: whether the character passes through walls and
+        // others.
         "chr_nocollision" => {
             let Some(id) = fighter(host, a(0)) else {
                 return nil();
@@ -1058,6 +1154,7 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_envanim_stop who`: ends the object animation moving the character.
         "chr_envanim_stop" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().fighters[id].env_anim = None;
@@ -1065,6 +1162,10 @@ pub fn dispatch(
             nil()
         }
         // --- scripted animation ------------------------------------------------
+        // `chr_animate who clip [frames] [interp]`: plays the clip on the character
+        // now, blending over `interp` frames, then holds other clips off for `frames`
+        // ticks (−1: its length); `_block` waits for an earlier one to end. Warns if
+        // the clip isn't found.
         "chr_animate" | "chr_animate_block" => {
             let (Some(id), Some(clip)) = (fighter(host, a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1115,30 +1216,39 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_shadow who on`: shows or takes away the character's shadow.
         "chr_shadow" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.no_shadow = int(a(1)).unwrap_or(0) <= 0;
             }
             nil()
         }
+        // `chr_death_lock who on`: the character can die but its body is never
+        // removed.
         "chr_death_lock" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.death.lock = int(a(1)).unwrap_or(0) != 0;
             }
             nil()
         }
-        // --- turrets (`docs/TURRETS.md`) ----------------------------------------
+        // --- turrets ----------------------------------------
+        // `turret_activate` / `_deactivate` / `_reset id`: switches the turrets with
+        // that script id (−1: every turret, except `_deactivate`, which then switches
+        // none, as shipped).
         "turret_activate" | "turret_deactivate" | "turret_reset" => {
             let id = int(a(0)).unwrap_or(-1);
             let what = name.trim_start_matches("turret_");
             host.world().turret_set(id, what);
             nil()
         }
+        // Resets every turret.
         "reset_mechanics" => {
             host.world().turret_set(-1, "reset");
             nil()
         }
-        // --- weapons (`docs/WEAPONS.md`) ---------------------------------------
+        // --- weapons ---------------------------------------
+        // `chr_giveweapon who class`: a new gun of that class in its hand (the one it
+        // held is deleted); warns if no such weapon.
         "chr_giveweapon" => {
             let (Some(id), Some(class)) = (fighter(host, a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1148,6 +1258,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `weapon_spawn class flag` / `powerup_spawn kind flag [amount]`: a gun or
+        // powerup placed at the flag; warns if no such flag or kind.
         "weapon_spawn" | "powerup_spawn" => {
             let (Some(what), Some(flag)) = (a(0).and_then(text), int(a(1))) else {
                 return nil();
@@ -1193,6 +1305,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_forceholster who on`: puts the gun in hand away into the hidden slot
+        // (or onto the floor if that is taken), or gives it back into an empty hand.
         "chr_forceholster" => {
             let Some(id) = fighter(host, a(0)) else {
                 return nil();
@@ -1200,24 +1314,32 @@ pub fn dispatch(
             host.world().force_holster(id, int(a(1)).unwrap_or(0) > 0);
             nil()
         }
+        // `chr_inv_reset who`: takes every gun from the character and empties its
+        // pockets.
         "chr_inv_reset" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().reset_inventory(id);
             }
             nil()
         }
+        // `chr_weapon_immune who`: shots no longer hurt the character (for good).
         "chr_weapon_immune" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.weapon_immune = true;
             }
             nil()
         }
+        // `chr_unstoppable who on`: blows don't stun it, knock it about or make it
+        // react, and it blocks without block stun.
         "chr_unstoppable" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
                 f.unstoppable = int(a(1)).unwrap_or(0) > 0;
             }
             nil()
         }
+        // `chr_poison who amount every [initial]` (called each tick): poisons the
+        // character: at `initial` ticks of poisoning it takes `amount`, then every
+        // `every` ticks; 30 ticks without a call and the count restarts.
         "chr_poison" => {
             let (Some(id), Some(amount), Some(every)) = (fighter(host, a(0)), int(a(1)), int(a(2)))
             else {
@@ -1268,6 +1390,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `obj_shade a b r g b`: placed objects `a`–`b` lit flat in this colour (each
+        // 0–1).
         "obj_shade" => {
             if let (Some(lo), Some(hi)) = (int(a(0)), int(a(1))) {
                 let c = |k: usize| float(a(k)).unwrap_or(1.0);
@@ -1276,6 +1400,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `obj_force_draw a [b]` (`OBcFlags_ForceDraw`): only kept; every object is
+        // drawn already (the port doesn't cull them).
         "obj_force_draw" => {
             if let Some(lo) = int(a(0)) {
                 let hi = int(a(1)).unwrap_or(lo);
@@ -1307,26 +1433,37 @@ pub fn dispatch(
             world.clock.slowmo = if n == 0 { 0 } else { world.clock.slowmo.max(n) };
             nil()
         }
+        // `particle_temp_start` / `particle_temp_stop`: whether new particles are
+        // temporary (they, and what they emit, go at `particle_temp_kill`).
         "particle_temp_start" | "particle_temp_stop" => {
             host.world().armory.particles.temporary = name == "particle_temp_start";
             nil()
         }
+        // Kills the temporary particles (`particle_temp_start`).
         "particle_temp_kill" => {
             host.world().kill_temporary_particles();
             nil()
         }
+        // `chr_boss_shield who` (`ONcCharacterFlag_BossShield`): a boss shield on the
+        // character for good: shots flare it and do only the class's share; drawn
+        // red.
         "chr_boss_shield" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().fighters[id].boss_shield = true;
             }
             nil()
         }
+        // `chr_super who amount`: sets the character's Daodan power
+        // (`external_super_amount`; its power eases toward it).
         "chr_super" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().fighters[id].external_super = float(a(1)).unwrap_or(0.0);
             }
             nil()
         }
+        // `ai2_barabbas_retrievegun who` (`WPrFindBarabbasWeapon`): Barabbas's gun
+        // back in his hand at once, unless he holds a gun, someone else holds it, or
+        // it lies on the building's top floor.
         "ai2_barabbas_retrievegun" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().barabbas_retrieve_gun(id);
@@ -1356,6 +1493,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `env_show ref on`: shows or hides a level part: drawn, solid and blocking
+        // sight only while shown (hiding glass breaks it; showing mends it).
         "env_show" => {
             if let Some(r) = int(a(0)) {
                 host.world().env_show(r as u32, truthy(a(1)));
@@ -1364,6 +1503,9 @@ pub fn dispatch(
         }
 
         // --- laser triggers --------------------------------------------------
+        // Laser trigger `id` (none or -1: every one, `OBJrTrigger_*`):
+        // switched on or off, reset to its start, hidden or shown; `trig_speed
+        // id factor` scales its sweep speed.
         "trig_activate" | "trig_deactivate" | "trig_reset" | "trig_hide" | "trig_show"
         | "trig_speed" => {
             let id = int(a(0)).unwrap_or(crate::lasers::ALL);
@@ -1379,6 +1521,8 @@ pub fn dispatch(
         }
 
         // --- doors ------------------------------------------------------------
+        // `door_lock` / `door_unlock` / `door_jam` / `door_unjam [id]`: locks or jams
+        // door `id` (none or −1: every door), or undoes it.
         "door_lock" | "door_unlock" | "door_jam" | "door_unjam" => {
             let id = int(a(0)).unwrap_or(-1);
             let world = host.world();
@@ -1390,6 +1534,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `door_open` / `door_close [id]`: opens or closes door `id` (none or −1:
+        // every door).
         "door_open" | "door_close" => {
             let id = int(a(0)).unwrap_or(-1);
             for d in host
@@ -1409,6 +1555,8 @@ pub fn dispatch(
         }
 
         // --- consoles, input, alarms ----------------------------------------
+        // `console_activate` / `_deactivate` / `_reset [id]`: console `id` (none:
+        // every console) made usable or not, or reset to as authored and unused.
         "console_activate" | "console_deactivate" | "console_reset" => {
             let id = int(a(0));
             let world = host.world();
@@ -1428,6 +1576,10 @@ pub fn dispatch(
             }
             nil()
         }
+        // `lock_keys [group…]`: alone, every gameplay key locked; with a group
+        // (`keys_movement`, `keys_jump`, `keys_crouch`, `keys_attack`, `keys_action`,
+        // `keys_walk`, `keys_inventory`, `keys_reload`, `keys_all`), those keys work
+        // again. Pause and hypo keys aren't modelled.
         "lock_keys" => {
             use crate::anim::input::key as k;
             let world = host.world();
@@ -1458,10 +1610,13 @@ pub fn dispatch(
             }
             nil()
         }
+        // `input on`: whether the player's input works at all.
         "input" => {
             host.world().input.enabled = truthy(a(0));
             nil()
         }
+        // `ai2_doalarm who [console]`: sends the AI to raise the alarm at that
+        // console (none or 0: the nearest alarm console).
         "ai2_doalarm" => {
             if let Some(id) = ai(host, a(0)) {
                 let console = int(a(1)).map(|c| c as u16);
@@ -1469,6 +1624,9 @@ pub fn dispatch(
             }
             nil()
         }
+        // `ai2_tripalarm group [cause]`: an alarm of that group goes off, caused by
+        // `cause` (default the player): AIs answering it learn where the cause is;
+        // its alarm script is due. Nothing while every AI is passive.
         "ai2_tripalarm" => {
             let Some(group) = int(a(0)) else { return nil() };
             let cause = match a(1) {
@@ -1482,6 +1640,10 @@ pub fn dispatch(
         }
 
         // --- films -------------------------------------------------------------
+        // `playback who film [mode] [interp]`: plays a recorded film on the character
+        // (`mode` "fromhere" where it stands, "interp" easing there over `interp`
+        // ticks, default 30); `_block` waits the film's length. Warns if it can't
+        // play.
         "playback" | "chr_playback" | "playback_block" | "chr_playback_block" => {
             let (Some(id), Some(film)) = (fighter(host, a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1501,6 +1663,9 @@ pub fn dispatch(
         }
 
         // --- waiting on a character ---------------------------------------
+        // `chr_wait_animtype` / `_animation` / `_animstate who name…`: waits until
+        // the character plays one of those animation types (body or overlay), clips,
+        // or states (names matched ignoring case and `_`).
         "chr_wait_animtype" | "chr_wait_animation" | "chr_wait_animstate" => {
             let Some(id) = fighter(host, a(0)) else {
                 return nil();
@@ -1540,6 +1705,8 @@ pub fn dispatch(
                 .any(|w| now.contains(&key(&w)));
             Ok((Value::Nil, Value::Boolean(!hit), None, None))
         }
+        // `chr_wait_health who hp`: waits until the character's hit points are `hp`
+        // or less.
         "chr_wait_health" => {
             let (Some(id), Some(hp)) = (fighter(host, a(0)), int(a(1))) else {
                 return nil();
@@ -1556,16 +1723,21 @@ pub fn dispatch(
                 host.world().env_broken(from as u32, to as u32),
             )))
         }
+        // `chr_has_empty_weapon who` → 1 if it holds an empty gun with nothing to
+        // reload it and no reload under way, else 0.
         "chr_has_empty_weapon" => {
             let empty = fighter(host, a(0)).is_some_and(|id| host.world().has_empty_weapon(id));
             done(Value::Integer(empty as i64))
         }
+        // `chr_has_lsi who` → 1 if the character carries the LSI, else 0.
         "chr_has_lsi" => {
             let lsi = fighter(host, a(0))
                 .and_then(|id| host.world().fighters.get(id))
                 .is_some_and(|f| f.inventory.lsi);
             done(Value::Integer(lsi as i64))
         }
+        // → 1 if the player killed Griffin (as a script said this session, else as
+        // kept with the saved game), else 0.
         "did_kill_griffen" => done(Value::Integer(did_kill_griffin(host) as i64)),
         "killed_griffen" => {
             // (`ONrWeKilledGriffen`: kept with the saved game.)
@@ -1577,9 +1749,12 @@ pub fn dispatch(
             }
             nil()
         }
+        // → the difficulty level (0 easy, 1 normal, 2 hard).
         "difficulty" => done(Value::Integer(host.world().difficulty.level)),
 
         // --- AI orders -------------------------------------------------------
+        // `ai2_dopath who path`: the AI walks the level's patrol path of that name
+        // (not while passive).
         "ai2_dopath" => {
             let (Some(id), Some(path)) = (ai(host, a(0)), a(1).and_then(text)) else {
                 return nil();
@@ -1614,28 +1789,37 @@ pub fn dispatch(
             }
             nil()
         }
+        // `ai2_setjobstate who`: what the AI is doing now becomes its job.
         "ai2_setjobstate" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().make_job(id);
             }
             nil()
         }
+        // `ai2_passive` / `chr_freeze` / `chr_neutral who on`: the AI made passive
+        // (doing nothing, noticing nothing) or not. (`chr_freeze` and `chr_neutral`
+        // are treated the same.)
         "ai2_passive" | "chr_freeze" | "chr_neutral" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().set_passive(id, truthy(a(1)));
             }
             nil()
         }
+        // `ai2_allpassive on`: every AI passive or not: those present now and, while
+        // on, those spawned later.
         "ai2_allpassive" => {
             host.world().set_all_passive(truthy(a(0)));
             nil()
         }
+        // `ai2_attack who target`: the AI attacks `target` (a forced target);
+        // `ai2_makeaware`: it gets only a definite sighting of `target`.
         "ai2_attack" | "ai2_makeaware" => {
             if let (Some(id), Some(target)) = (ai(host, a(0)), fighter(host, a(1))) {
                 host.world().order_attack(id, target, name == "ai2_attack");
             }
             nil()
         }
+        // `ai2_makeignoreplayer who on`: whether the AI pays the player no attention.
         "ai2_makeignoreplayer" => {
             if let Some(p) =
                 ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut())
@@ -1660,8 +1844,10 @@ pub fn dispatch(
             }
             nil()
         }
-        // --- scripted movement (`docs/AI.md`, *Scripted movement*) -----------
+        // --- scripted movement -----------
         // --- the countdown timer (`world/timer.rs`) ----------------------------
+        // `timer_start seconds script` (`AIiScript_Timer_Start`): the HUD countdown
+        // from `seconds` (held to an hour), then script function `script` runs.
         "timer_start" => {
             let (Some(seconds), Some(script)) = (float(a(0)), a(1).and_then(text)) else {
                 state.warn("timer_start: expected <seconds> <script>".into());
@@ -1670,6 +1856,8 @@ pub fn dispatch(
             host.world().timer_start(seconds, &script);
             nil()
         }
+        // Turns the countdown off (a success, with its sound, if it was still
+        // running).
         "timer_stop" => {
             host.world().timer_stop();
             nil()
@@ -1765,6 +1953,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `ai2_makeblind` / `ai2_makedeaf who on`: the AI sees nothing / hears
+        // nothing, or again does.
         "ai2_makeblind" | "ai2_makedeaf" => {
             if let Some(p) =
                 ai(host, a(0)).and_then(|id| host.world().fighters[id].perception.as_mut())
@@ -1777,18 +1967,23 @@ pub fn dispatch(
             }
             nil()
         }
+        // `chr_peace who` (`ONrCharacter_ExitFightMode`): the character leaves its
+        // fight stance at once.
         "chr_peace" => {
             if let Some(id) = fighter(host, a(0)) {
                 host.world().fighters[id].motion.exit_fight_mode();
             }
             nil()
         }
+        // `ai2_idle who`: the AI stands idle now.
         "ai2_idle" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().order_idle(id);
             }
             nil()
         }
+        // `ai2_setalert who level`: sets the AI's alert level (`lull`, `low`,
+        // `medium`, `high`, `combat`; anything else lull).
         "ai2_setalert" => {
             if let (Some(id), Some(level)) = (ai(host, a(0)), a(1).and_then(text)) {
                 if let Some(p) = host.world().fighters[id].perception.as_mut() {
@@ -1799,6 +1994,9 @@ pub fn dispatch(
         }
 
         // --- trigger volumes -------------------------------------------------
+        // `trigvolume_enable name on [entry|inside|exit]`: the named trigger volumes
+        // switched on or off, wholly or just one of their events; disabled wholly,
+        // they forget who is inside (re-enabled, entry fires again).
         "trigvolume_enable" => {
             let on = truthy(a(1));
             let kind = a(2).and_then(text);
@@ -1832,6 +2030,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `trigvolume_reset name`: the named trigger volumes back to their authored
+        // flags and scripts.
         "trigvolume_reset" => {
             for i in state.triggers.by_name(a(0)) {
                 let v = &mut state.triggers.volumes[i];
@@ -1840,6 +2040,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `trigvolume_setscript name script [entry|inside|exit]`: the script function
+        // the named volumes call on that event (default entry).
         "trigvolume_setscript" => {
             let kind = match a(2).and_then(text).as_deref() {
                 Some("inside") => 1,
@@ -1852,6 +2054,8 @@ pub fn dispatch(
             }
             nil()
         }
+        // `trigvolume_trigger name [entry|inside|exit] [who]`: fires that event of
+        // the named volumes as if `who` (default the player) did it.
         "trigvolume_trigger" => {
             let kind = match a(1).and_then(text).as_deref() {
                 Some("inside") => 1,
@@ -1870,6 +2074,8 @@ pub fn dispatch(
             state.pending_events.extend(out);
             nil()
         }
+        // `trigvolume_count id` → how many living characters of the volume's teams
+        // are inside trigger volume `id`.
         "trigvolume_count" => {
             let found = state.triggers.by_id(a(0));
             let world = host.world();
@@ -1889,6 +2095,9 @@ pub fn dispatch(
             }
             done(Value::Integer(n as i64))
         }
+        // `trigvolume_kill id`: removes every non-player character inside trigger
+        // volume `id`; `trigvolume_corpse`: only the dead ones, and the corpses there
+        // (`ONrGameState_KillCorpsesInsideTrigger`).
         "trigvolume_kill" | "trigvolume_corpse" => {
             let found = state.triggers.by_id(a(0));
             let world = host.world();
@@ -1921,6 +2130,7 @@ pub fn dispatch(
             }
             nil()
         }
+        // Clears the dead of play, leaving the level's own corpses.
         "corpse_reset" => {
             host.world().corpses.reset();
             nil()
@@ -1938,9 +2148,6 @@ pub fn dispatch(
     }
 }
 
-/// Spawns the level's character `name` (the first placement of that name
-/// not already spawned, unless `force` or it may spawn many times) with its
-/// goals. Returns its spawn script (to run at once) with its name.
 /// A movement order for fighter `id` (`AI2rPath_GoToPoint`): go to `at`,
 /// then face `face`, looking at `look`. The player only while the AI holds
 /// her (`ai2_takecontrol 1`), as in the original.
@@ -2032,6 +2239,9 @@ pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(Strin
     setup.scripts.get("spawn").map(|s| (s.clone(), name))
 }
 
+/// Spawns the level's character `name` (the first placement of that name
+/// not already spawned, unless `force` or it may spawn many times) with its
+/// goals. Returns its spawn script (to run at once) with its name.
 pub fn spawn(
     state: &mut State,
     host: &mut dyn Host,

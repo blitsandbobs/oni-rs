@@ -1,4 +1,4 @@
--- AI shooting (#6; docs/AI.md, *Shooting*): an armed enemy that sees the
+-- AI shooting (#6): an armed enemy that sees the
 -- player goes into combat, swings its aim onto her, and fires when its gun
 -- points close enough — spaced by its skill's delay — and its shots land.
 --

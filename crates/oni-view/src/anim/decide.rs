@@ -1,7 +1,7 @@
 //! Each tick, turn a character's controls into animation requests.
 //!
 //! The decision runs in stages and stops at the first stage that settles
-//! what the character does (behaviour per `docs/MOVEMENT.md`):
+//! what the character does:
 //!
 //! 1. **React** — landing, a long fall, stuns, recovering from a stun.
 //! 2. **Act** — sliding out of a run, strikes / rolls / the air flip, jumps.
@@ -216,7 +216,7 @@ fn stunned(m: &mut Motion, ch: &Character) -> bool {
     }
     if m.stagger_stun > 0 {
         m.fight_mode();
-        // Only an ongoing stagger is extended (Q2 in docs/QUIRKS.md).
+        // Only an ongoing stagger is extended (Q2 in docs/deviations.md).
         let kind = m.kind;
         let ok = matches!(kind, ty::STAGGER | ty::STAGGER_BEHIND)
             && m.request(ch, Urge::Queue, false, kind).is_some();

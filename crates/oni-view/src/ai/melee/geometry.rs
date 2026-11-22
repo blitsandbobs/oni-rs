@@ -1,4 +1,4 @@
-//! Hit prediction from animation reach (behaviour per `docs/MELEE_AI.md`,
+//! Hit prediction from animation reach (
 //! *Hit prediction*): would an attack clip reach a target at all
 //! ([`bounds`]), and exactly when does it land ([`intersect`])?
 //!

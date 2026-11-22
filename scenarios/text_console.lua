@@ -1,4 +1,4 @@
--- Data consoles' text (docs/HUD.md, *Text consoles*): `text_console name`
+-- Data consoles' text: `text_console name`
 -- opens the console's pages in a modal dialog (`ONrInGameUI_TextConsole_
 -- Display`): the game stands still while it is up; Space or a click on its
 -- button turns the page — Next until the last, which shows Close — and Esc

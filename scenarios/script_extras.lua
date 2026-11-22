@@ -1,5 +1,5 @@
--- The last of the level scripts' engine commands (#54; scripting/PORT.md,
--- docs/GAME_FLOW.md *Frames*, docs/POWERUPS.md): the frame clock a cutscene
+-- The last of the level scripts' engine commands (#54; docs/lua.md): the frame clock a
+-- cutscene
 -- keeps up with (`cutscene_sync`), slow motion (`slowmo`), level parts and
 -- objects lit flat (`env_shade`, `obj_shade`), whether Griffin was killed,
 -- a Daodan power (`chr_super`) with its super particles, a boss shield, an

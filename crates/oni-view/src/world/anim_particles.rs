@@ -1,5 +1,4 @@
-//! The particles animations put on the body (`docs/PARTICLES.md`,
-//! *Animation particles*; `ONrCharacter_NewAnimationHook`,
+//! The particles animations put on the body (//! *Animation particles*; `ONrCharacter_NewAnimationHook`,
 //! `_OldAnimationHook`, `ONrCharacter_Update`): each clip names some of its
 //! class's particles, each on a body part, active over a run of its frames
 //! — punch and kick trails, dust, glows, the super ninja's fireball, Mutant

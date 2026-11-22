@@ -1,4 +1,4 @@
-//! The fog (`gl_utility.c`, `docs/RENDERING.md`): its colour and its start
+//! The fog (`gl_utility.c`): its colour and its start
 //! and end in screen depth, the engine variables scripts set (`gl_fog_red`,
 //! `_green`, `_blue`, `_start`, `_end`) and the ramps they start
 //! (`gl_fog_start_changeto`, `gl_fog_end_changeto`), back to the draw

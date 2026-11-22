@@ -62,7 +62,7 @@ const KNOCKBACK_SCALE: f32 = 1.0;
 /// A film eased into ("interp") must start within this of the character.
 const FILM_MAX_EASE: f32 = 80.0;
 
-/// A noise (behaviour per `docs/PERCEPTION.md`, *Hearing*): its kind, where,
+/// A noise: its kind, where,
 /// how far it carries for a hearer of acuity 1, who made it and whom it
 /// concerns.
 #[derive(Clone, Copy, Debug)]
@@ -132,7 +132,7 @@ pub struct CharKind {
     /// How its AI shoots: skill per weapon slot, and targeting settings.
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
-    /// Its say in its impacts: steps, blows (`docs/AUDIO.md`).
+    /// Its say in its impacts: steps, blows.
     pub sounds: Rc<crate::impacts::ClassSounds>,
     /// The class's shadow.
     pub shadow: Option<Rc<crate::decal::Shadow>>,
@@ -212,15 +212,15 @@ pub struct World {
     pub level_ai: Rc<crate::ai::level::LevelAi>,
     now: i64,
     rng: u32,
-    /// Guns and the particles their shots are (`docs/WEAPONS.md`).
+    /// Guns and their shots' particle classes.
     pub armory: Armory,
     /// The level's breakable glass panes (`glass.rs`).
     pub glass: crate::glass::Glass,
-    /// The level's turrets (`docs/TURRETS.md`).
+    /// The level's turrets.
     pub turrets: Vec<turrets::Turret>,
     /// Every AI made passive (`ai2_allpassive`): turrets hold fire too.
     pub all_passive: bool,
-    /// Sound (`docs/AUDIO.md`).
+    /// Sound.
     pub audio: crate::audio::Audio,
     /// What impacts sound like (`common/impacts.json`), and moves
     /// (`common/anim_sounds.json`).
@@ -239,11 +239,11 @@ pub struct World {
     particle_ambients: std::collections::HashMap<crate::p3::Handle, usize>,
     flybys: Vec<(crate::p3::Handle, Vec3)>,
     /// The game's event and condition sounds, and the object classes'
-    /// (`docs/AUDIO.md`, *Objects and the game*).
+    ///.
     pub(crate) game_sounds: objects_sound::GameSounds,
     /// The cutscene on, if any (`world/cutscene.rs`).
     pub cutscene: cutscene::Cutscene,
-    /// The level's environmental particles (`docs/PARTICLES.md`).
+    /// The level's environmental particles.
     pub(crate) env_particles: Vec<env_particles::EnvParticle>,
     env_particles_started: bool,
 }
@@ -479,7 +479,7 @@ impl World {
         });
     }
 
-    /// Perception (behaviour per `docs/PERCEPTION.md`): noises, sight, memory
+    /// Perception: noises, sight, memory
     /// fading and alert easing for every perceiving character; then each
     /// acts on what it noticed.
     fn perceive(&mut self) {
@@ -693,7 +693,7 @@ impl World {
                 None => continue,
             };
             if matches!(self.fighters[i].brain, Some(crate::ai::Brain::Agent(_))) {
-                // Goals act on it (`docs/GOALS.md`).
+                // Goals act on it.
                 for notice in notices {
                     if let Notice::Startle(at) = notice {
                         let fighting = matches!(&self.fighters[i].brain,
@@ -893,7 +893,7 @@ impl World {
         self.fighters[i].brain = Some(crate::ai::Brain::Agent(agent));
     }
 
-    /// Every agent's goals take a step (`docs/GOALS.md`) — except while
+    /// Every agent's goals take a step — except while
     /// startled (only the turn plays) or dead.
     fn run_agents(&mut self) {
         for i in 0..self.fighters.len() {
@@ -1171,7 +1171,7 @@ impl World {
         self.hud = crate::hud::Hud::load(&level_dir.join("../../common"), level);
     }
 
-    /// One tick of every laser trigger (behaviour per `docs/LASERS.md`): its
+    /// One tick of every laser trigger: its
     /// emitters move and it blinks; each beam out reaches the level (worked
     /// out once per track frame) and trips if it meets the player's body
     /// first — firing the event list once, until a beam misses again.
@@ -1379,7 +1379,7 @@ impl World {
         self.glass.show_part(r, on, &mut self.quads);
     }
 
-    /// One tick of every door (behaviour per `docs/DOORS.md`): it opens for
+    /// One tick of every door: it opens for
     /// anyone allowed through within its radius (an AI walking somewhere
     /// opens a manual one too) and runs its events; its leaf blocks only
     /// while closed.
@@ -1597,8 +1597,8 @@ impl World {
         k.in_reach(pelvis, f.facing.facing, generous).then_some(c)
     }
 
-    /// One tick of fighter `i` using a console (behaviour per
-    /// `scripting/BSL.md`, *Consoles*): come to a stop, walk onto the
+    /// One tick of fighter `i` using a console
+    /// (`OCrConsole_*`): come to a stop, walk onto the
     /// marker, play the console animation, and use it on its action frame.
     fn console_tick(&mut self, i: usize) {
         use crate::anim::motion::Urge;
@@ -2092,7 +2092,7 @@ impl World {
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
             // Who its attacks may turn toward: the living who aren't
-            // friends (`docs/COMBAT.md`, *Teams*).
+            // friends.
             let others: Vec<crate::fighter::Opponent> = feet
                 .iter()
                 .filter(|(j, _)| *j != i && teams[*j].regards(teams[i]) != Relation::Friend)
@@ -2404,7 +2404,7 @@ impl World {
         }
     }
 
-    /// Plays an impact effect (`docs/AUDIO.md`, *Impact effects*): for each
+    /// Plays an impact effect: for each
     /// slot the impact × material × weight finds, its sound at `at` (quieter
     /// for a slow hit: `velocity`) and the noise the AI hears (its radius ×
     /// `ai_scale`, credited to `ai1`, `ai2`). (Its particles: not yet.)
@@ -2461,7 +2461,7 @@ impl World {
         }
     }
 
-    /// Makes an effect's particle (`docs/PARTICLES.md`, *Effects*).
+    /// Makes an effect's particle.
     pub(crate) fn create_effect(
         &mut self,
         spec: &crate::p3::effect::Spec,
@@ -2513,7 +2513,7 @@ impl World {
     /// The impact effect of fighter `a`'s blow on `b` — `result` 0 hit, 1
     /// blocked, 2 killed — by the parts that met: the attack's own impact
     /// (hit or kill), else the striking part's; on the struck part's
-    /// material (`docs/AUDIO.md`, *Impact effects*).
+    /// material.
     fn blow_effect(
         &mut self,
         a: usize,
@@ -2675,8 +2675,8 @@ impl World {
         }
     }
 
-    /// This tick's body contact between characters (behaviour per
-    /// `docs/COMBAT.md`). For each pair within `CONTACT_RANGE` — skipping
+    /// This tick's body contact between characters.
+    /// For each pair within `CONTACT_RANGE` — skipping
     /// bodies lying in death — the body parts are tested against each other
     /// by their bounding spheres, as Oni does. If any touch:
     ///

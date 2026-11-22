@@ -1,5 +1,5 @@
-//! Text on screen (`BFW_TextSystem.c`, `BFW_Console.c`; behaviour per
-//! `docs/HUD.md`, *Text*): the fonts (`common/fonts.json`), laying a string
+//! Text on screen (`BFW_TextSystem.c`, `BFW_Console.c`):
+//! the fonts (`common/fonts.json`), laying a string
 //! out in lines of coloured segments (`TSrContext_FormatString`: `[c.…]`
 //! colour spans, wrapping after breaking characters) and the text areas the
 //! game prints messages and subtitles into (`COtTextArea`: entries that fade

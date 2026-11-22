@@ -1,5 +1,4 @@
-//! Impact effects (`docs/AUDIO.md`, *Impact effects*;
-//! `docs/sound/ORIGINAL_TRIGGERS.md` §1): what a footstep, landing or blow
+//! Impact effects (//!): what a footstep, landing or blow
 //! sounds like, the noise the AI hears from it, by impact type × material ×
 //! weight (`common/impacts.json`), and each character class's say in it.
 
@@ -46,7 +45,7 @@ pub struct Entry {
     component: usize,
     modifier: u8,
     pub sound: Option<Sound>,
-    /// The particles it makes, in turn (`docs/PARTICLES.md`, *Effects*).
+    /// The particles it makes, in turn.
     pub particles: Vec<EffectParticle>,
 }
 

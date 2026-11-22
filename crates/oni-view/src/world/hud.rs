@@ -1,4 +1,4 @@
-//! The world's side of the HUD (`docs/HUD.md`): what it shows of the player,
+//! The world's side of the HUD: what it shows of the player,
 //! its tick (meters, prompts, the hit ring fading, autoprompts) and its
 //! overlay for a frame.
 

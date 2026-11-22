@@ -1,4 +1,4 @@
--- Placement flags (#64; docs/AI.md, *Placed characters*): a character placed
+-- Placement flags (#64): a character placed
 -- with a random costume takes one of the classes of its class's variant; one
 -- that upgrades with the difficulty takes, on hard, a class of the variant
 -- its own upgrades to (and below hard a random one of its own) — its melee

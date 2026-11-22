@@ -1,4 +1,4 @@
--- Pre-placed corpses (#57; docs/CORPSES.md): a level starts with the bodies
+-- Pre-placed corpses (#57): a level starts with the bodies
 -- its designers left lying about, drawn with their class's model as they
 -- fell. Level 1's warehouse has one, Chung, with the LSI by his hand; the
 -- powerup draws (its model and the glow under it), Konoko picks it up, and

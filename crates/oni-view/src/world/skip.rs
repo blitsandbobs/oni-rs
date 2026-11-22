@@ -1,4 +1,4 @@
-//! Skipping a cutscene (`ONrGameState_SkipCutscene`; `docs/GAME_FLOW.md`,
+//! Skipping a cutscene (`ONrGameState_SkipCutscene`;,
 //! *Skipping a cutscene*): asked for, the screen fades to black over 20
 //! frames with the sound off; then the game runs on 32 ticks a frame, the
 //! screen left black, until the scripts end the cutscene; then it fades back

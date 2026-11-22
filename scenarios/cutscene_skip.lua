@@ -1,4 +1,4 @@
--- Skipping a cutscene (docs/GAME_FLOW.md, *Skipping a cutscene*): asked
+-- Skipping a cutscene: asked
 -- for 10 ticks or more into one, the screen fades to black over 20 frames
 -- with the sound off, the game then runs 32 ticks a frame unseen until the
 -- scripts end the cutscene, and the screen fades back in over 20 frames

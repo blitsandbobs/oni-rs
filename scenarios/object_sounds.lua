@@ -1,4 +1,4 @@
--- Objects' and the game's sounds (docs/AUDIO.md, *Objects and the game*):
+-- Objects' and the game's sounds:
 -- level 1's door 18 opening plays its class's sound; picking up ammo plays
 -- the receive sound; low health starts the heartbeat loop, healing ends it.
 --

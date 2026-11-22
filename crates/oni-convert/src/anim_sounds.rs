@@ -1,4 +1,4 @@
-//! Animation sounds (`docs/sound/ORIGINAL_TRIGGERS.md` §2): what a
+//! Animation sounds: what a
 //! character's moves sound like — per character **variant** (`ONCV`: a
 //! tree, each naming its parent), rows of animation-sound type × weight →
 //! impulse, or a named clip → impulse on a frame — → `common/anim_sounds.json`.

@@ -1,4 +1,4 @@
-//! Aiming screens (`docs/WEAPONS.md`, *Aim poses*): a class's grids of
+//! Aiming screens: a class's grids of
 //! upper-body poses — a clip whose frames are yaw × pitch steps away from
 //! straight ahead — which bend a character toward where it aims, layered on
 //! whatever the body plays.

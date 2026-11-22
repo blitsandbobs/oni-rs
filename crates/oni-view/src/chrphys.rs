@@ -1,4 +1,4 @@
-//! Characters against the level (`docs/MOVEMENT.md`, *Collision*): the
+//! Characters against the level: the
 //! original's rules (`BFW_Physics.c` with the character callbacks of
 //! `ONI_Character.c`), on the level's quads.
 //!

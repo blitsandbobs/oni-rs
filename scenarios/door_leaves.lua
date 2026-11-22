@@ -1,4 +1,4 @@
--- Door leaves (docs/DOORS.md, *Leaves*): while a door moves its leaves are
+-- Door leaves: while a door moves its leaves are
 -- boxes sliding with the class's animation; a leaf closing on someone stops
 -- (held still while they are in its way), and blocked 90 ticks the door turns
 -- back and opens for them. On a double door the original counts only the

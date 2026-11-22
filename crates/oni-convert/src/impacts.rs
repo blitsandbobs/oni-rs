@@ -1,4 +1,4 @@
-//! Impact effects (`docs/sound/ORIGINAL_TRIGGERS.md` §1): what a footstep,
+//! Impact effects: what a footstep,
 //! a landing, a blow, a bullet hit sounds like (and which particles and
 //! AI noise go with it), by impact type × surface material × weight →
 //! `common/impacts.json`.

@@ -1,4 +1,4 @@
--- Level 4 (airport): our fixes to the shipped scripts (docs/SCRIPT_FIXES.md).
+-- Level 4 (airport): our fixes to the shipped scripts (docs/deviations.md).
 
 -- S2: restoring save point 3 leaves the earlier tarmac's volumes live (the
 -- save point 2 restore turns them off). Going back, they spawn the tarmac's

@@ -1,5 +1,5 @@
-//! The level's placed objects (`OBOA`, `OBtObjectSetup`; `docs/ASSET_FORMAT.md`,
-//! *Placed objects*): what scripts create, kill and animate by script id —
+//! The level's placed objects (`OBOA`, `OBtObjectSetup`;
+//! `oni_schema::files::ObjectsFile`): what scripts create, kill and animate by script id —
 //! forklifts, trucks, windows — each with its models, clip and placement.
 //! (Door leaves are exported with their doors.)
 

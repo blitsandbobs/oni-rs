@@ -1,4 +1,4 @@
-//! Effects (`docs/PARTICLES.md`, *Effects* and *Decals*; `P3rCreateEffect`):
+//! Effects (*Effects* and *Decals*; `P3rCreateEffect`):
 //! a particle made at a place for a cause — an impact effect's sparks and
 //! flashes, a collision effect, a level's decal — placed and turned by its
 //! specification, and, for a decal class, the decal it lays on the level;

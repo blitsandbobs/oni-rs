@@ -1,4 +1,4 @@
--- The main menu (docs/MENU.md): at the start Options shows and Escape does
+-- The main menu: at the start Options shows and Escape does
 -- nothing; New Game asks first (with the port's faithful box, off), Load
 -- Game lists the levels reached and their continues (level 1's warehouse
 -- always), Options shows the defaults (a slider held pages on), Quit asks

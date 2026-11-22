@@ -1,4 +1,4 @@
--- A placed object's own particles (#45; docs/OBJECTS.md, *Attached
+-- A placed object's own particles (#45;, *Attached
 -- particles*): level 8's opening makes the black van, and its headlights
 -- come with it — tagged after it (the script starts them by that name) and
 -- riding it as it drives in. And a gun's sight stops on it (an object met

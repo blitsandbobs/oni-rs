@@ -1,4 +1,4 @@
-//! Lens flares (`docs/PARTICLES.md`, *Lens flares*): particle classes drawn
+//! Lens flares: particle classes drawn
 //! over the scene, without the depth test, where their point is seen —
 //! the doors' lock lights, emergency lights, lamps. Each tick each flare's
 //! point is tested from the camera (`MSrGeomContext_Method_PointVisible`,

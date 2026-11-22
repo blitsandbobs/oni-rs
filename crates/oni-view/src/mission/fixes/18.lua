@@ -1,4 +1,4 @@
--- Level 18 (tctf_ii): our fixes to the shipped scripts (docs/SCRIPT_FIXES.md).
+-- Level 18 (tctf_ii): our fixes to the shipped scripts (docs/deviations.md).
 
 -- S3: past door 14, its lock behind Konoko comes while the door may still be
 -- open; she can walk back out and be locked out. Fixed: closed, then locked.

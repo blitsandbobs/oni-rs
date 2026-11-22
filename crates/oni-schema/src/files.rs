@@ -1,7 +1,131 @@
 //! The converted files' formats, shared by the converter (which writes
 //! them) and the engine (which reads them): a key renamed on one side is
-//! renamed on both. Keys are camelCase; optional parts are left out when
-//! empty. `docs/ASSET_FORMAT.md` describes each file.
+//! renamed on both, and a file that doesn't read as its type is reported
+//! rather than read as zeros. What `oni-convert` writes is standard glTF
+//! 2.0, JSON, PNG and WAV (bar the few files listed below), so it reads
+//! without knowing Oni's binary formats; Oni-specific data in glTF rides in
+//! `extras` as structured objects. The types here are the authority on names and shapes, their
+//! doc comments on what the fields mean. `scripts/compare_trees.py` checks
+//! that two converted trees hold the same data (numbers at f32 precision,
+//! keys in any order, glTF binary chunks byte for byte).
+//!
+//! # Conventions
+//!
+//! - **Keys** are camelCase. A key is omitted when its value is absent or
+//!   its default (empty, zero, false, or as a field says); readers apply
+//!   the default.
+//! - **Units**: lengths in Oni world units (the level geometry's); angles
+//!   in radians; time in ticks (1/60 s); per-frame tracks have one entry
+//!   per tick. Exceptions say so (sound distances in feet, placed items'
+//!   yaw in degrees, particle lifetimes in seconds).
+//! - **Frames**: glTF's right-handed, Y-up space, as the meshes use.
+//!   "Local" or "character-local" is relative to the character: +Z forward,
+//!   +X to its left, +Y up. Yaw grows counter-clockwise seen from above
+//!   (toward +X).
+//! - **Matrices** "4×3" are 12 floats column by column: the X, Y and Z
+//!   axes, then the translation. `axes` are a rotation's three unit
+//!   columns; quaternions are `[x, y, z, w]`. Colours are `"#aarrggbb"`
+//!   unless stated.
+//! - **Enumerations** are camelCase names, not numbers: a single value is
+//!   a string (`"punchForward"`, `"standing"`), a set of bits an array of
+//!   names (`["fight"]`, `["throwSource", "atomic"]`). The names follow the
+//!   original identifiers; the vocabularies are the tables in this crate
+//!   (`ANIM_TYPES`, `VARIANTS`, `TEAMS`, `DOOR_FLAGS`, …), which converter
+//!   and engine share.
+//! - **Ranges** are objects (`{start, end}` or `{start, length}`), ticks
+//!   inclusive unless stated.
+//! - **File names** are asset names with anything but letters, digits, `_`
+//!   and `-` as `_`. Names that differ only by case (`left`, `Left`) would
+//!   be one file on a case-insensitive disk: all but one (the lowercase
+//!   one, else the first) take a `~N` suffix (`Left~1.png`), and every
+//!   reference to them (glTF materials, texture names in JSON) uses the
+//!   suffixed name.
+//! - **Paths**: named (shared) assets live in `common/`, a level's unnamed
+//!   ones in `levels/NN/`; a named reference resolves in `common/`. Model
+//!   paths in JSON are relative to `common/` (`models/<name>.glb`) unless a
+//!   field says otherwise; textures are named by file stem (as the PNGs are
+//!   named). Big textures (`TXMB`: splash screens, menus) are assembled from
+//!   their 256-pixel tiles into one PNG in each level's own `textures/`.
+//!
+//! # Files
+//!
+//! - `oni.json`: the manifest — converter version, formats, per-level
+//!   counts and warnings, source file hashes (untyped; `write_manifest`).
+//! - `movies/outro.bik`: the ending movie, copied unchanged (Bink 1, decoded
+//!   by `oni-bink`) from the game data folder or a `movies/` folder beside
+//!   it; absent when neither has it.
+//! - `common/textures/<name>.png`: the named textures (`TXMP`).
+//! - `common/audio/<name>.wav`: the sounds (`SNDD`), as PCM WAV.
+//! - `common/models/<name>.glb`: the named geometries (`M3GM`), one mesh
+//!   each with its texture.
+//! - `common/characters/<BODY>/model.glb`, `low.glb`: a character body,
+//!   node per part (`convert_characters` in `oni-convert`).
+//! - `common/characters/<BODY>/character.json`: a readable rig summary
+//!   (untyped; `write_character_json`).
+//! - `common/characters/classes.json` → [`CharacterClassesFile`].
+//! - `common/characters/melee_profiles.json` → [`MeleeProfilesFile`].
+//! - `common/animations/<CLIP>.glb`: one animation clip, its metadata in
+//!   [`ClipExtras`] (`convert_animations` in `oni-convert`).
+//! - `common/animations/index.json`: the clips by name prefix (untyped).
+//! - `common/animations/collections/<TRAC>.json` →
+//!   [`AnimationCollectionFile`].
+//! - `common/anim_sounds.json` → [`AnimSoundsFile`].
+//! - `common/combat_profiles.json` → [`CombatProfilesFile`].
+//! - `common/door_classes.json` → [`DoorClassesFile`].
+//! - `common/fonts.json` → [`FontsFile`]; `common/fonts/<family>_<size>_<style>.png`:
+//!   each font's glyph atlas (white, coverage as alpha).
+//! - `common/game_settings.json` → [`GameSettingsFile`].
+//! - `common/hud_help.json` → [`HudHelpFile`].
+//! - `common/impacts.json` → [`ImpactsFile`].
+//! - `common/laser_classes.json` → [`LaserClassesFile`].
+//! - `common/menus.json` → [`MenusFile`].
+//! - `common/messages.json` → [`MessagesFile`].
+//! - `common/object_animations.json`, `levels/NN/object_animations.json` →
+//!   [`ObjectAnimationsFile`].
+//! - `common/part_specs.json` → [`PartSpecsFile`].
+//! - `common/particle_classes.json` → [`ParticleClassesFile`].
+//! - `common/pause_screen.json` → [`PauseScreenFile`].
+//! - `common/sounds.json` → [`SoundsFile`].
+//! - `common/strings.json`, `common/text.json`, `levels/NN/text.json`: the
+//!   raw `TStr` and `IGSt` string tables (untyped; `convert_strings`,
+//!   `convert_ui_text`).
+//! - `common/text_console.json` → [`Dialog`].
+//! - `common/texture_animations.json` → [`TextureAnimationsFile`].
+//! - `common/texture_flags.json` → [`TextureFlagsFile`].
+//! - `common/turrets.json` → [`TurretClassesFile`].
+//! - `common/weapons.json` → [`WeaponsFile`].
+//! - `levels/NN/textures/`: the level's own textures (and `models/`, when
+//!   it has unnamed geometry).
+//! - `levels/NN/environment.glb`: the level's geometry, quads grouped by
+//!   texture and object (`convert_environment` in `oni-convert`).
+//! - `levels/NN/quads.bin`: every quad as collision and decals see it
+//!   (`convert_quads` in `oni-convert`).
+//! - `levels/NN/navigation.json` → [`NavigationFile`]; `navigation.bin`:
+//!   its rooms' grids (`convert_navigation` in `oni-convert`).
+//! - `levels/NN/scripts.lua`: the level's BSL scripts translated to Lua
+//!   (`convert_scripts` in `oni-convert`).
+//! - `levels/NN/level.json`: the level's objects as decoded, for reading
+//!   (untyped; `level_json::write_level_json`).
+//! - `levels/NN/characters.json` → [`CharactersFile`].
+//! - `levels/NN/consoles.json` → [`ConsolesFile`].
+//! - `levels/NN/corpses.json` → [`CorpsesFile`].
+//! - `levels/NN/doors.json` → [`DoorsFile`].
+//! - `levels/NN/env_particles.json` → [`EnvParticlesFile`].
+//! - `levels/NN/films.json` → [`FilmsFile`].
+//! - `levels/NN/flags.json` → [`FlagsFile`].
+//! - `levels/NN/items.json` → [`ItemsFile`].
+//! - `levels/NN/lasers.json` → [`LasersFile`].
+//! - `levels/NN/neutrals.json` → [`NeutralsFile`].
+//! - `levels/NN/objects.json` → [`ObjectsFile`].
+//! - `levels/NN/particles.json` → [`ParticlesFile`].
+//! - `levels/NN/patrols.json` → [`PatrolsFile`].
+//! - `levels/NN/pause_pages.json` → [`PausePagesFile`].
+//! - `levels/NN/setups.json` → [`SetupsFile`].
+//! - `levels/NN/sky.json` → [`SkyFile`].
+//! - `levels/NN/sounds.json` → [`SoundObjectsFile`].
+//! - `levels/NN/text_consoles.json` → [`TextConsolesFile`].
+//! - `levels/NN/triggers.json` → [`TriggersFile`].
+//! - `levels/NN/turrets.json` → [`TurretsFile`].
 
 use std::collections::BTreeMap;
 
@@ -11,7 +135,8 @@ use serde::{Deserialize, Serialize};
 pub type V3 = [f32; 3];
 
 /// An event a console, door or laser trigger fires (`OBJtEvent`;
-/// `EVENT_TYPES`).
+/// `EVENT_TYPES`). Event lists run in order; an `id` of `0xFFFF` means all
+/// of that kind.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Event {
@@ -34,9 +159,10 @@ pub enum Event {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct LasersFile {
     pub lasers: Vec<Laser>,
-    /// Per class: per animation frame, the beam's origin and unit direction
-    /// in the laser's own space.
+    /// Per class used: per animation frame, the beam's origin and unit
+    /// direction in the laser's own space (`[ox, oy, oz, dx, dy, dz]`).
     pub classes: BTreeMap<String, Vec<[f32; 6]>>,
+    /// Per class used: its emitter's eye.
     pub eyes: BTreeMap<String, LaserEye>,
 }
 
@@ -55,17 +181,19 @@ pub struct Laser {
     /// Track frames per tick.
     pub speed: f32,
     pub emitters: u16,
-    /// Ticks.
+    /// Ticks on and off.
     pub time_on: u16,
     pub time_off: u16,
+    /// What tripping it does.
     pub events: Vec<Event>,
     /// `LASER_FLAGS` names.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
 }
 
-/// A laser class's emitter eye: its model (a path under `common/`) and, per
-/// animation frame, the emitter's 4×3 matrix in the laser's own space.
+/// A laser class's emitter eye: its model (the emitter class's geometry, a
+/// path under `common/`) and, per animation frame, the emitter's 4×3 matrix
+/// in the laser's own space.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct LaserEye {
     pub model: String,
@@ -86,16 +214,19 @@ pub struct ConsolesFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Console {
+    /// What scripts and events name it by.
     pub id: u16,
     pub class: String,
     pub position: V3,
     pub axes: [V3; 3],
-    /// Where its user stands and faces.
+    /// Where its user stands and faces (from the class's action point).
     pub marker: Marker,
+    /// What using it does.
     pub events: Vec<Event>,
     /// Its screen's textures when inactive, active and used.
     pub screens: Screens,
-    /// Its screen's model (a path under `common/`).
+    /// Its screen's model (a path under `common/`), drawn at the console
+    /// with the texture `screens` gives per state.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub screen_model: Option<String>,
     /// `CONSOLE_FLAGS` names.
@@ -113,7 +244,7 @@ pub struct Marker {
     pub facing: f32,
 }
 
-/// A console's screen textures.
+/// A console's screen textures (upper-cased names; none: `NONE`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Screens {
     pub inactive: String,
@@ -131,13 +262,15 @@ pub struct DoorsFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Door {
+    /// What scripts and events name it by.
     pub id: u16,
-    /// Its object id (its level quads' tag).
+    /// Its object id (its level quads' tag): its closed leaf is the
+    /// environment's `door_0x<objectId>` node.
     pub object_id: u32,
     pub class: String,
     pub position: V3,
     pub axes: [V3; 3],
-    /// How near someone must come to open it.
+    /// How near someone must come to open it (its activation radius).
     pub radius: f32,
     /// The key it needs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -145,14 +278,16 @@ pub struct Door {
     /// `DOOR_FLAGS` names.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
+    /// What opening it does (as consoles').
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub events: Vec<Event>,
-    /// Its moving leaves.
+    /// Its moving leaves: the object setups made for them (one, or two for
+    /// double doors).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub leaves: Vec<DoorLeaf>,
 }
 
-/// A door leaf: its object setup's origin (4×3, column by column).
+/// A door leaf: its object setup's origin (4×3, `debugOrigMatrix`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DoorLeaf {
     pub origin: [f32; 12],
@@ -171,19 +306,20 @@ pub struct DoorClass {
     /// The impulses played opening and closing.
     pub open: String,
     pub close: String,
-    /// Its leaves' animation.
+    /// Its leaves' animation (as in `object_animations.json`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animation: Option<ObjectAnimation>,
     /// What sound passes it while it isn't open (`all`, `shouting`,
     /// `gunfire`, `none`) and how much it muffles what does (1: all).
     pub sound_allow: String,
     pub sound_muffle: f32,
-    /// The noise the AI hears it make.
+    /// The noise the AI hears it make (none shipped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<AiNoise>,
 }
 
-/// A noise the AI hears: its kind (`AI_SOUNDS`) and how far.
+/// A noise the AI hears: its kind (`ignore`, `interesting`, `danger`,
+/// `melee`, `gunshot`) and how far.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AiNoise {
     #[serde(rename = "type")]
@@ -219,18 +355,21 @@ pub struct ObjectAnimationsFile {
 #[serde(rename_all = "camelCase")]
 pub struct ObjectAnimation {
     pub name: Option<String>,
-    /// `OBJECT_ANIMATION_FLAGS` names.
+    /// `OBJECT_ANIMATION_FLAGS` names (`loop`, `pingpong`, `random`,
+    /// `autostart`, `localized`). A localized clip is in Max space (a
+    /// quarter-turn about X) and placed by its object's origin.
     pub flags: Vec<String>,
+    /// As stored; the original steps one frame a tick regardless.
     pub ticks_per_frame: u16,
     pub num_frames: u16,
     pub door_open_frames: u16,
-    /// 4×3, column by column.
+    /// 4×3, applied after each key's rotation.
     pub scale: [f32; 12],
     pub keyframes: Vec<ObjectAnimationKey>,
 }
 
 /// An object animation's key: its frame, translation and rotation
-/// (a quaternion).
+/// (a quaternion; Oni's quaternion-to-matrix is the transpose of the usual).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ObjectAnimationKey {
     pub frame: i32,
@@ -249,21 +388,27 @@ pub struct TurretClassesFile {
 #[serde(rename_all = "camelCase")]
 pub struct TurretClass {
     pub name: String,
-    /// Its head's and barrel's models (paths under `common/`).
+    /// Its head's and barrel's models (paths under `common/`); the base is
+    /// baked into the level's geometry as `turret_0x<object id>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub head: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub barrel: Option<String>,
+    /// In base space.
     pub head_pivot: V3,
+    /// In head space.
     pub barrel_pivot: V3,
     /// Ticks it stays on (0: for ever).
     pub timeout: u32,
     pub pitch: Limits,
     pub yaw: Limits,
     pub active_sound: String,
+    /// As a gun's.
     pub ai: AiGunParams,
+    /// As a character class's.
     pub targeting: Targeting,
     pub skill: ShootSkill,
+    /// Its particles; the barrel points along +Z.
     pub attachments: Vec<TurretAttachment>,
 }
 
@@ -275,8 +420,9 @@ pub struct Limits {
     pub speed: f32,
 }
 
-/// A turret's particle attachment: its class, which shooter it is (−1:
-/// none), its chamber time (shooters only) and its matrix (4×3).
+/// A turret's particle attachment: its class, which shooter it follows (−1:
+/// every shooter), its chamber time (shooters only) and its matrix (4×3,
+/// barrel space).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TurretAttachment {
     pub class: String,
@@ -341,6 +487,7 @@ pub struct Targeting {
     pub startle_miss_ratio: f32,
     pub startle_miss_distance: f32,
     pub predict_amount: f32,
+    /// Ticks, as are the three below.
     pub predict_position_delay: u32,
     pub predict_delay: u32,
     pub predict_velocity: u32,
@@ -351,11 +498,14 @@ pub struct Targeting {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ShootSkill {
+    /// 0–1.
     pub recoil_compensation: f32,
     pub best_aiming_sine: f32,
+    /// Of the target's distance.
     pub shot_error_percent: f32,
     pub shot_decay: f32,
     pub gun_inaccuracy: f32,
+    /// Ticks between shots, at least and at most.
     pub delay_min: u16,
     pub delay_max: u16,
 }
@@ -371,12 +521,14 @@ pub struct TurretsFile {
 #[serde(rename_all = "camelCase")]
 pub struct Turret {
     pub object_id: u32,
+    /// Its script id (not unique).
     pub id: u16,
     pub class: String,
     pub position: V3,
     pub axes: [V3; 3],
-    /// The teams it fires at (bits).
+    /// The teams it fires at (bit n: team n).
     pub target_teams: u32,
+    /// `initialActive` (never honoured by the game).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
 }
@@ -384,15 +536,17 @@ pub struct Turret {
 /// `levels/NN/corpses.json`: the level's corpse array (`CRSA`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CorpsesFile {
-    /// Its size: the static corpses and room for the dead of play.
+    /// Its size (`max_corpses`, 20 in every level): the static corpses and
+    /// room for the dead of play.
     pub max: u32,
     pub corpses: Vec<Corpse>,
 }
 
-/// A pre-placed corpse: its class, each body part's matrix (4×3) and its
-/// bounds.
+/// A pre-placed corpse: its class (a character class), each of its 19 body
+/// parts' world matrix (4×3) and its bounds.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Corpse {
+    /// Empty in the shipped levels.
     pub name: String,
     pub class: String,
     pub matrices: Vec<[f32; 12]>,
@@ -415,6 +569,7 @@ pub struct FlagsFile {
 /// A flag: id, display name, position, facing and its note.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Flag {
+    /// What waypoints and scripts refer to.
     pub id: u16,
     pub name: String,
     pub position: V3,
@@ -430,7 +585,8 @@ pub struct TriggersFile {
 }
 
 /// A trigger volume (`OT_TriggerVolume`): a box from `position` (a corner)
-/// `size` along its axes, the scripts it runs, who sets it off.
+/// `size` along its axes (unit columns of its rotation), the script
+/// functions it runs on entry, inside and exit, who sets it off.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TriggerVolume {
     pub id: i32,
@@ -438,7 +594,7 @@ pub struct TriggerVolume {
     pub position: V3,
     pub axes: [V3; 3],
     pub size: V3,
-    /// `TEAMS` names.
+    /// `TEAMS` names: whose members trip it.
     pub teams: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub entry: Option<String>,
@@ -446,9 +602,11 @@ pub struct TriggerVolume {
     pub inside: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub exit: Option<String>,
+    /// A volume id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub parent: Option<i32>,
-    /// `TRIGGER_FLAGS` names.
+    /// `TRIGGER_FLAGS` names (`entryOnce`, `entryDisabled`, `disabled`,
+    /// `playerOnly`, …).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
     #[serde(default, skip_serializing_if = "String::is_empty")]
@@ -465,6 +623,7 @@ pub struct PatrolsFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Patrol {
+    /// What a patrolling character's `jobId` names (not the name).
     pub id: u16,
     pub name: String,
     pub waypoints: Vec<Waypoint>,
@@ -474,7 +633,7 @@ pub struct Patrol {
 }
 
 /// A patrol waypoint (`AI2tWaypoint`; `PATROL_WAYPOINTS`). Ticks keep the
-/// data's own widths.
+/// data's own widths; angles are radians; `flag` is a flag's id.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum Waypoint {
@@ -496,6 +655,8 @@ pub enum Waypoint {
     },
     Loop,
     MovementMode {
+        /// A `MOVEMENT_MODES` name (`byAlertLevel`, `creep`, `walk`, `run`,
+        /// …).
         mode: String,
     },
     MoveToPoint {
@@ -534,6 +695,7 @@ pub enum Waypoint {
     },
     StopScanning,
     Guard {
+        /// Absent: forever.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticks: Option<i16>,
         flag: i16,
@@ -557,7 +719,8 @@ pub enum Waypoint {
     Unknown,
 }
 
-/// `levels/NN/characters.json`: the level's placed characters.
+/// `levels/NN/characters.json`: every character the level places (the
+/// player's start has the `player` flag).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct CharactersFile {
     pub characters: Vec<PlacedCharacter>,
@@ -574,21 +737,27 @@ pub struct PlacedCharacter {
     pub flags: Vec<String>,
     pub position: V3,
     pub facing: f32,
+    /// A `TEAMS` name.
     pub team: String,
+    /// A `JOBS` name; a `patrol` follows the patrol whose id is `jobId`.
     pub job: String,
     pub alert: AlertLevels,
     pub pursue: PursueModes,
     pub ammo_percent: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub weapon: Option<String>,
-    /// Its event scripts (`spawn`, `die`, …), by event.
+    /// Its event scripts by event (`spawn`, `die`, `combat`, `alarm`,
+    /// `hurt`, `defeated`, `outOfAmmo`, `noPath`), only those set.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub scripts: BTreeMap<String, String>,
+    /// Added to its class's hit points.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hit_point_offset: Option<i32>,
-    /// Its patrol path or guard's id (0 is a real id).
+    /// Its patrol path or guard's id (0 is a real id; every patroller has
+    /// one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub job_id: Option<u16>,
+    /// Always present (0 is a real id).
     pub combat_profile_id: u16,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub melee_profile_id: Option<u16>,
@@ -637,13 +806,17 @@ pub struct SetupsFile {
     pub setups: Vec<CharacterSetup>,
 }
 
-/// A character setup (`AItCharacterSetup`).
+/// A character setup (`AISA`, `AItCharacterSetup`): what `chr_create
+/// <scriptId>` makes, at its default flag.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CharacterSetup {
     pub script_id: u16,
+    /// The flag it starts at.
     pub flag: i16,
+    /// A `TEAMS` name (the shipped villains' setups say team 1, `tctf`).
     pub team: String,
+    /// Absent: the original names it `ai_<n>`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -652,6 +825,7 @@ pub struct CharacterSetup {
     pub weapon: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ammo: Option<u16>,
+    /// As placed characters'.
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     pub scripts: BTreeMap<String, String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -699,7 +873,8 @@ pub struct CombatProfilesFile {
     pub profiles: Vec<CombatProfile>,
 }
 
-/// A combat profile (`OBJtOSD_Combat`).
+/// A combat profile (`OBJtOSD_Combat`): how a placed character with its
+/// `combatProfileId` fights.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CombatProfile {
@@ -707,10 +882,13 @@ pub struct CombatProfile {
     pub name: String,
     pub behavior: CombatBehaviors,
     pub medium_range: f32,
+    /// A `MELEE_WHEN` name (`never`, `ifPunched`, `always`, …).
     pub melee_when: String,
+    /// A `NO_GUN` name (`melee`, `retreat`, `alarm`).
     pub no_gun: String,
     pub short_range: f32,
     pub pursuit_distance: f32,
+    /// For non-combatants.
     pub panic: PanicTicks,
     pub alarm: AlarmSettings,
 }
@@ -754,8 +932,9 @@ pub struct EnvParticlesFile {
 }
 
 /// An environmental particle (an `ENVP` array's or a particle object's):
-/// its class, its matrix (4×3, in its owner's space), its decal scale,
-/// where it came from (`env`, `object`), the tag scripts name it by.
+/// its class (in `common/particle_classes.json`), its matrix (4×3, in its
+/// owner's space), its decal scale, where it came from (`env`, `object`),
+/// the tag scripts' `particle` command names it by.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EnvParticle {
@@ -765,7 +944,7 @@ pub struct EnvParticle {
     pub from: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
-    /// Held back at the start.
+    /// Held back at the start: made only when a script says.
     #[serde(default, skip_serializing_if = "is_false")]
     pub not_initially_created: bool,
 }
@@ -800,7 +979,8 @@ pub struct Xyz {
     pub z: f32,
 }
 
-/// `levels/NN/items.json`: the level's placed weapons and powerups.
+/// `levels/NN/items.json`: the level's placed weapons and powerups
+/// (written only for levels that place any).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ItemsFile {
     pub weapons: Vec<PlacedWeapon>,
@@ -816,7 +996,8 @@ pub struct PlacedWeapon {
     pub yaw: f32,
 }
 
-/// A placed powerup: its kind and where (yaw in degrees).
+/// A placed powerup: its kind (`ammoBallistic`, `ammoEnergy`, `hypo`,
+/// `shieldBelt`, `invisibility`, `lsi`) and where (yaw in degrees).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlacedPowerup {
     pub id: u32,
@@ -835,12 +1016,13 @@ pub struct TextureFlagsFile {
     pub self_illuminated: Vec<String>,
 }
 
-/// `levels/NN/sky.json`: the level's sky (`ONSK`).
+/// `levels/NN/sky.json`: the level's sky (`ONSK`; a level without one has
+/// no file).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SkyFile {
     pub name: String,
-    /// The box's textures: top, left, right, front, back.
+    /// The box's textures: top, left, right, front, back (`null`: none).
     pub textures: Vec<Option<String>>,
     pub planets: Vec<Planet>,
     pub star_count: u32,
@@ -850,12 +1032,14 @@ pub struct SkyFile {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Planet {
     pub texture: String,
+    /// World units.
     pub size: [f32; 2],
     pub azimuth: f32,
     pub bearing: f32,
 }
 
-/// `levels/NN/objects.json`: the level's placed objects (`OBOA`).
+/// `levels/NN/objects.json`: the level's placed objects (`OBOA`), door
+/// leaves aside.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct ObjectsFile {
     pub objects: Vec<PlacedObject>,
@@ -870,9 +1054,11 @@ pub struct PlacedObject {
     pub script_id: u32,
     /// `OBJECT_FLAGS` names.
     pub flags: Vec<String>,
+    /// A `PHYSICS_LEVELS` name (`none`, `static`, `linear`, `animate`,
+    /// `newton`).
     pub physics_level: String,
     pub position: V3,
-    /// A quaternion.
+    /// A quaternion (Oni reads its matrix transposed).
     pub orientation: [f32; 4],
     pub scale: f32,
     /// 4×3.
@@ -880,7 +1066,8 @@ pub struct PlacedObject {
     /// Its models (paths under `common/`).
     pub geometry: Vec<String>,
     pub radius: ObjectRadius,
-    /// Its particles, in its own space.
+    /// Its own `ENVP` array, matrices in its space (left out of
+    /// `env_particles.json`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub particles: Vec<EnvParticle>,
     /// Its object animation's name.
@@ -888,8 +1075,8 @@ pub struct PlacedObject {
     pub animation: Option<String>,
 }
 
-/// A placed object's collision sphere radius: as shipped, and fixed
-/// (`QUIRKS.md`).
+/// A placed object's collision sphere radius: as the original computes it
+/// (`shipped`), and the largest coordinate (`fixed`; `docs/deviations.md`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ObjectRadius {
     pub shipped: f32,
@@ -902,12 +1089,14 @@ pub struct NeutralsFile {
     pub neutrals: Vec<Neutral>,
 }
 
-/// A neutral behaviour (`OBJtOSD_Neutral`).
+/// A neutral behaviour (`OBJtOSD_Neutral`): the conversation a neutral
+/// character starts with the player.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Neutral {
     pub id: u16,
     pub name: String,
+    /// `noResume`, `noResumeAfterItems`, `uninterruptable`.
     pub flags: Vec<String>,
     pub trigger_range: f32,
     pub conversation_range: f32,
@@ -915,9 +1104,11 @@ pub struct Neutral {
     pub abort_enemy_range: f32,
     pub trigger_sound: String,
     pub abort_sound: String,
+    /// (An object file older than version 25 has none: `what_the`.)
     pub enemy_sound: String,
     pub end_script: String,
     pub give: NeutralGive,
+    /// Up to ten.
     pub lines: Vec<NeutralLine>,
 }
 
@@ -925,10 +1116,12 @@ pub struct Neutral {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeutralGive {
+    /// A weapon class, or `none`.
     pub weapon: String,
     pub ballistic_ammo: u8,
     pub energy_ammo: u8,
     pub hypos: u8,
+    /// `shield`, `invisibility`, `lsi`.
     pub flags: Vec<String>,
 }
 
@@ -936,7 +1129,9 @@ pub struct NeutralGive {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NeutralLine {
+    /// `playerLine`, `giveItem`, `animOnce`, `otherAnimOnce`.
     pub flags: Vec<String>,
+    /// What the speaker and the other character play.
     pub anim: Option<AnimRef>,
     pub other_anim: Option<AnimRef>,
     pub sound: String,
@@ -968,13 +1163,16 @@ pub struct AmbientSound {
     pub sphere_radius: f32,
     /// Seconds between details, at least and at most.
     pub detail_time: [f32; 2],
+    /// Feet (a world unit is a third of one).
     pub max_volume_distance: f32,
     pub min_volume_distance: f32,
+    /// Copies playing at once.
     pub threshold: u32,
     pub min_occlusion: f32,
     /// `interruptOnStop`, `playOnce`, `pan`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
+    /// Its parts, by group name (absent: none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub detail: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -992,10 +1190,12 @@ pub struct AmbientSound {
 #[serde(rename_all = "camelCase")]
 pub struct ImpulseSound {
     pub group: String,
+    /// 0 low … 3 highest.
     pub priority: u32,
+    /// Feet, as ambients'.
     pub max_volume_distance: f32,
     pub min_volume_distance: f32,
-    /// Played this many at once, its `alt` plays instead.
+    /// Once this many copies play, the impulse `alt` plays instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alt_threshold: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1018,8 +1218,9 @@ pub struct SoundGroup {
     pub prevent_repeats: bool,
 }
 
-/// A sound group's permutation: its weight, volume and pitch ranges, and
-/// its sound (a file under `audio/`).
+/// A sound group's permutation: its weight, volume and pitch ranges
+/// (`[min, max]` factors), and its sound (`audio/<sound>.wav`; 85 named
+/// sounds don't ship).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Permutation {
     pub weight: u32,
@@ -1034,8 +1235,10 @@ pub struct SoundObjectsFile {
     pub objects: Vec<SoundObject>,
 }
 
-/// A sound object: its ambient, where, how loud, and its shape — a sphere
-/// (heard within, placed) or a box (heard inside).
+/// A sound object: its ambient (a name in `common/sounds.json`), where, how
+/// loud, and its shape — a sphere (heard while the listener is within
+/// `min`, placed at the object) or a box (heard, not placed, while the
+/// listener is inside). The data's pitch is never used and not exported.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SoundObject {
@@ -1066,8 +1269,9 @@ pub struct ImpactsFile {
     pub impacts: BTreeMap<String, Option<String>>,
     /// Each material's parent.
     pub materials: BTreeMap<String, Option<String>>,
-    /// Each texture's material.
+    /// Each texture's material (by texture file stem).
     pub textures: BTreeMap<String, String>,
+    /// In the original's order.
     pub entries: Vec<ImpactEntry>,
 }
 
@@ -1077,17 +1281,21 @@ pub struct ImpactsFile {
 pub struct ImpactEntry {
     pub impact: String,
     pub material: String,
+    /// `impact`, `damage`, `projectile` (three independent slots).
     pub component: String,
+    /// `any`, `heavy`, `medium`, `light`.
     pub modifier: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sound: Option<ImpactSound>,
+    /// Each made in turn.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub particles: Vec<ImpactParticle>,
 }
 
-/// An impact effect's sound, and the noise the AI hears.
+/// An impact effect's sound, and the noise the AI hears (when it does).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImpactSound {
+    /// Possibly empty.
     pub impulse: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<AiNoise>,
@@ -1097,6 +1305,7 @@ pub struct ImpactSound {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ImpactParticle {
     pub class: String,
+    /// To the surface struck: `unchanged`, `reversed`, `reflected`, `normal`.
     pub orientation: String,
     pub location: ImpactLocation,
 }
@@ -1107,6 +1316,7 @@ pub struct ImpactParticle {
 pub enum ImpactLocation {
     Default,
     CollisionOffset {
+        /// Along the surface's normal.
         offset: f32,
     },
     FindWall {
@@ -1131,11 +1341,13 @@ pub struct AnimSoundsFile {
     pub variants: BTreeMap<String, Option<String>>,
     /// Each variant's name, by its instance name (as classes name it).
     pub instances: BTreeMap<String, String>,
+    /// Per variant.
     pub sounds: BTreeMap<String, Vec<AnimSound>>,
 }
 
-/// An animation sound: for an animation type (and modifier), its impulse,
-/// at a frame of a clip when it names one.
+/// An animation sound: for an animation-sound type (`Kick`, `Punch`,
+/// `Jump`, …, or `Animation` with a `clip` and `frame`) and modifier, its
+/// impulse.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AnimSound {
     #[serde(rename = "type")]
@@ -1152,22 +1364,29 @@ pub struct AnimSound {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GameSettingsFile {
-    /// The powerups' looks, by kind.
+    /// The powerups' looks, by kind (as placed powerups').
     pub powerups: BTreeMap<String, PowerupLook>,
     pub magic_textures: MagicTextures,
+    /// The HUD's prompts for what the player could do.
     pub autoprompts: Vec<Autoprompt>,
-    /// A character's health colour ramp (melee flashes, the HUD).
+    /// A character's health colour ramp (melee flashes, the HUD): health
+    /// fractions ascending; blended between, the end colours beyond.
     pub health_color: Vec<HealthColor>,
-    /// The game's event and condition sounds (empty: silent), by name.
+    /// The game's event sounds → impulses (`doorSuccess`, `useHypo`,
+    /// `autosave`, …; empty: silent).
     pub event_sounds: BTreeMap<String, String>,
+    /// The condition sounds → ambients (`healthLow`, `shield`,
+    /// `timerCritical`, …).
     pub condition_sounds: BTreeMap<String, String>,
     pub hypo: HypoSettings,
+    /// The most health a hypo can push a character to, × its maximum.
     pub boosted_health: f32,
     pub difficulty: DifficultySettings,
 }
 
-/// A powerup's look: its model (a path under `common/`), the glow sprite
-/// and its size and height, and the physics sphere a dropped one falls with.
+/// A powerup's look: its model (a path under `common/`, from level 0 or the
+/// first level holding it), the glow sprite (a texture name) and its size
+/// and height, and the physics sphere a dropped one falls with.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct PowerupLook {
@@ -1177,6 +1396,8 @@ pub struct PowerupLook {
     pub glow: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// How far above its place the glow lies: the model's lowest point +
+    /// 0.1 (absent without a model).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub glow_height: Option<f32>,
     /// Its geometry's name, while the converter looks for it (not written).
@@ -1196,8 +1417,11 @@ pub struct MagicTextures {
 /// An autoprompt: an event's message, on levels `levels[0]..=levels[1]`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Autoprompt {
+    /// `weapon`, a powerup's name, `usedoor`, `useconsole`, `usealarm`,
+    /// `usehypo`, `nci`.
     pub event: String,
     pub levels: [u16; 2],
+    /// A name in the messages table.
     pub message: String,
 }
 
@@ -1216,6 +1440,8 @@ pub struct HealthColor {
 pub struct HypoSettings {
     pub amount: f32,
     pub boost_amount: f32,
+    /// How much harder a super-hypo class hits above full health, from just
+    /// past full to double.
     pub overhypo_base_damage: f32,
     pub overhypo_max_damage: f32,
 }
@@ -1224,16 +1450,20 @@ pub struct HypoSettings {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DifficultySettings {
+    /// `["easy", "normal", "hard"]`.
     pub levels: Vec<String>,
+    /// On the AI's melee: attack notice, block and dodge chances.
     pub notice_multiplier: Vec<f32>,
     pub block_multiplier: Vec<f32>,
     pub dodge_multiplier: Vec<f32>,
+    /// On the AI's aim.
     pub inaccuracy_multiplier: Vec<f32>,
     pub player_hp_multiplier: Vec<f32>,
     pub enemy_hp_multiplier: Vec<f32>,
 }
 
-/// A text run's font (`size`, `style`; its shade `#aarrggbb`, when set).
+/// A text run's font (`size`, `style` 0 plain, 1 bold, 2 italic; its shade
+/// `#aarrggbb`, when set), resolved over the page's over the dialog's.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextFont {
     pub size: i64,
@@ -1270,14 +1500,15 @@ pub struct Picture {
 }
 
 /// A dialog (`WMtDialogData`) as the text console and pause screen use it:
-/// its size and items. (`common/text_console.json`.)
+/// its size and items. (`common/text_console.json`: `dialog_text_console`.)
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Dialog {
     pub size: [i64; 2],
     pub items: Vec<DialogItem>,
 }
 
-/// A dialog's item: its id, window type, title, rectangle and font.
+/// A dialog's item: its id, window type, title, rectangle and font. In the
+/// text console's: 110 the text area, 102 Next, 2 Close, 0 the outline.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct DialogItem {
     pub id: i64,
@@ -1289,13 +1520,14 @@ pub struct DialogItem {
     pub font: TextFont,
 }
 
-/// `levels/NN/text_consoles.json`: the level's text consoles, by name.
+/// `levels/NN/text_consoles.json`: the level's data consoles (`TxtC`), by
+/// name.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct TextConsolesFile {
     pub consoles: BTreeMap<String, TextConsole>,
 }
 
-/// A text console's pages.
+/// A text console's pages (`IGPA` of `IGPG`; their strings `IGSA` of `IGSt`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct TextConsole {
     pub pages: Vec<Page>,
@@ -1351,7 +1583,8 @@ pub struct DiaryPage {
     pub content: Page,
 }
 
-/// `common/hud_help.json`: the HUD help overlay's rings and labels.
+/// `common/hud_help.json`: the HUD help overlay's rings and labels (level
+/// 0's `IGHH` `hud_help_info`).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HudHelpFile {
     pub left: HelpRing,
@@ -1363,6 +1596,7 @@ pub struct HudHelpFile {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct HelpRing {
     pub texture: Option<String>,
+    /// Its middle from the ring's centre.
     pub offset: [i16; 2],
 }
 
@@ -1370,6 +1604,7 @@ pub struct HelpRing {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct HelpItem {
     pub text: String,
+    /// From its side's overlay's top-left corner.
     pub offset: [i16; 2],
     pub right: bool,
 }
@@ -1378,10 +1613,16 @@ pub struct HelpItem {
 /// out-of-game skin and the popup menus.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct MenusFile {
+    /// Level 0's out-of-game dialogs, by name without the `dialog_` prefix
+    /// (`mainmenu`, `loadgame`, `options`, `NewGame`, `QuitYesNo`,
+    /// `ChangeRestart`, `Progress`, `ll_progress`).
     pub dialogs: BTreeMap<String, MenuDialog>,
+    /// The level descriptors (`ONLD`).
     pub levels: Vec<MenuLevel>,
-    /// Each skin part's part spec.
+    /// The out-of-game UI (`psui_oniUI`): each part (`button_off`,
+    /// `checkbox_on`, `sl_thumb`, …) → its name in `part_specs.json`.
     pub skin: Option<BTreeMap<String, String>>,
+    /// The popup menus' items by menu name (`pm_difficulty`).
     pub popups: BTreeMap<String, Vec<PopupItem>>,
 }
 
@@ -1400,11 +1641,18 @@ pub struct MenuDialog {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MenuItem {
     pub id: i64,
+    /// `WMcWindowType_*`: 3 box, 4 button, 5 checkbox, 8 list box, 11
+    /// picture, 12 popup menu, 13 progress bar, 17 slider, 20 text.
     #[serde(rename = "type")]
     pub kind: i64,
+    /// A picture's: its texture.
     pub title: String,
     pub flags: i64,
+    /// The control's style bits in the high 16 (a button's `0x10` default;
+    /// a text's `0x01`/`0x02`/`0x04` left/centre/right, `0x10` vertically
+    /// centred).
     pub style: i64,
+    /// x, y, width, height.
     pub rect: [i64; 4],
     pub font: MenuFont,
 }
@@ -1418,7 +1666,8 @@ pub struct MenuFont {
     pub shade: String,
 }
 
-/// A level as the menus know it: its number, the next one, its name.
+/// A level as the menus know it: its number, the next one, its name (what
+/// the load-game list shows; some name levels that don't ship).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MenuLevel {
     pub level: i64,
@@ -1441,8 +1690,10 @@ pub struct PartSpecsFile {
     pub part_specs: BTreeMap<String, PartSpec>,
 }
 
-/// A part spec: its texture and its 3 × 3 slices' corners (top-left and
-/// bottom-right, by column then row).
+/// A part spec (nine-slice frame, `WM_PartSpecification.h`): its texture
+/// and its 3 × 3 slices' texel corners (top-left and bottom-right, column
+/// by column: the left column top, middle, bottom, then the middle and
+/// right). The corners keep their size; edges and middle stretch.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PartSpec {
     pub texture: String,
@@ -1450,15 +1701,18 @@ pub struct PartSpec {
     pub br: Vec<[i64; 2]>,
 }
 
-/// `common/messages.json` (and a level's): the message tables, by name.
+/// `common/messages.json` (and a level's, if it has its own `SUBT`): the
+/// message tables, by name (`messages`,
+/// `subtitles`), as stored (with the original's `[x.…]` style spans).
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct MessagesFile {
     pub tables: BTreeMap<String, MessageTable>,
 }
 
-/// A message table: by name (`messages`), or in order (`subtitles`, found
-/// by the first key a line's name starts with).
+/// A message table: by name (`messages`: what scripts' `message` shows), or
+/// in order (`subtitles`: a line takes the first whose key its name starts
+/// with).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum MessageTable {
@@ -1472,7 +1726,8 @@ pub struct FontsFile {
     pub families: BTreeMap<String, FontFamily>,
 }
 
-/// A font family: its fonts, and the characters a line may break after.
+/// A font family (`Tahoma`, …): its fonts, and the characters a line may
+/// break after.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct FontFamily {
     pub fonts: Vec<FontFile>,
@@ -1480,13 +1735,18 @@ pub struct FontFamily {
 }
 
 /// A font (`TSFT`): its size, style and metrics, its atlas (a path under
-/// `common/`) and its glyphs by character code: `[x, y, width, kerning]`
-/// of its cell in the atlas.
+/// `common/`) and its glyphs by character code: `[x, y, width, kerning]`.
+/// A glyph's cell in the atlas is `width` wide and ascending + descending
+/// high at (`x`, `y`), its bitmap already placed in it by its origin; a
+/// string is drawn cell by cell from the top of its line, the pen moving on
+/// by each glyph's `kerning`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FontFile {
     pub size: u16,
+    /// `plain`, `bold`, `italic`.
     pub style: String,
+    /// Pixels, as the rest; a line is ascending + descending + leading high.
     pub ascending_height: u32,
     pub descending_height: u32,
     pub leading_height: i16,
@@ -1502,9 +1762,11 @@ pub struct TextureAnimationsFile {
     pub animations: BTreeMap<String, TextureAnimation>,
 }
 
-/// An animated texture: its frames (files under the converted tree), how
-/// long each shows (ticks) and how it runs (`pingPong`, `randomFrame`,
-/// `randomStart`, `dontAnimate`).
+/// An animated texture: its frames (paths from the converted tree's root,
+/// the texture itself first; the `TXAN`'s others are often unnamed,
+/// `TXMP_<index>`), how long each shows (ticks) and how it runs
+/// (`pingPong`, `randomFrame`, `randomStart`, `dontAnimate`: the texture's
+/// own `M3cTextureFlags_Anim_*`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TextureAnimation {
@@ -1514,16 +1776,19 @@ pub struct TextureAnimation {
     pub flags: Vec<String>,
 }
 
-/// `levels/NN/navigation.json`: the level's pathfinding rooms (`BNV`),
-/// their grids in a binary file beside it.
+/// `levels/NN/navigation.json`: the level's pathfinding rooms (`BNV`), in
+/// world coordinates (as `environment.glb`), their grids in a binary file
+/// beside it.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NavigationFile {
-    /// A grid square's size.
+    /// A grid square's size (4).
     pub square_size: f32,
-    /// The grid cells' kinds, by value.
+    /// The grid cells' kinds, by value (`clear`, `nearWall`, …, `danger`,
+    /// `impassable`).
     pub square_types: Vec<String>,
-    /// The grids' file (beside this one).
+    /// The grids' file (beside this one): `navigation.bin`, the rooms'
+    /// grids back to back, one byte per square.
     pub grids: String,
     pub rooms: Vec<NavRoom>,
 }
@@ -1535,16 +1800,22 @@ pub struct NavRoom {
     pub flags: Vec<String>,
     pub min: V3,
     pub max: V3,
+    /// A convex volume: a point is inside when `a·x + b·y + c·z + d ≤ 0`
+    /// for every plane.
     pub planes: Vec<[f32; 4]>,
+    /// The rooms it opens onto (links come in matching pairs).
     pub links: Vec<NavLink>,
+    /// A stair room contains only points where `0 ≤ plane·p ≤ height`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stair: Option<NavStair>,
+    /// Absent (a "simple" room): all clear.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grid: Option<NavGrid>,
 }
 
-/// A link to a neighbouring room: its portal's flags (`PORTAL_FLAGS`) and
-/// quad.
+/// A link to a neighbouring room (its index): its portal's flags
+/// (`PORTAL_FLAGS`: `ghost`, `door`, `stairsUp`, `stairsDown`) and quad,
+/// whose two lowest corners are the portal's edge.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NavLink {
     pub to: u32,
@@ -1560,7 +1831,9 @@ pub struct NavStair {
 }
 
 /// A room's grid: where it starts, its size in squares, and where its
-/// cells sit in the grids' file.
+/// cells sit in the grids' file — `width × height` bytes at `offset`,
+/// row-major (`x + z·width`), each indexing `squareTypes`. Cell `(i, j)`
+/// covers world x `[origin.x + 4i, +4)`, z `[origin.z + 4j, +4)`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct NavGrid {
     pub origin: [f32; 2],
@@ -1583,9 +1856,13 @@ pub struct WeaponClass {
     /// Its model (a path under `common/`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model: Option<String>,
+    /// `twoHanded`, `autofire`, `energy`, `hasAlternate`, `hasLaser`, …,
+    /// the AI hints `aiStun` / `aiKnockdown` / `aiSingleShot`, the cursor
+    /// ones.
     pub flags: Vec<String>,
     pub max_ammo: u16,
     pub shooter_count: u16,
+    /// Ticks, as the next two.
     pub reload_time: u16,
     pub reload_delay_time: u16,
     pub stop_chamber_threshold: u16,
@@ -1593,24 +1870,29 @@ pub struct WeaponClass {
     pub reload_anim_type: AnimRef,
     pub aiming_speed: f32,
     pub recoil: WeaponRecoil,
+    /// The laser marker, in gun space.
     pub sight: WeaponSight,
     pub max_sight_distance: f32,
     /// `#aarrggbb`.
     pub laser_color: String,
+    /// In gun space, as the offsets below.
     pub second_hand: SecondHand,
     pub pickup_offset: V3,
     pub display_y_offset: f32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub empty_sound: Option<String>,
+    /// How the AI shoots it, per shooter.
     pub ai: AiGunParams,
     /// Its second shooter's (with more than one).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai_alternate: Option<AiGunParams>,
+    /// The particles riding the gun.
     pub attachments: Vec<WeaponAttachment>,
     /// Its physics sphere's radius.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sphere_radius: Option<f32>,
-    /// The reticle, the reticle on a target, the sight's tunnel.
+    /// The reticle, the reticle on a target, the sight's tunnel (absent
+    /// without a texture).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cursor: Option<WeaponSprite>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1629,10 +1911,11 @@ pub struct WeaponClass {
     pub instance: Option<String>,
 }
 
-/// A weapon's recoil.
+/// A weapon's recoil (radians).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WeaponRecoil {
+    /// Already in the internal per-shot units.
     pub base: f32,
     pub max: f32,
     pub factor: f32,
@@ -1660,12 +1943,16 @@ pub struct SecondHand {
 #[serde(rename_all = "camelCase")]
 pub struct WeaponAttachment {
     pub class: String,
+    /// 4×3, gun space.
     pub matrix: [f32; 12],
+    /// Non-zero: a shooter, using this much ammo a shot.
     pub ammo_used: u16,
+    /// Ticks, as the other times.
     pub chamber_time: u16,
     pub cheat_chamber_time: u16,
     pub min_fire_time: u16,
-    /// Which shooter it is (−1: none).
+    /// A shooter's index; for a follower the shooter it follows (−1: every
+    /// shooter).
     pub shooter_index: i32,
     pub start_delay: u16,
 }
@@ -1702,22 +1989,30 @@ pub struct CharacterClassesFile {
 #[serde(rename_all = "camelCase")]
 pub struct CharacterClass {
     pub name: Option<String>,
+    /// Its variant's `ONCV` instance.
     pub variant: Option<String>,
     /// Its particles (`ONCP`): on a body part, its animations, or its hit
     /// flash.
     pub particles: Vec<ClassParticle>,
+    /// That variant's name, what classes are matched by.
     pub variant_name: Option<String>,
+    /// The variant it becomes on hard, if any.
     pub variant_upgrade: Option<String>,
     pub body: Option<String>,
-    /// Its model (a path under `common/characters/`).
+    /// Its body's `model.glb` (a path under `common/characters/`).
     pub model: Option<String>,
+    /// Its texture set's (`TRMA`) name.
     pub textures: Option<String>,
-    /// Each body part's texture (a path from its folder).
+    /// Its own skin: each body part's texture, in part order (a path from
+    /// this file's folder). Classes share bodies with different skins, so
+    /// the one baked into `model.glb` is only a default.
     pub part_textures: Vec<Option<String>>,
+    /// The name of its aiming screens' set.
     pub aiming_screens: Option<String>,
     pub aiming: Vec<AimingScreen>,
     pub animation_collection: Option<String>,
     pub animation_count: usize,
+    /// Its clips, the collection resolved.
     pub animations: Vec<String>,
     pub stats: Option<ClassStats>,
     pub air: Option<ClassAir>,
@@ -1729,7 +2024,7 @@ pub struct CharacterClass {
     pub vocalizations: Option<Vec<Vocalization>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attack_impacts: Option<Vec<AttackImpact>>,
-    /// Per body part, the material struck.
+    /// Per body part (19, part order), the material struck.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub part_materials: Option<Vec<Option<String>>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1739,11 +2034,13 @@ pub struct CharacterClass {
     /// Its melee profile's id, while the converter resolves it (not written).
     #[serde(skip)]
     pub melee_profile_id: Option<i64>,
-    /// Ticks dazed, at least and at most.
+    /// Ticks lying stunned after a knockdown, at least and at most (the
+    /// game uses these, not its melee profile's).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dazed: Option<Dazed>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub perception: Option<ClassPerception>,
+    /// A hypo heals a point each time this many ticks run out.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hypo_time: Option<i64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1759,7 +2056,9 @@ pub struct ClassParticle {
     pub part: AnimRef,
 }
 
-/// An aiming screen: its clip, and its yaw and pitch steps.
+/// An aiming screen: its clip, whose frames are a grid of upper-body poses
+/// (frame = row × width + column, the straight pose at the middle), and its
+/// yaw and pitch steps.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AimingScreen {
     pub clip: String,
@@ -1767,8 +2066,8 @@ pub struct AimingScreen {
     pub pitch: AimSteps,
 }
 
-/// An aiming screen's steps one way: the angle between frames and how many
-/// frames, each side.
+/// An aiming screen's steps one way: the angle between frames (radians) and
+/// how many frames, each side.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AimSteps {
@@ -1778,7 +2077,7 @@ pub struct AimSteps {
     pub positive_frames: i16,
 }
 
-/// A class's stats.
+/// A class's stats (times in ticks).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassStats {
@@ -1799,7 +2098,7 @@ pub struct ClassStats {
     pub knockdown_resistant: bool,
 }
 
-/// A class's air constants.
+/// A class's air constants (ticks, units per tick, units per tick²).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassAir {
@@ -1818,6 +2117,9 @@ pub struct ClassAir {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AnimImpacts {
     pub modifier: String,
+    /// Walk, run, crouch, slide, land, land hard, land dead, knockdown,
+    /// thrown, standing turn, run start, one step, run stop, walk stop,
+    /// sprint.
     pub impacts: Vec<String>,
 }
 
@@ -1851,7 +2153,7 @@ pub struct Vocalization {
     pub sound: String,
 }
 
-/// A special attack's impact type and weight.
+/// A special attack's (by name) impact type and weight.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AttackImpact {
     pub attack: String,
@@ -1888,6 +2190,7 @@ pub struct ClassPerception {
     pub combat: ClassCombatSettings,
     pub dodge: DodgeSettings,
     pub targeting: Targeting,
+    /// 13 slots, a gun picking one by its `shootSkillIndex`.
     pub shooting_skill: Vec<ShootSkill>,
 }
 
@@ -1912,7 +2215,7 @@ pub struct ContactDecay {
     pub weak: i64,
 }
 
-/// Ticks an alert level takes to fall a step.
+/// Ticks an alert level takes to fall a step (0: never).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct AlertDecay {
     pub high: i64,
@@ -1920,7 +2223,8 @@ pub struct AlertDecay {
     pub low: i64,
 }
 
-/// A class's combat settings.
+/// A class's combat timings, and the combat profile an unplaced character
+/// fights by.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassCombatSettings {
@@ -1942,16 +2246,20 @@ pub struct DodgeSettings {
     pub weight_scale: f32,
 }
 
-/// A class's shadow.
+/// A class's shadow (every shipped class: `shadow1`, heights 8 / 12, sizes
+/// 6 / 4.5 / 3, alphas 48 / 48).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClassShadow {
     pub texture: Option<String>,
+    /// Where it is gone, and where it starts fading (above the floor).
     pub height_max: f32,
     pub height_fade: f32,
+    /// Half-sizes on the ground, at the fade, at the top.
     pub size_max: f32,
     pub size_fade: f32,
     pub size_min: f32,
+    /// Opacities (0–255).
     pub alpha_max: i64,
     pub alpha_fade: i64,
 }
@@ -1968,15 +2276,20 @@ pub struct MeleeProfilesFile {
 #[serde(rename_all = "camelCase")]
 pub struct MeleeProfile {
     pub id: u32,
+    /// What classes' `meleeProfile` names.
     pub name: String,
+    /// The class whose animations and jump physics the AI plans with.
     pub class: String,
     pub attack_notice_percent: u32,
     pub dodge: MeleeDodge,
     pub block: MeleeBlock,
     pub weights: MeleeWeights,
     pub dazed: MeleeDazed,
+    /// Attacks, taken with an attack slot.
     pub actions: Vec<Technique>,
+    /// Evasions when attacked.
     pub reactions: Vec<Technique>,
+    /// Moving around while waiting for a slot.
     pub spacing: Vec<Technique>,
 }
 
@@ -2010,7 +2323,8 @@ pub struct MeleeWeights {
     pub throw_into_danger: f32,
 }
 
-/// Ticks dazed, at least and at most (a melee profile's).
+/// Ticks dazed, at least and at most (a melee profile's; the original
+/// ignores it for the class's `dazed`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct MeleeDazed {
     pub min: u16,
@@ -2023,9 +2337,12 @@ pub struct MeleeDazed {
 pub struct Technique {
     pub name: String,
     pub weight: u32,
+    /// Unused by the game.
     pub importance: u32,
+    /// Ticks.
     pub repeat_delay: u32,
     pub moves: Vec<MeleeMove>,
+    /// `TECHNIQUE_FLAGS`: `interruptible`, `generousDirection`, `fearless`.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
 }
@@ -2038,21 +2355,27 @@ pub struct Technique {
 pub struct MeleeMove {
     #[serde(rename = "type")]
     pub kind: String,
+    /// A name from the type's `MELEE_*` table.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[serde(rename = "move")]
     pub name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub code: Option<u32>,
+    /// Run / close / run-jump positions: run-in range and tolerance (units;
+    /// spacing maneuvers use `tolerance` with `targetRange`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_run_in: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_run_in: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tolerance: Option<f32>,
+    /// The random-stop maneuver's.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub chance_percent: Option<f32>,
+    /// Maneuvers' range (with `minRange`, `threshold`); also Barabas' wave.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_range: Option<f32>,
+    /// Maneuvers'.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub duration: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2061,6 +2384,7 @@ pub struct MeleeMove {
     pub threshold: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub target_range: Option<f32>,
+    /// Circling's angles (spacing: `closenessAngle`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_angle: Option<f32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2070,16 +2394,20 @@ pub struct MeleeMove {
 }
 
 /// `common/animations/collections/<name>.json`: an animation collection
-/// (`TRAC`) — its clips (files beside the collections folder) and their
-/// weights, and the collection it extends.
+/// (`TRAC`) — a character class's clips (files beside the collections
+/// folder) and their weights, and the collection it extends.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct AnimationCollectionFile {
     pub name: String,
+    /// The collection consulted when this one has no exact match (null at
+    /// the end of the chain).
     pub recursive: Option<String>,
+    /// In the data's order.
     pub entries: Vec<CollectionEntry>,
 }
 
-/// A collection's clip and its weight.
+/// A collection's clip and its relative selection weight among clips that
+/// answer the same request.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct CollectionEntry {
     pub anim: String,
@@ -2113,8 +2441,10 @@ pub struct ParticleClassesFile {
     pub classes: BTreeMap<String, ParticleClass>,
 }
 
-/// A particle value (`P3tValue`): a number, a string, a variable, a range
-/// or bell curve, a shade or shade range or bell, an enum, a cycle.
+/// A particle value (`P3tValue`): a number (constant), a string, a
+/// variable, a range (`[lo, hi]`) or bell curve (`[mean, sd]`), a shade
+/// (`#aarrggbb`) or shade range or bell, an enum, a cycle (`[length, max]`);
+/// `null` where it is used: unset.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum ParticleValue {
@@ -2157,14 +2487,20 @@ pub enum ParticleValue {
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ParticleClass {
+    /// `decorative`, `geometry`, `collideEnv`, `collideChar`, and the
+    /// optional per-particle fields (`hasVelocity`, `hasOwner`,
+    /// `hasLensFrames`, …).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sprite_type: Option<u32>,
+    /// `lockToLinkedParticle`, `dieOnCutscene`, `invisible`, `decal`,
+    /// `edgeFade`, `lensFlare`, ….
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags2: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_mask: Option<u32>,
+    /// Seconds (absent: unlimited).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lifetime: Option<ParticleValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2204,29 +2540,31 @@ pub struct Appearance {
     pub alpha: Option<ParticleValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tint: Option<ParticleValue>,
-    /// Contrails: fading out edge-on, and the longest link drawn.
+    /// Contrails: fading out edge-on (when `flags2` has `edgeFade`), and the
+    /// longest link drawn; absent when 0.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edge_fade_min: Option<ParticleValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edge_fade_max: Option<ParticleValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_contrail: Option<ParticleValue>,
-    /// Lens flares: how far behind something one still shows, the frames
-    /// it fades in and out over.
+    /// Lens flares (`flags2` has `lensFlare`): how far behind something its
+    /// point still counts as seen, the frames it fades in and out over.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lensflare_dist: Option<ParticleValue>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lens_in_frames: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub lens_out_frames: Option<u16>,
-    /// Decals: how many at once, frames to fade out, how far one wraps.
+    /// Decals: how many at once, frames to fade out, how far one wraps
+    /// (degrees).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_decals: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decal_fade_frames: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub decal_wrap: Option<ParticleValue>,
-    /// Its sprite's or geometry's texture.
+    /// Its sprite's texture or its geometry's model, by name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instance: Option<String>,
 }
@@ -2260,8 +2598,8 @@ pub struct ParticleVariable {
     pub init: Option<ParticleValue>,
 }
 
-/// An action: its type, the variables it works on and its parameters
-/// (unset slots null, trailing ones left out).
+/// An action: its type, the variables it writes and its parameters (values;
+/// unset slots null, trailing ones left out).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ParticleAction {
     #[serde(rename = "type")]
@@ -2281,6 +2619,7 @@ pub struct ParticleEmitter {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
     pub limit: u16,
+    /// 0–65535.
     pub chance: u16,
     pub burst: f32,
     pub link: Named,
@@ -2300,76 +2639,114 @@ pub struct EmitterSpec {
     pub values: Vec<Option<ParticleValue>>,
 }
 
-/// An animation clip's metadata (`TRAM`), in its glTF file's animation
-/// `extras`: enumerations by name, defaults left out.
+/// An animation clip's metadata (`TRAM`), in its glTF file's
+/// `animations[0].extras` (the file itself: `convert_animations` in
+/// `oni-convert`): enumerations by name, defaults left out.
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
 pub struct ClipExtras {
+    /// What the clip does (`ANIM_TYPES`: `run`, `punchForward`, …). Always
+    /// present.
     pub anim_type: String,
+    /// The body state it starts from and ends in (`ANIM_STATES`). Always
+    /// present; `none`: reachable only through `shortcuts`.
     pub from_state: String,
     pub to_state: String,
+    /// `VARIANTS` a character must have for the clip to be eligible
+    /// (`fight`, `sprint`, weapon holds, `panic`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variant: Vec<String>,
+    /// Variants on exit.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub variant_end: Vec<String>,
+    /// `ANIM_FLAGS` names (`invulnerable`, `blockHigh`, `atomic`, `inAir`,
+    /// `throwSource`, …).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
-    /// Per frame, the root's motion (x, z) and the pelvis height.
+    /// Per tick, the character-local ground displacement `[x, z]` (absent:
+    /// stands still).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub root_motion: Vec<[f32; 2]>,
+    /// Per tick, the pelvis height above the feet (absent: constant 6).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub root_height: Vec<f32>,
+    /// The net yaw the clip turns the body through, committed to the facing
+    /// when it ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub final_rotation: Option<f32>,
+    /// Which way it moves and strikes (`DIRECTIONS`: `forward`, `back`,
+    /// `left`, `right`, `any`; absent: `none`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub move_direction: Option<String>,
+    /// The animation type of the aiming pose used with it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub aiming_type: Option<String>,
+    /// Body-part bit masks: the parts it moves; played as an overlay, the
+    /// parts it replaces (the rest of `usedParts` it layers on top).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub used_parts: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub replace_parts: Option<u32>,
+    /// Extra states it may be entered from.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub shortcuts: Vec<ClipShortcut>,
+    /// Clips that follow this one with no pause and no blend.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub direct: Vec<String>,
     /// The ticks it can't be broken off (absent: never; no end: to the end).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub atomic: Option<AtomicRange>,
+    /// Ticks immune to hits (absent: none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub invulnerable: Option<Invulnerable>,
+    /// Unavailable before this level.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub first_level: Option<u16>,
+    /// Blend length out of it when it ends.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub end_blend: Option<u16>,
+    /// Cap on the blend into it (absent: none).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max_blend_in: Option<u16>,
+    /// After it, only resting clips may start (soft: blocking too) for this
+    /// long.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hard_pause: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub soft_pause: Option<u16>,
+    /// When its action fires (a pickup, a weapon swap, a throw's disarm).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub action_frame: Option<i16>,
+    /// The voice line it triggers (`VOCALIZATIONS`: `taunt`, `alert`, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub vocalization: Option<String>,
+    /// Its strikes (at most two).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attacks: Vec<ClipAttack>,
+    /// Present on clips that throw someone.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub throw: Option<ClipThrow>,
+    /// For attack clips.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reach: Option<ClipReach>,
-    /// Per frame: the body's offset (x, z), the floor's and its height.
+    /// Per tick `[x, forward, floor, height]`: the root's offset from the
+    /// clip's start, the body's lowest point above the floor, its height
+    /// (toe to head).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub body_track: Vec<[f32; 4]>,
+    /// Damage the character playing it takes (how a thrown victim is hurt).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub self_damage: Vec<SelfDamage>,
+    /// The ticks a foot comes down.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub footsteps: Vec<u16>,
-    /// (Written whenever `footsteps` is.)
+    /// Each footstep's kind (1 left, 2 right, 3 single); written whenever
+    /// `footsteps` is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footstep_kinds: Option<Vec<u16>>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub particles: Vec<ClipParticle>,
+    /// The special attack it is (a class's `attackImpacts` key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub attack_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2378,7 +2755,8 @@ pub struct ClipExtras {
     pub sounds: Vec<ClipSound>,
 }
 
-/// A shortcut into a clip: from a state, over a blend.
+/// A shortcut into a clip: from a state, over a blend (ticks);
+/// `interruptsAtomic` lets it cut into an uninterruptible clip.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipShortcut {
@@ -2396,7 +2774,7 @@ pub struct AtomicRange {
     pub end: Option<u16>,
 }
 
-/// A clip's invulnerable ticks.
+/// A clip's invulnerable ticks (`length` from `start`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Invulnerable {
     pub start: u8,
@@ -2407,15 +2785,25 @@ pub struct Invulnerable {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipAttack {
+    /// When it can land (inclusive).
     pub damage_window: FrameRange,
+    /// Hit points taken on a clean hit.
     pub damage: u16,
+    /// The total shove given the victim.
     pub knockback: f32,
+    /// The attacker's body parts that strike (the character model's node
+    /// names).
     pub striking_parts: Vec<String>,
+    /// Which of two simultaneous strikes wins.
     pub precedence: u16,
+    /// The animation type the victim plays (`hitHead`, `knockdownBody`, …).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub reaction: Option<String>,
+    /// `ATTACK_FLAGS`: `unblockable`, `high`, `low`, `special` (breaks
+    /// through blocks).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub flags: Vec<String>,
+    /// Ticks the victim is held after a hit / a block / a stagger.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hit_stun: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -2435,28 +2823,44 @@ pub struct FrameRange {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipThrow {
+    /// In the thrower's local frame.
     pub target_offset: V3,
+    /// Relative to the thrower's (π: facing the thrower).
     pub target_facing: f32,
+    /// How far away the victim may be for the throw to take.
     pub range: f32,
+    /// One of the `thrownN` types.
     pub target_anim_type: String,
 }
 
-/// An attack clip's reach (`TRAM`'s extents): how far and high it strikes.
+/// An attack clip's reach (`TRAM`'s extents): how far and high it strikes,
+/// as the original's importer computes it from the active attack's
+/// striking parts at every damage tick. Character-local: `x` left,
+/// `forward` ahead, heights above the floor, angles 0 ahead growing toward
+/// the left.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClipReach {
+    /// The farthest any strike gets from where the clip starts, and the
+    /// strikes' height span.
     pub max_distance: f32,
     pub min_height: f32,
     pub max_height: f32,
-    /// 36 spokes, 10° apart.
+    /// 36 spokes, 10° apart: spoke *i* the farthest reach within ±30° of
+    /// direction *i*·10° (0: none).
     pub spokes: Vec<f32>,
+    /// The first strike, and the one reaching farthest from the start.
     pub first: StrikeBound,
     pub farthest: StrikeBound,
+    /// Which way the strikes reach most (used when `moveDirection` is
+    /// absent).
     pub direction: String,
+    /// Each damage tick, from that tick's root.
     pub strikes: Vec<StrikeReach>,
 }
 
-/// One end of an attack clip's reach.
+/// One end of an attack clip's reach: its root offset `[x, forward]` and
+/// pelvis height then, its reach along the attack direction.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrikeBound {
@@ -2471,7 +2875,8 @@ pub struct StrikeBound {
     pub angle: f32,
 }
 
-/// A strike's reach at a tick.
+/// A strike's reach at a tick: along the attack direction, the bearing of
+/// its farthest point, its height span.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct StrikeReach {
@@ -2489,7 +2894,8 @@ pub struct SelfDamage {
     pub damage: u16,
 }
 
-/// A clip's particle: from tick `start` to `stop`, on a body part.
+/// A clip's particle: from tick `start` to `stop`, on a body part (its
+/// number), the class particle's `name`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ClipParticle {
     pub start: u16,

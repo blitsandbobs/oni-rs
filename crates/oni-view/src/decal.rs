@@ -1,4 +1,4 @@
-//! Building a decal (`docs/PARTICLES.md`, *Decals*; `BFW_Decal.c`): a
+//! Building a decal (`BFW_Decal.c`): a
 //! rectangle of texture laid on the level's quads around a point — projected
 //! onto the quad struck, clipped to it, and carried over the edges it reaches
 //! onto the neighbouring quads (unfolded about each shared edge) as long as

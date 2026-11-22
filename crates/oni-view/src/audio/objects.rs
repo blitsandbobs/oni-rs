@@ -1,4 +1,4 @@
-//! The level's sound objects (`docs/sound/ORIGINAL_CORE.md` §14): the
+//! The level's sound objects: the
 //! placed ambience — room tones, machine hums, wind.
 //!
 //! - A **sphere** plays its ambient, placed at the object over the object's

@@ -235,14 +235,14 @@ pub struct Renderer {
     /// The characters' depth alone, for the lens flares when characters hide
     /// them (`flares_behind_characters`).
     char_depth: Option<wgpu::TextureView>,
-    /// An option, off as the original draws it (#58, `docs/PARTICLES.md`,
+    /// An option, off as the original draws it (#58,,
     /// *Lens flares*): lens flares tested against the characters' depth, so
     /// a body covers the glow behind it. The level still hides them only by
     /// the visibility ray.
     pub flares_behind_characters: bool,
     char_depth_pipeline: wgpu::RenderPipeline,
     flare_depth_pipeline: wgpu::RenderPipeline,
-    /// The level's sky (`docs/SKY.md`): its box's faces, each a quad round
+    /// The level's sky: its box's faces, each a quad round
     /// the eye with its texture (in `tex_bgs`), drawn first — no depth, no
     /// fog — and its pipeline.
     sky: Vec<(GpuPrim, usize)>,
@@ -882,7 +882,7 @@ impl Renderer {
     /// (for [`CharDraw::model`]). Several world instances can share one uploaded
     /// model, each drawn with its own pose. Character textures are appended to
     /// the shared texture table and de-duplicated within this model.
-    /// The level's sky (`levels/NN/sky.json`, `docs/SKY.md`;
+    /// The level's sky (`levels/NN/sky.json`,;
     /// `MSrGeomContext_Method_Skybox_Create`): a box 5 each way round the
     /// eye, its top, left, right, front and back faces each one texture
     /// across it (clamped at the edges, so the faces meet cleanly). None

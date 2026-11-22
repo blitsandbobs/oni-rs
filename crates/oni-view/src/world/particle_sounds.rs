@@ -1,4 +1,4 @@
-//! The particles' sounds (`docs/AUDIO.md`, *Particles*): their impulse and
+//! The particles' sounds: their impulse and
 //! ambient sounds, their impact effects (bullets, shells, explosions on a
 //! surface), and projectiles whizzing past the listener.
 

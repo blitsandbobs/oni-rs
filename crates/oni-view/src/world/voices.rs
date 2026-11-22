@@ -1,4 +1,4 @@
-//! Voices (`docs/AUDIO.md`, *Voices*; `docs/sound/ORIGINAL_TRIGGERS.md`
+//! Voices (
 //! §3): what characters say — their speech, one line at a time with one
 //! waiting, by priority — their grunts when hurt and cries when killed, and
 //! their AI's vocalizations (alerts, taunts, super-move cries).

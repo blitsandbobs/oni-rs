@@ -1,4 +1,4 @@
--- Q23, the weapon cooldown exploit (docs/QUIRKS.md): the Mercury Bow waits
+-- Q23, the weapon cooldown exploit (docs/deviations.md): the Mercury Bow waits
 -- a long while between shots. Dropped and picked up again, it still waits
 -- (fixed); the shipped game zeroes the delay when the gun is let go, so the
 -- bow is ready again at once (faithful).

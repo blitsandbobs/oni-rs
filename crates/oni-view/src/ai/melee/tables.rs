@@ -1,4 +1,4 @@
-//! The melee AI's fixed vocabulary (behaviour per `docs/MELEE_AI.md`): the
+//! The melee AI's fixed vocabulary: the
 //! coarse body states it plans in, and what each kind of move in a profile
 //! means — which animation it asks for, from which state, in which direction,
 //! with which keys. Profiles (data) name entries of these tables by index, in

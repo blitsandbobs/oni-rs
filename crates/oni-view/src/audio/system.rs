@@ -1,4 +1,4 @@
-//! The sound system (`docs/sound/ORIGINAL_CORE.md` §3, §5, §6, §8, §9): the
+//! The sound system (§5, §6, §8, §9): the
 //! 16 channels and how a sound gets one (the original's four passes), group
 //! plays, impulses, and the playing ambients' stages.
 

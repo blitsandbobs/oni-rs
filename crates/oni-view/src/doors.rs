@@ -1,4 +1,4 @@
-//! Doors (behaviour per `docs/DOORS.md`; data `levels/NN/doors.json`): a
+//! Doors (data `levels/NN/doors.json`): a
 //! door opens for anyone allowed through who comes within its activation
 //! radius (a manual one only by the Action key), stays open at least 3 s and
 //! while someone allowed is near, then closes. Locked doors open for nobody
@@ -840,7 +840,7 @@ impl Doors {
     }
 
     /// Each door's portals, linked as the original links them as it builds
-    /// the graph (`OBJrDoor_MakeConnectionLink`; `docs/PATHFINDING.md`,
+    /// the graph (`OBJrDoor_MakeConnectionLink`;,
     /// *Doors*): each connection (room by room, portal by portal) takes the
     /// first door whose base is within half the connection's width of the
     /// connection's base midpoint (in 3D) and that will have it. A door keeps

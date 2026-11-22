@@ -1,5 +1,4 @@
-//! Consoles (behaviour per `scripting/BSL.md`, *Consoles*; data
-//! `levels/NN/consoles.json`): terminals a character uses with the Action
+//! Consoles (data `levels/NN/consoles.json`): terminals a character uses with the Action
 //! key — it walks up to the console's action marker, plays the console
 //! animation, and on its action frame the console fires its event list
 //! (scripts, other consoles, alarms, doors, …).

@@ -1,4 +1,4 @@
--- The fog (docs/RENDERING.md, *Fog*): linear in screen depth between its
+-- The fog: linear in screen depth between its
 -- start and end, toward its colour — the draw engine's (grey 0.25, 0.975 to
 -- 1) on each level until its scripts set the `gl_fog_*` variables;
 -- `gl_fog_start_changeto` eases the start over frames.

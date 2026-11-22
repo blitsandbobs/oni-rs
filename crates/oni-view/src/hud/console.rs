@@ -1,4 +1,4 @@
-//! The data consoles' text (`docs/HUD.md`, *Text consoles*): `text_console
+//! The data consoles' text: `text_console
 //! name` opens a modal dialog (`ONrInGameUI_TextConsole_Display`,
 //! `dialog_text_console`) showing the console's pages one at a time — a
 //! page's picture across the top of the text area, then its strings, each in

@@ -1,5 +1,4 @@
--- Doors in the camera's way (docs/CAMERA.md, *See-through walls*;
--- docs/DOORS.md): a closed door is its own level quads (its "gunk"), which
+-- Doors in the camera's way (-): a closed door is its own level quads (its "gunk"), which
 -- go see-through as any wall's; open or moving, its leaves are objects, see-
 -- through when the camera's ray meets them (`OBcFlags_JelloObjects`), and
 -- they hide what is behind them from a lens flare's test (`AMrRayToObject`)

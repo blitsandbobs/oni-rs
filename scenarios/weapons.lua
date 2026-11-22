@@ -1,4 +1,4 @@
--- Weapons (#10; docs/WEAPONS.md): a gun in the hand turns fire 1 from a
+-- Weapons (#10): a gun in the hand turns fire 1 from a
 -- punch into a shot. The pistol's particle flies down the aim, hits the
 -- dummy once for its 8–10 damage, and the magazine drops by one; an empty
 -- gun reloads from a spare clip.

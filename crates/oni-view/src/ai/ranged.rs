@@ -1,4 +1,4 @@
-//! Ranged targeting (`docs/AI.md`, *Shooting*): how an armed AI leads its
+//! Ranged targeting: how an armed AI leads its
 //! target, where it aims (with its skill's error), and when its gun is
 //! pointed well enough to pull the trigger. Pure: the world hands in the
 //! gun's pose each tick and acts on what comes out.
@@ -300,7 +300,7 @@ impl Targeting {
         // so the strict cone and the class's best aiming angle apply nose to
         // nose, and every target beyond 25 units gets four times the
         // tolerance (below). That *is* the game's AI accuracy — Oni was
-        // balanced on it. Don't "fix" it (`docs/AI.md`, *Shooting*).
+        // balanced on it. Don't "fix" it.
         let ratio = 0.5 + self.near * (2.0 - 0.5);
         if off > 0.0 && axial / off < ratio {
             self.aim_speed = 1.0;

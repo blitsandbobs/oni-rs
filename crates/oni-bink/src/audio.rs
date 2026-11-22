@@ -3,7 +3,7 @@
 //! quantised per critical band, turned back into samples by an inverse
 //! real DFT, stereo interleaved in one transform, each frame overlapping
 //! the last by a sixteenth. Only the RDFT variant of revisions after 'b'
-//! is read: the game's movies have no other (`docs/original/movies.md`).
+//! is read: the game's movies have no other.
 
 use std::f64::consts::PI;
 

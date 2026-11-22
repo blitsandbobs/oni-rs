@@ -1,4 +1,4 @@
-//! Emitting particles (`docs/PARTICLES.md`, *Emitters*): where a burst's
+//! Emitting particles: where a burst's
 //! particles start, which way they fly and face, what they inherit.
 
 use std::f32::consts::TAU;

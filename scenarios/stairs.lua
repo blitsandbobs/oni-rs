@@ -1,4 +1,4 @@
--- Stairs (level geometry flags; docs/ASSET_FORMAT.md): Oni's stairs are
+-- Stairs (level geometry flags; oni-convert's convert_environment): Oni's stairs are
 -- steps drawn but not collided with, over a ramp characters walk — Konoko
 -- runs straight up a flight in the warehouse, and an AI's path climbs it.
 --

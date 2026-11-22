@@ -1,4 +1,4 @@
--- Barabbas' own fighting (#31; docs/AI.md, *Bosses*), on level 3: at
+-- Barabbas' own fighting (#31), on level 3: at
 -- medium range he fires his beam and waits for it to recharge, from farther
 -- off he advances lobbing grenades between beams; worn below 40% and far
 -- enough off he stands and regenerates (the powerup clip, 8% of his health

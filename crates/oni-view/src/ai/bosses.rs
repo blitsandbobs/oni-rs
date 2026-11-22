@@ -1,5 +1,5 @@
 //! The bosses' own fighting (`Oni_AI2_Combat.c`, the Barabbas, super ninja
-//! and Mutant Muro behaviours; `docs/AI.md`, *Bosses*): each a little mode
+//! and Mutant Muro behaviours): each a little mode
 //! machine on top of the combat layer, choosing its primary movement's
 //! weights, how it aims and fires, and reacting to being hurt or knocked
 //! down.

@@ -1,4 +1,4 @@
--- Impact effects (docs/AUDIO.md, *Impact effects*): Konoko's footsteps sound
+-- Impact effects: Konoko's footsteps sound
 -- by the floor's material and her light step weight (and the AI hears them);
 -- a punch that lands on a dummy sounds by the dummy's struck part, and
 -- swooshes (her variant's punch sound); its hit flash takes the colour of

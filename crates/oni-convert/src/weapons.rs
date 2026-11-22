@@ -1,4 +1,4 @@
-//! Weapons (`docs/WEAPONS.md`): the weapon classes (level 0's `ONWC`
+//! Weapons: the weapon classes (level 0's `ONWC`
 //! templates) → `common/weapons.json`, and each level's placed weapons and
 //! powerups (`OT_Weapon` / `OT_PowerUps` objects) → `levels/NN/items.json`.
 //!

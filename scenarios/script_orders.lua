@@ -1,4 +1,4 @@
--- Script orders to characters (scripting/BSL.md, *Character orders*): the
+-- Script orders to characters (docs/lua.md, *Character orders*): the
 -- level's own scripts poison, toughen and smite characters. A self-written
 -- script function (translated-Lua form) runs each command through the real
 -- dispatcher.

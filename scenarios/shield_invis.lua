@@ -1,5 +1,5 @@
--- Shield belts and invisibility at work (#60; docs/POWERUPS.md), and the
--- cheat codes that try them out (docs/CHEATS.md): typed on the pause screen,
+-- Shield belts and invisibility at work (#60), and the
+-- cheat codes that try them out: typed on the pause screen,
 -- `forcefield` (the port's) gives a full shield belt, `moonshadow` the
 -- endless phase cloak.
 --

@@ -1,4 +1,4 @@
--- Placed objects (docs/OBJECTS.md): none until a script creates them; each
+-- Placed objects: none until a script creates them; each
 -- drawn where its clip puts it; started, swapped and killed by script id;
 -- characters collide with its sphere.
 --

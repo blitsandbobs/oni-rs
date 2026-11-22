@@ -1,4 +1,4 @@
--- Voices (docs/AUDIO.md, *Voices*): a striker hit again and again grunts
+-- Voices: a striker hit again and again grunts
 -- (its pain sounds, by its run of pain), and cries out when killed; an AI
 -- that sees an enemy says its startle (or alert) line, once.
 --

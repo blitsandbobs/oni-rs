@@ -1,4 +1,4 @@
--- Effects that ride what they struck (docs/PARTICLES.md, *Effects*): a
+-- Effects that ride what they struck: a
 -- phase-rifle bolt into a dummy leaves its glow (w3_phr_x02) on the body part
 -- it hit, and when the dummy moves the glow goes with it.
 --

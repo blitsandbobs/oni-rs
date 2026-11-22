@@ -1,4 +1,4 @@
-//! Laser triggers (behaviour per `docs/LASERS.md`; data
+//! Laser triggers (data
 //! `levels/NN/lasers.json`): emitters sliding along their class's track,
 //! blinking on and off, whose beams — when the trigger is active, on and
 //! shown — trip on the player and fire the trigger's event list.

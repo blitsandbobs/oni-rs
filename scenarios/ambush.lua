@@ -1,4 +1,4 @@
--- Level 2's ambush (#61; docs/PATHFINDING.md, *Doors*; docs/AI.md, *Combat
+-- Level 2's ambush (#61;;, *Combat
 -- advance*): after the intro the partner cops go for the Strikers, the
 -- Strikers come out of their room to fight, and they go on to Konoko. A
 -- locked door links to the pathfinding connections the original links it to

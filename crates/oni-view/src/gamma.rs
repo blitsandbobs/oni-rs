@@ -1,4 +1,4 @@
-//! The gamma option (`M3rSetGamma`, `docs/MENU.md`): the original sets the
+//! The gamma option (`M3rSetGamma`): the original sets the
 //! display's gamma ramp, each displayed value v becoming
 //! `v^(0.4 + 1.2 (1 − gamma))` — at the default 0.5, unchanged. The port
 //! does the same to the finished frame: drawn into a texture, then copied to

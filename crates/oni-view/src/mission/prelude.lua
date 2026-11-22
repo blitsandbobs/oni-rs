@@ -1,4 +1,4 @@
--- The host side of the translated level scripts (`scripting/PORT.md`): the
+-- The host side of the translated level scripts (`docs/lua.md`): the
 -- tables and helpers every translated chunk receives. Engine access goes
 -- through `__cmd`, which the engine provides while scripts run.
 
@@ -116,7 +116,7 @@ setmetatable(F, {
     end,
 })
 
--- Our own fixes to the shipped scripts (`docs/SCRIPT_FIXES.md`), run after
+-- Our own fixes to the shipped scripts (`docs/deviations.md`), run after
 -- the level's chunk unless `--faithful`: `FIX(id, name, make)` replaces script
 -- function `name` with `make(original)`. A function the scripts don't have is
 -- an error (the fix has drifted from the scripts).

@@ -1,4 +1,4 @@
-//! The pause screen's pages (`ONrPauseScreen_Display`, `docs/HUD.md`,
+//! The pause screen's pages (`ONrPauseScreen_Display`,,
 //! *Pause screen*): level 0 holds the dialog (`pause_screen`), the help
 //! (`HPge`), item (`IPge`), weapon (`WPge`) and diary (`DPge`) pages and the
 //! diary's key icons (`KeyI`); each level its objectives (`OPge`) and its own

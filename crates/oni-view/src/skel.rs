@@ -171,8 +171,7 @@ pub struct Clip {
     pub body: Vec<[f32; 4]>,
 }
 
-/// Where an attack clip's striking parts reach (see `docs/MELEE_AI.md`,
-/// *Hit prediction*). Character-local: x left, forward ahead; angles 0 =
+/// Where an attack clip's striking parts reach (/// *Hit prediction*). Character-local: x left, forward ahead; angles 0 =
 /// ahead, growing toward the left.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Reach {
@@ -562,7 +561,8 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             rotations,
         });
     }
-    // The clip's metadata (`docs/ASSET_FORMAT.md`; none: every default).
+    // The clip's metadata (`oni_schema::files::ClipExtras`; none: every
+    // default).
     let ex: oni_schema::files::ClipExtras =
         serde_json::from_value(anim["extras"].clone()).unwrap_or_default();
     // Enumerations are names (`oni-schema`).

@@ -1,4 +1,4 @@
--- Teams (#11, docs/COMBAT.md): a friend's blows pass through (no damage, no
+-- Teams (#11): a friend's blows pass through (no damage, no
 -- reaction); auto-facing turns an attack toward an enemy, never a friend.
 --
 --   cargo run --release -p oni-view -- \

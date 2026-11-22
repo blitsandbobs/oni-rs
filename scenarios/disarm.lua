@@ -1,4 +1,4 @@
--- Disarming (#56; docs/COMBAT.md, *Throws*): a throw's action frame takes the
+-- Disarming (#56): a throw's action frame takes the
 -- victim's gun — into the thrower's hand if it has none in hand or
 -- holstered, else knocked from the victim's to the floor
 -- (`ONrCharacter_Update`'s throw swap). And the melee AI picks a disarm

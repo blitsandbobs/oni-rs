@@ -1,4 +1,4 @@
--- The game flow (docs/GAME_FLOW.md), the world's side: save_game keeps the
+-- The game flow, the world's side: save_game keeps the
 -- player and restore_game puts them back; a script's splash screen is asked
 -- for; win and lose set the level's outcome; the player dying runs their
 -- die script, which loses the level. (The app shows the splashes and loads

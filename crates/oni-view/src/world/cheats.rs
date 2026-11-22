@@ -1,5 +1,5 @@
-//! Cheat codes (`ONrGameState_HandleCheats`, `ONrCheater`;
-//! `docs/CHEATS.md`): typed on the pause screen once the game has been won
+//! Cheat codes (`ONrGameState_HandleCheats`, `ONrCheater`):
+//! typed on the pause screen once the game has been won
 //! (here also with `ONI_CHEATS=1`), each toggling or giving something, its
 //! message shown in the pause screen's hint area until it closes.
 

@@ -1,4 +1,4 @@
--- Doors and sound (docs/DOORS.md): a door that isn't open lets only what
+-- Doors and sound: a door that isn't open lets only what
 -- its class allows through (the shipped doors: gunfire), and muffles it —
 -- every step beyond counts twice. Open, it passes anything.
 --

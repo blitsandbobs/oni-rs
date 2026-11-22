@@ -1,4 +1,4 @@
--- Hearing what bodies do (#13; docs/PERCEPTION.md, *Hearing*): footfalls
+-- Hearing what bodies do (#13): footfalls
 -- and blows are noises AIs hear — a run carries 80, a sprint 100 (and is
 -- "interesting"), a crouched walk nothing, a landed blow 150+ ("melee").
 --

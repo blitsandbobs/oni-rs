@@ -1,4 +1,4 @@
--- Decals (docs/PARTICLES.md, *Decals*): level 1's own (signs, vents, the
+-- Decals: level 1's own (signs, vents, the
 -- training's track bands) are laid on their walls at the start, 0.05 off
 -- the surface; a pistol round into a wall leaves a bullet hole there and
 -- throws its sparks off the wall along its normal.

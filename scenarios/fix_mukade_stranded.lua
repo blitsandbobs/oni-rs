@@ -1,4 +1,4 @@
--- S5 (docs/SCRIPT_FIXES.md): level 12's boss, Mukade, knocked off the roof's
+-- S5 (docs/deviations.md): level 12's boss, Mukade, knocked off the roof's
 -- open north end onto the lower roof below (still above the height his AI
 -- brings him back from) can't climb back. With Konoko near the edge he never
 -- teleports either: the fight, the level's end, stalls (--faithful). Fixed:

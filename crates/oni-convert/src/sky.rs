@@ -1,4 +1,4 @@
-//! The level's sky (`ONtSkyClass`, `ONSK`; `docs/SKY.md`): the five textures
+//! The level's sky (`ONtSkyClass`, `ONSK`): the five textures
 //! of its skybox and its planets. The level names its sky (`ONLV`
 //! `sky_class`); the shared skies live in level 0. Written to
 //! `levels/NN/sky.json`; a level without a sky (or whose sky has no data

@@ -7,7 +7,7 @@
 //! wins — so one input resolves to a standing, running, crouched or airborne
 //! version of a move purely by which clips the data provides. The lists are
 //! built from compact descriptions below; their order is the game's
-//! precedence (see `docs/MOVEMENT.md`).
+//! precedence.
 
 use crate::anim::input::key as k;
 use crate::anim::types::ty::*;

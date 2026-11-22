@@ -1,4 +1,4 @@
--- The sky (docs/SKY.md): the level's skybox drawn round the camera before
+-- The sky: the level's skybox drawn round the camera before
 -- the level, unfogged. Level 2's sunset: from high above the level, the sky
 -- is orange-red above the horizon, brightest toward +z (the sun painted into
 -- its back face), and its faces meet where the camera looks across a corner.

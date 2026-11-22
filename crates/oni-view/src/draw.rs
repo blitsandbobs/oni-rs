@@ -4,7 +4,7 @@
 
 use glam::Mat4;
 
-/// The fog (`gl_fog_*`, `docs/RENDERING.md`): linear in screen depth between
+/// The fog (`gl_fog_*`): linear in screen depth between
 /// its start and end (−1 near, 1 far), toward its colour.
 #[derive(Clone, Copy, Debug)]
 pub struct Fog {
@@ -24,7 +24,7 @@ impl Default for Fog {
     }
 }
 
-/// A decal to draw this frame (`docs/PARTICLES.md`, *Decals*): its
+/// A decal to draw this frame: its
 /// triangles over the level, lit corners (RGB, 0–1), its opacity, texture,
 /// and whether the texture glows (additive).
 pub struct DecalDraw {

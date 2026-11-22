@@ -1,4 +1,4 @@
-//! AI perception (behaviour per `docs/PERCEPTION.md`): what a character
+//! AI perception: what a character
 //! knows about others — its **contacts**, each with a strength that rises
 //! with stimuli (sights, sounds, hits) and decays with time — and how alarmed
 //! it is (its **alert** level). The world feeds it stimuli
@@ -259,7 +259,7 @@ impl Tuning {
         }
     }
 
-    /// The vision cone (behaviour per `docs/PERCEPTION.md`, *Vision*): how a
+    /// The vision cone: how a
     /// target at `to` (from the eye, world) is seen by an eye looking along
     /// `look` (unit), `up` square to it. `known`: already a definite contact.
     /// `faithful_vertical`: the shipped game's vertical limit (Q9).
@@ -358,7 +358,7 @@ pub enum Notice {
     /// Glance toward a point for a while (ticks).
     Glance(Vec3, u32),
     /// A threat worth pursuing (contact id): the casual alert handler's
-    /// "investigate" (`docs/GOALS.md`, *Pursuit*).
+    /// "investigate".
     Pursue(u32),
     /// Something changed about a contact (new information, or it faded:
     /// `degrade`) — what goals that track a contact listen to. New
@@ -600,8 +600,7 @@ impl Perception {
         });
     }
 
-    /// Orders the contacts most important first (behaviour per
-    /// `docs/PERCEPTION.md`, *Memory*).
+    /// Orders the contacts most important first.
     fn rank(&mut self) {
         let mut contacts = std::mem::take(&mut self.contacts);
         contacts.sort_by(|a, b| self.compare(a, b));
@@ -660,7 +659,7 @@ impl Perception {
         }
     }
 
-    /// The casual alert handler (`Oni_AI2_Alert.c`; `docs/PERCEPTION.md`,
+    /// The casual alert handler (`Oni_AI2_Alert.c`;,
     /// *Alert*): new information about `c` may glance at a non-threat, raise
     /// the alert (startling, or starting combat at combat level) and ask to
     /// pursue a threat.

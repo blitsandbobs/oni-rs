@@ -1,4 +1,4 @@
-//! The game camera (`Oni_Camera.c`; behaviour per `docs/CAMERA.md`): it
+//! The game camera (`Oni_Camera.c`): it
 //! follows the player (from behind and above, along the aim, eased), or a
 //! script moves it — easing to a clip's first frame (`cm_interpolate`),
 //! riding a clip (`cm_anim`), circling the player (`cm_orbit`), holding

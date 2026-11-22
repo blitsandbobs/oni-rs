@@ -1,6 +1,6 @@
 //! A level's neutral behaviours (`levels/NN/neutrals.json`; the original's
 //! `OBJtOSD_Neutral`): the conversations neutral characters start with the
-//! player (`docs/NEUTRAL.md`).
+//! player.
 
 use oni_schema::files;
 use std::collections::HashMap;

@@ -1,4 +1,4 @@
--- Cutscene portraits (docs/HUD.md, *Cutscene portraits*): cinematic_start
+-- Cutscene portraits: cinematic_start
 -- slides a framed picture from one screen position to another (off the
 -- right edge to the top right, inset 20 × 65), cinematic_stop slides it away
 -- and removes it, a size of −1 takes the texture's own, a texture that

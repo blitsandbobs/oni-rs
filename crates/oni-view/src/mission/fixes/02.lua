@@ -1,4 +1,4 @@
--- Level 2 (manplant): our fixes to the shipped scripts (docs/SCRIPT_FIXES.md).
+-- Level 2 (manplant): our fixes to the shipped scripts (docs/deviations.md).
 
 -- S1: the Deadly Brain's save point can lock Konoko out of its room. The
 -- cutscene starts when she leaves the volume in the room's antechamber —

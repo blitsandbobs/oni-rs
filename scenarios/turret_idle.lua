@@ -1,4 +1,4 @@
--- A turret's idle effect follows the view (docs/TURRETS.md; `OBJiTurret_Update`):
+-- A turret's idle effect follows the view (`OBJiTurret_Update`):
 -- on while it is drawn, off once it has been out of view for 2 s, on again
 -- when seen. Level 2's wall turret 3, west of Konoko.
 --

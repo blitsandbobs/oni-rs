@@ -1,5 +1,4 @@
-//! Neutral characters' interactions with the player (`docs/NEUTRAL.md`;
-//! the original's `Oni_AI2_Neutral.c`, `AI2rTryNeutralInteraction`,
+//! Neutral characters' interactions with the player (//! the original's `Oni_AI2_Neutral.c`, `AI2rTryNeutralInteraction`,
 //! `ONiRemapKeys`): a civilian or ally with a neutral behaviour notices the
 //! player nearby, runs up hailing, and — once the player presses Action by
 //! it — says its lines, the player answering, with the animations each

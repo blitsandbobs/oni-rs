@@ -1,4 +1,4 @@
--- The gamma option (docs/MENU.md, gamma.rs): the finished frame through the
+-- The gamma option (gamma.rs): the finished frame through the
 -- original's display ramp, v^(0.4 + 1.2 (1 − gamma)) on the encoded values
 -- — at 0.5 unchanged, brighter up to 1, darker down to 0. Checked on the
 -- main menu's picture (a still frame).

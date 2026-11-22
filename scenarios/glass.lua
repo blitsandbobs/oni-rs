@@ -1,4 +1,4 @@
--- Glass (#23; docs/PARTICLES.md): a pane whose texture's material is glass
+-- Glass (#23): a pane whose texture's material is glass
 -- breaks when a shot hits it — no longer drawn or solid, and the shots
 -- after it fly through; it bursts into shards that fall away. Level 1's
 -- shooting range has 18 such targets (script references 3001–3018), which

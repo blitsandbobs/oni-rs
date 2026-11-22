@@ -1,4 +1,4 @@
--- Impulse sounds and channels (docs/AUDIO.md, docs/SOUND_ENGINE.md): level
+-- Impulse sounds and channels : level
 -- 1's glass-breaking one-shots — heard by distance, panned, the PC volume
 -- law; past three copies of the medium break the big one plays instead; out
 -- of earshot nothing plays; six stereo channels, then the quietest is taken.

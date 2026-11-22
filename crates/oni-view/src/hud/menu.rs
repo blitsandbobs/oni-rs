@@ -1,4 +1,4 @@
-//! The out-of-game menus (`Oni_OutGameUI.c`; `docs/MENU.md`): the main menu
+//! The out-of-game menus (`Oni_OutGameUI.c`): the main menu
 //! and its dialogs — new game, load game, options, quit — built from level
 //! 0's dialog data (`common/menus.json`) and drawn in its skin
 //! (`psui_oniUI`), with the window manager's controls as the original draws

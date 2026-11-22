@@ -1,4 +1,4 @@
--- Q26, an interrupted reload (docs/QUIRKS.md; docs/WEAPONS.md): a reload
+-- Q26, an interrupted reload (docs/deviations.md): a reload
 -- takes a clip as it starts and fills the gun at its clip's action frame.
 -- Knocked down before that (which also knocks the gun from her hand),
 -- Konoko gets the clip back (fixed); the shipped game loses it

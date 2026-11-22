@@ -1,4 +1,4 @@
-//! Throws (behaviour per `docs/COMBAT.md` §6).
+//! Throws.
 //!
 //! A player's forward punch or kick, and running punch or kick, becomes a
 //! throw at the moment the strike would start, if someone can be thrown:

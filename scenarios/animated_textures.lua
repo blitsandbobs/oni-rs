@@ -1,4 +1,4 @@
--- Animated level textures (docs/PARTICLES.md, *Animated textures*): level
+-- Animated level textures: level
 -- 3's goo runs through its 15 frames at 5 ticks each, by the game time
 -- (`M3iResolveTexture`) — five ticks on, one frame on.
 --

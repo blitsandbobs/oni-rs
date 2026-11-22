@@ -1,4 +1,4 @@
-//! The HUD (`Oni_InGameUI.c`; behaviour per `docs/HUD.md`): the two rings at
+//! The HUD (`Oni_InGameUI.c`): the two rings at
 //! the bottom corners — weapon, ammo, energy cells and the compass on the
 //! left; health, shield, phase cloak, hypos and the hit ring on the right —
 //! the message area between them, subtitles, the console strip, the

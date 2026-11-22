@@ -1,4 +1,4 @@
-//! Group melee (behaviour per `docs/MELEE_AI.md`, *Groups*): everyone
+//! Group melee: everyone
 //! fighting the same target is in that target's *fight*, and only a couple
 //! of them hold an **attack slot** at a time. The rest keep their distance
 //! with spacing techniques. A slot lasts a while — longer for whoever deals

@@ -1,4 +1,4 @@
--- Characters moved by the level (docs/MOVEMENT.md, *Collision off*): an
+-- Characters moved by the level: an
 -- environment animation (chr_envanim) carries a character along an object
 -- clip — its pelvis on the clip's path, through everything — until the
 -- clip's end; chr_nocollision lets one walk through walls.

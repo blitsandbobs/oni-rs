@@ -1,5 +1,5 @@
 //! Character AI, first layer: the **executor** and a scripted route follower
-//! (issue #1; behaviour per `docs/AI.md`).
+//! (issue #1).
 //!
 //! Oni's AI has no movement of its own. Each tick it decides where the
 //! character should face and which way it should move (forward, backpedal,
@@ -60,7 +60,7 @@ pub struct Orders {
 }
 
 /// What the AI movement system has the player do while a script holds her
-/// (`ai2_takecontrol`, `docs/AI.md`, *Scripted movement*): walk to a point
+/// (`ai2_takecontrol`): walk to a point
 /// (`ai2_movetoflag`), then turn to a facing; or turn toward a point
 /// (`ai2_lookatchar`).
 #[derive(Clone, Debug, Default)]
@@ -241,7 +241,7 @@ pub enum Brain {
     /// The AI movement system driving the player for a script
     /// (`ai2_takecontrol`): no goals, only where to go and which way to face.
     Steer(Box<Steer>),
-    /// Goals and a job (`docs/GOALS.md`; updated by the world).
+    /// Goals and a job (updated by the world).
     Agent(Box<goals::Agent>),
 }
 

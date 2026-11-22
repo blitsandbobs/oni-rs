@@ -1,4 +1,4 @@
--- How high a jump reaches (docs/MOVEMENT.md, *Collision*): in the air
+-- How high a jump reaches: in the air
 -- the body's collision starts at its lowest point, so tucking the legs
 -- lifts it — the original's rule. On level 1's training: a running held
 -- jump from a small crate lands on the tall one (19 higher); the ledge

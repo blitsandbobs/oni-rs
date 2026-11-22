@@ -1,4 +1,4 @@
--- Mutant Muro's own fighting (#31; docs/AI.md, *Bosses*), on level 19: his
+-- Mutant Muro's own fighting (#31), on level 19: his
 -- super shield up from the start; from afar (with his first thunderbolt
 -- held back 5 s, as shipped) the thunderbolt — its homing bolts pull his
 -- enemy in, and his shield drops while he throws it; close in he fights

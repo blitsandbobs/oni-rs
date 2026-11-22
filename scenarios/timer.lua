@@ -1,4 +1,4 @@
--- The countdown timer (docs/HUD.md, *Countdown timer*): timer_start counts
+-- The countdown timer: timer_start counts
 -- down and shows m:ss, under ten seconds m:ss.t, blinking faster as it runs
 -- out; at zero its script runs once and 0:00.0 blinks five seconds;
 -- timer_stop ends it before then (and its script never runs).

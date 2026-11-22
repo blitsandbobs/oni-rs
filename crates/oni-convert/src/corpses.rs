@@ -1,5 +1,5 @@
-//! Pre-placed corpses (`ONtCorpseArray`, `CRSA`; `docs/ASSET_FORMAT.md`,
-//! *Corpses*): bodies the level designers left lying where they fell — a
+//! Pre-placed corpses (`ONtCorpseArray`, `CRSA`;
+//! `oni_schema::files::CorpsesFile`): bodies the level designers left lying where they fell — a
 //! character class and each of its 19 body parts' world matrix.
 //! Written to `levels/NN/corpses.json`.
 

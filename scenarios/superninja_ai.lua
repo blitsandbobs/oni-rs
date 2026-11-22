@@ -1,4 +1,4 @@
--- The super ninja's own fighting (#31; docs/AI.md, *Bosses*), on level 12's
+-- The super ninja's own fighting (#31), on level 12's
 -- rooftop: from afar he throws a fireball (his clip's particle, homing);
 -- closing in he turns invisible or teleports in behind his enemy; beaten
 -- about close in he teleports away to a retreat flag; and falling off the

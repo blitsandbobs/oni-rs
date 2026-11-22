@@ -1,4 +1,4 @@
-//! Consoles (`OT_Console`; `docs/ASSET_FORMAT.md`, *Consoles*): each
+//! Consoles (`OT_Console`; `oni_schema::files::ConsolesFile`): each
 //! level's consoles with their event lists and where a character stands to
 //! use them (the action marker, from the console's class in level 0).
 

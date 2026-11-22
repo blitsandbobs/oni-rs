@@ -1,4 +1,4 @@
-//! Environmental particles (`docs/PARTICLES.md`, *Environmental particles*):
+//! Environmental particles:
 //! the level's placed particle effects — floor targets, lights, steam, force
 //! fields, creatures — from its `ENVP` arrays and particle objects
 //! (`levels/NN/env_particles.json`). Each is created at the level's start

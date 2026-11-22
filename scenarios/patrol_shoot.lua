@@ -1,4 +1,4 @@
--- A patrol's shoot-at-flag (#6; docs/GOALS.md): on level 4 a thug's patrol
+-- A patrol's shoot-at-flag (#6): on level 4 a thug's patrol
 -- creeps to its spot and shoots at a flag for the waypoint's time — rounds
 -- spent, the extra spread the waypoint asks for — then goes on (to a scan).
 --

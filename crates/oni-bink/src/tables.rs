@@ -1,6 +1,6 @@
 //! The constant tables of Bink 1 video, taken as data from FFmpeg's
 //! `libavcodec/binkdata.h`, since no public description of the format has
-//! them (`docs/decisions.md`, 2026-10-17). Only the tables are taken: the
+//! them (2026-10-17). Only the tables are taken: the
 //! decoder that uses them (`super::video`) is our own.
 //!
 //! The notice of the file they come from:

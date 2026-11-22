@@ -1,4 +1,4 @@
--- The game camera (docs/CAMERA.md): it follows the player from behind and
+-- The game camera: it follows the player from behind and
 -- above along the aim, eased; looking up it sinks, looking down with a gun it
 -- closes in; look mode (V) swings the view without turning the body, and the
 -- turn drifts back when let go; walls between the camera and the player go

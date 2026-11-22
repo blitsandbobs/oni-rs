@@ -1,4 +1,4 @@
-//! The melee AI's decisions (behaviour per `docs/MELEE_AI.md`): each tick it
+//! The melee AI's decisions: each tick it
 //! keeps a block up, steps its current move, notices the target's attacks
 //! (evading or blocking), and — when free to — weighs its profile's
 //! techniques and picks one. Moves are carried out in [`super::moves`].

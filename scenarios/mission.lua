@@ -1,4 +1,4 @@
--- The level's own scripts (#20, scripting/PORT.md): level 1 begins as in
+-- The level's own scripts (#20, docs/lua.md): level 1 begins as in
 -- the game — the player at its placement, `main` runs the training intro —
 -- the training waits for the player to do what it asks (turn, run), and a
 -- trigger volume fires its script when the player walks in.

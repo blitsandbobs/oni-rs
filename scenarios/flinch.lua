@@ -1,4 +1,4 @@
--- Flinches (#8, docs/COMBAT.md, *Flinches*): a minor hit reaction plays the
+-- Flinches (#8): a minor hit reaction plays the
 -- class's hit overlay over the upper body while the body carries on — a
 -- shot's normal damage (a Striker shot with the pistol), and a light blow a
 -- knockdown-resistant character shrugs off (the Mutant Muro punched from

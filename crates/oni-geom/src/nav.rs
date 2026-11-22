@@ -1,5 +1,5 @@
 //! Decode a level's navigation data from its `AKEV` environment
-//! (`docs/PATHFINDING.md`, *Data*): the convex **room volumes** (`AKVA`)
+//!: the convex **room volumes** (`AKVA`)
 //! with their sides (`AKBA`, planes) and BSP chain (`AKBP`), the **links**
 //! between rooms (`AKAA`) through portal quads (`AGQG`), and each room's
 //! run-length-encoded **walkability grid** in the `.raw`.

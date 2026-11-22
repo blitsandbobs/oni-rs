@@ -1,5 +1,5 @@
 //! How a hit's animation type is adjusted for the victim's situation
-//! (behaviour per `docs/COMBAT.md` §4 and `docs/MOVEMENT.md`).
+//!.
 //!
 //! An attack names the reaction it causes (`damageAnimation`: a head, body or
 //! foot hit, or a knockdown). Before it plays, the reaction is adapted to the
@@ -72,7 +72,7 @@ pub fn is_behind(t: u16) -> bool {
 /// or hit hard while already staggered). Hits map to the matching
 /// knockdown; anything else falls to a frontal head knockdown — including
 /// knockdowns that are already knockdowns, which the shipped game also sends
-/// to the head variant (Q4 in `docs/QUIRKS.md`; fixed: they stay as they are).
+/// to the head variant (Q4 in `docs/deviations.md`; fixed: they stay as they are).
 pub fn to_knockdown(t: u16, q: Quirks) -> u16 {
     match t {
         ty::HIT_HEAD => ty::KNOCKDOWN_HEAD,

@@ -1,4 +1,4 @@
--- What movement meets (docs/AI.md, *Collisions*): the counts the original
+-- What movement meets: the counts the original
 -- keeps of walls, objects and characters met, and an AI's records of them —
 -- one met for a while weighs against moving toward it, and it moves the
 -- least bad way near the one it wants.

@@ -1,4 +1,4 @@
--- Lens flares fade with the fog (#76; docs/PARTICLES.md, *Lens flares*): a
+-- Lens flares fade with the fog (#76): a
 -- fading flare loses as much as a thing at its depth would to the fog
 -- (`P3rModifyAlphaByFogFromDepth`). In a thick fog the lights beyond its
 -- end are gone (fixed); as shipped (Q28, --faithful) the fog's factor reads

@@ -1,4 +1,4 @@
-//! Turrets (`docs/TURRETS.md`): the turret classes (level 0's `TURR`
+//! Turrets: the turret classes (level 0's `TURR`
 //! templates) → `common/turrets.json`, and each level's placed turrets
 //! (`OT_Turret` objects) → `levels/NN/turrets.json`.
 //!

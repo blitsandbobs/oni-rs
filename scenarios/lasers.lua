@@ -1,4 +1,4 @@
--- Laser triggers (docs/LASERS.md): level 1's three training lasers start
+-- Laser triggers: level 1's three training lasers start
 -- off; switched on they sweep back and forth along their rails; a beam that
 -- meets Konoko trips its trigger once, until it misses her again; switched
 -- off or hidden, no beams.

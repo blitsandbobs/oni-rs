@@ -1,4 +1,4 @@
-//! Turrets (`docs/TURRETS.md`): placed guns on a swivelling head that,
+//! Turrets: placed guns on a swivelling head that,
 //! switched on (a laser's event, a script), turn toward the nearest
 //! character of their target teams and fire while their targeting says the
 //! barrel is on — for their class's time, then back to rest and off.
@@ -341,7 +341,7 @@ impl World {
         }
     }
 
-    /// Every turret's tick (`docs/TURRETS.md`), before the guns'.
+    /// Every turret's tick, before the guns'.
     pub(super) fn turrets_tick(&mut self) {
         for k in 0..self.turrets.len() {
             if self.turrets[k].particles.is_empty() && !self.turrets[k].class.attachments.is_empty()

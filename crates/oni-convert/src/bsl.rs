@@ -1,6 +1,6 @@
 //! BSL → Lua: translates a level's scripts (the original's `.bsl` text, one
-//! set per level) into one Lua chunk the engine runs (`scripting/PORT.md`,
-//! `scripting/BSL.md`).
+//! set per level) into one Lua chunk the engine runs (`docs/lua.md`,
+//! `docs/lua.md`).
 //!
 //! The language is small: `var` / `func` declarations, `if` / `else`,
 //! `sleep`, `fork`, `return`, assignments and command calls in two styles

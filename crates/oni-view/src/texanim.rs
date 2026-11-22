@@ -1,4 +1,4 @@
-//! Animated textures (`docs/PARTICLES.md`, *Animated textures*): a texture
+//! Animated textures: a texture
 //! with frames, and which one shows at a time (`M3iResolveTexture`).
 
 use std::collections::HashMap;

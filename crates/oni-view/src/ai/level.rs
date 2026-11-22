@@ -1,6 +1,6 @@
-//! A level's AI data (`docs/ASSET_FORMAT.md`): its placed characters,
+//! A level's AI data (`oni_schema::files`): its placed characters,
 //! patrol paths and flags (from the level folder) and the combat profiles
-//! (common). Behaviour that uses it: `docs/GOALS.md`.
+//! (common). Behaviour that uses it:.
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -10,7 +10,7 @@ use glam::Vec3;
 
 use super::perception::{Alert, Team};
 
-/// A patrol waypoint (`docs/GOALS.md`, *Patrol*).
+/// A patrol waypoint.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Waypoint {
     MoveTo {
@@ -174,7 +174,7 @@ pub struct Placed {
     pub job_id: Option<u16>,
     pub combat_id: u16,
     pub melee_id: Option<u16>,
-    /// Its neutral behaviour (`docs/NEUTRAL.md`).
+    /// Its neutral behaviour.
     pub neutral_id: Option<u16>,
     /// Added to its class's hit points.
     pub hp_offset: i32,

@@ -1,4 +1,4 @@
-//! A room's grid (behaviour per `docs/PATHFINDING.md`, *The room grid*):
+//! A room's grid:
 //! square costs, A\* across it, turning the result into waypoints, and the
 //! straight "local line" probe.
 

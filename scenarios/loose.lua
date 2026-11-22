@@ -1,4 +1,4 @@
--- Loose things (docs/OBJECTS.md, *Loose things*): a dropped gun falls with
+-- Loose things: a dropped gun falls with
 -- gravity, meets the floor (its impact) and slides to rest; a dying
 -- character drops its "death candy" — powerups that fall and come to rest
 -- (their physics gone after 120 still ticks); a character a weapon lifts is

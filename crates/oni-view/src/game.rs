@@ -1,5 +1,5 @@
-//! The game around a level (`Oni.c`'s loop, `Oni_GameState.c`; behaviour per
-//! `docs/GAME_FLOW.md`): splash screens, and what follows a level's end —
+//! The game around a level (`Oni.c`'s loop, `Oni_GameState.c`):
+//! splash screens, and what follows a level's end —
 //! a loss restarts it from its save point, a win goes on to the next level.
 
 use std::path::{Path, PathBuf};

@@ -1,4 +1,4 @@
--- S4 (docs/SCRIPT_FIXES.md): restoring level 2's save point 4 (the Deadly
+-- S4 (docs/deviations.md): restoring level 2's save point 4 (the Deadly
 -- Brain) counts one console off the brain's next round: 3 of its 4 consoles
 -- end it (--faithful). Fixed: all 4.
 --

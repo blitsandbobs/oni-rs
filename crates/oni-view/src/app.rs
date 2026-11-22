@@ -38,7 +38,7 @@ struct PlayWorld {
     mission: Option<(crate::mission::Mission, crate::classes::Classes)>,
     /// The sound output (none without a device).
     _audio: Option<crate::audio::output::Output>,
-    /// Mission play's flow (`docs/GAME_FLOW.md`): which level, a splash up,
+    /// Mission play's flow: which level, a splash up,
     /// a key pressed since the last frame.
     flow: Option<Flow>,
 }
@@ -251,7 +251,7 @@ struct State {
     gamma: f32,
     /// The game is over: close.
     quit: bool,
-    /// The ending movie playing (`docs/MOVIES.md`).
+    /// The ending movie playing.
     movie: Option<MoviePlay>,
 }
 
@@ -298,7 +298,7 @@ pub struct PlaySetup {
     pub classes: Option<crate::classes::Classes>,
     /// The player's class and the opponent's.
     pub cast: crate::Cast,
-    /// Reproduce the original's known bugs (`docs/QUIRKS.md`).
+    /// Reproduce the original's known bugs (`docs/deviations.md`).
     pub faithful: bool,
     /// The character in front of the player fights back (sparring AI)
     /// instead of standing as a passive training dummy.

@@ -1,4 +1,4 @@
-//! The HUD help overlay (`ONiInGameUI_DisplayHelp`; `docs/HUD.md`, *Help
+//! The HUD help overlay (`ONiInGameUI_DisplayHelp`;, *Help
 //! overlay*): on the pause screen's Help page (or by `ui_show_help`), a
 //! texture over each ring with lines out to green labels naming its parts
 //! (`common/hud_help.json`, from level 0's `hud_help_info`).

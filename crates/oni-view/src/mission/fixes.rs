@@ -1,5 +1,5 @@
 //! Our own fixes to the shipped level scripts' most glaring mistakes
-//! (`docs/SCRIPT_FIXES.md`): per level, a Lua file run after the translated
+//! (`docs/deviations.md`): per level, a Lua file run after the translated
 //! scripts, replacing script functions through `FIX` (`prelude.lua`). Off
 //! with `--faithful`.
 

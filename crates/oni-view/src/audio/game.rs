@@ -1,4 +1,4 @@
-//! The game's sound layer (`docs/sound/ORIGINAL_CORE.md` §7, §8.2, §10):
+//! The game's sound layer (§8.2, §10):
 //! placed ambients kept in and out of earshot and muffled by walls, and the
 //! gate every impulse passes.
 

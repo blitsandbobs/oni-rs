@@ -1,5 +1,5 @@
 //! The sounds of the level's objects and of the game itself
-//! (`docs/AUDIO.md`, *Objects and the game*): doors opening and closing,
+//!: doors opening and closing,
 //! consoles, lasers; the game's event sounds (pickups, objectives, saving)
 //! and its condition loops (low health, overcharged, invisible).
 

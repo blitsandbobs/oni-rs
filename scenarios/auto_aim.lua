@@ -1,4 +1,4 @@
--- The arm follows the gun (docs/WEAPONS.md, *Aim poses*, *Auto-aim*): aiming
+-- The arm follows the gun (*Auto-aim*): aiming
 -- to either side, her arm's aim pose turns as far as the gun does (the aiming
 -- screen's turns go on in the original's order, so a turn right isn't lost);
 -- near an enemy the auto-aim turns the gun onto it and the arm with it (the

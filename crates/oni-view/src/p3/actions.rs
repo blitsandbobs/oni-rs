@@ -1,4 +1,4 @@
-//! What each action does (`docs/PARTICLES.md`, *Actions*). An action list
+//! What each action does. An action list
 //! runs in order; an action may kill the particle (ending everything) or
 //! stop the list.
 
@@ -894,7 +894,7 @@ impl System {
                 }
                 p.flags |= pflag::VELOCITY_CHANGED;
             }
-            // Sounds (`docs/AUDIO.md`, *Particles*): heard where the
+            // Sounds: heard where the
             // particle really is.
             Kind::ImpulseSound => {
                 let Value::Str(name) = a.param(0) else {

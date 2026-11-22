@@ -1,5 +1,4 @@
-//! The countdown timer (`docs/HUD.md`, *Countdown timer*;
-//! `ONrGameState_Timer_*`): a script's `timer_start seconds script` counts
+//! The countdown timer (//! `ONrGameState_Timer_*`): a script's `timer_start seconds script` counts
 //! down; at zero the script runs once and the display blinks 0:00.0 for five
 //! seconds; `timer_stop` ends it (a success, with its sound, while it still
 //! ran). Shown in the right ring's middle, blinking faster as it runs out.

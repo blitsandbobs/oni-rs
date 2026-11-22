@@ -30,7 +30,7 @@
 //! where the quantiser comes in a DCT block, the IDCT's rounding, the
 //! order of the chroma planes) is as our output, held against FFmpeg's
 //! decoding of every one of the game's movies, shows it
-//! (`crates/ra2-formats/tests/bink.rs`, `docs/original/movies.md`).
+//! (`crates/ra2-formats/tests/bink.rs`).
 
 use super::bits::Bits;
 use super::tables::{INTER_QUANT, INTRA_QUANT, PATTERNS, SCAN, TREE_CODES, TREE_LENGTHS};

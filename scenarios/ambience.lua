@@ -1,4 +1,4 @@
--- The level's sound objects (docs/AUDIO.md, *Sound objects*): level 1's
+-- The level's sound objects: level 1's
 -- placed ambience. Walking into a box starts its ambient with a 2-second
 -- ease-in and walking out eases it out and halts it; standing by a sphere
 -- plays its ambient placed there, which plays out once we leave.

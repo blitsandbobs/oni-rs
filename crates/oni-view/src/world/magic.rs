@@ -1,4 +1,4 @@
-//! Shield belts and invisibility at work (#60; `docs/POWERUPS.md`): the
+//! Shield belts and invisibility at work (#60): the
 //! shield's glow on the body (`ONrCharacter_Shield_Update`, `_HitParts`),
 //! the fade in and out of invisibility (`ONrCharacter_Invis_Update`), and
 //! the shield's display amount and how long a character has been

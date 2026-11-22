@@ -1,4 +1,4 @@
--- Neutral characters (docs/NEUTRAL.md; #14): a civilian with a neutral
+-- Neutral characters (#14): a civilian with a neutral
 -- behaviour notices Konoko and comes up to her; Action facing it starts the
 -- conversation — its lines said, Konoko's keys held back meanwhile — and at
 -- its end the behaviour's script runs (level 1: the truck driver goes and

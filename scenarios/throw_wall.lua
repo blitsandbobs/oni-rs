@@ -1,4 +1,4 @@
--- Q25, throws through walls (docs/QUIRKS.md): with a locked door between
+-- Q25, throws through walls (docs/deviations.md): with a locked door between
 -- them, Konoko's forward punch at a dummy 8 away on the other side stays a
 -- punch (fixed). The shipped throw search (`AttemptThrow`) takes the nearest
 -- foe in reach without looking for a wall, so it becomes a throw through the

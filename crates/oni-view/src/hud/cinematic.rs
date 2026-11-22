@@ -1,4 +1,4 @@
-//! Cinematic inserts (`docs/HUD.md`, *Cutscene portraits*; `Oni_Cinematics.c`):
+//! Cinematic inserts (`Oni_Cinematics.c`):
 //! the framed pictures a cutscene slides onto the screen — a speaker's face,
 //! a name tag. `cinematic_start` puts one at one of 25 positions on a
 //! 1024 × 728 virtual screen (the bottom 40 lines kept clear for subtitles),

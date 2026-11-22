@@ -1,4 +1,4 @@
-//! The mouse in the window (`docs/MENU.md`, *The mouse*): grabbed while a
+//! The mouse in the window: grabbed while a
 //! level plays (it turns and aims), free with the original's arrow over the
 //! menus, the pause screen and a console's text, and never grabbed by a
 //! window without the focus.

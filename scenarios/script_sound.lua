@@ -1,4 +1,4 @@
--- What level scripts play (docs/AUDIO.md, *Scripts*): level 1's opening —
+-- What level scripts play: level 1's opening —
 -- its music starts (an unplaced script ambient), and Shinatama's lines play
 -- one at a time, each blocking script waiting for the line before.
 --

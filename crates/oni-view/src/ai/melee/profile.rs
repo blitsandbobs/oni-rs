@@ -1,5 +1,6 @@
 //! Melee profiles, loaded from the converter's
-//! `common/characters/melee_profiles.json` (`docs/ASSET_FORMAT.md`).
+//! `common/characters/melee_profiles.json`
+//! (`oni_schema::files::MeleeProfilesFile`).
 
 use oni_schema::files;
 use std::collections::HashMap;

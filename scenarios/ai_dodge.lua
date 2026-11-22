@@ -1,4 +1,4 @@
--- Dodging (#6; docs/AI.md, *Dodging*): an armed soldier holding its ground
+-- Dodging (#6): an armed soldier holding its ground
 -- in the cone of a gun firing at it — the burst pistol's — steps off the
 -- line of fire once the danger has lasted its reaction time (meleeing, it
 -- wouldn't: the melee AI moves it then).

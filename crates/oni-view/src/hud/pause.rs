@@ -1,4 +1,4 @@
-//! The pause screen (F1; `ONrPauseScreen_Display`, `docs/HUD.md`, *Pause
+//! The pause screen (F1; `ONrPauseScreen_Display`,, *Pause
 //! screen*): a modal page viewer with five sections — the level's
 //! objectives (the current one green, earlier ones red), the items and the
 //! weapons the player has met (unlocked for good), the diary (earlier

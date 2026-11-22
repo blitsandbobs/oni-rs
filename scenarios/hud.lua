@@ -1,4 +1,4 @@
--- The HUD (docs/HUD.md): messages print, fade and go; a new objective is
+-- The HUD: messages print, fade and go; a new objective is
 -- prompted until read; the compass takes a target; a blow lights the hit ring
 -- on its side and fades; picking up a new kind of gun says so, once; standing
 -- by a gun prompts to pick it up; a cutscene letterboxes the screen and hides

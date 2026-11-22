@@ -1,4 +1,4 @@
--- Lens flares (docs/PARTICLES.md, *Lens flares*): the doors' lock lights,
+-- Lens flares: the doors' lock lights,
 -- emergency lights and lamps are drawn over the scene where their point is
 -- seen from the camera, fading in and out; the lock lights take their colour
 -- from their class's blend (red until a script unlocks them).

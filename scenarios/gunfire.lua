@@ -1,4 +1,4 @@
--- Gun sounds (docs/AUDIO.md, *Particles*): level 1's pistol — its firing
+-- Gun sounds: level 1's pistol — its firing
 -- particle's ambient (the handgun's report) starts on the shot, its bullet
 -- whines on the way (an ambient that follows it), the hit sounds by what it
 -- struck (the dummy: a body; the far wall: the level's material), and an

@@ -3,7 +3,7 @@
 
 use super::World;
 
-/// A cutscene's state (`docs/GAME_FLOW.md`, *Cutscenes*).
+/// A cutscene's state.
 #[derive(Clone, Debug, Default)]
 pub struct Cutscene {
     /// A cutscene is on (no compass / objective sounds; the condition loops
@@ -18,7 +18,7 @@ pub struct Cutscene {
     pub letterbox: bool,
 }
 
-/// The frame clock (`docs/GAME_FLOW.md`, *Frames*).
+/// The frame clock.
 #[derive(Clone, Debug, Default)]
 pub struct Clock {
     /// A cutscene keeps up with the clock: whether, and the ticks owed.

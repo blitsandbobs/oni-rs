@@ -3,7 +3,7 @@
 //! Every `PAR3` class (version 18 `P3tParticleDefinition`, `BFW_Particle3.h`)
 //! decoded in full — flags, variables, the action list with its per-event
 //! ranges, emitters and the attractor — so the engine can run Oni's particle
-//! system (weapon projectiles first; `docs/PARTICLES.md`).
+//! system (weapon projectiles first).
 //!
 //! ## Layout (little-endian, all enums 4 bytes)
 //!

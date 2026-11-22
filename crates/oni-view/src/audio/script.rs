@@ -1,4 +1,4 @@
-//! What level scripts play (`docs/sound/ORIGINAL_CORE.md` §12, §13): music
+//! What level scripts play (§13): music
 //! and script ambients — one pool of 16 named, unplaced slots — and the one
 //! dialogue voice.
 

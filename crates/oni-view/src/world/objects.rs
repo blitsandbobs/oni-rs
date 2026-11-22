@@ -1,4 +1,4 @@
-//! The level's placed objects (behaviour per `docs/OBJECTS.md`; data
+//! The level's placed objects (data
 //! `levels/NN/objects.json`): forklifts, trucks, windows — none exist until a
 //! script creates them (`obj_create`, by script id); each is drawn with its
 //! models where its clip (or its placement) puts it, and characters collide

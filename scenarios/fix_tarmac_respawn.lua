@@ -1,4 +1,4 @@
--- S2 (docs/SCRIPT_FIXES.md): restored at level 4's save point 3, the tarmac's
+-- S2 (docs/deviations.md): restored at level 4's save point 3, the tarmac's
 -- volumes are still live: walking back onto it spawns its guards again and
 -- saves the game back at save point 2 (--faithful). Fixed: they are off, as
 -- the save point 2 restore has them.
