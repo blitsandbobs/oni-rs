@@ -117,8 +117,8 @@ fn mission_level(
         progress,
     );
     world.hud.subtitles_on = set.subtitles;
-    world.saved = saved;
-    world.persist_continues = true;
+    world.progress.saved = saved;
+    world.progress.persist_continues = true;
     // What the player has met in earlier runs (the pause screen's pages);
     // a level begun afresh flags its new moves.
     if let Some((items, weapons)) = crate::game::load_unlocks() {
@@ -1117,15 +1117,15 @@ impl State {
         use crate::game::{next_level, splash_texture, After, Splash};
         let Some(pw) = self.play.as_mut() else { return };
         let Some(flow) = pw.flow.as_mut() else { return };
-        if let Some(name) = pw.world.pending_splash.take() {
+        if let Some(name) = pw.world.progress.pending_splash.take() {
             if let Some(t) = splash_texture(&flow.oni_root, flow.level, &name) {
                 flow.splash = Some(Splash::new(t, After::Resume));
             }
         }
-        match pw.world.victory.take() {
+        match pw.world.progress.victory.take() {
             Some(true) => {
                 eprintln!("game: level {} won", flow.level);
-                pw.world.saved = None;
+                pw.world.progress.saved = None;
                 let after = match next_level(&flow.oni_root, flow.level) {
                     Some(n) if flow.level != 19 => After::Next(n),
                     _ => After::End,
@@ -1286,7 +1286,7 @@ impl State {
                 return;
             }
             After::Restart => {
-                let saved = pw.world.saved.take();
+                let saved = pw.world.progress.saved.take();
                 (level, saved.as_ref().map_or(0, |c| c.save_point), saved)
             }
             After::Next(n) => (n, 0, None),

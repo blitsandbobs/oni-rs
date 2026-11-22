@@ -1496,7 +1496,7 @@ impl World {
 
     /// What the player has met, kept between runs (in play).
     fn keep_unlocks(&self) {
-        if self.persist_continues {
+        if self.progress.persist_continues {
             crate::game::store_unlocks(self.hud.items_seen, &self.hud.weapon_classes_seen);
         }
     }

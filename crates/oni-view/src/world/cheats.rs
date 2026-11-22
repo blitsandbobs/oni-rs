@@ -147,11 +147,11 @@ impl World {
                 true
             }
             Cheat::WinLevel => {
-                self.victory = Some(true);
+                self.progress.victory = Some(true);
                 true
             }
             Cheat::LoseLevel => {
-                self.victory = Some(false);
+                self.progress.victory = Some(false);
                 true
             }
             Cheat::SuperAmmo => toggle(&mut p.infinite_ammo),

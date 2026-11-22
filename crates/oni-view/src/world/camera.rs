@@ -456,9 +456,9 @@ impl World {
 
     /// Clears last tick's see-through walls (`M3rGeom_Clear_Jello`).
     fn jello_clear(&mut self) {
-        self.jello_objects.clear();
-        self.jello_doors.clear();
-        for q in std::mem::take(&mut self.jello) {
+        self.see_through.objects.clear();
+        self.see_through.doors.clear();
+        for q in std::mem::take(&mut self.see_through.quads) {
             if let Some(q) = self.quads.quads.get_mut(q as usize) {
                 q.flags &= !flag::JELLO;
             }
@@ -516,7 +516,7 @@ impl World {
         for &q in &jello {
             self.quads.quads[q as usize].flags |= flag::JELLO;
         }
-        self.jello = jello;
+        self.see_through.quads = jello;
         // The objects the ray from the camera to the same point passes
         // through (each in use, by its sphere): drawn see-through this
         // frame.
@@ -525,18 +525,30 @@ impl World {
         } else {
             v.location + to_focus
         };
-        self.jello_objects = (0..self.objects.len())
+        self.see_through.objects = (0..self.objects.len())
             .filter(|&k| {
                 let r = self.object_setups[self.objects[k].setup].radius;
                 segment_meets_sphere(v.location, end, self.object_matrix(k).w_axis.truncate(), r)
             })
             .collect();
         // (A door not closed: its leaves are objects, met the same way.)
-        self.jello_doors = self.doors.leaves_met(v.location, end);
+        self.see_through.doors = self.doors.leaves_met(v.location, end);
     }
 }
 
 use crate::geom::segment_meets_sphere;
+
+/// What the camera sees through this tick (its jello).
+#[derive(Clone, Debug, Default)]
+pub struct SeeThrough {
+    /// Level quads.
+    pub quads: Vec<u32>,
+    /// Placed objects (`OBcFlags_JelloObjects`).
+    pub objects: Vec<usize>,
+    /// Door leaves (object id, leaf): open or moving, their leaves are
+    /// objects too.
+    pub doors: Vec<(u32, u8)>,
+}
 
 impl GameCamera {
     /// The render camera for its view, with its projection.

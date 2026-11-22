@@ -29,7 +29,7 @@ pub mod cheats;
 pub mod corpses;
 pub mod cutscene;
 mod env_particles;
-mod flow;
+pub mod flow;
 pub mod fog;
 mod hud;
 mod hypo;
@@ -160,13 +160,8 @@ pub struct World {
     pub neutrals: std::collections::HashMap<u16, Rc<crate::neutrals::Behavior>>,
     /// The level's pre-placed corpses.
     pub corpses: corpses::Corpses,
-    /// Level parts shaded flat by script reference (`env_shade`).
-    pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
     /// The frame clock.
     pub clock: cutscene::Clock,
-    /// Whether the player killed Griffin, once a script has said
-    /// (`killed_griffen`).
-    pub killed_griffin: Option<bool>,
     /// A boss battle on (`ai2_boss_battle`): bosses go after bosses.
     pub boss_battle: bool,
     /// The cheat codes typed and their toggles.
@@ -180,19 +175,16 @@ pub struct World {
     pub beams: Vec<(Vec3, Vec3, [f32; 3])>,
     /// The level's doors (`doors.rs`).
     pub doors: crate::doors::Doors,
-    /// The level parts scripts have hidden (`env_show`).
-    pub env_hidden: std::collections::HashSet<u32>,
-    /// The game camera (`world/camera.rs`).
+    /// The game camera (`world/camera.rs`), and what it sees through.
     pub camera: camera::GameCamera,
+    pub see_through: camera::SeeThrough,
+    /// The level parts scripts have hidden or shaded (`env_show`,
+    /// `env_shade`).
+    pub parts: EnvParts,
+    /// Where the level stands (`world/flow.rs`).
+    pub progress: flow::Progress,
     /// The HUD (`hud/`, `world/hud.rs`).
     pub hud: crate::hud::Hud,
-    /// The level's outcome (`win`: true, `lose`: false), a splash screen a
-    /// script asked for, and the save point kept (`world/flow.rs`).
-    pub victory: Option<bool>,
-    pub pending_splash: Option<String>,
-    pub saved: Option<crate::game::Continue>,
-    /// Save points write their continue to disk (play mode; `game.rs`).
-    pub persist_continues: bool,
     /// The overall volume the pause screen will restore.
     pub pause_volume: f32,
     /// The game settings' hypo values (`world/hypo.rs`).
@@ -203,14 +195,6 @@ pub struct World {
     /// run out (the mission runs it).
     pub timer: Option<timer::Timer>,
     pub timer_expired: Option<String>,
-    /// The quads see-through this tick (the camera's jello).
-    pub jello: Vec<u32>,
-    /// The placed objects see-through this tick (the camera's jello on
-    /// objects, `OBcFlags_JelloObjects`).
-    pub jello_objects: Vec<usize>,
-    /// The door leaves (object id, leaf) see-through this tick: open or
-    /// moving, their leaves are objects too (the camera's jello on them).
-    pub jello_doors: Vec<(u32, u8)>,
     /// The fog (`world/fog.rs`).
     pub fog: fog::FogState,
     /// The level's placed objects as authored, and those scripts have made.
@@ -267,6 +251,15 @@ pub struct World {
     env_particles_started: bool,
 }
 
+/// The level parts scripts have changed, by script reference.
+#[derive(Clone, Debug, Default)]
+pub struct EnvParts {
+    /// Hidden (`env_show`).
+    pub hidden: std::collections::HashSet<u32>,
+    /// Shaded flat (`env_shade`).
+    pub shades: std::collections::HashMap<u32, [f32; 3]>,
+}
+
 impl World {
     /// An empty world over the given level collision mesh.
     pub fn new() -> World {
@@ -286,26 +279,16 @@ impl World {
             magic_textures: Default::default(),
             cheats: Default::default(),
             boss_battle: false,
-            env_shades: Default::default(),
-            killed_griffin: None,
             neutral_runs: Default::default(),
             doors: Default::default(),
             lasers: Vec::new(),
             beams: Vec::new(),
-            env_hidden: Default::default(),
             camera: Default::default(),
             hud: Default::default(),
-            victory: None,
-            pending_splash: None,
-            saved: None,
             hypo: Default::default(),
             lens: Default::default(),
             timer: None,
             timer_expired: None,
-            jello: Vec::new(),
-            jello_objects: Vec::new(),
-            jello_doors: Vec::new(),
-            persist_continues: false,
             pause_volume: 1.0,
             fog: Default::default(),
             object_anims: Default::default(),
@@ -316,6 +299,9 @@ impl World {
             rng: 0x9E37_79B9,
             armory: Armory::default(),
             glass: Default::default(),
+            see_through: Default::default(),
+            parts: Default::default(),
+            progress: Default::default(),
             clock: Default::default(),
             input: Default::default(),
             cutscene: Default::default(),
@@ -447,7 +433,7 @@ impl World {
             .filter(|r| (lo..=hi).contains(r))
             .collect();
         for r in refs {
-            self.env_shades.insert(r, shade);
+            self.parts.shades.insert(r, shade);
         }
     }
 
@@ -1381,9 +1367,9 @@ impl World {
     /// broken glass).
     pub fn env_show(&mut self, r: u32, on: bool) {
         if on {
-            self.env_hidden.remove(&r);
+            self.parts.hidden.remove(&r);
         } else {
-            self.env_hidden.insert(r);
+            self.parts.hidden.insert(r);
         }
         for q in self.quads.quads.iter_mut().filter(|q| q.env_ref == Some(r)) {
             if on {

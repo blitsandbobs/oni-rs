@@ -33,12 +33,12 @@ impl WorldFrame {
         } else {
             Vec::new()
         };
-        renderer.hidden_refs = world.env_hidden.clone();
-        renderer.env_shades = world.env_shades.clone();
+        renderer.hidden_refs = world.parts.hidden.clone();
+        renderer.env_shades = world.parts.shades.clone();
         renderer.door_shades = world.doors.shades.clone();
         renderer.broken_glass = world.glass.broken.clone();
-        renderer.jello = world.jello.clone();
-        renderer.jello_doors = world.jello_doors.iter().copied().collect();
+        renderer.jello = world.see_through.quads.clone();
+        renderer.jello_doors = world.see_through.doors.iter().copied().collect();
         renderer.anim_time = world.game_tick();
         renderer.eye = eye;
         renderer.fog = world.fog.fog;

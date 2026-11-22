@@ -365,7 +365,8 @@ impl World {
             .map(|(p, m)| (p, m, None));
         (0..self.objects.len())
             .filter(|&k| {
-                self.objects[k].flags & oflag::INVISIBLE == 0 && !self.jello_objects.contains(&k)
+                self.objects[k].flags & oflag::INVISIBLE == 0
+                    && !self.see_through.objects.contains(&k)
             })
             .flat_map(|k| {
                 let m = self.object_matrix(k);
@@ -407,7 +408,7 @@ impl World {
         (0..self.objects.len())
             .filter(|&k| {
                 self.objects[k].flags & oflag::INVISIBLE == 0
-                    && self.jello_objects.contains(&k) == see_through
+                    && self.see_through.objects.contains(&k) == see_through
             })
             .flat_map(|k| {
                 let m = self.object_matrix(k);

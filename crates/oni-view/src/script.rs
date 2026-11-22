@@ -724,7 +724,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             let names = w.object_states();
-            Ok(w.jello_objects
+            Ok(w.see_through
+                .objects
                 .iter()
                 .filter_map(|&k| names.get(k).map(|n| n.0.clone()))
                 .collect::<Vec<_>>())
@@ -742,7 +743,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let t = lua.create_table()?;
             t.set(
                 "quads",
-                w.jello
+                w.see_through
+                    .quads
                     .iter()
                     .filter(|&&q| {
                         w.quads
@@ -753,7 +755,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                     .count(),
             )?;
             let leaves: Vec<String> = w
-                .jello_doors
+                .see_through
+                .doors
                 .iter()
                 .filter_map(|&(o, l)| {
                     w.doors
@@ -895,7 +898,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "env_shade_of",
         lua.create_function(move |_, r: u32| {
-            Ok(h.borrow().world.env_shades.get(&r).map(|c| c.to_vec()))
+            Ok(h.borrow().world.parts.shades.get(&r).map(|c| c.to_vec()))
         })?,
     )?;
     // door_shade_of(object id) → {r, g, b}: the door's flat shade (0–1).
@@ -1567,9 +1570,12 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let w = &host.world;
             let t = lua.create_table()?;
-            t.set("victory", w.victory)?;
-            t.set("splash", w.pending_splash.clone())?;
-            t.set("save_point", w.saved.as_ref().map(|c| c.save_point))?;
+            t.set("victory", w.progress.victory)?;
+            t.set("splash", w.progress.pending_splash.clone())?;
+            t.set(
+                "save_point",
+                w.progress.saved.as_ref().map(|c| c.save_point),
+            )?;
             Ok(t)
         })?,
     )?;
@@ -1683,7 +1689,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "jello",
-        lua.create_function(move |_, ()| Ok(h.borrow().world.jello.len()))?,
+        lua.create_function(move |_, ()| Ok(h.borrow().world.see_through.quads.len()))?,
     )?;
     // Holds (or lets go of) the look-mode key.
     let h = host.clone();
@@ -2246,7 +2252,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 t.set("at", vec![hit.point.x, hit.point.y, hit.point.z])?;
                 t.set("flags", q.flags)?;
                 t.set("object_tag", q.object_tag)?;
-                t.set("jello", w.jello.contains(&hit.quad))?;
+                t.set("jello", w.see_through.quads.contains(&hit.quad))?;
                 Ok(Some(t))
             },
         )?,

@@ -28,8 +28,9 @@ const FOLLOW_DISTANCE: f32 = 12.0;
 fn did_kill_griffin(host: &mut dyn Host) -> bool {
     let world = host.world();
     world
+        .progress
         .killed_griffin
-        .unwrap_or_else(|| world.persist_continues && crate::game::killed_griffin())
+        .unwrap_or_else(|| world.progress.persist_continues && crate::game::killed_griffin())
 }
 
 fn int(v: Option<&Value>) -> Option<i64> {
@@ -567,7 +568,7 @@ pub fn dispatch(
         }
         "splash_screen" => {
             if let Some(name) = a(0).and_then(text) {
-                host.world().pending_splash = Some(name);
+                host.world().progress.pending_splash = Some(name);
             }
             nil()
         }
@@ -762,7 +763,7 @@ pub fn dispatch(
         }
         "win" | "lose" => {
             state.outcome = Some(name == "win");
-            host.world().victory = Some(name == "win");
+            host.world().progress.victory = Some(name == "win");
             eprintln!("script: {name}");
             nil()
         }
@@ -1573,8 +1574,8 @@ pub fn dispatch(
             // (`ONrWeKilledGriffen`: kept with the saved game.)
             let murder = truthy(a(0));
             let world = host.world();
-            world.killed_griffin = Some(murder);
-            if world.persist_continues {
+            world.progress.killed_griffin = Some(murder);
+            if world.progress.persist_continues {
                 crate::game::set_killed_griffin(murder);
             }
             nil()

@@ -5,6 +5,20 @@
 use super::World;
 use crate::game::Continue;
 
+/// Where the level stands: its outcome (`win`: true, `lose`: false), a
+/// splash screen a script asked for, the save point kept, and what the
+/// scripts have learnt of the player (`killed_griffen`).
+#[derive(Clone, Debug, Default)]
+pub struct Progress {
+    pub victory: Option<bool>,
+    pub pending_splash: Option<String>,
+    pub saved: Option<Continue>,
+    /// Save points write their continue to disk (play mode; `game.rs`).
+    pub persist_continues: bool,
+    /// Whether the player killed Griffin, once a script has said.
+    pub killed_griffin: Option<bool>,
+}
+
 /// An autosave's message stays this long (ticks; `ONcAutosaveFadeTime`).
 const AUTOSAVE_MESSAGE: u32 = 120;
 
@@ -31,7 +45,7 @@ impl World {
             })
         };
         let i = &p.inventory;
-        self.saved = Some(Continue {
+        self.progress.saved = Some(Continue {
             save_point: n,
             hp: p.hp + i32::from(p.inventory.hypo_remaining),
             max_hp: p.max_hp,
@@ -47,8 +61,8 @@ impl World {
         });
         eprintln!("game: {} {n}", if autosave { "autosave" } else { "save" });
         // (Kept between runs in play, for `--save-point`.)
-        if self.persist_continues {
-            if let Some(c) = &self.saved {
+        if self.progress.persist_continues {
+            if let Some(c) = &self.progress.saved {
                 crate::game::store_continue(self.hud.level, c);
             }
         }
@@ -58,7 +72,7 @@ impl World {
     /// health (as the same share of full, for another class), place,
     /// facing, inventory and guns; the HUD stops prompting old objectives.
     pub fn restore_continue(&mut self) {
-        let Some(c) = self.saved.clone() else {
+        let Some(c) = self.progress.saved.clone() else {
             eprintln!("game: no save to restore");
             return;
         };
