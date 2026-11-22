@@ -889,8 +889,8 @@ impl Renderer {
     /// without the file.
     pub fn attach_sky(&mut self, gpu: &Gpu, level_dir: &std::path::Path) {
         self.sky.clear();
-        let Some(doc) = crate::json::read(level_dir.join("sky.json"))
-            .and_then(|v| serde_json::from_value::<oni_schema::files::SkyFile>(v).ok())
+        let Some(doc) =
+            crate::json::read_some::<oni_schema::files::SkyFile>(level_dir.join("sky.json"))
         else {
             return;
         };

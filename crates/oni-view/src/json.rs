@@ -1,11 +1,13 @@
-//! Reading the converter's JSON files (`oni_schema::files`), which may be
-//! missing (a level without lasers, say).
+//! Reading JSON files: the converter's, in their shared formats
+//! (`oni_schema::files`), which may be missing (a level without lasers,
+//! say), and the player's own.
 
 use std::path::Path;
 
 use serde_json::Value;
 
-/// A JSON file's value; `None` when it's missing or doesn't parse.
+/// A JSON file's value (the player's own files: saves); `None` when it's
+/// missing or doesn't parse.
 pub fn read(path: impl AsRef<Path>) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
