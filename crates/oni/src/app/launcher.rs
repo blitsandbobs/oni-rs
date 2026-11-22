@@ -22,6 +22,10 @@ const PANEL: (f32, f32) = (560.0, 200.0);
 const MARGIN: f32 = 48.0;
 const PAD: f32 = 24.0;
 const BUTTON: (f32, f32) = (220.0, 42.0);
+/// Where to find the Anniversary Edition: a web search, opened in the
+/// player's browser from the window's corner.
+pub const SEARCH_URL: &str = "https://www.google.com/search?q=oni+anniversary+edition";
+const SEARCH: (f32, f32) = (260.0, 34.0);
 const TITLE: f32 = 30.0;
 const BODY: f32 = 19.0;
 
@@ -36,6 +40,8 @@ pub enum Ask {
     PickArchive,
     PickFolder,
     Cancel,
+    /// Look for the Anniversary Edition on the web.
+    Search,
 }
 
 /// An install running: its progress, its cancel, its outcome.
@@ -196,6 +202,19 @@ impl Launcher {
         let (left, right) = (px + PAD, px + pw - PAD);
         let mut y = py + PAD - 4.0;
         self.buttons.clear();
+        // In the corner: where to find the Anniversary Edition.
+        let corner = [w - SEARCH.0 - 16.0, h - SEARCH.1 - 16.0];
+        out.push(rect(
+            [
+                corner[0],
+                corner[1],
+                corner[0] + SEARCH.0,
+                corner[1] + SEARCH.1,
+            ],
+            [0.02, 0.04, 0.08, 0.7],
+        ));
+        let label = "Find the Anniversary Edition »";
+        out.extend(self.button_sized(renderer, gpu, label, Ask::Search, corner, SEARCH, ui));
         match &self.phase {
             Phase::Choose { error } => {
                 let error = error.clone();
@@ -261,6 +280,7 @@ impl Launcher {
         out
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn button(
         &mut self,
         renderer: &mut Renderer,
@@ -270,7 +290,21 @@ impl Launcher {
         [x, y]: [f32; 2],
         ui: f32,
     ) -> Vec<OverlayDraw> {
-        let r = [x, y, x + BUTTON.0, y + BUTTON.1];
+        self.button_sized(renderer, gpu, label, ask, [x, y], BUTTON, ui)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn button_sized(
+        &mut self,
+        renderer: &mut Renderer,
+        gpu: &Gpu,
+        label: &str,
+        ask: Ask,
+        [x, y]: [f32; 2],
+        size: (f32, f32),
+        ui: f32,
+    ) -> Vec<OverlayDraw> {
+        let r = [x, y, x + size.0, y + size.1];
         self.buttons.push((r, ask));
         let lit = self.hover == Some(ask);
         let fill = if lit {
@@ -284,7 +318,7 @@ impl Launcher {
             [ACCENT[0], ACCENT[1], ACCENT[2], if lit { 1.0 } else { 0.7 }],
         ));
         let tw = self.measure(label, BODY);
-        let (tx, ty) = (x + (BUTTON.0 - tw) * 0.5, y + (BUTTON.1 - BODY) * 0.5 - 1.0);
+        let (tx, ty) = (x + (size.0 - tw) * 0.5, y + (size.1 - BODY) * 0.5 - 1.0);
         out.extend(self.text(renderer, gpu, label, BODY, ui, tx, ty, TEXT));
         out
     }

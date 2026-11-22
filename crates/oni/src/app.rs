@@ -1004,6 +1004,12 @@ impl State {
                 .set_title("The Anniversary Edition's folder")
                 .pick_folder(),
             launcher::Ask::Cancel => None,
+            launcher::Ask::Search => {
+                if let Err(e) = open::that_detached(launcher::SEARCH_URL) {
+                    eprintln!("launcher: can't open the browser ({e})");
+                }
+                None
+            }
         };
         if let (Some(path), Some(l)) = (picked, self.launcher.as_mut()) {
             l.start(path);
