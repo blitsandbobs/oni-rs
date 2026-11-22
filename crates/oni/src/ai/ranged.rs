@@ -103,6 +103,14 @@ pub struct Gun {
 /// distance and height) at launch speed `speed` under gravity `g`: the
 /// launch direction (unit), or none if it is out of reach.
 pub fn lob(to: Vec3, speed: f32, g: f32) -> Option<Vec3> {
+    let (vx, vy) = lob_velocity(to, speed, g)?;
+    let flat = Vec3::new(to.x, 0.0, to.z);
+    Some((flat.normalize_or(Vec3::Z) * vx + Vec3::Y * vy).normalize())
+}
+
+/// [`lob`]'s launch velocity: horizontal (toward the point) and vertical
+/// (`solution_xvel`, `solution_yvel`).
+pub fn lob_velocity(to: Vec3, speed: f32, g: f32) -> Option<(f32, f32)> {
     let flat = Vec3::new(to.x, 0.0, to.z);
     let (d, h) = (flat.length(), to.y);
     let a = g * g / 4.0;
@@ -117,8 +125,31 @@ pub fn lob(to: Vec3, speed: f32, g: f32) -> Option<Vec3> {
         return None;
     }
     let t = t2.sqrt();
-    let (vx, vy) = (d / t, h / t + g * t / 2.0);
-    Some((flat.normalize_or(Vec3::Z) * vx + Vec3::Y * vy).normalize())
+    Some((d / t, h / t + g * t / 2.0))
+}
+
+/// A lobbed shot's arc from `from` to `to` (launch speed `speed`, gravity
+/// `g`) in sections (`AI2iCombat_PerformLOS`): each 20 across or less, its
+/// start and vector (the average velocity over the section). None: no arc
+/// reaches.
+pub fn arc_segments(from: Vec3, to: Vec3, speed: f32, g: f32) -> Option<Vec<(Vec3, Vec3)>> {
+    const STEP: f32 = 20.0; // AI2cCombat_BallisticLOS_StepSize
+    let d = to - from;
+    let (vx, vy) = lob_velocity(d, speed, g)?;
+    let flat = Vec3::new(d.x, 0.0, d.z);
+    let dist = flat.length();
+    let steps = (dist / STEP) as u32 + 1;
+    let dt = dist / (vx.max(1e-3) * steps as f32);
+    let gravity_step = g * dt * dt;
+    let mut step = flat.normalize_or(Vec3::Z) * vx * dt + Vec3::Y * (vy * dt - 0.5 * gravity_step);
+    let mut at = from;
+    let mut out = Vec::with_capacity(steps as usize);
+    for _ in 0..steps {
+        out.push((at, step));
+        at += step;
+        step.y -= gravity_step;
+    }
+    Some(out)
 }
 
 /// Targeting one character (`AI2tTargetingState`).
@@ -374,6 +405,20 @@ impl Targeting {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn a_lob_is_traced_in_sections_along_its_arc() {
+        let (from, to) = (Vec3::ZERO, Vec3::new(0.0, 0.0, 90.0));
+        let segs = arc_segments(from, to, 120.0, 98.0).expect("in reach");
+        assert_eq!(segs.len(), 5, "90 across in sections of 20 or less");
+        let end = segs.last().map(|(a, d)| *a + *d).unwrap();
+        assert!(end.distance(to) < 0.5, "ends at the target, got {end:?}");
+        assert!(
+            segs.iter().any(|(a, _)| a.y > 5.0),
+            "rises above the straight line"
+        );
+        assert!(arc_segments(from, Vec3::new(0.0, 0.0, 1e5), 120.0, 98.0).is_none());
+    }
+
     use super::*;
 
     struct Fixed(f32);

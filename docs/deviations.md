@@ -220,8 +220,6 @@ our own additions. Not affected by `--faithful`.
 - Avoidance leaves out the movement modifiers the original also steers
   round; the combat advance has no hazard cut-off (dodges steer separately)
   and tests blockage against the level only.
-- A lobbed gun's line of fire is the straight line plus "some arc reaches";
-  the original traces the arc in 20-unit steps.
 - Pathfinding plans the whole path at once (the original plans a room's grid
   on entering it), without the reuse cache or octree room lookup: so every
   room's obstructions on the way are read as they stand when the path is

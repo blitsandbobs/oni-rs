@@ -843,8 +843,10 @@ pub enum Primary {
     Gun,
 }
 
-/// Whether the gun in hand has a clear line of fire at the target: within
-/// its range, through no wall, and past no friend (a cylinder round each).
+/// Whether the gun in hand has a clear line of fire at the target
+/// (`AI2iCombat_PerformLOS`): within its range, and through no wall and past
+/// no friend (a cylinder round each) — a lobbed shot along its arc, in
+/// sections 20 across (none that reaches: no line of fire).
 fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     let Some(g) = cx.gun else { return true };
     let from = g.matrix.w_axis.truncate();
@@ -855,24 +857,27 @@ fn line_of_fire(target_feet: Vec3, cx: &Ctx) -> bool {
     if g.ai.max_range > 0.0 && from.distance(to) > g.ai.max_range {
         return false;
     }
-    // A lobbed shot needs an arc that reaches. (The arc itself isn't traced
-    // against the level: the straight line stands in.)
-    if let Some((speed, gravity)) = g.ai.aim.ballistic {
-        if crate::ai::ranged::lob(to - from, speed, gravity * 98.0).is_none() {
-            return false;
-        }
+    let clear =
+        |a: Vec3, d: Vec3| (cx.sight)(a, a + d, SHOOT) && no_friend_on(a, d, target_feet, cx);
+    let Some((speed, gravity)) = g.ai.aim.ballistic else {
+        return clear(from, to - from);
+    };
+    match crate::ai::ranged::arc_segments(from, to, speed, gravity * 98.0) {
+        Some(segments) => segments.into_iter().all(|(a, d)| clear(a, d)),
+        None => false, // out of reach
     }
-    if !(cx.sight)(from, to, SHOOT) {
-        return false;
-    }
-    let d = to - from;
+}
+
+/// Whether no friend stands across the segment from `from` along `d`
+/// (`AI2iCombat_CheckLOS`: a vertical cylinder of radius 4 round each, up to
+/// 8 over its head), the target aside.
+fn no_friend_on(from: Vec3, d: Vec3, target_feet: Vec3, cx: &Ctx) -> bool {
     let flat = Vec3::new(d.x, 0.0, d.z);
     cx.others
         .iter()
         .enumerate()
         .filter(|(i, o)| *i != cx.me && o.alive && o.friend && o.feet != target_feet)
         .all(|(_, o)| {
-            // The segment against a vertical cylinder of radius 4.
             let rel = Vec3::new(from.x - o.feet.x, 0.0, from.z - o.feet.z);
             let a = flat.length_squared();
             if a < 1e-6 {
