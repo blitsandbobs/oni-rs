@@ -15,7 +15,7 @@ png = "0.17"
 serde = "1"
 serde_json = "1.0"
 sha2 = "0.10"
-oni-schema = { version = "0.0.1", path = "../oni-schema" }
+oni-schema = { version = "0.5.0", path = "../oni-schema" }
 oni-bytes.workspace = true
 sevenz-rust2 = "0.25.0"
 fs4 = "1.1.0"

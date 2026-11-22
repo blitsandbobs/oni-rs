@@ -30,6 +30,6 @@
     <control>pointing</control>
   </supports>
   <releases>
-    <release version="0.0.1" date="2026-11-22"/>
+    <release version="0.5.0" date="2026-11-22"/>
   </releases>
 </component>

@@ -23,9 +23,11 @@ if ! cargo build --release -p oni > $log/build.txt 2>&1; then
 fi
 
 # Docs: every `docs/…`, `scenarios/…`, `scripting/…` path a source or doc
-# names must exist, and the docs' names are lowercase.
+# names must exist, and the docs' names are lowercase. (publish.sh names
+# the docs since deleted on purpose: it leaves them out of the public
+# history.)
 missing=$(git ls-files -co --exclude-standard -- crates scenarios scripting scripts docs \
-    README.md CLAUDE.md | grep -vE '^(target|generated)/' \
+    README.md CLAUDE.md | grep -vE '^(target|generated)/|^scripts/publish\.sh$' \
   | xargs grep -ohE '\b(docs|scenarios|scripting)/[A-Za-z0-9_./-]+\.md\b' 2>/dev/null \
   | sort -u | while read f; do [ -e "$f" ] || echo "$f"; done)
 upper=$(ls docs | grep '[A-Z]')

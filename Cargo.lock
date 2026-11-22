@@ -1741,7 +1741,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "oni"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "bytemuck",
  "cpal",
@@ -1766,19 +1766,19 @@ dependencies = [
 
 [[package]]
 name = "oni-bink"
-version = "0.0.1"
+version = "0.5.0"
 
 [[package]]
 name = "oni-bytes"
-version = "0.0.1"
+version = "0.5.0"
 
 [[package]]
 name = "oni-config"
-version = "0.0.1"
+version = "0.5.0"
 
 [[package]]
 name = "oni-convert"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "fs4",
  "oni-bytes",
@@ -1797,7 +1797,7 @@ dependencies = [
 
 [[package]]
 name = "oni-dat"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "oni-bytes",
  "oni-fourcc",
@@ -1805,11 +1805,11 @@ dependencies = [
 
 [[package]]
 name = "oni-fourcc"
-version = "0.0.1"
+version = "0.5.0"
 
 [[package]]
 name = "oni-geom"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "oni-bytes",
  "oni-dat",
@@ -1817,7 +1817,7 @@ dependencies = [
 
 [[package]]
 name = "oni-schema"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -1825,14 +1825,14 @@ dependencies = [
 
 [[package]]
 name = "oni-sound"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "oni-dat",
 ]
 
 [[package]]
 name = "oni-template"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "oni-bytes",
  "oni-dat",
@@ -1843,11 +1843,11 @@ dependencies = [
 
 [[package]]
 name = "oni-template-gen"
-version = "0.0.1"
+version = "0.5.0"
 
 [[package]]
 name = "oni-texture"
-version = "0.0.1"
+version = "0.5.0"
 dependencies = [
  "oni-dat",
  "png",
