@@ -269,39 +269,41 @@ impl Blocking {
     }
 }
 
-/// The rooms' stamps, made as searches need them.
+/// The rooms' stamps, made as searches need them (shared by every search
+/// in a tick, hence the cell).
 #[derive(Clone, Debug, Default)]
 pub struct Obstructions {
-    rooms: HashMap<usize, Rc<Stamps>>,
+    rooms: std::cell::RefCell<HashMap<usize, Rc<Stamps>>>,
 }
 
 impl Obstructions {
     /// Room `room`'s stamps must be made again before they are next used
     /// (`PHrFlushDynamicGrid`: someone has just appeared there).
     pub fn flush(&mut self, room: usize) {
-        self.rooms.remove(&room);
+        self.rooms.get_mut().remove(&room);
     }
 
     /// Forgets every room's stamps.
     pub fn clear(&mut self) {
-        self.rooms.clear();
+        self.rooms.get_mut().clear();
     }
 
     /// Room `room`'s stamps at tick `now` (`PHrPrepareRoomForPath`): made
     /// again from `sources` if [`AGE`] old or flushed. None: it has no grid.
     pub fn room(
-        &mut self,
+        &self,
         nav: &Navigation,
         room: usize,
         now: u64,
         sources: &Sources,
     ) -> Option<Rc<Stamps>> {
         let g = nav.rooms.get(room)?.grid.as_ref()?;
-        if let Some(s) = self.rooms.get(&room).filter(|s| now < s.built + AGE) {
+        let mut rooms = self.rooms.borrow_mut();
+        if let Some(s) = rooms.get(&room).filter(|s| now < s.built + AGE) {
             return Some(s.clone());
         }
         let s = Rc::new(stamp(g, room, now, sources));
-        self.rooms.insert(room, s.clone());
+        rooms.insert(room, s.clone());
         Some(s)
     }
 }

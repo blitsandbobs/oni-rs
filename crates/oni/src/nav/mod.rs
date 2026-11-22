@@ -51,6 +51,10 @@ impl Grid {
     }
 }
 
+/// Whether square `c` of room `r` is held by an obstruction that blocks
+/// whoever is probing (`world/obstructions.rs`).
+pub type Obstructed<'a> = &'a dyn Fn(usize, (i32, i32)) -> bool;
+
 /// What a local probe found ([`Navigation::probe`]).
 #[derive(Clone, Copy, Debug)]
 pub struct LocalProbe {
@@ -278,8 +282,14 @@ impl Navigation {
     /// it may walk *out* of a bad area for a few squares at its start but
     /// stops on entering danger or a wall. Returns as a [`Probe`]: how far it
     /// is free, and whether (and where) the stop is danger rather than a wall.
-    pub fn look(&self, from: Vec3, dir: Vec2, dist: f32) -> crate::physics::Probe {
-        let l = self.probe(from, dir, dist, Square::Danger);
+    pub fn look(
+        &self,
+        from: Vec3,
+        dir: Vec2,
+        dist: f32,
+        obstructed: Option<Obstructed>,
+    ) -> crate::physics::Probe {
+        let l = self.probe(from, dir, dist, Square::Danger, obstructed);
         match l.stopped {
             Some(sq) => crate::physics::Probe {
                 free: l.free,
@@ -297,14 +307,24 @@ impl Navigation {
     /// `dist`, square by square across rooms, stopping at the first square
     /// at or above `stop` once on good ground (it may leave a bad area for 3
     /// squares at its start). How far it is free, the square it stopped at
-    /// (None: it got there), and the worst square crossed.
-    pub fn probe(&self, from: Vec3, dir: Vec2, dist: f32, stop: Square) -> LocalProbe {
+    /// (None: it got there), and the worst square crossed. Squares
+    /// `obstructed` says are held count as walls; leaving one straight into
+    /// a real wall stops it (`PHrLocalPathWeight`).
+    pub fn probe(
+        &self,
+        from: Vec3,
+        dir: Vec2,
+        dist: f32,
+        stop: Square,
+        obstructed: Option<Obstructed>,
+    ) -> LocalProbe {
         const STEP: f32 = grid::SQUARE * 0.5;
         const ESCAPE: f32 = 3.0 * grid::SQUARE;
         let mut room = self.room_at(from);
         let mut worst = Square::Clear;
         let mut escaped = false;
         let mut was_good = false;
+        let mut was_held = false;
         let mut last_good = 0.0;
         let mut t = 0.0;
         while t <= dist {
@@ -319,9 +339,22 @@ impl Navigation {
             if !in_room {
                 room = self.room_at(p);
             }
-            let sq = room.map_or(Square::Impassable, |r| self.rooms[r].square_at(p.x, p.z));
+            let held = room.is_some_and(|r| {
+                let cell = self.rooms[r]
+                    .grid
+                    .as_ref()
+                    .and_then(|g| g.cell_of(p.x, p.z));
+                cell.is_some_and(|c| obstructed.is_some_and(|o| o(r, c)))
+            });
+            let sq = if held {
+                Square::Impassable
+            } else {
+                room.map_or(Square::Impassable, |r| self.rooms[r].square_at(p.x, p.z))
+            };
+            let into_wall = was_held && !held && sq == Square::Impassable;
+            was_held = held;
             if sq >= stop {
-                if was_good || t > ESCAPE {
+                if was_good || t > ESCAPE || into_wall {
                     return LocalProbe {
                         free: last_good,
                         stopped: Some(sq),

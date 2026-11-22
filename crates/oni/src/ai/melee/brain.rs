@@ -28,6 +28,9 @@ pub struct View<'a> {
     /// when it has them, else the collision geometry.
     pub env: &'a crate::chrphys::Env<'a>,
     pub nav: Option<&'a crate::nav::Navigation>,
+    /// The grid squares obstructions hold against it (its own local view;
+    /// None: none counted).
+    pub obstructed: Option<crate::nav::Obstructed<'a>>,
     /// The body's cylinder: radius and height span above the feet, for an
     /// attack against it (`full`) and for planning our own (`planning`).
     pub full: (f32, (f32, f32)),
@@ -1103,6 +1106,7 @@ pub fn view<'a>(
         motion: &f.motion,
         env,
         nav,
+        obstructed: None,
         full,
         planning: (pr * 0.75, ph),
         alive: f.alive() && !f.motion.dying,
@@ -1309,7 +1313,12 @@ fn weigh_spacing(
 /// collision geometry.
 pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::physics::Probe {
     match me.nav {
-        Some(nav) => nav.look(me.feet + Vec3::Y * 2.0, glam::Vec2::new(dir.x, dir.z), dist),
+        Some(nav) => nav.look(
+            me.feet + Vec3::Y * 2.0,
+            glam::Vec2::new(dir.x, dir.z),
+            dist,
+            me.obstructed,
+        ),
         None => {
             let radius = if me.player {
                 crate::chrphys::PLAYER_LEAF

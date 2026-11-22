@@ -151,8 +151,10 @@ pub struct World {
     pub difficulty: crate::ai::melee::brain::Difficulty,
     /// The level's navigation data (rooms, portals, grids), if it has any.
     pub nav: Option<Rc<crate::nav::Navigation>>,
-    /// The rooms' pathfinding obstructions (`world/obstructions.rs`).
+    /// The rooms' pathfinding obstructions (`world/obstructions.rs`), and
+    /// this tick's snapshot of what decides whether they block.
     pub obstructions: crate::nav::dynamic::Obstructions,
+    obstruction_tick: Option<(u64, Rc<obstructions::Snapshot>)>,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
@@ -270,6 +272,7 @@ impl World {
             difficulty: Default::default(),
             nav: None,
             obstructions: Default::default(),
+            obstruction_tick: None,
             sounds: Vec::new(),
             level_ai: Default::default(),
             player_name: "player".into(),
@@ -784,6 +787,13 @@ impl World {
         };
         let level = self.level_ai.clone();
         let nav = self.nav.clone();
+        let snap = self.tick_snapshot();
+        let through: Vec<usize> = (0..self.fighters.len())
+            .filter(|&j| agent.paths_through(j, j == 0))
+            .collect();
+        let local = nav.as_deref().map(|n| {
+            obstructions::local_view(&self.obstructions, n, self.now as u64, &snap, i, through)
+        });
         let quads = &self.quads;
         let sight_fn = |a: Vec3, b: Vec3, skip: u32| quads.clear(a, b, skip);
         let path_fn = |a: Vec3, b: Vec3| match nav.as_deref() {
@@ -791,7 +801,15 @@ impl World {
             None => Some(a.distance(b)),
         };
         let probe_fn = |from: Vec3, dir: glam::Vec2, dist: f32, stop: crate::nav::Square| {
-            nav.as_deref().map(|n| n.probe(from, dir, dist, stop))
+            nav.as_deref().map(|n| {
+                n.probe(
+                    from,
+                    dir,
+                    dist,
+                    stop,
+                    local.as_ref().map(|f| f as crate::nav::Obstructed),
+                )
+            })
         };
         let now = self.now as u64;
         let quirks = self.quirks;
@@ -1875,12 +1893,18 @@ impl World {
                 *out = Some(Default::default()); // startled: just the turn
                 continue;
             }
+            let snap = self.tick_snapshot();
+            let through = self.paths_through(i);
             let Some(mut brain) = self.fighters[i].brain.take() else {
                 continue;
             };
             let nav = self.nav.as_deref();
+            let local = nav.map(|n| {
+                obstructions::local_view(&self.obstructions, n, self.now as u64, &snap, i, through)
+            });
             let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
-            let me = view(&self.fighters, nav, &env, i, target);
+            let mut me = view(&self.fighters, nav, &env, i, target);
+            me.obstructed = local.as_ref().map(|f| f as crate::nav::Obstructed);
             let them = view(&self.fighters, nav, &env, target, i);
             if let Some(m) = brain.melee_mut() {
                 *out = Some(m.think(

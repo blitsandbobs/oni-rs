@@ -41,6 +41,14 @@ assert(kind == "character" and who == a and not blocks, "a's own body doesn't")
 assert(nav_obstruction(bx - 8, by, bz, a) == "character", "two squares out")
 assert(nav_obstruction(bx - 12, by, bz, a) == nil, "not three")
 
+-- Its local probe (melee, dodging) stops at a body too: Konoko stands 20
+-- along -x (her block reaches 8 or so toward it).
+local free, stopped = nav_probe(a, -90, 30)
+print(string.format("a's probe toward Konoko: free %.1f, stopped at %s", free, tostring(stopped)))
+assert(free < 14 and stopped == "impassable", "her body stops a's probe")
+free = nav_probe(a, 90, 15)
+assert(free >= 15, "the other way is clear")
+
 -- An AI attacking the player may path through her (its combat target);
 -- another body still blocks it.
 local t = place("Bay2_Thug_1")

@@ -3214,6 +3214,25 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
+    // Fighter `id`'s AI local probe along the floor toward yaw `deg` up to
+    // `dist` (the level's grids, obstructions counted, as its local movement
+    // sees them) → how far it is free, and the square it stopped at (nil: it
+    // got all the way).
+    let h = host.clone();
+    g.set(
+        "nav_probe",
+        lua.create_function(move |_, (id, deg, dist): (usize, f32, f32)| {
+            let a = deg.to_radians();
+            let p = h
+                .borrow_mut()
+                .world
+                .local_probe(id, glam::Vec2::new(a.sin(), a.cos()), dist);
+            Ok(p.map_or((0.0, None), |p| {
+                (p.free, p.stopped.map(|s| format!("{s:?}").to_lowercase()))
+            }))
+        })?,
+    )?;
+
     // Navigation: fighter `id` walks (pace "run" / "walk") to a point
     // through the level, pathfinding; nav_state(id) reads its progress.
     let h = host.clone();

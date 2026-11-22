@@ -189,6 +189,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `goal_of(id: int)` | What fighter `id`'s AI is doing, as one line ("job idle", "pursuit …", …); "other" for a test brain, "none" without one. |
 | `neutral_of(id: int)` | fighter id's neutral interaction: {behavior (id), with (whom it talks with), line (0-based, nil before the conversation), accepted, begun, items_given, completed, resume_at} — nil without a behaviour or an interaction. |
 | `probe(id: int, deg: number, dist: number)` | Looks along the floor from fighter `id` toward yaw `deg` up to `dist`: the free distance before a wall, and the distance to a ledge (or nil). |
+| `nav_probe(id: int, deg: number, dist: number)` | Fighter `id`'s AI local probe along the floor toward yaw `deg` up to `dist` (the level's grids, obstructions counted, as its local movement sees them) → how far it is free, and the square it stopped at (nil: it got all the way). |
 | `go_to(id: int, x: number, y: number, z: number, pace: string?)` | Navigation: fighter `id` walks (pace "run" / "walk") to a point through the level, pathfinding; nav_state(id) reads its progress. |
 | `nav_path(id: int)` | The waypoints fighter `id` is following (`go_to` or an agent's) → {{x, z, radius, next}, …} (next: the one it heads for); empty without a path. |
 | `nav_state(id: int)` | Fighter `id`'s navigation → "planning", "following", "arrived", "failed: …", or "none". |

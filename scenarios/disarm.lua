@@ -47,6 +47,10 @@ assert(weapon(0) == "w1_tap" and weapon(e) == nil and #loose_guns() == loose + 1
 step(200)
 set_facing(0, 0)
 local rx, ry, rz = pos()
+-- (The dummies stepped aside: bodies by her are obstructions to its look
+-- past her, `AI2rMelee_TestLocalEnvironment`.)
+teleport(d, rx + 60, ry + 5, rz)
+teleport(e, rx - 60, ry + 5, rz)
 local s = spawn(rx, ry + 5, rz + 20, 180, "striker_med_1")
 step(30)
 team(s, "syndicate")
