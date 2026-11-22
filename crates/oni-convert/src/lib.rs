@@ -228,9 +228,58 @@ pub fn convert_with(
     output_dir: &Path,
     scripts_dir: Option<&Path>,
 ) -> std::io::Result<Report> {
+    convert_reporting(input_dir, output_dir, scripts_dir, &mut |_| true)
+}
+
+/// How far a conversion has come: what it is doing, and the fraction of the
+/// whole done (0–1).
+#[derive(Clone, Debug, PartialEq)]
+pub struct Progress {
+    pub stage: Stage,
+    pub done: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum Stage {
+    /// Reading the game data files.
+    Reading,
+    /// Gathering what every file needs from the others.
+    Indexing,
+    /// Converting one file (`common`, `levels/03`, …).
+    Converting(String),
+    /// Writing the shared assets and the manifest.
+    Finishing,
+    Done,
+}
+
+/// The fraction of the work before the files are converted, and after.
+const BEFORE: f32 = 0.08;
+const AFTER: f32 = 0.05;
+
+/// [`convert_with`], telling `progress` how far it has come; when it
+/// returns false the conversion stops (an `Interrupted` error), leaving
+/// `output_dir` part-written.
+pub fn convert_reporting(
+    input_dir: &Path,
+    output_dir: &Path,
+    scripts_dir: Option<&Path>,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> std::io::Result<Report> {
+    let mut tell = |stage: Stage, done: f32| {
+        if progress(Progress { stage, done }) {
+            Ok(())
+        } else {
+            Err(std::io::Error::new(
+                std::io::ErrorKind::Interrupted,
+                "conversion cancelled",
+            ))
+        }
+    };
+    tell(Stage::Reading, 0.0)?;
     std::fs::create_dir_all(output_dir)?;
     copy_movies(input_dir, output_dir)?;
     let (files, source_files) = load_files(input_dir)?;
+    tell(Stage::Indexing, BEFORE / 2.0)?;
     let dats = files
         .iter()
         .map(|f| Dat::parse(&f.bytes).map_err(|e| std::io::Error::other(format!("{e}"))))
@@ -246,8 +295,18 @@ pub fn convert_with(
     let registry = oni_template::Registry::load();
     let level0 = files.first().filter(|f| f.level == 0).map(|_| &dats[0]);
     let mut common = Common::new();
+    // (Each file's share of the work by its size.)
+    let size = |f: &FileCtx| (f.bytes.len() + f.raw.as_ref().map_or(0, Vec::len)) as f32;
+    let total: f32 = files.iter().map(size).sum::<f32>().max(1.0);
+    let mut done = 0.0;
     // Per file, export canonical-named + unnamed assets, resolving refs.
     for (fi, (f, dat)) in files.iter().zip(&dats).enumerate() {
+        let span = 1.0 - BEFORE - AFTER;
+        tell(
+            Stage::Converting(f.root.clone()),
+            BEFORE + span * done / total,
+        )?;
+        done += size(f);
         let x = Pass {
             fi,
             index: &index,
@@ -259,8 +318,44 @@ pub fn convert_with(
         let stats = convert_file(&x, f, dat, &mut common, &mut report)?;
         report.levels.insert(f.root.clone(), stats);
     }
+    tell(Stage::Finishing, 1.0 - AFTER)?;
     write_common(output_dir, common, &index)?;
     write_manifest(output_dir, &report, &source_files)?;
+    tell(Stage::Done, 1.0)?;
+    Ok(report)
+}
+
+/// Converts into `output_dir` as a whole or not at all: into a
+/// `<name>.partial` beside it first, put in its place only once complete
+/// (the old tree, if any, removed then). Cancelled or failed, the partial
+/// tree is removed and `output_dir` is as it was.
+pub fn install(
+    input_dir: &Path,
+    output_dir: &Path,
+    scripts_dir: Option<&Path>,
+    progress: &mut dyn FnMut(Progress) -> bool,
+) -> std::io::Result<Report> {
+    let sibling = |ext: &str| {
+        let mut name = output_dir.file_name().unwrap_or_default().to_os_string();
+        name.push(ext);
+        output_dir.with_file_name(name)
+    };
+    let (partial, old) = (sibling(".partial"), sibling(".old"));
+    let _ = std::fs::remove_dir_all(&partial);
+    let result = convert_reporting(input_dir, &partial, scripts_dir, progress);
+    let report = match result {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = std::fs::remove_dir_all(&partial);
+            return Err(e);
+        }
+    };
+    let _ = std::fs::remove_dir_all(&old);
+    if output_dir.exists() {
+        std::fs::rename(output_dir, &old)?;
+    }
+    std::fs::rename(&partial, output_dir)?;
+    let _ = std::fs::remove_dir_all(&old);
     Ok(report)
 }
 
