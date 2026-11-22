@@ -98,7 +98,7 @@ pub struct Clip {
     /// frame — it carries the body's vertical bob. Empty if the clip has none.
     pub heights: Vec<f32>,
     /// Action type (`TRtAnimType`): Run, Stand, Idle, Run_Start, … Drives the
-    /// locomotion state machine (see [`crate::anim_state`]).
+    /// locomotion state machine (see [`crate::anim`]).
     pub anim_type: u16,
     /// Body state this clip starts from (`TRtAnimState`).
     pub from_state: u16,

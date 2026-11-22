@@ -89,8 +89,6 @@ type Flare = (Handle, Vec3, f32, Option<(u16, u16)>);
 const NEAR: f32 = 5.0;
 
 impl World {
-    /// Whether a lens flare's point is seen from the camera, `tolerance`
-    /// in front of it counting as seen.
     /// Whether a point `to` from the camera is on the screen, give or take
     /// an octree leaf (see the module notes).
     pub(super) fn in_view(&self, to: Vec3) -> bool {
@@ -108,6 +106,8 @@ impl World {
             && to.dot(right).abs() <= ahead * tan_y * cam.aspect + slack(tan_y * cam.aspect)
     }
 
+    /// Whether a lens flare's point is seen from the camera, `tolerance`
+    /// in front of it counting as seen.
     fn lens_visible(&self, at: Vec3, tolerance: f32, bodies: &[super::weapons::RayBody]) -> bool {
         let v = self.camera.view;
         let to = at - v.location;

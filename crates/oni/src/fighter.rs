@@ -182,7 +182,7 @@ pub struct Aim {
 
 /// One character instance in the world.
 pub struct Fighter {
-    /// Uploaded render-model index (see [`crate::draw::Renderer::add_character`]).
+    /// Uploaded render-model index (see [`crate::render::Renderer::add_character`]).
     pub model: usize,
     /// Its low body's model (magic effects are drawn over it).
     pub magic_model: Option<usize>,
@@ -590,7 +590,7 @@ impl Fighter {
     #[cfg(test)]
     pub fn tick(&mut self, held: u32, opponents: &[Opponent], env: &chrphys::Env) {
         if let Some(world) = self.plan(held, 0, opponents) {
-            self.commit(world, env);
+            let _ = self.commit(world, env);
         }
     }
 
@@ -935,8 +935,10 @@ impl Fighter {
     }
 
     /// The second half of a tick: apply the (possibly adjusted) move against
-    /// the level, detect landing / ledges, and update the placement.
-    pub fn commit(&mut self, world: Vec3, env: &chrphys::Env) {
+    /// the level, detect landing / ledges, and update the placement. Returns
+    /// what the move touched.
+    pub fn commit(&mut self, world: Vec3, env: &chrphys::Env) -> chrphys::Contacts {
+        let mut contacts = chrphys::Contacts::default();
         let start = self.physics.feet;
         // An environment animation places it (its pelvis on the clip's
         // path); without collision the move is taken as it is: no spheres, no
@@ -948,7 +950,7 @@ impl Fighter {
             self.ground_pull = None;
             self.physics.feet += world;
         } else {
-            self.collide_move(start, world, env);
+            self.collide_move(start, world, env, &mut contacts);
         }
         self.physics.grounded = self.motion.air.frames == 0 && self.motion.air.off_ground == 0;
         self.velocity = self.physics.feet - start;
@@ -958,6 +960,7 @@ impl Fighter {
             self.hit_set.clear();
             self.started = Some(self.motion.clip);
         }
+        contacts
     }
 
     /// Where an environment animation puts it this tick (the clip's
@@ -975,7 +978,13 @@ impl Fighter {
     }
 
     /// The move against the level: the spheres, then the floor pass.
-    fn collide_move(&mut self, start: Vec3, mut world: Vec3, env: &chrphys::Env) {
+    fn collide_move(
+        &mut self,
+        start: Vec3,
+        mut world: Vec3,
+        env: &chrphys::Env,
+        contacts: &mut chrphys::Contacts,
+    ) {
         if let Some(plain) = self.ground_pull.take() {
             world.y -= chrphys::ground_gravity(env.quads, start, plain);
         }
@@ -984,9 +993,14 @@ impl Fighter {
         let tree = self.tree();
         let rising = Vec3::new(world.x, world.y.max(0.0), world.z);
         let gravity = world.y.min(0.0);
+        // (A body's touches go unnoted.)
         let no_doors = chrphys::Env::new(env.quads, &[]);
-        let env = if self.motion.corpse { &no_doors } else { env };
-        self.physics.feet += chrphys::resolve(env, &tree, rising, self.player);
+        let (env, noted) = if self.motion.corpse {
+            (&no_doors, None)
+        } else {
+            (env, Some(contacts))
+        };
+        self.physics.feet += chrphys::resolve(env, &tree, rising, self.player, noted);
         if gravity != 0.0 {
             let landing = is_landing(self.motion.kind);
             let in_air = self.motion.air.frames > 0;

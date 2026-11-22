@@ -12,9 +12,9 @@
 //!   entries, material indices), translators from the file's impact and
 //!   material numbers — their place in the list — to names (128-byte name,
 //!   then 4 bytes of runtime numbers; 132 bytes each),
-//!   a lookup per impact (8 bytes), particle records (84: class name[64],
+//!   a lookup per impact (8 bytes), particle records (84: class `name[64]`,
 //!   collision orientation u32, location type u32, location data 8 bytes
-//!   after a 4-byte runtime slot), sound records (48: impulse name[32], 8
+//!   after a 4-byte runtime slot), sound records (48: impulse `name[32]`, 8
 //!   runtime bytes, u16 flags — bit 0: AIs hear it —, u16 AI sound type, f32
 //!   AI radius), entries (20: u16 impact, u16 material, u16 component — 0
 //!   impact, 1 damage, 2 projectile —, u16 modifier — 0 any, 1 heavy, 2

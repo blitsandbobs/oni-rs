@@ -1,4 +1,4 @@
-//! A minimal glTF 2.0 binary (`.glb`) writer for a single [`Mesh`](crate::Mesh).
+//! A minimal glTF 2.0 binary (`.glb`) writer for a single [`crate::Mesh`].
 //!
 //! Hand-built (no serde/gltf dependency) because the structure is fixed: one
 //! buffer, up to four accessors (indices, POSITION, NORMAL, TEXCOORD_0), one

@@ -90,13 +90,13 @@ struct ScriptHost {
     taps: u32,
     eye: Option<Vec3>,
     target: Option<Vec3>,
-    /// The level's own scripts, once begun (`mission_begin`).
+    /// The level's own scripts, once begun (`mission_begin()`).
     mission: Option<crate::mission::Mission>,
     /// The converted assets' root (`…/oni`).
     oni_root: std::path::PathBuf,
     /// The main menu up (`menu_open`), and its data.
     menu: Option<(crate::hud::menu::Data, crate::hud::menu::MainMenu)>,
-    /// Where `menu_press` holds the left button down (screen, 640 × 480),
+    /// Where `menu_press()` holds the left button down (screen, 640 × 480),
     /// and the timer's clock it advances (`menu_timer`).
     menu_held: Option<([f32; 2], std::time::Instant)>,
     /// The level-load dialog shown alone (`menu_loading`).
@@ -613,7 +613,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Whether fighter `id` has finished its `patrol` route (true too when it has
+    // Whether fighter `id` has finished its `patrol()` route (true too when it has
     // none).
     let h = host.clone();
     g.set(
@@ -1360,7 +1360,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
     // What the level scripts are doing → {tasks, waiting = {…}, errors = {…},
     // objective, outcome, spawned, messages = {…}, stubbed = {command, …}}; an
-    // empty table before `mission_begin`.
+    // empty table before `mission_begin()`.
     let h = host.clone();
     g.set(
         "mission_info",
@@ -2198,7 +2198,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             mat(lua, m).map(Some)
         })?,
     )?;
-    // The gun in fighter `id`'s hand, as `bone` → {x, y, z, at}; nil unarmed.
+    // The gun in fighter `id`'s hand, as `bone()` → {x, y, z, at}; nil unarmed.
     let h = host.clone();
     g.set(
         "held_gun",
@@ -2542,7 +2542,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
-    // How many guns no one holds (as `loose_guns`: not those gone).
+    // How many guns no one holds (as `loose_guns()`: not those gone).
     let h = host.clone();
     g.set(
         "weapons_lying",
@@ -2883,7 +2883,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(run(&mut host, cmds))
         })?,
     )?;
-    // Fires the menu's timer `n` times (200 ms each) while `menu_press` holds the
+    // Fires the menu's timer `n` times (200 ms each) while `menu_press()` holds the
     // button, so a held slider steps on → what the menu asks for, as menu_click.
     let h = host.clone();
     g.set(
@@ -2906,7 +2906,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(run(&mut host, cmds))
         })?,
     )?;
-    // Lets go of the button `menu_press` held → what the menu asks for, as
+    // Lets go of the button `menu_press()` held → what the menu asks for, as
     // menu_click (nil: nothing held).
     let h = host.clone();
     g.set(
@@ -3263,7 +3263,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             },
         )?,
     )?;
-    // The waypoints fighter `id` is following (`go_to` or an agent's) → {{x, z,
+    // The waypoints fighter `id` is following (`go_to()` or an agent's) → {{x, z,
     // radius, next}, …} (next: the one it heads for); empty without a path.
     let h = host.clone();
     g.set(
@@ -3616,7 +3616,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Renders one frame (default 800 × 600) to a PNG at `path`: the game camera,
-    // or `cam`'s, with the HUD or menu on top.
+    // or `cam()`'s, with the HUD or menu on top.
     let h = host.clone();
     g.set(
         "screenshot",
@@ -3631,7 +3631,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
 
     // render_frames(n, w, h[, step]) → the mean wall time of a frame in ms,
     // drawn offscreen and read back n times (a game tick between frames if
-    // `step`): for profiling the renderer.
+    // `step()`): for profiling the renderer.
     let h = host.clone();
     g.set(
         "render_frames",

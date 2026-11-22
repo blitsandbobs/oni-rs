@@ -6,8 +6,9 @@
 //! <out>/common/                  GLOBAL named assets (shared, by name) + level0
 //!        ├── textures/*.png  audio/*.wav  models/*.glb
 //! <out>/levels/NN/               level N's UNNAMED, level-local assets
-//!        ├── textures/  models/
-//! <out>/levels/NN/level.json     the level's objects (semantic data)
+//!        ├── textures/  environment.glb  quads.bin  navigation.*
+//! <out>/levels/NN/*.json         the level's objects (semantic data: level.json,
+//!                                doors, consoles, patrols, scripts.lua, …)
 //! ```
 //!
 //! ## Cross-file resolution
@@ -623,9 +624,6 @@ pub fn convert_with(
     Ok(report)
 }
 
-/// The game settings (`ONGS`) the engine uses: per-difficulty multipliers
-/// (easy, normal, hard) on the AI's attack notice, block and dodge chances
-/// and its aim inaccuracy.
 /// The part specifications (`PSpc`, `WM_PartSpecification.h`): nine-slice
 /// frames on a texture — by name, the texture, and each slice's texel
 /// corners (`tl` / `br`, nine `[x, y]` each, column by column: left column
@@ -704,6 +702,10 @@ fn powerup_models(dat: &Dat<'_>, settings: &mut oni_schema::files::GameSettingsF
     }
 }
 
+/// The game settings (`ONGS`) the engine uses: per-difficulty multipliers
+/// (easy, normal, hard) on the AI's attack notice, block and dodge chances
+/// and its aim inaccuracy, and on the player's and the enemies' hit points;
+/// and the powerups.
 fn collect_game_settings(
     dat: &Dat<'_>,
     registry: &oni_template::Registry,
@@ -1398,7 +1400,7 @@ fn texture_animations(
     }
 }
 
-/// A big texture's whole image (`M3tTextureMap_Big`: pad[8], width@8,
+/// A big texture's whole image (`M3tTextureMap_Big`: `pad[8]`, width@8,
 /// height@10, texel type@12, tiles across@16 and down@18 — zero as stored,
 /// worked out at load as the 256-pixel tiles the size needs — tile
 /// count@20, tiles@24), its tiles laid row by row 256 apart, each's

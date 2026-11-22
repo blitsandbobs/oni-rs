@@ -17,9 +17,9 @@
 //!
 //! The header's `version` field is `VR31`, stored in the file's native byte
 //! order; comparing it both ways tells us the endianness (PC = little, Mac =
-//! big). See [`FourCc`](oni_fourcc::FourCc) for how tags map to `u32`s.
+//! big). See [`oni_fourcc::FourCc`] for how tags map to `u32`s.
 //!
-//! Each [`InstanceDescriptor`] on disk is five `u32`s:
+//! Each instance descriptor on disk is five `u32`s:
 //! `templateTag, dataOffset, nameOffset, size, flags`. On load the engine turns
 //! `templateTag` into a template pointer, `dataOffset` into `dataBlock +
 //! offset` (unless the instance is a placeholder), and `nameOffset` into

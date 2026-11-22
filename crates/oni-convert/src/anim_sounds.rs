@@ -5,8 +5,8 @@
 //!
 //! The rows are level 0's binary data `SABD`, one per variant (named
 //! `DBAS<variant>`): tagged chunks (tag u32, length u32, data): `SAFT`
-//! (version), `SAVT` (the variant's name[32]), then `SASA` rows — frame u32,
-//! weight name[32], type name[32], clip name[32], impulse name[32].
+//! (version), `SAVT` (the variant's `name[32]`), then `SASA` rows — frame u32,
+//! weight `name[32]`, type `name[32]`, clip `name[32]`, impulse `name[32]`.
 
 use std::collections::BTreeMap;
 use std::path::Path;

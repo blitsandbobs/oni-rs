@@ -755,8 +755,10 @@ impl ApplicationHandler for App {
                     }
                     if code == KeyCode::Escape && event.state == ElementState::Pressed {
                         if st.play.is_some() {
-                            // Play mode: Esc releases/recaptures the mouse (close
-                            // the window to quit); otherwise Esc quits.
+                            // Play without the main menu (a developer launch, `--play`):
+                            // Esc releases / recaptures the mouse (close the window to
+                            // quit); otherwise Esc quits. (With the menu, Esc opens it,
+                            // above.)
                             st.captured = !st.captured;
                             st.mouse_held.clear();
                         } else {

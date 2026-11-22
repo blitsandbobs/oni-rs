@@ -61,7 +61,9 @@ pub struct AnimCollection {
     links: Vec<Link>,
     /// The level being played: clips whose `firstLevel` is later are skipped.
     level: u16,
-    /// Seeded generator for weighted picks (deterministic per seed).
+    /// Seeded generator for weighted picks (deterministic per seed), shared
+    /// by every fighter of the class — as the original draws them all from
+    /// its one random stream (`UUmRandomRange` in `TRrCollection_Lookup`).
     rng: Cell<u32>,
 }
 

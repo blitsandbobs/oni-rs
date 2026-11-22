@@ -280,7 +280,7 @@ impl Navigation {
     /// Looks along the floor from `from` in direction `dir` (unit, x / z) up to
     /// `dist`, square by square across rooms (the original's local probe):
     /// it may walk *out* of a bad area for a few squares at its start but
-    /// stops on entering danger or a wall. Returns as a [`Probe`]: how far it
+    /// stops on entering danger or a wall. Returns as a [`crate::chrphys::Probe`]: how far it
     /// is free, and whether (and where) the stop is danger rather than a wall.
     pub fn look(
         &self,
@@ -288,14 +288,14 @@ impl Navigation {
         dir: Vec2,
         dist: f32,
         obstructed: Option<Obstructed>,
-    ) -> crate::physics::Probe {
+    ) -> crate::chrphys::Probe {
         let l = self.probe(from, dir, dist, Square::Danger, obstructed);
         match l.stopped {
-            Some(sq) => crate::physics::Probe {
+            Some(sq) => crate::chrphys::Probe {
                 free: l.free,
                 ledge: (sq == Square::Danger).then_some(l.free),
             },
-            None => crate::physics::Probe {
+            None => crate::chrphys::Probe {
                 free: dist,
                 ledge: None,
             },

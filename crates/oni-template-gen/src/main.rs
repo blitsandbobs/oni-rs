@@ -1,12 +1,12 @@
 //! One-time codegen tool: parse Oni's C `tm_template`/`tm_struct`/`tm_enum`
-//! declarations and emit a standalone Rust file of [`oni_template::Layout`]s.
+//! declarations and emit a standalone Rust file of `oni_template::Layout`s.
 //!
 //! The emitted file (`crates/oni-template/src/generated.rs`) is committed and
 //! is the preservation artifact — after running this once, the original C
 //! source is no longer needed to read any Oni file type.
 //!
 //! Usage:
-//!   cargo run -p oni-template-gen -- <OniSource dir> <out generated.rs>
+//!   `cargo run -p oni-template-gen -- <OniSource dir> <out generated.rs>`
 //!
 //! This is a pragmatic C-subset parser, not a full compiler front end. It
 //! handles comments, `#if UUmPlatform` blocks (keeping Win32), scalar
@@ -530,7 +530,7 @@ fn parse_field(s: &str) -> Option<RawField> {
     })
 }
 
-/// Splits a declarator like `name[4][2]` into (name, [4,2]).
+/// Splits a declarator like `name[4][2]` into (name, `[4, 2]`).
 fn split_name_dims(decl: &str) -> (String, Vec<u32>) {
     let decl = decl.trim_end_matches(';').trim();
     let name: String = decl.chars().take_while(|c| is_ident(*c)).collect();

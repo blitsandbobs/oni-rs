@@ -200,7 +200,7 @@ pub struct Melee {
     /// Test hook: use this technique next (by name), if it can be used.
     pub force: Option<String>,
     /// This tick's look along the floor toward the target.
-    ahead: Option<crate::physics::Probe>,
+    ahead: Option<crate::chrphys::Probe>,
     difficulty: Difficulty,
     pub(super) quirks: crate::quirks::Quirks,
     /// Its super shield is still charging: no super moves yet
@@ -1021,7 +1021,7 @@ impl Melee {
     }
 
     /// The floor toward the target, looked at once per tick.
-    fn look_ahead(&self, me: &View, target: &View) -> crate::physics::Probe {
+    fn look_ahead(&self, me: &View, target: &View) -> crate::chrphys::Probe {
         if let Some(p) = self.ahead {
             return p;
         }
@@ -1340,7 +1340,7 @@ fn weigh_spacing(
 /// Looks along the floor (walls, and ledges deeper than `drop`): through
 /// the level's grids if it has them (their danger squares), else the
 /// collision geometry.
-pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::physics::Probe {
+pub(super) fn floor_probe(me: &View, dir: Vec3, dist: f32, drop: f32) -> crate::chrphys::Probe {
     match me.nav {
         Some(nav) => nav.look(
             me.feet + Vec3::Y * 2.0,
@@ -1387,7 +1387,7 @@ pub(super) fn movement_safety(me: &View, dir: Vec3, dist: f32) -> f32 {
 }
 
 /// The danger cost of moving `dist` along a probed way.
-fn safety(probe: crate::physics::Probe, dist: f32) -> f32 {
+fn safety(probe: crate::chrphys::Probe, dist: f32) -> f32 {
     if dist <= 0.0 {
         return 1.0;
     }

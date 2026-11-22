@@ -1,7 +1,7 @@
 //! The **world**: the set of [`Fighter`]s sharing one level, plus the shared
 //! resources needed to spawn more of them. Both front-ends (play mode and the
-//! Lua harness) build a `World`, drive its fighters each tick, then call
-//! [`World::resolve_hits`] so melee connects between characters.
+//! Lua harness) build a `World` and advance it a tick at a time
+//! ([`World::step`]: input, AI, moves, blows, weapons, effects).
 //!
 //! A spawnable character is a [`CharKind`]: an uploaded render model plus the
 //! shared skeleton/mesh and animation set. Spawning clones the two `Rc`s and
@@ -2337,7 +2337,6 @@ impl World {
     /// pushed.
     fn commit_moves(&mut self, mut moves: Vec<Option<Vec3>>) {
         self.collide(&mut moves);
-        let touched = std::cell::RefCell::new(crate::chrphys::Contacts::default());
         let mut touches = Vec::new();
         // (The objects' spheres; for an AI the loose guns' too — the player
         // walks over guns, `ONrCharacter_Callback_FindPhyCollisions`.)
@@ -2359,16 +2358,13 @@ impl World {
             }))
             .collect();
         let mut env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
-        env.touched = Some(&touched);
         let mut ai_env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
-        ai_env.touched = Some(&touched);
         ai_env.spheres = &with_guns;
         env.spheres = &spheres;
         let mut gun_pushes: Vec<(usize, usize, Vec3)> = Vec::new();
         for (i, (f, m)) in self.fighters.iter_mut().zip(moves).enumerate() {
             if let Some(m) = m {
-                f.commit(m, if f.player { &env } else { &ai_env });
-                let c = std::mem::take(&mut *touched.borrow_mut());
+                let c = f.commit(m, if f.player { &env } else { &ai_env });
                 f.collisions.0 = c.walls;
                 f.collisions.1 = c.objects;
                 // (The AI's own movement is told what it met.)
@@ -2564,14 +2560,11 @@ impl World {
         }
     }
 
-    /// Plays an impact effect: for each
-    /// slot the impact × material × weight finds, its sound at `at` (quieter
-    /// for a slow hit: `velocity`) and the noise the AI hears (its radius ×
-    /// `ai_scale`, credited to `ai1`, `ai2`). (Its particles: not yet.)
+    /// Plays an impact effect (`ONrImpactEffect`): for each slot the impact
+    /// × material × weight finds, its sound (louder the faster the parent
+    /// was going), the noise the AI hears (its radius × `ai_scale`, credited
+    /// to `ai1`, `ai2`), then its particles in turn from `data`.
     #[allow(clippy::too_many_arguments)]
-    /// `ONrImpactEffect`: each slot's entry plays its sound (louder the
-    /// faster the parent was going), raises its noise, then makes its
-    /// particles in turn from `data`.
     pub fn impact_effect(
         &mut self,
         impact: u16,

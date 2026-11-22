@@ -14,7 +14,7 @@ use crate::{cstr, le_f32, le_u16};
 const NAME: usize = 63;
 
 /// The door classes' sounds (`DOOR`): the impulse played opening and
-/// closing (names[32] @28, @60) and the noise the AI hears (u32 type @20,
+/// closing (`names[32]` @28, @60) and the noise the AI hears (u32 type @20,
 /// −1 none; f32 radius @24).
 pub fn class_sounds(dat: &Dat<'_>) -> BTreeMap<String, files::DoorClass> {
     const TAG_DOOR: oni_dat::FourCc = oni_dat::FourCc(u32::from_be_bytes(*b"DOOR"));

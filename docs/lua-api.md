@@ -31,7 +31,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `patrol(id: int, points: table, pace: string?, looping: bool?)` | AI: walk fighter `id` along `points` ({{x, z}, …}) at `pace` ("run", "walk" or "creep"), optionally looping; `route_done(id)` reads progress. |
 | `ai_order(id: int, dir: string, pace: string?, face: number?)` | AI: hold fixed orders — direction "forward" \| "backpedal" \| "left" \| "right" \| "stop", pace "run" \| "walk" \| "creep", optional facing (deg). |
 | `spar(id: int, target: int)` | AI: make fighter `id` fight fighter `target` (a sparring partner). |
-| `route_done(id: int)` | Whether fighter `id` has finished its `patrol` route (true too when it has none). |
+| `route_done(id: int)` | Whether fighter `id` has finished its `patrol()` route (true too when it has none). |
 | `set_facing(id: int, deg: number)` | Test hook: turn any fighter to an absolute yaw (body and target). |
 | `knock(id: int, kind: int)` | Test hook: force a reaction (e.g. a knockdown) on any fighter. |
 | `type_of(id: int)` | Fighter `id`'s current animation type number (0: no such fighter). |
@@ -79,7 +79,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `mission_begin(run: bool?, save_point: int?)` | The level's own scripts (`docs/lua.md`): begins the level (the player at its placement, the characters present from the start, `main`). `run` false: the scripts loaded but the level's start not run; `save_point` n: begun from the level's save point n. |
 | `world_stats()` | what the world holds, for finding a runaway: live particles (and the busiest classes), weapons, fighters, corpses. |
 | `laser_eyes()` | {{x, y, z}, …}: where the laser triggers' emitter eyes are drawn (#78). |
-| `mission_info()` | What the level scripts are doing → {tasks, waiting = {…}, errors = {…}, objective, outcome, spawned, messages = {…}, stubbed = {command, …}}; an empty table before `mission_begin`. |
+| `mission_info()` | What the level scripts are doing → {tasks, waiting = {…}, errors = {…}, objective, outcome, spawned, messages = {…}, stubbed = {command, …}}; an empty table before `mission_begin()`. |
 | `named(name: string)` | The fighter id of the live scripted character called `name` (its `chr_create` name; case matters), or nil. |
 | `play_film(id: int, name: string, mode: string?)` | Plays a level film on fighter `id` (mode "", "fromhere", "interp"); returns its length in ticks, or nil. |
 | `alarm(id: int, console: int?)` | Sends an AI to raise the alarm at console `console` (nil: the nearest). |
@@ -131,7 +131,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `particle_textures(class: string)` | {file stem, …}: the texture each live particle of a class shows now (an animated one's current frame). |
 | `shadow(id: int)` | {alpha, quad, vertices, positions} or nil: fighter `id`'s shadow this frame (and the quad it was placed by). |
 | `bone(id: int, k: int)` | Fighter `id`'s posed bone k in world space → {x={…}, y={…}, z={…}, at={…}} (axes and position); nil: no such fighter or bone. |
-| `held_gun(id: int)` | The gun in fighter `id`'s hand, as `bone` → {x, y, z, at}; nil unarmed. |
+| `held_gun(id: int)` | The gun in fighter `id`'s hand, as `bone()` → {x, y, z, at}; nil unarmed. |
 | `sight(id: int)` | {from, to, target, laser, tunnel}: fighter id's gun sight this tick (nil without one); target "none" \| "environment" \| "object" \| "character", laser its {r, g, b} (nil without one), tunnel how many sprites. |
 | `gun_through_wall(id: int)` | Whether fighter `id`'s gun pokes through a wall (`ONrCharacter_IsGunThroughWall`): such a gun neither fires nor shows its sight. |
 | `show_decals(on: bool)` | whether screenshots draw the decals (to compare). |
@@ -155,7 +155,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `inventory(id: int)` | Fighter `id`'s inventory → ammo clips, energy cells, hypos (0s: no such fighter). |
 | `powerups_lying()` | How many powerups lie about the level. |
 | `powerups()` | {{kind, at={x,y,z}, falling}, …}: the powerups lying about (falling: still with physics). |
-| `weapons_lying()` | How many guns no one holds (as `loose_guns`: not those gone). |
+| `weapons_lying()` | How many guns no one holds (as `loose_guns()`: not those gone). |
 | `laser(id: int, what: string, factor: number?)` | Orders laser trigger `id` ("activate", "deactivate", "reset", "hide", "show", "speed" with a factor). |
 | `laser_state(id: int)` | Laser trigger `id` → active, on, triggered, and how many beams are out (all nil: no such laser). |
 | `beams()` | Laser beams out now: a list of {x1, y1, z1, x2, y2, z2}. |
@@ -174,8 +174,8 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `menu_state()` | The menu dialog on top → {dialog, depth, rows, selected, visible = {id = title}, checks = {id = on}, sliders = {id = value}, popups = {id = item}}, or nil when none is up. |
 | `menu_click(id: int)` | Clicks control `id` of the menu dialog on top (near its middle) → what the menu asks for ("new_game", "new_game faithful", "load L S", "resume", "quit", "options"), or nil; errors if the control isn't showing. |
 | `menu_press(id: int, f: number)` | the left button down on control `id`, a fraction `f` of the way across it (held, for menu_timer / menu_release) → what the menu asks for, as menu_click. |
-| `menu_timer(n: int)` | Fires the menu's timer `n` times (200 ms each) while `menu_press` holds the button, so a held slider steps on → what the menu asks for, as menu_click. |
-| `menu_release()` | Lets go of the button `menu_press` held → what the menu asks for, as menu_click (nil: nothing held). |
+| `menu_timer(n: int)` | Fires the menu's timer `n` times (200 ms each) while `menu_press()` holds the button, so a held slider steps on → what the menu asks for, as menu_click. |
+| `menu_release()` | Lets go of the button `menu_press()` held → what the menu asks for, as menu_click (nil: nothing held). |
 | `menu_loading(percent: int?)` | the level-load dialog alone over black, its bar at `percent` (screenshots draw it); menu_loading() hides it. |
 | `menu_key(name: string)` | Presses a key on the menu: "enter", "escape", "up", "down", "left", "right", "home", "end", "pageup", "pagedown" → what the menu asks for, as menu_click. |
 | `look_at(id: int, x: number?, y: number?, z: number?)` | an agent looks at a point (as `ai2_lookatme`); look_at(id): it stops looking. |
@@ -191,7 +191,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `probe(id: int, deg: number, dist: number)` | Looks along the floor from fighter `id` toward yaw `deg` up to `dist`: the free distance before a wall, and the distance to a ledge (or nil). |
 | `nav_probe(id: int, deg: number, dist: number)` | Fighter `id`'s AI local probe along the floor toward yaw `deg` up to `dist` (the level's grids, obstructions counted, as its local movement sees them) → how far it is free, and the square it stopped at (nil: it got all the way). |
 | `go_to(id: int, x: number, y: number, z: number, pace: string?)` | Navigation: fighter `id` walks (pace "run" / "walk") to a point through the level, pathfinding; nav_state(id) reads its progress. A new point while walking may keep the path (within 90 ticks, 20 of the last). |
-| `nav_path(id: int)` | The waypoints fighter `id` is following (`go_to` or an agent's) → {{x, z, radius, next}, …} (next: the one it heads for); empty without a path. |
+| `nav_path(id: int)` | The waypoints fighter `id` is following (`go_to()` or an agent's) → {{x, z, radius, next}, …} (next: the one it heads for); empty without a path. |
 | `nav_legs(id: int)` | Fighter `id`'s path through the rooms → the room it is in along it (0: the first), how many rooms it passes, and when it was planned; nil without one. |
 | `nav_state(id: int)` | Fighter `id`'s navigation → "planning", "following", "arrived", "failed: …", or "none". |
 | `nav_obstruction(x: number, y: number, z: number, asker: int?)` | What the pathfinding grid has stamped at (`x`, `y`, `z`) → "character", "object" or "door", its index (fighter, object, door), and whether it blocks fighter `asker` (default 1) planning a path; nil if nothing. |
@@ -214,8 +214,8 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `grounded()` | Whether the player is on the ground. |
 | `stitch()` | The current clip-to-clip stitch blend weight (0 = not blending). |
 | `anim()` | The player's current clip name. |
-| `screenshot(path: string, w: int?, h2: int?)` | Renders one frame (default 800 × 600) to a PNG at `path`: the game camera, or `cam`'s, with the HUD or menu on top. |
-| `render_frames(n: int, w: int, h2: int, step: bool?)` | the mean wall time of a frame in ms, drawn offscreen and read back n times (a game tick between frames if `step`): for profiling the renderer. |
+| `screenshot(path: string, w: int?, h2: int?)` | Renders one frame (default 800 × 600) to a PNG at `path`: the game camera, or `cam()`'s, with the HUD or menu on top. |
+| `render_frames(n: int, w: int, h2: int, step: bool?)` | the mean wall time of a frame in ms, drawn offscreen and read back n times (a game tick between frames if `step()`): for profiling the renderer. |
 
 ## Engine commands for level scripts
 

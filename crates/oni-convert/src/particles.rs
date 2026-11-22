@@ -168,7 +168,7 @@ fn decode_env_particles(dat: &Dat<'_>) -> Vec<Placed> {
 /// The level's environmental particles (*Environmental
 /// particles*): the `ENVP` arrays' (a 4×3 matrix @112, decal x / y scale
 /// @160 / @164, u16 flags @168 — 0x2: not created at the start) and the
-/// particle objects' (`CJBOParticle`: class[64], tag[48], u16 flags, decal
+/// particle objects' (`CJBOParticle`: `class[64]`, `tag[48]`, u16 flags, decal
 /// scales; placed by the object's position and XYZ rotation). Each: class,
 /// tag (what scripts' `particle` command names), matrix (12 floats, columns
 /// X Y Z then position), flags, decal scale.

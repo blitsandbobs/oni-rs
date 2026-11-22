@@ -172,8 +172,6 @@ impl DoorBox {
 pub struct Env<'a> {
     pub quads: &'a Quads,
     pub doors: &'a [DoorBox],
-    /// Where to note what it touches, each time it looks.
-    pub touched: Option<&'a std::cell::RefCell<Contacts>>,
     /// The placed objects' collision spheres (centre, radius).
     pub spheres: &'a [(Vec3, f32)],
 }
@@ -183,7 +181,6 @@ impl<'a> Env<'a> {
         Env {
             quads,
             doors,
-            touched: None,
             spheres: &[],
         }
     }
@@ -287,9 +284,14 @@ pub struct Collider {
 /// (`ONrCharacter_Callback_FindEnvCollisions` and `_FindPhyCollisions`):
 /// the quads the whole body touches and the stack confirms (two-sided ones
 /// twice, both ways), then the doors' faces.
-fn gather(env: &Env, tree: &Tree, v: Vec3, initial: bool) -> Vec<Collider> {
+fn gather(
+    env: &Env,
+    tree: &Tree,
+    v: Vec3,
+    initial: bool,
+    mut contacts: Option<&mut Contacts>,
+) -> Vec<Collider> {
     let mut out = Vec::new();
-    let mut contacts = env.touched.map(|t| t.borrow_mut());
     for hit in env
         .quads
         .sphere(tree.root.center, tree.root.radius, v, flag::CHR_COL_SKIP)
@@ -491,13 +493,20 @@ fn push_back(v: Vec3, n: Vec3) -> Vec3 {
 /// One pass (`OBrPhysics_Update_Reflect`): the push into the nearest
 /// opposing plane taken off `v`; with a slide, `v` no longer goes down.
 /// Returns whether it slid.
-fn reflect(env: &Env, tree: &Tree, v: &mut Vec3, initial: bool) -> bool {
-    for c in prepare(gather(env, tree, *v, initial), *v, tree.root.center) {
+fn reflect(
+    env: &Env,
+    tree: &Tree,
+    v: &mut Vec3,
+    initial: bool,
+    mut contacts: Option<&mut Contacts>,
+) -> bool {
+    let met = gather(env, tree, *v, initial, contacts.as_deref_mut());
+    for c in prepare(met, *v, tree.root.center) {
         let p = push_back(*v, c.normal);
         *v -= p;
         if p != Vec3::ZERO {
-            if let (Some(k), Some(t)) = (c.sphere, env.touched) {
-                t.borrow_mut().pushed.push((k, p));
+            if let (Some(k), Some(t)) = (c.sphere, contacts) {
+                t.pushed.push((k, p));
             }
             v.y = v.y.max(0.0);
             return true;
@@ -508,17 +517,18 @@ fn reflect(env: &Env, tree: &Tree, v: &mut Vec3, initial: bool) -> bool {
 
 /// `OBrPhysics_Update_ReflectHalt`: still pushing into anything, it stops
 /// (a sphere it pushes into takes its whole move).
-fn halt(env: &Env, tree: &Tree, v: &mut Vec3) {
-    let met = prepare(gather(env, tree, *v, false), *v, tree.root.center);
+fn halt(env: &Env, tree: &Tree, v: &mut Vec3, mut contacts: Option<&mut Contacts>) {
+    let met = gather(env, tree, *v, false, contacts.as_deref_mut());
+    let met = prepare(met, *v, tree.root.center);
     if met.iter().any(|c| push_back(*v, c.normal) != Vec3::ZERO) {
-        if let Some(t) = env.touched {
+        if let Some(t) = contacts {
             // (Only the first: the move is gone after it.)
             if let Some(k) = met
                 .iter()
                 .find(|c| push_back(*v, c.normal) != Vec3::ZERO)
                 .and_then(|c| c.sphere)
             {
-                t.borrow_mut().pushed.push((k, *v));
+                t.pushed.push((k, *v));
             }
         }
         *v = Vec3::ZERO;
@@ -527,13 +537,20 @@ fn halt(env: &Env, tree: &Tree, v: &mut Vec3) {
 
 /// The motion a tick's non-falling part `v` comes to (`OBiPhysics_Update`):
 /// a pass (and for the player a second), and a halt if the last one slid.
-pub fn resolve(env: &Env, tree: &Tree, mut v: Vec3, player: bool) -> Vec3 {
-    let mut slid = reflect(env, tree, &mut v, true);
+/// What it touches on the way is noted in `contacts`, if given.
+pub fn resolve(
+    env: &Env,
+    tree: &Tree,
+    mut v: Vec3,
+    player: bool,
+    mut contacts: Option<&mut Contacts>,
+) -> Vec3 {
+    let mut slid = reflect(env, tree, &mut v, true, contacts.as_deref_mut());
     if player {
-        slid = reflect(env, tree, &mut v, false);
+        slid = reflect(env, tree, &mut v, false, contacts.as_deref_mut());
     }
     if slid {
-        halt(env, tree, &mut v);
+        halt(env, tree, &mut v, contacts);
     }
     v
 }
@@ -542,8 +559,8 @@ pub fn resolve(env: &Env, tree: &Tree, mut v: Vec3, player: bool) -> Vec3 {
 /// `ONrCharacter_Teleport_With_Collision`): one pass, a halt if it slid.
 pub fn shove(env: &Env, tree: &Tree, from: Vec3, dest: Vec3) -> Vec3 {
     let mut v = dest - from;
-    if reflect(env, tree, &mut v, false) {
-        halt(env, tree, &mut v);
+    if reflect(env, tree, &mut v, false, None) {
+        halt(env, tree, &mut v, None);
     }
     from + v
 }
@@ -766,6 +783,15 @@ fn floor_height(
     best.map(|h| h.min(max_y))
 }
 
+/// What lies ahead along the floor ([`probe`], `Navigation::look`).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Probe {
+    /// Distance the body could move before a wall.
+    pub free: f32,
+    /// Distance at which the floor drops away, if within `free`.
+    pub ledge: Option<f32>,
+}
+
 /// Looks ahead along the floor from `at` in horizontal direction `dir`
 /// (unit), up to `max`: how far a sphere of the character's radius, at its
 /// knees, could go before a wall or a closed door, and where (if anywhere
@@ -778,7 +804,7 @@ pub fn probe(
     dir: Vec3,
     max: f32,
     drop: f32,
-) -> crate::physics::Probe {
+) -> crate::chrphys::Probe {
     const STEP: f32 = 2.0;
     const SAMPLE: f32 = 2.0;
     let dir = Vec3::new(dir.x, 0.0, dir.z).normalize_or_zero();
@@ -815,7 +841,7 @@ pub fn probe(
         }
         d += SAMPLE;
     }
-    crate::physics::Probe { free, ledge }
+    crate::chrphys::Probe { free, ledge }
 }
 
 /// What a ray meets first in the level: how far along it (0–1), the
@@ -965,7 +991,7 @@ mod tests {
         let mut at = Vec3::new(0.0, 0.0, 0.0);
         for _ in 0..60 {
             let tree = Tree::new(at, at.y, at.y + 18.0, PLAYER_LEAF);
-            at += resolve(&env, &tree, Vec3::new(1.0, 0.0, 0.0), true);
+            at += resolve(&env, &tree, Vec3::new(1.0, 0.0, 0.0), true, None);
         }
         let gap = 10.0 - at.x;
         assert!(gap > 4.0 && gap <= 5.0, "standoff {gap}");
@@ -973,12 +999,12 @@ mod tests {
         let dir = Vec3::new(1.0, 0.0, 1.0).normalize();
         for _ in 0..10 {
             let tree = Tree::new(at, at.y, at.y + 18.0, PLAYER_LEAF);
-            at += resolve(&env, &tree, dir, true);
+            at += resolve(&env, &tree, dir, true, None);
         }
         let z0 = at.z;
         for _ in 0..20 {
             let tree = Tree::new(at, at.y, at.y + 18.0, PLAYER_LEAF);
-            at += resolve(&env, &tree, dir, true);
+            at += resolve(&env, &tree, dir, true, None);
         }
         let gap = 10.0 - at.x;
         assert!(gap > 4.0 && gap <= 4.71, "standoff {gap}");
@@ -1002,10 +1028,10 @@ mod tests {
         let q = room(&[(side, 0)]);
         let env = Env::new(&q, &[]);
         let low = Tree::new(Vec3::new(5.5, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
-        assert!(resolve(&env, &low, Vec3::X, true).x < 1e-5, "blocked");
+        assert!(resolve(&env, &low, Vec3::X, true, None).x < 1e-5, "blocked");
         let high = Tree::new(Vec3::new(5.5, 0.0, 0.0), 10.5, 28.5, PLAYER_LEAF);
         assert!(
-            (resolve(&env, &high, Vec3::X, true).x - 1.0).abs() < 1e-5,
+            (resolve(&env, &high, Vec3::X, true, None).x - 1.0).abs() < 1e-5,
             "over it"
         );
     }
@@ -1022,7 +1048,7 @@ mod tests {
         let q = room(&[(back, 0)]);
         let env = Env::new(&q, &[]);
         let tree = Tree::new(Vec3::new(6.0, 0.0, 0.0), 0.0, 18.0, PLAYER_LEAF);
-        assert_eq!(resolve(&env, &tree, Vec3::X, true), Vec3::X);
+        assert_eq!(resolve(&env, &tree, Vec3::X, true, None), Vec3::X);
     }
 
     #[test]
@@ -1034,14 +1060,14 @@ mod tests {
         let mut at = Vec3::ZERO;
         for _ in 0..40 {
             let tree = Tree::new(at, at.y, at.y + 18.0, 3.0);
-            at += resolve(&env, &tree, Vec3::new(0.5, 0.0, 0.0), false);
+            at += resolve(&env, &tree, Vec3::new(0.5, 0.0, 0.0), false, None);
         }
         assert!(at.x < 10.0 - 4.0 && at.x > 0.5, "stopped short of it: {at}");
         let free = Env::new(&q, &[]);
         let mut at2 = Vec3::ZERO;
         for _ in 0..40 {
             let tree = Tree::new(at2, at2.y, at2.y + 18.0, 3.0);
-            at2 += resolve(&free, &tree, Vec3::new(0.5, 0.0, 0.0), false);
+            at2 += resolve(&free, &tree, Vec3::new(0.5, 0.0, 0.0), false, None);
         }
         assert!(at2.x > 19.0, "without it, on: {at2}");
     }
@@ -1062,7 +1088,7 @@ mod tests {
             let doors = [door.clone()];
             let env = Env::new(&q, &doors);
             let tree = Tree::new(at, 0.0, 18.0, PLAYER_LEAF);
-            at += resolve(&env, &tree, Vec3::X, true);
+            at += resolve(&env, &tree, Vec3::X, true, None);
         }
         // (A door's faces are tested where the spheres stand: it stops a
         // little inside reach.)
@@ -1073,7 +1099,7 @@ mod tests {
         let env = Env::new(&q, &doors);
         let tree = Tree::new(at, 0.0, 18.0, PLAYER_LEAF);
         assert!(
-            (resolve(&env, &tree, Vec3::X, true).x - 1.0).abs() < 1e-5,
+            (resolve(&env, &tree, Vec3::X, true, None).x - 1.0).abs() < 1e-5,
             "open: through"
         );
     }

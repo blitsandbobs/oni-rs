@@ -48,7 +48,6 @@ mod objphys;
 mod opening;
 mod p3;
 mod particles;
-mod physics;
 mod quads;
 mod quirks;
 mod render;

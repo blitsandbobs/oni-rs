@@ -3,7 +3,7 @@
 //!
 //! The body yaw (`facing`, what we render) does not snap to input; it chases
 //! the input target (`desired_facing`) at a capped rate each tick
-//! ([`Facing::turn_toward`], Oni's `HandleTurning`). `facing_modifier` biases
+//! (`anim::decide`'s slew, Oni's `HandleTurning`). `facing_modifier` biases
 //! the "forward" reference so a forward-moving clip can play while the body is
 //! turned (strafe). Angles are radians; `facing`/`desired_facing` are kept in
 //! `[0, 2π)` (Oni's `UUmTrig_Clip`).
