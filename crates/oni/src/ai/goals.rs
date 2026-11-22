@@ -917,9 +917,8 @@ fn no_friend_on(from: Vec3, d: Vec3, target_feet: Vec3, cx: &Ctx) -> bool {
         })
 }
 
-/// Dodging: a body's reach, and how far a dodge goes at a time.
+/// Dodging: a body's reach.
 const BODY_RADIUS: f32 = 6.0;
-const DODGE_STEP: f32 = 20.0;
 
 /// Going for a gun: how far it looks, and how near it bends for it.
 const GUN_SEARCH: f32 = 200.0;
@@ -964,16 +963,26 @@ fn local_weight(sq: crate::nav::Square) -> f32 {
 /// border 3 (3 squares of escape); the first that gets there, and its worst
 /// square.
 fn fan(heading: f32, from: Vec3, cx: &Ctx) -> Option<(f32, crate::nav::Square)> {
-    const LOCAL_DISTANCE: f32 = 15.0;
-    const STEP: f32 = 15.0 * PI / 180.0;
+    fan_with(heading, from, 15.0, 15.0 * PI / 180.0, 4, cx)
+}
+
+/// [`fan`] probing `distance` ahead, `steps` tries of `step` either side.
+fn fan_with(
+    heading: f32,
+    from: Vec3,
+    distance: f32,
+    step: f32,
+    steps: u32,
+    cx: &Ctx,
+) -> Option<(f32, crate::nav::Square)> {
     std::iter::once(0.0)
-        .chain((1..=4).flat_map(|k| [k as f32 * STEP, -(k as f32) * STEP]))
+        .chain((1..=steps).flat_map(|k| [k as f32 * step, -(k as f32) * step]))
         .map(|off| heading + off)
         .find_map(|h| {
             let p = (cx.probe)(
                 from,
                 glam::Vec2::new(h.sin(), h.cos()),
-                LOCAL_DISTANCE,
+                distance,
                 crate::nav::Square::Border3,
             )?;
             p.stopped.is_none().then_some((h, p.worst))
@@ -1006,6 +1015,10 @@ pub struct Combat {
     route_failed: Option<u64>,
     /// How the last advance check said to move (`AI2iManeuver_CheckAdvance`).
     advance_way: Option<AdvanceWay>,
+    /// The advance's and retreat's weights as last checked, and the clear
+    /// way the retreat found (`primary_movement_modifier_weight`).
+    advance_weight: f32,
+    retreat_way: Option<(f32, f32)>,
     /// Shooting: its aim on the target, whether it has a line of fire, and
     /// whether this is the first sight of this enemy (startle shots).
     targeting: Option<Box<crate::ai::ranged::Targeting>>,
@@ -1054,9 +1067,13 @@ pub struct Agent {
     pub job_location: Option<Vec3>,
     pub mode: MoveMode,
     pub nav: Option<Navigator>,
-    /// Walking a heading with no route (the combat advance's local move,
-    /// `primary_movement_modifier_angle`): which way, and how fast.
-    steer: Option<(f32, Pace)>,
+    /// Movement modifiers (`AI2tMovementModifier`): ways added onto its
+    /// path's (or moving it with none) — the combat advance's or retreat's
+    /// local move, a dodge — each with its weight; the way not to go
+    /// (`modifierAvoidAngle`); and how fast they move it.
+    modifiers: Vec<(f32, f32)>,
+    modifier_avoid: Option<f32>,
+    modifier_pace: Pace,
     dest: Option<Dest>,
     look: Look,
     glance: Option<(f32, u32)>,
@@ -1145,7 +1162,9 @@ impl Agent {
             job_location: None,
             mode: MoveMode::ByAlert,
             nav: None,
-            steer: None,
+            modifiers: Vec::new(),
+            modifier_avoid: None,
+            modifier_pace: Pace::Run,
             dest: None,
             look: Look::None,
             glance: None,
@@ -1316,7 +1335,7 @@ impl Agent {
     // --- movement helpers ------------------------------------------------------
 
     fn go_to(&mut self, at: Vec3, within: f32, stop: bool, face: Option<f32>, cx: &Ctx) {
-        self.steer = None;
+        self.modifiers.clear();
         self.dest = Some(Dest {
             at,
             within,
@@ -1549,14 +1568,29 @@ impl Agent {
         self.combat().advance_goal = None;
         let to = (target - cx.feet).with_y_zero();
         let pace = self.mode.pace(cx.alert(), true);
-        self.steer =
-            fan(crate::angle::yaw_of(to), cx.feet + Vec3::Y * 2.0, cx).map(|(h, _)| (h, pace));
+        let weight = self.combat().advance_weight;
+        if let Some((h, _)) = fan(crate::angle::yaw_of(to), cx.feet + Vec3::Y * 2.0, cx) {
+            self.modifier(h, weight, pace);
+        }
+    }
+
+    /// Adds a movement modifier (`AI2rMovement_MovementModifier`).
+    fn modifier(&mut self, way: f32, weight: f32, pace: Pace) {
+        const MAX_MODIFIERS: usize = 8; // AI2cMovement_MaxModifiers
+        if self.modifiers.len() < MAX_MODIFIERS && weight > 1e-3 {
+            self.modifiers.push((way, weight));
+            self.modifier_pace = pace;
+        }
+    }
+
+    /// Its movement modifiers this tick, the way not to go, and the pace.
+    pub fn movement_modifiers(&self) -> (&[(f32, f32)], Option<f32>, Pace) {
+        (&self.modifiers, self.modifier_avoid, self.modifier_pace)
     }
 
     fn halt(&mut self) {
         self.dest = None;
         self.nav = None;
-        self.steer = None;
     }
 
     // --- the neutral interaction's movement (`world/neutral.rs`) ---------
@@ -1827,14 +1861,11 @@ impl Agent {
     /// This tick's movement for a body at `feet` facing `facing`, plus
     /// buttons to press.
     pub fn orders(&mut self, feet: Vec3, facing: f32, now: u64) -> (Orders, u32) {
-        let mut o = match (self.nav.as_mut(), self.steer) {
-            (Some(n), _) => n.orders(feet, facing, now),
-            (None, Some((heading, pace))) => Orders {
-                direction: Direction::Forward,
-                pace,
-                face: Some(heading),
-            },
-            (None, None) => Orders::default(),
+        // (The movement modifiers are added onto this by the brain, which
+        // knows what the body keeps meeting.)
+        let mut o = match self.nav.as_mut() {
+            Some(n) => n.orders(feet, facing, now),
+            None => Orders::default(),
         };
         // (Turning on the spot to set off belongs to the walk.)
         let walking = self
@@ -2768,6 +2799,8 @@ impl Agent {
             advance_goal: None,
             route_failed: None,
             advance_way: None,
+            advance_weight: 0.0,
+            retreat_way: None,
             targeting: None,
             have_los: true,
             first_sight: true,
@@ -3072,21 +3105,11 @@ impl Agent {
         }
         let dist = (target_feet - cx.feet).with_y_zero().length();
         self.look = Look::At(target_feet);
-        // Dodging: a step away from the danger takes over from holding,
-        // advancing, retreating or going for a gun (not from melee).
-        let dodge = self
-            .combat()
-            .dodge
-            .filter(|_| primary != Primary::Melee && primary != Primary::GetUp && !cx.fallen);
-        if let Some((heading, _)) = dodge {
-            let to = cx.feet + heading * DODGE_STEP;
-            let fresh = self.dest.as_ref().is_none_or(|d| d.at.distance(to) > 6.0);
-            if fresh {
-                self.go_to(to, 3.0, true, None, cx);
-            }
-        }
+        // (Secondary movement: the modifiers are made again each tick.)
+        self.modifiers.clear();
+        self.modifier_avoid = None;
+        let pace = self.mode.pace(cx.alert(), true);
         match primary {
-            _ if dodge.is_some() => {}
             Primary::Melee => {
                 self.halt();
                 let k = self.combat();
@@ -3107,16 +3130,17 @@ impl Agent {
                     Some(AdvanceWay::Steer(heading)) => {
                         self.nav = None;
                         self.dest = None;
-                        self.steer = Some((heading, self.mode.pace(cx.alert(), true)));
+                        let weight = self.combat().advance_weight;
+                        self.modifier(heading, weight, pace);
                     }
                     _ => self.advance_move(target_feet, min.max(AI2_ADVANCE_STOP), cx),
                 }
             }
             Primary::Retreat => {
-                let away = (cx.feet - target_feet).with_y_zero().normalize_or_zero();
-                let to = cx.feet + away * 30.0;
-                if self.nav.is_none() || self.path_failed() || self.arrived(cx) {
-                    self.go_to(to, 3.0, true, None, cx);
+                // Away along the clear way the check found (path halted).
+                self.halt();
+                if let Some((way, weight)) = self.combat().retreat_way {
+                    self.modifier(way, weight, pace);
                 }
             }
             Primary::Hold => self.halt(),
@@ -3161,6 +3185,24 @@ impl Agent {
                         None => self.halt(),
                     }
                 }
+            }
+        }
+        // Dodging (`AI2rManeuver_ApplyDodge`): a clear way near the dodge's,
+        // 20 out, ±8.75° at a time, at three times its weight; and the way
+        // not to go while it weighs over half. (Not in melee: the melee AI
+        // moves itself.)
+        let dodge = self
+            .combat()
+            .dodge
+            .filter(|_| primary != Primary::Melee && primary != Primary::GetUp && !cx.fallen);
+        if let Some((heading, weight)) = dodge {
+            let from = cx.feet + Vec3::Y * 2.0;
+            let way = crate::angle::yaw_of(heading);
+            if let Some((h, _)) = fan_with(way, from, 20.0, (35.0 * PI / 180.0) / 4.0, 4, cx) {
+                self.modifier(h, 3.0 * weight, pace);
+            }
+            if weight > 0.5 {
+                self.modifier_avoid = self.combat().dodge_avoid.map(|(_, a)| a);
             }
         }
         // Knocked down, a boss reacts (`AI2cCombatMessage_Fallen`).
@@ -3661,19 +3703,30 @@ impl Agent {
                         self.check_advance(target_feet, dist, w[ADVANCE], second, cx);
                     w[ADVANCE] = weight;
                     self.combat().advance_way = way;
+                    self.combat().advance_weight = weight;
                 }
                 RETREAT => {
+                    // (`AI2iManeuver_CheckRetreat`: a clear way away from the
+                    // target, ±22.5° at a time up to ±90°, 15 out; its
+                    // urgency by distance and its ground scale the weight.)
                     w[MELEE] = 0.0;
                     let (min, max) = k.retreat;
-                    if dist >= max {
-                        w[RETREAT] = 0.0;
-                    } else {
-                        let urgency = if dist <= min {
-                            1.0
-                        } else {
-                            1.0 - (dist - min) / (max - min)
-                        };
-                        w[RETREAT] *= urgency;
+                    let away = crate::angle::yaw_of((cx.feet - target_feet).with_y_zero());
+                    let way = fan_with(away, cx.feet + Vec3::Y * 2.0, 15.0, PI / 8.0, 4, cx);
+                    match way {
+                        Some((h, worst)) if dist < max => {
+                            let urgency = if dist <= min {
+                                1.0
+                            } else {
+                                1.0 - (dist - min) / (max - min)
+                            };
+                            w[RETREAT] *= urgency * local_weight(worst);
+                            self.combat().retreat_way = Some((h, w[RETREAT]));
+                        }
+                        _ => {
+                            w[RETREAT] = 0.0;
+                            self.combat().retreat_way = None;
+                        }
                     }
                 }
                 FIND_ALARM => {

@@ -1435,6 +1435,7 @@ impl Fighter {
             target,
             now: m.now,
             nimbleness: self.class_combat.turning_nimbleness,
+            quirks: self.quirks,
         };
         // (The AI turns only a body whose clip lets it: not lying, blocking,
         // reeling or in a throw — `AI2rExecutor` asks `ONrCharacter_IsUnableToTurn`.)

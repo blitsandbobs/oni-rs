@@ -253,6 +253,7 @@ pub struct Senses {
     pub now: u64,
     /// Its class's turning nimbleness (`ai2_behavior.turning_nimbleness`).
     pub nimbleness: f32,
+    pub quirks: crate::quirks::Quirks,
 }
 
 /// What drives a non-player character.
@@ -291,7 +292,7 @@ impl Brain {
         };
         // The AI's own movement steers round what it keeps bumping into
         // (`ai/avoid.rs`); wedged, its path fails.
-        let steer = |orders: Orders, avoid: &mut avoid::Avoid, facing: &Facing| {
+        let steer_held = |orders: Orders, avoid: &mut avoid::Avoid, facing: &Facing, held: bool| {
             let wanted = match orders.direction {
                 Direction::Stopped => None,
                 Direction::Forward => Some(orders.face.unwrap_or(facing.facing)),
@@ -299,7 +300,15 @@ impl Brain {
                 Direction::SidestepLeft => Some(facing.facing + std::f32::consts::FRAC_PI_2),
                 Direction::SidestepRight => Some(facing.facing - std::f32::consts::FRAC_PI_2),
             };
-            let way = avoid.steer(wanted, senses.feet);
+            let way = avoid.steer(wanted, senses.feet, held.then_some(facing.facing));
+            // Standing, its modifiers held back: it moves the least bad way.
+            if let (None, Some(w)) = (wanted, way) {
+                return Orders {
+                    direction: Direction::Forward,
+                    face: Some(w),
+                    ..orders
+                };
+            }
             // Steered off its way: the move relative to the body
             // (`AI2iMovementState_FindMovementDirection`) — ahead within 45°,
             // behind past 135°, else a sidestep — still facing as it was.
@@ -323,6 +332,9 @@ impl Brain {
                 _ => orders,
             }
         };
+        let steer = |orders: Orders, avoid: &mut avoid::Avoid, facing: &Facing| {
+            steer_held(orders, avoid, facing, false)
+        };
         match self {
             Brain::Route(r) => execute(
                 steer(r.orders(senses.feet, facing.facing), avoid, facing),
@@ -334,7 +346,26 @@ impl Brain {
             Brain::Melee(_) => 0, // decided by the world (`World::step`)
             Brain::Agent(a) => {
                 let (orders, press) = a.orders(senses.feet, facing.facing, senses.now);
-                let orders = steer(orders, avoid, facing);
+                // Its movement modifiers on top of its path's way.
+                let (modifiers, avoid_way, pace) = a.movement_modifiers();
+                let path = (orders.direction != Direction::Stopped)
+                    .then(|| orders.face.unwrap_or(facing.facing));
+                let (way, held) = avoid::modified_way(
+                    path,
+                    modifiers,
+                    avoid_way,
+                    &avoid.serious_hits(),
+                    senses.quirks.modifier_avoid_drops_rest(),
+                );
+                let orders = match way {
+                    Some(w) if way != path => Orders {
+                        direction: Direction::Forward,
+                        pace: if path.is_some() { orders.pace } else { pace },
+                        face: Some(w),
+                    },
+                    _ => orders,
+                };
+                let orders = steer_held(orders, avoid, facing, held);
                 if std::mem::take(&mut avoid.stuck) {
                     if let Some(n) = a.nav.as_mut() {
                         n.collision_stuck(senses.now);

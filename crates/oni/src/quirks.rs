@@ -202,6 +202,13 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q31: a movement modifier held back by the way an AI's dodge says
+    /// not to go drops the modifiers after it (`break` out of the modifier
+    /// loop, not the inner test), so its dodge itself can go unapplied.
+    pub fn modifier_avoid_drops_rest(self) -> bool {
+        self.faithful
+    }
+
     /// Whether the level scripts run as shipped, without our fixes to their
     /// most glaring mistakes (`docs/deviations.md`).
     pub fn scripts_as_shipped(self) -> bool {

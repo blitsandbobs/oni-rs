@@ -80,6 +80,8 @@ pub struct Avoid {
     records: Vec<Collision>,
     /// The way it means to move this tick (radians), if it moves.
     move_direction: Option<f32>,
+    /// The last way it really moved (`last_real_move_direction`).
+    last_real: Option<f32>,
     /// Wedged against something: its path should fail.
     pub stuck: bool,
 }
@@ -230,11 +232,22 @@ impl Avoid {
     /// means to move (radians), if it moves. Returns the way to move. (The
     /// original also steers round what suppresses its movement modifiers,
     /// which aren't modelled.)
-    pub fn steer(&mut self, wanted: Option<f32>, feet: Vec3) -> Option<f32> {
+    pub fn steer(
+        &mut self,
+        wanted: Option<f32>,
+        feet: Vec3,
+        suppressed: Option<f32>,
+    ) -> Option<f32> {
         self.move_direction = wanted.map(wrap);
         self.age(feet);
+        // (Also when movement modifiers are being held back by what it
+        // meets, standing: from the way it last moved, else `suppressed` —
+        // its facing.)
+        let start = self
+            .move_direction
+            .or_else(|| suppressed.map(|f| self.last_real.unwrap_or(wrap(f))));
         if !self.records.is_empty() {
-            if let Some(m) = self.move_direction {
+            if let Some(m) = start {
                 let mut ring = Ring::new();
                 for c in &self.records {
                     ring.add(c);
@@ -242,10 +255,22 @@ impl Avoid {
                 self.move_direction = Some(ring.least_bad(m));
             }
         }
+        if self.move_direction.is_some() {
+            self.last_real = self.move_direction;
+        }
         for c in &mut self.records {
             c.hit = false;
         }
         self.move_direction
+    }
+
+    /// The ways toward the serious obstacles it is meeting now.
+    pub fn serious_hits(&self) -> Vec<f32> {
+        self.records
+            .iter()
+            .filter(|c| c.hit && c.serious)
+            .map(|c| c.direction)
+            .collect()
     }
 
     /// How many records it holds, and how many are serious.
@@ -255,6 +280,64 @@ impl Avoid {
             self.records.iter().filter(|c| c.serious).count(),
         )
     }
+}
+
+/// The way to move with movement modifiers (`AI2iMovementState_Calculate_Movement`):
+/// the path's way `path` (if it moves along one) plus each modifier's way
+/// times its weight — the weight held back near a serious obstacle being
+/// met (nothing within 30° of its way, fully from 90°) and near the way not
+/// to go `avoid` (nothing within 60°, fully from 100°). None: no way at all.
+/// Also whether any modifier was held back entirely. Q31: as shipped, one
+/// held back by `avoid` drops the rest after it (`avoid_drops_rest`).
+pub fn modified_way(
+    path: Option<f32>,
+    modifiers: &[(f32, f32)],
+    avoid: Option<f32>,
+    serious: &[f32],
+    avoid_drops_rest: bool,
+) -> (Option<f32>, bool) {
+    const COLLISION_OFF: f32 = 30.0 * PI / 180.0;
+    const COLLISION_FULL: f32 = 90.0 * PI / 180.0;
+    const AVOID_OFF: f32 = 60.0 * PI / 180.0;
+    const AVOID_FULL: f32 = 100.0 * PI / 180.0;
+    if modifiers.is_empty() {
+        return (path, false);
+    }
+    let off = |a: f32, b: f32| crate::angle::wrap_pi(a - b).abs();
+    let mut v = path.map_or(Vec3::ZERO, |p| Vec3::new(p.sin(), 0.0, p.cos()));
+    let mut active = 0;
+    for &(way, weight) in modifiers {
+        let mut w = weight;
+        for &s in serious {
+            let d = off(way, s);
+            if d < COLLISION_OFF {
+                w = 0.0;
+                break;
+            } else if d <= COLLISION_FULL {
+                w *= (COLLISION_OFF - d) / (COLLISION_OFF - COLLISION_FULL);
+            }
+        }
+        if let Some(a) = avoid {
+            let d = off(way, a);
+            if d < AVOID_OFF {
+                if avoid_drops_rest {
+                    break;
+                }
+                w = 0.0;
+            } else if d < AVOID_FULL {
+                w *= (AVOID_OFF - d) / (AVOID_OFF - AVOID_FULL);
+            }
+        }
+        if w > 0.0 {
+            active += 1;
+            v += Vec3::new(way.sin(), 0.0, way.cos()) * w;
+        }
+    }
+    let suppressed = active < modifiers.len();
+    if active == 0 {
+        return (path, suppressed);
+    }
+    (Some(yaw(v.x, v.z)), suppressed)
 }
 
 /// A point on the badness ring (`AI2tBadnessValue`).
@@ -401,6 +484,24 @@ impl Ring {
 mod tests {
     use super::*;
 
+    #[test]
+    fn modifiers_add_onto_the_path_and_give_way() {
+        let deg = |d: f32| d * PI / 180.0;
+        // Along +z (0) with a sideways modifier of weight 1 at 90°: 45°.
+        let (w, held) = modified_way(Some(0.0), &[(deg(90.0), 1.0)], None, &[], false);
+        assert!((w.unwrap() - deg(45.0)).abs() < 1e-4 && !held);
+        // A serious obstacle straight that way: held back entirely.
+        let (w, held) = modified_way(Some(0.0), &[(deg(90.0), 1.0)], None, &[deg(80.0)], false);
+        assert!(w.unwrap().abs() < 1e-4 && held, "the path's way alone");
+        // The avoid way 30° off the first: it is held back; the second still
+        // counts — unless, as shipped, the first drops the rest (Q31).
+        let mods = [(deg(90.0), 1.0), (deg(270.0), 1.0)];
+        let (w, _) = modified_way(None, &mods, Some(deg(120.0)), &[], false);
+        assert!((w.unwrap() - deg(270.0)).abs() < 1e-3);
+        let (w, held) = modified_way(None, &mods, Some(deg(120.0)), &[], true);
+        assert!(w.is_none() && held, "nothing applied");
+    }
+
     /// A wall ahead (+z), facing back at the character.
     fn wall_ahead(a: &mut Avoid, feet: Vec3) {
         a.notify(
@@ -417,14 +518,14 @@ mod tests {
         let mut a = Avoid::default();
         let feet = Vec3::ZERO;
         // At first it keeps going straight on.
-        let dir = a.steer(Some(0.0), feet).unwrap();
+        let dir = a.steer(Some(0.0), feet, None).unwrap();
         wall_ahead(&mut a, feet);
         assert!(dir.abs() < 1e-4);
         // Met a few frames it still goes on (turning away costs more than
         // the wall weighs); met nearly 30, it moves off at an angle.
         let mut last = 0.0;
         for k in 0..28 {
-            last = a.steer(Some(0.0), feet).unwrap();
+            last = a.steer(Some(0.0), feet, None).unwrap();
             wall_ahead(&mut a, feet);
             if k == 10 {
                 assert!(last.abs() < 1e-4, "still straight on");
@@ -434,20 +535,20 @@ mod tests {
         assert!(off.abs() > 0.5, "turned aside by {off}");
         assert!(!a.stuck);
         for _ in 0..30 {
-            a.steer(Some(0.0), feet);
+            a.steer(Some(0.0), feet, None);
             wall_ahead(&mut a, feet);
         }
-        a.steer(Some(0.0), feet);
+        a.steer(Some(0.0), feet, None);
         assert!(a.stuck, "wedged 30 frames: stuck");
     }
 
     #[test]
     fn records_are_kept_only_while_moving_and_in_front() {
         let mut a = Avoid::default();
-        a.steer(None, Vec3::ZERO);
+        a.steer(None, Vec3::ZERO, None);
         wall_ahead(&mut a, Vec3::ZERO);
         assert_eq!(a.count().0, 0, "standing still: not noted");
-        a.steer(Some(0.0), Vec3::ZERO);
+        a.steer(Some(0.0), Vec3::ZERO, None);
         a.notify(With::Wall(1), Vec3::ZERO, Vec3::Y, 0.0, Vec3::ZERO);
         assert_eq!(a.count().0, 0, "a floor or ceiling: not noted");
         a.notify(
@@ -462,7 +563,7 @@ mod tests {
         assert_eq!(a.count().0, 1);
         // Walked away and left alone, it is forgotten.
         for k in 0..=TOTALLY_FORGET_FRAMES {
-            a.steer(Some(PI), Vec3::new(0.0, 0.0, -(k as f32) * 0.1));
+            a.steer(Some(PI), Vec3::new(0.0, 0.0, -(k as f32) * 0.1), None);
         }
         assert_eq!(a.count().0, 0);
     }

@@ -45,6 +45,7 @@ method on `Quirks` (`crates/oni/src/quirks.rs`).
 | Q28 | Lens flares | A fading lens flare is faded by the fog at its screen depth (`P3rModifyAlphaByFogFromDepth`), but `gl_calculate_fog_factor` returns 1 past the fog's end where its linear ramp reaches 0: a light beyond the fog shines on whole. | Gone beyond the fog's end, as the ramp it follows. | In fog-heavy places: distant lights no longer burn through the fog. |
 | Q29 | Pathfinding | A placed object is stamped into the pathfinding grid (`PHrAddObjectToGrid`) as the squares round its sphere, but the row loop runs `for (v = radius; v <= radius; v++)`: only the square's last row is stamped, so paths run through objects and AIs walk into them. | The whole square. | Yes — AIs path round forklifts, trucks and crates instead of into them. |
 | Q30 | AI turning | Turning its body, the AI asks for a step-turn clip (`pleaseTurnLeft` / `pleaseTurnRight`, played by a standing body) with the sign the other way round from the movement system's: `AI2rExecutor_Update` asks for the left turn when its facing falls, where `HandleStandingTurn` turns left for a rising one (facing +Z, +X is the left). | The clip of the way it turns. | Cosmetic: a standing AI's feet shuffle against its turn (shipped). |
+| Q31 | AI movement | A movement modifier (the advance's or retreat's local move, a dodge) near the way the AI's dodge says not to go is held back — but that test's `break` leaves the loop over the modifiers, not the test: those after it are dropped that frame, the dodge itself among them (it comes last). | Only that one is held back. | When an AI advancing or retreating near a hazard also dodges it. |
 | Q22 | Melee AI | Weighing a rifle disarm throw, `AI2iMelee_WeightTechnique` tests that the target holds a *pistol* (`!has_pistol`, copied from the pistol branch); the throw then aborts, the target having no rifle out. | It tests for a rifle. | AIs disarm only pistols (shipped) or rifles too (fixed). |
 | Q21 | Corpses | Every level's corpse array (`max_corpses`) holds 20 bodies, its pre-placed ones among them (level 3 starts with 17): past that the oldest of the dead of play is recycled — a body vanishes — so on busy levels bodies disappear almost at once. | The array holds 50. | Bodies left lying in a fight's aftermath (shipped: at most 20 in the level). |
 | Q13 | Corpses | A body killed in the air keeps its flight in its own frame but drifts as if that were the world's (the flight unturned). | The flight turned by the body's facing. | Bodies knocked out of the air drift the wrong way. |
@@ -217,8 +218,8 @@ our own additions. Not affected by `--faithful`.
   or inside its turning circle (worked out from the generic turn rate and
   Konoko's speeds, not the class's), so characters don't orbit corners; the
   original slows to a walk when it would overturn.
-- Avoidance leaves out the movement modifiers the original also steers
-  round.
+- A dodge doesn't move a melee AI: the melee AI moves itself between its
+  techniques too, where the original's dodge modifier would add on.
 - Pathfinding finds rooms by their volumes, not the octree. Doors a
   character may not open also shut their portals to it.
 - A melee AI lying down that has picked a technique whose positioning
