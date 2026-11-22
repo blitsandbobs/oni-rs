@@ -794,6 +794,31 @@ impl World {
         let local = nav.as_deref().map(|n| {
             obstructions::local_view(&self.obstructions, n, self.now as u64, &snap, i, through)
         });
+        // (`AI2rManeuver_CheckBlockage`: the level, objects, the body's sweep.)
+        let (tree, from) = (self.fighters[i].tree(), self.fighters[i].sight_points()[0]);
+        let objects = self.object_spheres();
+        let blockage_fn = |to: Vec3| {
+            let v = to - from;
+            if !self.quads.clear(from, to, crate::quads::flag::CHR_COL_SKIP) {
+                return true;
+            }
+            let len = v.length();
+            if len > 1e-3 {
+                let dir = v / len;
+                let on_ray =
+                    objects
+                        .iter()
+                        .any(|&(c, r)| match crate::geom::ray_sphere(from, dir, c, r) {
+                            Some(crate::geom::Entry::Inside) => true,
+                            Some(crate::geom::Entry::At(t)) => t <= len,
+                            None => false,
+                        });
+                if on_ray {
+                    return true;
+                }
+            }
+            crate::chrphys::wall_in_way(&self.quads, &tree, v)
+        };
         let quads = &self.quads;
         let sight_fn = |a: Vec3, b: Vec3, skip: u32| quads.clear(a, b, skip);
         let path_fn = |a: Vec3, b: Vec3| match nav.as_deref() {
@@ -905,6 +930,7 @@ impl World {
                 escape: &escape_fn,
                 path_length: &path_fn,
                 probe: &probe_fn,
+                blockage: &blockage_fn,
                 others: &others,
                 fights: &mut self.fights,
                 melee_profile,

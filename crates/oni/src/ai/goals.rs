@@ -279,6 +279,17 @@ fn dodge_heading(
     (heading, true)
 }
 
+/// A dodge's way not to go (`AI2iManeuver_MakeDodgeFromDanger`): toward
+/// the danger (`danger`: from the body toward it), or against its course
+/// (`incoming`) on a direct hit.
+fn avoid_angle(danger: Vec3, incoming: Vec3, direct: bool) -> f32 {
+    if direct {
+        crate::angle::yaw_of(-incoming)
+    } else {
+        crate::angle::yaw_of(danger)
+    }
+}
+
 // --- randomness -------------------------------------------------------------------
 
 #[derive(Clone, Debug)]
@@ -524,6 +535,11 @@ pub struct Ctx<'a> {
     /// distance, stop square (None: no navigation data).
     pub probe:
         &'a dyn Fn(Vec3, glam::Vec2, f32, crate::nav::Square) -> Option<crate::nav::LocalProbe>,
+    /// Whether something stops it moving straight from its pelvis to a
+    /// point (`AI2rManeuver_CheckBlockage`): the level along the line, a
+    /// placed object on it, or a wall its body would meet on the way —
+    /// characters not counted.
+    pub blockage: &'a dyn Fn(Vec3) -> bool,
     pub others: &'a [Other],
     pub fights: &'a mut Fights,
     pub melee_profile: Option<Rc<Profile>>,
@@ -569,6 +585,9 @@ struct Dodge {
     left: u32,
     age: u32,
     heading: Vec3,
+    /// The way not to go (`avoid_angle`): toward the danger, or against its
+    /// course on a direct hit.
+    avoid: f32,
 }
 
 /// A gun lying free: which, where to pick it up, and whether this character
@@ -1008,6 +1027,9 @@ pub struct Combat {
     /// What it is dodging, and the way to go now (weighted; none below a
     /// trace).
     dodges: Vec<Dodge>,
+    /// The strongest dodge's weight and the way it says not to go
+    /// (`dodge_max_weight`, `dodge_avoid_angle`).
+    dodge_avoid: Option<(f32, f32)>,
     dodge: Option<(Vec3, f32)>,
     /// A boss's own state.
     pub boss: super::bosses::Boss,
@@ -1400,6 +1422,8 @@ impl Agent {
     ) -> (f32, Option<AdvanceWay>) {
         use crate::nav::Square;
         const LOCAL_TRY: f32 = 50.0;
+        const ADVANCE_AVOID: f32 = 45.0 * PI / 180.0; // AI2cManeuver_Advance_AvoidAngle
+        const DODGE_MIN_AVOID: f32 = 0.5; // AI2cDodge_MinimumAvoidWeight
         let (min, max) = self.combat().advance;
         let urgency = if dist > max {
             1.0
@@ -1410,11 +1434,18 @@ impl Agent {
         };
         let to = (target - cx.feet).with_y_zero();
         let heading = crate::angle::yaw_of(to);
+        // Dodging a hazard: no advancing toward it (within 45° of the way the
+        // strongest dodge says not to go, at over half weight).
+        if let Some((w, avoid)) = self.combat().dodge_avoid {
+            if w > DODGE_MIN_AVOID && relative(heading - avoid).abs() < ADVANCE_AVOID {
+                return (0.0, None);
+            }
+        }
         let from = cx.feet + Vec3::Y * 2.0;
-        // The line from the pelvis to the target's middle
-        // (`AI2rManeuver_CheckBlockage`: the level, characters skipped).
+        // The way from the pelvis to the target's middle
+        // (`AI2rManeuver_CheckBlockage`: characters skipped).
         let target_mid = target + Vec3::Y * (cx.pelvis.y - cx.feet.y);
-        let blocked = || !(cx.sight)(cx.pelvis, target_mid, crate::quads::flag::CHR_COL_SKIP);
+        let blocked = || (cx.blockage)(target_mid);
         let straight = if dist < LOCAL_TRY {
             (cx.probe)(
                 from,
@@ -2731,6 +2762,7 @@ impl Agent {
             unreachable: Vec::new(),
             weapon_melee: 0,
             dodges: Vec::new(),
+            dodge_avoid: None,
             dodge: None,
             boss: Default::default(),
             gun_search: None,
@@ -3180,6 +3212,7 @@ impl Agent {
                         left: lifetime,
                         age: 0,
                         heading,
+                        avoid: avoid_angle(-away, s.axis, direct),
                     },
                     direct,
                 ));
@@ -3231,6 +3264,7 @@ impl Agent {
                         left: lifetime,
                         age: 0,
                         heading,
+                        avoid: avoid_angle(danger, path, direct),
                     },
                     direct,
                 ));
@@ -3253,18 +3287,24 @@ impl Agent {
                 d.weight = f.weight;
                 d.left = f.lifetime;
                 d.lifetime = f.lifetime;
+                d.avoid = f.avoid;
             } else if k.dodges.len() < 8 {
                 k.dodges.push(f);
             }
         }
         let mut sum = Vec3::ZERO;
         let mut max = 0.0f32;
+        let mut avoid = None;
         for d in k.dodges.iter().filter(|d| d.age >= class.dodge_react) {
             let w = d.weight * d.left as f32 / d.lifetime.max(1) as f32;
             sum += d.heading * w;
-            max = max.max(w);
+            if w > max {
+                max = w;
+                avoid = Some(d.avoid);
+            }
         }
         k.dodge = (max > 0.0).then(|| (sum.normalize_or(Vec3::X), max));
+        k.dodge_avoid = avoid.map(|a| (max, a));
     }
 
     /// The gun this tick: lead the target, aim
@@ -3674,6 +3714,7 @@ impl Agent {
             let k = self.combat();
             k.dodges.clear();
             k.dodge = None;
+            k.dodge_avoid = None;
         }
         if pick == Primary::FindAlarm {
             self.alarm_setup(alarm, cx);

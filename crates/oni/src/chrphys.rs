@@ -82,13 +82,41 @@ impl Tree {
     /// Whether quad `q` stops the stack swept along `v`
     /// (`PHrCollision_Quad_SphereTreeVector`): the whole body, one half,
     /// and one of that half's spheres all touch it.
-    fn touches(&self, quads: &Quads, q: &Quad, v: Vec3) -> bool {
+    pub(crate) fn touches(&self, quads: &Quads, q: &Quad, v: Vec3) -> bool {
         let hit = |s: &Sphere| quads.sphere_vector(q, s.center, s.radius, v).is_some();
         hit(&self.root)
             && (0..2)
                 .rev()
                 .any(|m| hit(&self.mids[m]) && (0..2).rev().any(|l| hit(&self.leaves[2 * m + l])))
     }
+}
+
+/// Whether a wall stands in the way of the stack of spheres `tree` moving
+/// along `v` (`AI2rManeuver_TrySphereTreeCollision`): a quad characters
+/// collide with, not a floor or ceiling, facing the move (or two-sided),
+/// that the move's end is behind and the stack meets on its front side.
+pub fn wall_in_way(quads: &Quads, tree: &Tree, v: Vec3) -> bool {
+    let c = tree.root.center;
+    quads
+        .sphere(c, tree.root.radius, v, flag::CHR_COL_SKIP)
+        .into_iter()
+        .any(|hit| {
+            let q = &quads.quads[hit.quad as usize];
+            let (mut n, mut d) = quads.plane(q.plane);
+            if n.y.abs() > MIN_FLOOR_NORMAL_Y {
+                return false;
+            }
+            if v.dot(n) > 0.0 {
+                if q.flags & flag::AK_2SIDED == 0 {
+                    return false;
+                }
+                (n, d) = (-n, -d);
+            }
+            if (c + v).dot(n) + d > 0.0 || (hit.point - c).dot(n) > 0.0 {
+                return false;
+            }
+            tree.touches(quads, q, v)
+        })
 }
 
 /// A door leaf as collision sees it: a box (centre, unit axes, half sizes),
@@ -875,6 +903,28 @@ mod tests {
         };
         let r = find_ground(quads, &mut at, &f, &mut deferred);
         (at, deferred, r)
+    }
+
+    #[test]
+    fn a_wall_in_the_way_of_the_body() {
+        let q = room(&[(wall_at(20.0), 0), (floor(0.0, 40.0, Vec3::ZERO), 0)]);
+        let tree = Tree::new(Vec3::ZERO, 0.0, 18.0, AI_LEAF);
+        assert!(
+            wall_in_way(&q, &tree, Vec3::new(30.0, 0.0, 0.0)),
+            "into the wall"
+        );
+        assert!(
+            !wall_in_way(&q, &tree, Vec3::new(10.0, 0.0, 0.0)),
+            "short of it"
+        );
+        assert!(
+            !wall_in_way(&q, &tree, Vec3::new(-30.0, 0.0, 0.0)),
+            "away from it"
+        );
+        assert!(
+            !wall_in_way(&q, &tree, Vec3::new(0.0, 0.0, 30.0)),
+            "along it (the floor neither)"
+        );
     }
 
     #[test]

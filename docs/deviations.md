@@ -218,8 +218,7 @@ our own additions. Not affected by `--faithful`.
   Konoko's speeds, not the class's), so characters don't orbit corners; the
   original slows to a walk when it would overturn.
 - Avoidance leaves out the movement modifiers the original also steers
-  round; the combat advance has no hazard cut-off (dodges steer separately)
-  and tests blockage against the level only.
+  round.
 - Pathfinding plans the whole path at once (the original plans a room's grid
   on entering it), without the reuse cache or octree room lookup: so every
   room's obstructions on the way are read as they stand when the path is
