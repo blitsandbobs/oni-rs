@@ -4,7 +4,7 @@
 //! (`gl_fog_start_changeto`, `gl_fog_end_changeto`), back to the draw
 //! engine's defaults on each level.
 
-use crate::render::Fog;
+use crate::draw::Fog;
 
 /// The fog and its ramps: where each end heads and by how much a tick.
 #[derive(Clone, Copy, Debug, Default)]

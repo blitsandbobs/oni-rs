@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use super::text::{self, Align, Fonts};
 use super::{rect, PartSpec};
-use crate::render::OverlayDraw;
+use crate::draw::OverlayDraw;
 
 /// One string of a page, in its font.
 #[derive(Clone, Debug)]

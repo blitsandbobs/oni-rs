@@ -375,68 +375,11 @@ impl World {
 }
 
 /// How bright invisibility's shimmer is at most (`alpha_adjustment`).
-const INVIS_AURA: f32 = 0.22;
+pub(super) const INVIS_AURA: f32 = 0.22;
 /// The magic shells' size over the body (`TRrBody_DrawMagic`'s scale).
-const SHELL_SCALE: f32 = 1.4;
+pub(super) const SHELL_SCALE: f32 = 1.4;
 
-impl World {
-    /// The magic effects to draw this frame (`ONrCharacter_Draw`), given
-    /// each fighter's body matrices: over its low body, each part scaled up
-    /// 1.4 about its origin — the shield's glow part by part, then
-    /// invisibility's shimmer, as bright as the body is faded out (at most
-    /// 22%).
-    pub fn magic_draws(&self, bones: &[Vec<glam::Mat4>]) -> Vec<crate::render::MagicDraw> {
-        use crate::render::MagicKind;
-        let time = self.now as u32;
-        let mut out = Vec::new();
-        for (f, b) in self.fighters.iter().zip(bones) {
-            let Some(model) = f.magic_model else { continue };
-            if f.gone || (!f.effects.shield_active && !f.effects.invis_active) {
-                continue;
-            }
-            let scaled: Vec<glam::Mat4> = b
-                .iter()
-                .map(|m| *m * glam::Mat4::from_scale(Vec3::splat(SHELL_SCALE)))
-                .collect();
-            if f.effects.shield_active {
-                // (A super shield's and a boss's red.)
-                let (kind, tex) = if f.effects.daodan || f.boss_shield {
-                    (MagicKind::Daodan, 1)
-                } else {
-                    (MagicKind::Shield, 0)
-                };
-                if let Some(texture) = self.magic_textures[tex].clone() {
-                    let mut alpha = [0.0; PARTS];
-                    for (a, p) in alpha.iter_mut().zip(f.effects.shield_parts) {
-                        *a = f32::from(p) / 255.0;
-                    }
-                    out.push(crate::render::MagicDraw {
-                        model,
-                        bones: scaled.clone(),
-                        texture,
-                        kind,
-                        alpha,
-                        time,
-                    });
-                }
-            }
-            if f.effects.invis_active {
-                if let Some(texture) = self.magic_textures[2].clone() {
-                    let a = ((1.0 - f.effects.invis_alpha) * 255.0 * INVIS_AURA).round() / 255.0;
-                    out.push(crate::render::MagicDraw {
-                        model,
-                        bones: scaled,
-                        texture,
-                        kind: MagicKind::Invis,
-                        alpha: [a; PARTS],
-                        time,
-                    });
-                }
-            }
-        }
-        out
-    }
-}
+impl World {}
 
 /// `ONrCharacter_FindParts`: the body parts whose bounds come within
 /// `radius` of `at` (a mask), given each part's world matrix and bounding

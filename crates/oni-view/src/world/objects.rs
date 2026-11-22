@@ -368,34 +368,6 @@ impl World {
             .collect()
     }
 
-    /// What to draw for the objects: each shown one's models and matrix —
-    /// all but those see-through this frame ([`World::object_jello_draws`]).
-    /// The objects to draw: each model, its matrix, and the flat shade
-    /// it is lit by, if any (`obj_shade`, `OBcFlags_FlatLighting`).
-    pub fn object_draws(&self) -> Vec<(PathBuf, Mat4, Option<[f32; 3]>)> {
-        // (The laser triggers' emitter eyes are drawn as objects too.)
-        let eyes = self
-            .lasers
-            .iter()
-            .flat_map(|l| l.eye_draws())
-            .map(|(p, m)| (p, m, None));
-        (0..self.placed.list.len())
-            .filter(|&k| {
-                self.placed.list[k].flags & oflag::INVISIBLE == 0
-                    && !self.see_through.objects.contains(&k)
-            })
-            .flat_map(|k| {
-                let m = self.object_matrix(k);
-                let shade = self.placed.list[k].shade;
-                self.placed.setups[self.placed.list[k].setup]
-                    .models
-                    .iter()
-                    .map(move |p| (p.clone(), m, shade))
-            })
-            .chain(eyes)
-            .collect()
-    }
-
     /// `obj_shade a b r g b`: objects `a`–`b` lit flat in this colour (each
     /// 0–1, kept to 8 bits as the original keeps it).
     pub fn obj_shade(&mut self, a: u32, b: u32, rgb: [f32; 3]) {
@@ -412,28 +384,6 @@ impl World {
         for k in self.objects_by_id(a, b) {
             self.placed.list[k].flags |= oflag::FORCE_DRAW;
         }
-    }
-
-    /// The objects see-through this frame (the camera's jello: drawn at
-    /// 31 of 255, `OBrDraw`).
-    pub fn object_jello_draws(&self) -> Vec<(PathBuf, Mat4)> {
-        self.object_models(true)
-    }
-
-    fn object_models(&self, see_through: bool) -> Vec<(PathBuf, Mat4)> {
-        (0..self.placed.list.len())
-            .filter(|&k| {
-                self.placed.list[k].flags & oflag::INVISIBLE == 0
-                    && self.see_through.objects.contains(&k) == see_through
-            })
-            .flat_map(|k| {
-                let m = self.object_matrix(k);
-                self.placed.setups[self.placed.list[k].setup]
-                    .models
-                    .iter()
-                    .map(move |p| (p.clone(), m))
-            })
-            .collect()
     }
 
     /// The live objects: name, place, frame and whether its clip runs.

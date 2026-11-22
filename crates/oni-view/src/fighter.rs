@@ -25,8 +25,8 @@ use crate::anim::reaction;
 use crate::anim::types::{flag, st, ty, var};
 use crate::chrphys;
 use crate::control::{Facing, MED_TURN, SLOW_TURN};
+use crate::draw::CharDraw;
 use crate::quirks::Quirks;
-use crate::render::CharDraw;
 use crate::skel::Character;
 
 /// Vertical speed a character walks off a ledge with.
@@ -144,7 +144,7 @@ pub struct Aim {
 
 /// One character instance in the world.
 pub struct Fighter {
-    /// Uploaded render-model index (see [`crate::render::Renderer::add_character`]).
+    /// Uploaded render-model index (see [`crate::draw::Renderer::add_character`]).
     pub model: usize,
     /// Its low body's model (magic effects are drawn over it).
     pub magic_model: Option<usize>,

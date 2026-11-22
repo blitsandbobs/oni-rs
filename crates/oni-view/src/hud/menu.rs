@@ -18,7 +18,7 @@ use std::time::Instant;
 use super::console::{glyphs, rgba};
 use super::text::{self, Align, Fonts};
 use super::{rect, PartSpec};
-use crate::render::OverlayDraw;
+use crate::draw::OverlayDraw;
 use crate::settings::Settings;
 
 // --- window types and styles (`BFW_WindowManager_Public.h`, `WM_*.h`) -----

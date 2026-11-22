@@ -5,8 +5,8 @@
 use glam::Vec3;
 
 use super::World;
+use crate::draw::OverlayDraw;
 use crate::hud::{Gun, Player};
-use crate::render::OverlayDraw;
 
 /// The hit ring's quarter for a blow along `dir` (the shove, attacker to
 /// victim) on someone aiming at `facing` (`ONrCharacter_DamageCompass`): 0

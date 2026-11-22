@@ -26,6 +26,7 @@ mod consoles;
 mod control;
 mod decal;
 mod doors;
+mod draw;
 mod fighter;
 mod frame;
 mod game;

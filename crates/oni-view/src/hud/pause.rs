@@ -12,7 +12,7 @@ use std::time::Instant;
 use super::console::{self, button_draws, lines_draws, page_draws, Page};
 use super::text::Fonts;
 use super::{rect, PartSpec};
-use crate::render::OverlayDraw;
+use crate::draw::OverlayDraw;
 
 /// The sections, in their buttons' order (101–105).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

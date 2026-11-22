@@ -855,7 +855,7 @@ impl System {
         }
         // A contrail's link gone (`P3rDisplayClass_Contrail`, as it draws:
         // here, each tick): broken, and BrokenLink sent.
-        if matches!(c.sprite_type, 5 | 6) && !c.contrail_emitter {
+        if c.sprite_type.is_contrail() && !c.contrail_emitter {
             if let Some(l) = p.link {
                 let gone = self
                     .get(l)

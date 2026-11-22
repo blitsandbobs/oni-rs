@@ -120,19 +120,6 @@ impl World {
             }
         }
     }
-
-    /// The corpses to draw: each its model and parts' matrices.
-    pub fn corpse_draws(&self) -> impl Iterator<Item = crate::render::CharDraw<'_>> {
-        self.corpses.list.iter().filter_map(|c| {
-            Some(crate::render::CharDraw {
-                model: c.model?,
-                bones: &c.bones,
-                see_through: false,
-                alpha: 1.0,
-                shade: None,
-            })
-        })
-    }
 }
 
 /// The array's size outside `--faithful` (Q21; the levels' own is 20).

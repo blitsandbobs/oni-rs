@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use glam::Vec3;
 
-use crate::render::OverlayDraw;
+use crate::draw::OverlayDraw;
 use text::{Align, Fonts, TextArea};
 
 /// The HUD's elements (`ONcIGUIElement_*`), as the scripts name them.

@@ -28,6 +28,7 @@ pub mod camera;
 pub mod cheats;
 pub mod corpses;
 pub mod cutscene;
+mod draws;
 mod env_particles;
 pub mod flow;
 pub mod fog;

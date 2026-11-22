@@ -483,6 +483,49 @@ pub struct AttractorDef {
 
 // (The name, the AI's dodge and alert radii and the look are for drawing
 // and the AI's dodging, still to come.)
+/// How a class's sprites are drawn (`M3cGeomState_SpriteMode_*`, the
+/// data's `spriteType`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum SpriteType {
+    /// Facing the camera (0; and any number not below).
+    #[default]
+    Normal,
+    /// Facing the camera, turned toward its direction (1).
+    Rotated,
+    /// Along its direction, turned to face the camera (2).
+    Billboard,
+    /// Along its direction, upright along its up (3).
+    Arrow,
+    /// Across its direction (4).
+    Flat,
+    /// A contrail as wide as its orientation's X (5).
+    ContrailOriented,
+    /// A contrail facing the camera (6).
+    Contrail,
+    /// Along its direction and its right (7).
+    Discus,
+}
+
+impl SpriteType {
+    pub fn from_data(n: u64) -> SpriteType {
+        match n {
+            1 => SpriteType::Rotated,
+            2 => SpriteType::Billboard,
+            3 => SpriteType::Arrow,
+            4 => SpriteType::Flat,
+            5 => SpriteType::ContrailOriented,
+            6 => SpriteType::Contrail,
+            7 => SpriteType::Discus,
+            _ => SpriteType::Normal,
+        }
+    }
+
+    /// Drawn as a contrail (from the particle to its link), not a sprite.
+    pub fn is_contrail(self) -> bool {
+        matches!(self, SpriteType::ContrailOriented | SpriteType::Contrail)
+    }
+}
+
 #[allow(dead_code)]
 pub struct Class {
     pub name: String,
@@ -497,11 +540,9 @@ pub struct Class {
     pub flyby: Option<Rc<str>>,
     pub scale: Value,
     /// A separate height (when the class has one), how its sprite is drawn
-    /// (`M3cGeomState_SpriteMode_*`: 0 normal, 1 rotated, 2 billboard, 3
-    /// arrow, 4 flat, 5 / 6 contrails, 7 discus; `World::sprites`) and its
-    /// turn in its own plane (degrees).
+    /// (`World::sprites`) and its turn in its own plane (degrees).
     pub y_scale: Option<Value>,
-    pub sprite_type: u32,
+    pub sprite_type: SpriteType,
     pub rotation: Value,
     pub alpha: Value,
     /// Its colour (a shade: ARGB).
@@ -840,7 +881,7 @@ fn class(name: &str, c: &Json, by_name: &HashMap<String, ClassId>) -> Class {
             .iter()
             .any(|n| n == "separateYScale")
             .then(|| value(&c["appearance"]["yScale"], &vars)),
-        sprite_type: c["spriteType"].as_u64().unwrap_or(0) as u32,
+        sprite_type: SpriteType::from_data(c["spriteType"].as_u64().unwrap_or(0)),
         rotation: value(&c["appearance"]["rotation"], &vars),
         alpha: value(&c["appearance"]["alpha"], &vars),
         tint: value(&c["appearance"]["tint"], &vars),

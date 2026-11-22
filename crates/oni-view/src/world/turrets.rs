@@ -527,18 +527,4 @@ impl World {
             .map_or(1.0, |t| t.class.skill.gun_inaccuracy)
             * self.difficulty.inaccuracy
     }
-
-    /// What to draw of the turrets: each head and barrel model and matrix.
-    pub fn turret_draws(&self) -> Vec<(PathBuf, Mat4)> {
-        self.turrets
-            .iter()
-            .flat_map(|t| {
-                [
-                    t.class.head.clone().map(|p| (p, t.head_matrix())),
-                    t.class.barrel.clone().map(|p| (p, t.barrel_matrix())),
-                ]
-            })
-            .flatten()
-            .collect()
-    }
 }
