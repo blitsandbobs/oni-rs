@@ -560,6 +560,32 @@ impl Fighter {
     /// world-space move — without applying it, so the world can stop
     /// characters walking into each other first. Returns None for a corpse
     /// (which moves itself).
+    /// Playing a film: this tick's recorded controls (and its position
+    /// eased toward the recording's), as a move. None: no film, or it has
+    /// just ended (it is dropped).
+    pub fn film_move(&mut self, opponents: &[Opponent]) -> Option<Option<Vec3>> {
+        let (frame, interp) = self.film.as_mut().map(|p| (p.next(), p.interp.take()))?;
+        if let Some((step, n)) = interp {
+            self.physics.feet += step;
+            if n > 1 {
+                if let Some(p) = self.film.as_mut() {
+                    p.interp = Some((step, n - 1));
+                }
+            }
+        }
+        match frame {
+            Some((keys, turn)) => {
+                self.facing.adjust_desired(-turn / 64.0);
+                let held = crate::anim::input::fire_as_melee(keys, false, false);
+                Some(self.plan(held, 0, opponents))
+            }
+            None => {
+                self.film = None;
+                None
+            }
+        }
+    }
+
     pub fn plan(&mut self, held: u32, pressed: u32, opponents: &[Opponent]) -> Option<Vec3> {
         let ch = self.character.clone();
         self.motion.now += 1;

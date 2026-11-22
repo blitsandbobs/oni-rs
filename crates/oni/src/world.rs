@@ -192,6 +192,13 @@ impl AgentView {
     }
 }
 
+/// A dead body settles (`ONcCharacterFlag_Dead_3_Cosmetic`) once it has lain
+/// still this many ticks running, or been dying this long (15 s — it then
+/// makes no corpse either); falling this long after death, it makes none.
+const SETTLE_STILL: u32 = 120;
+const SETTLE_DYING: u32 = 60 * 15;
+const FALL_NO_CORPSE: u16 = crate::fighter::MAX_AIR_FRAMES + 30;
+
 /// All fighters in the level + the static collision mesh new capsules resolve
 /// against. Fighter 0 is the player by convention.
 pub struct World {
@@ -2087,6 +2094,70 @@ impl World {
             self.cutscene.ticks += 1;
         }
         self.fog.tick();
+        let mut controls = self.player_input(controls);
+        self.doors_tick();
+        self.objects_tick();
+        self.lasers_tick();
+        for i in 0..self.fighters.len() {
+            self.console_tick(i);
+        }
+        if self.fighters.first().is_some_and(|p| p.console.is_some()) {
+            controls = 0;
+        }
+        self.perceive();
+        self.run_agents();
+        self.neutral_tick();
+        self.plan_paths();
+        self.lift_places();
+        self.track_looks();
+        let decisions = self.melee_decisions();
+        self.melee_throw_orders(&decisions);
+        let moves = self.plan_moves(controls, &decisions);
+        self.commit_moves(moves);
+        self.start_throws();
+        for f in &mut self.fighters {
+            f.apply_reaction();
+        }
+        // The level's environmental particles come at its start.
+        if !self.env_particles_started {
+            self.env_particles_started = true;
+            self.env_particles_start();
+        }
+        // Turrets, then guns and shots: the player's buttons, the AIs' triggers.
+        self.turrets_tick();
+        let mut gun_controls = self.ai_guns();
+        if let Some(c) = gun_controls.first_mut() {
+            *c = controls;
+        }
+        self.weapons_tick(&gun_controls);
+        self.settle_dead();
+        self.remove_deleted_dead();
+        self.corpses_tick();
+        self.fighter_sounds();
+        self.listen();
+        self.particle_sounds();
+        self.voices_tick();
+        self.timer_tick();
+        self.conditions_tick();
+        self.audio.tick(Some(&self.quads));
+        self.cheats_tick();
+        self.anim_particles_tick();
+        self.clock.slowmo = self.clock.slowmo.saturating_sub(1);
+        for i in 0..self.fighters.len() {
+            self.inventory_tick(i);
+            self.super_tick(i);
+            self.teleport_tick(i);
+            self.magic_tick(i);
+        }
+        self.hud_tick();
+        self.camera_tick();
+        self.lens_tick();
+    }
+
+    /// The player's controls this tick: unless input is off, what the
+    /// locked keys allow; the look, hypo and Action keys acted on (Action in
+    /// reach of a console, door or neutral character uses it).
+    fn player_input(&mut self, controls: u32) -> u32 {
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.
         let controls = if self.input.enabled {
@@ -2125,19 +2196,10 @@ impl World {
                 controls &= !crate::anim::input::key::ACTION;
             }
         }
-        self.doors_tick();
-        self.objects_tick();
-        self.lasers_tick();
-        for i in 0..self.fighters.len() {
-            self.console_tick(i);
-        }
-        if self.fighters.first().is_some_and(|p| p.console.is_some()) {
-            controls = 0;
-        }
-        self.perceive();
-        self.run_agents();
-        self.neutral_tick();
-        self.plan_paths();
+        controls
+    }
+
+    fn lift_places(&mut self) {
         // Someone lifted by a weapon is pulled toward the lifter (its
         // place: the pelvis over the feet, `actual_position`).
         let places: Vec<Vec3> = self
@@ -2151,8 +2213,10 @@ impl World {
         for f in &mut self.fighters {
             f.lift.owner_at = f.lift.owner.and_then(|o| places.get(o).copied());
         }
-        self.track_looks();
-        let decisions = self.melee_decisions();
+    }
+
+    /// A melee AI ordering a throw may throw its target: its throw sense.
+    fn melee_throw_orders(&mut self, decisions: &[Option<crate::ai::melee::brain::Output>]) {
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
             let order = d.and_then(|d| d.throw.map(|t| (t, d.throw_victim)));
@@ -2173,6 +2237,16 @@ impl World {
             });
             self.fighters[i].motion.throw_sense = sense;
         }
+    }
+
+    /// Every fighter's move this tick: the player's from `controls`, the
+    /// AIs' from their brains (a melee AI's decision), a console user's and
+    /// a film's their own.
+    fn plan_moves(
+        &mut self,
+        controls: u32,
+        decisions: &[Option<crate::ai::melee::brain::Output>],
+    ) -> Vec<Option<Vec3>> {
         let feet: Vec<(usize, Vec3)> = self
             .fighters
             .iter()
@@ -2214,35 +2288,16 @@ impl World {
                 .and_then(|b| b.opponent())
                 .and_then(|t| feet.iter().find(|(j, _)| *j == t && *j != i))
                 .map(|(_, p)| *p);
-            // The player's fire buttons become melee while unarmed (weapons
-            // aren't modelled yet, #10). A film plays its recorded controls.
+            // The player's fire buttons become melee while unarmed. A film
+            // plays its recorded controls.
             if f.console.is_some() {
                 // Using a console: the console's walk and animation only.
                 moves.push(f.plan(0, 0, &others));
                 continue;
             }
-            let film = f.film.as_mut().map(|p| (p.next(), p.interp.take()));
-            if let Some((frame, interp)) = film {
-                if let Some((step, n)) = interp {
-                    f.physics.feet += step;
-                    if n > 1 {
-                        if let Some(p) = f.film.as_mut() {
-                            p.interp = Some((step, n - 1));
-                        }
-                    }
-                }
-                match frame {
-                    Some((keys, turn)) => {
-                        f.facing.adjust_desired(-turn / 64.0);
-                        moves.push(f.plan(
-                            crate::anim::input::fire_as_melee(keys, false, false),
-                            0,
-                            &others,
-                        ));
-                        continue;
-                    }
-                    None => f.film = None,
-                }
+            if let Some(m) = f.film_move(&others) {
+                moves.push(m);
+                continue;
             }
             let (held, pressed) = if i == 0 && ai_control {
                 (f.npc_controls(target), 0)
@@ -2259,6 +2314,13 @@ impl World {
             };
             moves.push(f.plan(held, pressed, &others));
         }
+        moves
+    }
+
+    /// The moves carried out against each other and the level: collisions
+    /// counted and told to the AI's movement, door leaves touched, loose guns
+    /// pushed.
+    fn commit_moves(&mut self, mut moves: Vec<Option<Vec3>>) {
         self.collide(&mut moves);
         let touched = std::cell::RefCell::new(crate::chrphys::Contacts::default());
         let mut touches = Vec::new();
@@ -2341,24 +2403,11 @@ impl World {
                 }
             }
         }
-        self.start_throws();
-        for f in &mut self.fighters {
-            f.apply_reaction();
-        }
-        // The level's environmental particles come at its start.
-        if !self.env_particles_started {
-            self.env_particles_started = true;
-            self.env_particles_start();
-        }
-        // Turrets, then guns and shots: the player's buttons, the AIs' triggers.
-        self.turrets_tick();
-        let mut gun_controls = self.ai_guns();
-        if let Some(c) = gun_controls.first_mut() {
-            *c = controls;
-        }
-        self.weapons_tick(&gun_controls);
-        // The dead settle (`Die_3_Cosmetic`): on the ground for over 120
-        // ticks running, or dying for 15 s.
+    }
+
+    fn settle_dead(&mut self) {
+        // The dead settle (`Die_3_Cosmetic`): on the ground for over
+        // `SETTLE_STILL` ticks running, or dying for `SETTLE_DYING`.
         // (Falling too long, or dying for 15 s, it makes no corpse.)
         for f in &mut self.fighters {
             // (Falling too long counts from the death on, `Dead_2_Moving`:
@@ -2366,9 +2415,7 @@ impl World {
             // (A body that slid off an edge falls without a flight: its time
             // off the ground counts the same.)
             let air_time = f.motion.air.frames.max(f.motion.air.off_ground);
-            if (f.motion.dying || f.motion.corpse)
-                && !f.death.settled
-                && air_time >= crate::fighter::MAX_AIR_FRAMES + 30
+            if (f.motion.dying || f.motion.corpse) && !f.death.settled && air_time >= FALL_NO_CORPSE
             {
                 f.death.no_corpse = true;
                 f.death.settled = true;
@@ -2381,10 +2428,13 @@ impl World {
                     f.death.still = 0;
                 }
                 f.death.moving += 1;
-                f.death.settled = f.death.still > 120 || f.death.moving > 60 * 15;
-                f.death.no_corpse = f.death.moving > 60 * 15;
+                f.death.settled = f.death.still > SETTLE_STILL || f.death.moving > SETTLE_DYING;
+                f.death.no_corpse = f.death.moving > SETTLE_DYING;
             }
         }
+    }
+
+    fn remove_deleted_dead(&mut self) {
         // Bodies of classes that delete their dead go after the delay.
         for i in 1..self.fighters.len() {
             let f = &mut self.fighters[i];
@@ -2398,7 +2448,9 @@ impl World {
                 Some(t) => f.death.timer = Some(t - 1),
             }
         }
-        self.corpses_tick();
+    }
+
+    fn fighter_sounds(&mut self) {
         // The sounds of the moves played this tick.
         for i in 0..self.fighters.len() {
             if let Some((clip, frame)) = self.fighters[i].played.take() {
@@ -2429,6 +2481,9 @@ impl World {
                 self.sound(stimulus, at, volume, Some(i), None);
             }
         }
+    }
+
+    fn listen(&mut self) {
         // What the player hears (`ONrGameState_UpdateSoundManager`): with the
         // camera following, from their ear (feet across, head high), turned
         // with their facing; else (a script's camera) from the camera.
@@ -2451,23 +2506,6 @@ impl World {
                 .listen(self.camera.view.location, self.camera.view.view),
             _ => {}
         }
-        self.particle_sounds();
-        self.voices_tick();
-        self.timer_tick();
-        self.conditions_tick();
-        self.audio.tick(Some(&self.quads));
-        self.cheats_tick();
-        self.anim_particles_tick();
-        self.clock.slowmo = self.clock.slowmo.saturating_sub(1);
-        for i in 0..self.fighters.len() {
-            self.inventory_tick(i);
-            self.super_tick(i);
-            self.teleport_tick(i);
-            self.magic_tick(i);
-        }
-        self.hud_tick();
-        self.camera_tick();
-        self.lens_tick();
     }
 
     /// Fighter `who`'s clip `clip` is on `frame`: its animation sound, and
