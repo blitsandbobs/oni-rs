@@ -248,9 +248,12 @@ our own additions. Not affected by `--faithful`.
   modelled.
 - Overlay quaternions are the conjugates of the original's:
   `MUrQuat_Mul(layer, body)` is `body · layer` here (#47).
-- Our cheats spawn no guns; `forcefield` (a full shield belt) is ours;
-  toggles reset each level (the original keeps regeneration);
-  `ONI_CHEATS=1` allows cheats before the game is won.
+- Cheats: `forcefield` (a full shield belt) is ours; toggles reset each
+  level (the original keeps regeneration, gatling guns and last man
+  standing); `ONI_CHEATS=1` allows cheats before the game is won;
+  `shapeshifter`, `glassworld` and `killmequick` aren't carried out.
+  `munitionfrenzy` lays its guns out in class-name order (the original's
+  template order).
 
 **Rendering**
 - Lens flares: a frustum test widened by one octree leaf (16) with a far

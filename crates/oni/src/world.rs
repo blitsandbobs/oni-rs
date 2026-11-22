@@ -2794,7 +2794,7 @@ impl World {
                     && o.alive()
                     && !o.motion.dying
                     && !o.motion.corpse
-                    && !o.motion.tuning.knockdown_resistant
+                    && !o.knockdown_resistant()
                     && !o.motion.current().has_flag(flag::INVULNERABLE)
                     && (through_walls
                         || o.feet().distance(f.feet()) > throw::SEARCH_RANGE
@@ -3054,6 +3054,7 @@ impl World {
         // The player omnipotent (the cheat): past every defence, at least
         // a killing blow.
         let omnipotent = self.cheats.omnipotent && self.fighters[a].player;
+        let fists = self.cheats.fists_of_legend && self.fighters[a].player;
         let fb = &mut self.fighters[b];
         if omnipotent {
             damage = damage.max(fb.hp);
@@ -3113,7 +3114,12 @@ impl World {
         let mut stun = attack.hit_stun;
         let mut as_stagger = false;
         let mut kind = attack.damage_animation;
-        if reeling && heavy {
+        if fists {
+            // The `fistsoflegend` cheat: every blow of the player's blows
+            // the victim up.
+            kind = ty::BLOWNUP;
+            as_stagger = heavy;
+        } else if reeling && heavy {
             kind = reaction::to_knockdown(kind, quirks);
         } else if heavy {
             kind = ty::STAGGER;
@@ -3128,7 +3134,7 @@ impl World {
             let victim = Victim {
                 airborne: fb.airborne(),
                 to_state: fb.motion.current().to_state,
-                resistant: fb.motion.tuning.knockdown_resistant,
+                resistant: fb.knockdown_resistant(),
             };
             let mut chosen = reaction::adapt(kind, victim, quirks);
             if chosen == ty::HIT_OVERLAY {

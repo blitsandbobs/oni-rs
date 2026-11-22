@@ -2495,8 +2495,14 @@ impl World {
         }
         let at = gun.matrix.get().w_axis.truncate();
         if gun.class.has(flag::AUTOFIRE) {
-            if let Some(a) = gun.class.attachments.iter().find(|a| a.ammo_used > 0) {
-                (gun.chamber, gun.chamber_total) = (a.chamber_time, a.chamber_time);
+            if let Some(t) = gun
+                .class
+                .attachments
+                .iter()
+                .find(|a| a.ammo_used > 0)
+                .map(|a| gun.chamber_time(a))
+            {
+                (gun.chamber, gun.chamber_total) = (t, t);
             }
         }
         let sound = gun.class.empty_sound.clone();
@@ -2637,6 +2643,7 @@ impl World {
             };
             let before = self.armory.weapons[w].position;
             self.armory.weapons[w].infinite_ammo = self.fighters[who].infinite_ammo;
+            self.armory.weapons[w].gatling = self.cheats.gatling && self.fighters[who].player;
             let motion = m.w_axis.truncate() - before;
             self.with_shots(|a, host| a.weapons[w].tick_held(&mut a.particles, host, m, motion));
         }

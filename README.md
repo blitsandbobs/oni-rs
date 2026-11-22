@@ -74,11 +74,19 @@ ONI_CHEATS=1 cargo run --release -p oni
 | `moonshadow` | The phase cloak: invisibility that never runs out (toggle) |
 | `chenille` | Daodan power: you glow, with a boss shield (toggle) |
 | `carousel` | Slow motion (toggle) |
+| `bighead` | Everyone's head four times the size (toggle) |
+| `minime` | You at a quarter of your size (toggle) |
+| `behemoth` | Godzilla: you at 1.8 times your size, and not knocked down (toggle) |
+| `fistsoflegend` | Your blows send everyone flying (toggle) |
+| `roughjustice` | Gatling guns: your guns fire far faster (toggle) |
+| `munitionfrenzy` | A gun of every kind around you |
+| `reservoirdogs` | Last man standing: everyone fights everyone (toggle) |
 | `forcefield` | A full shield belt *(the port's own, not the original's)* |
 
 Letters typed are kept (the last 20); a code they end with is carried out.
-Toggles switch off when a new level begins (the original keeps regeneration
-across levels). As shipped the cheats unlock once the game has been won; the
+Toggles switch off when a new level begins (the original keeps regeneration,
+gatling guns and last man standing across levels). Not carried out:
+`shapeshifter`, `glassworld`, `killmequick`. As shipped the cheats unlock once the game has been won; the
 port keeps that with the saved game.
 
 ## Build & test

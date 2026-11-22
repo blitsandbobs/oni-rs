@@ -37,6 +37,9 @@ pub mod part {
     pub const RIGHT_HAND: usize = 18;
 }
 
+/// How much bigger the `bighead` cheat draws heads (`ONgBigHeadAmount`).
+const BIG_HEAD: f32 = 4.0;
+
 /// Where others look for a fighter: its pelvis, its head, and just above
 /// its feet.
 #[derive(Clone, Copy, Debug)]
@@ -260,6 +263,11 @@ pub struct Fighter {
     pub unstoppable: bool,
     /// The player made unstoppable by the cheat (`ONgPlayerUnstoppable`).
     pub cheat_unstoppable: bool,
+    /// The player made knockdown resistant by the cheat
+    /// (`ONgPlayerKnockdownResistant`: `behemoth`).
+    pub cheat_knockdown_resistant: bool,
+    /// Posed with a big head (`ONgBigHead`: the `bighead` cheat).
+    pub big_head: bool,
     /// Its class's shadow, and whether a script took it away (`chr_shadow`).
     pub shadow: Option<Rc<crate::decal::Shadow>>,
     pub no_shadow: bool,
@@ -517,6 +525,8 @@ impl Fighter {
             super_handles: None,
             super_running: false,
             cheat_unstoppable: false,
+            cheat_knockdown_resistant: false,
+            big_head: false,
             gone: false,
             film: None,
             film_keys: None,
@@ -1953,7 +1963,7 @@ impl Fighter {
             }
         }
         let alive = self.alive();
-        key.push(u32::from(alive));
+        key.push(u32::from(alive) | u32::from(self.big_head) << 1);
         if alive {
             let screen = |s: Option<&crate::anim::aim::Screen>| {
                 s.map_or(0, |s| s as *const crate::anim::aim::Screen as usize as u64)
@@ -2020,7 +2030,15 @@ impl Fighter {
                 &layers,
             )
             .into_iter()
-            .map(|m| self.placement * m)
+            .enumerate()
+            .map(|(i, m)| {
+                // A big head (`ONrCharacter_BuildMatricies`).
+                if self.big_head && i == part::HEAD {
+                    self.placement * m * Mat4::from_scale(Vec3::splat(BIG_HEAD))
+                } else {
+                    self.placement * m
+                }
+            })
             .collect()
     }
 
@@ -2092,6 +2110,12 @@ impl Fighter {
     /// Neither reacts nor is shoved (`ONrCharacter_IsUnstoppable`).
     pub fn is_unstoppable(&self) -> bool {
         self.unstoppable || self.cheat_unstoppable
+    }
+
+    /// Shrugs off light hits, can't be thrown
+    /// (`ONrCharacter_IsKnockdownResistant`): its class, or the cheat.
+    pub fn knockdown_resistant(&self) -> bool {
+        self.motion.tuning.knockdown_resistant || self.cheat_knockdown_resistant
     }
 
     pub fn draw<'a>(&self, bones: &'a [Mat4]) -> CharDraw<'a> {

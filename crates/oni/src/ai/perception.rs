@@ -149,6 +149,9 @@ impl Team {
     pub fn regards(self, other: Team) -> Relation {
         use Relation::{Friend, Hostile};
         use Team::*;
+        if LAST_MAN_STANDING.load(std::sync::atomic::Ordering::Relaxed) {
+            return Hostile;
+        }
         if self == other || self == Switzerland || other == Switzerland {
             return Friend;
         }
@@ -164,6 +167,11 @@ impl Team {
         }
     }
 }
+
+/// Everyone hostile to everyone (`AI2gLastManStanding`: the
+/// `reservoirdogs` cheat), the world's cheat state each tick.
+pub static LAST_MAN_STANDING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 /// A class's perception tuning (`classes.json` `perception`).
 #[derive(Clone, Copy, Debug, PartialEq)]

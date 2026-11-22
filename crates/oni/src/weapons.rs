@@ -98,6 +98,8 @@ pub struct Attachment {
     /// Non-zero: a shooter, using this much ammo a shot.
     pub ammo_used: u16,
     pub chamber_time: u16,
+    /// Its chamber time for the player under the `roughjustice` cheat.
+    pub cheat_chamber_time: u16,
     pub min_fire_time: u16,
     /// A shooter's index; for a follower the shooter it follows (−1 = all).
     pub shooter: i32,
@@ -226,6 +228,7 @@ fn class(name: &str, c: &files::WeaponClass, dir: &Path, particles: &p3::Classes
             matrix: crate::geom::mat4_4x3(&x.matrix),
             ammo_used: x.ammo_used,
             chamber_time: x.chamber_time,
+            cheat_chamber_time: x.cheat_chamber_time,
             min_fire_time: x.min_fire_time,
             shooter: x.shooter_index,
             start_delay: x.start_delay,
@@ -351,6 +354,9 @@ pub struct Weapon {
     /// stays full and a shot spends nothing (`WPrGetAmmo`,
     /// `WPrStartShooter`).
     pub infinite_ammo: bool,
+    /// Held by the player under the `roughjustice` cheat (`WPgGatlingCheat`):
+    /// it chambers in its shooters' cheat times, its recoil cut to match.
+    pub gatling: bool,
     /// Its world matrix (gun space → world), shared with its particles.
     pub matrix: Rc<Cell<Mat4>>,
     /// A free gun: where it lies and which way.
@@ -395,6 +401,7 @@ impl Weapon {
             class,
             owner: None,
             infinite_ammo: false,
+            gatling: false,
             matrix: Rc::new(Cell::new(Mat4::from_rotation_translation(
                 glam::Quat::from_rotation_y(yaw),
                 position,
@@ -423,6 +430,16 @@ impl Weapon {
             fade_time: 0,
             gone: false,
             reports: Vec::new(),
+        }
+    }
+
+    /// How long shooter `a` chambers between shots (the cheat's time under
+    /// `roughjustice`).
+    pub fn chamber_time(&self, a: &Attachment) -> u16 {
+        if self.gatling {
+            a.cheat_chamber_time
+        } else {
+            a.chamber_time
         }
     }
 
@@ -659,13 +676,14 @@ impl Weapon {
             self.send(sys, host, event::DELAY_START, -1, motion);
             self.chamber_delay = true;
         }
-        self.chamber = a.chamber_time;
-        self.chamber_total = a.chamber_time;
+        self.chamber = self.chamber_time(&a);
+        self.chamber_total = self.chamber;
         let volume = self.class.detection_volume[usize::from(shooter > 0)];
-        self.reports.push(Report::Shot {
-            recoil: self.class.recoil.base,
-            volume,
-        });
+        let mut recoil = self.class.recoil.base;
+        if self.gatling && a.chamber_time > 0 {
+            recoil = recoil * f32::from(a.cheat_chamber_time) / f32::from(a.chamber_time);
+        }
+        self.reports.push(Report::Shot { recoil, volume });
     }
 
     fn stop_background(&mut self, sys: &mut System, host: &mut dyn Host) {
@@ -825,8 +843,8 @@ impl Weapon {
                             if self.class.has(flag::AUTOFIRE) {
                                 self.pulse(sys, host, i, a.shooter, motion);
                             } else {
-                                self.chamber = a.chamber_time;
-                                self.chamber_total = a.chamber_time;
+                                self.chamber = self.chamber_time(&a);
+                                self.chamber_total = self.chamber;
                             }
                         }
                     }
