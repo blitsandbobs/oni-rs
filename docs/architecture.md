@@ -4,19 +4,7 @@ oni-rs is two programs: a one-time **converter** that turns the original
 game data into an open asset tree, and an **engine** that plays that tree.
 Behaviour is ported from the original C source (`../original/source`), which
 stays the reference for *how* anything works; this page is the map of
-*where* it lives here.
-
-## Crates
-
-| Crate | What |
-|---|---|
-| `oni-convert` | The converter: `GameDataFolder` (`.dat`/`.raw`) → `generated/oni/` (glTF, PNG, WAV, JSON, a few binary tables). |
-| `oni-dat`, `oni-bytes`, `oni-fourcc` | The `.dat` template-instance container and byte reading. |
-| `oni-template`, `oni-template-gen` | Generic decoding of template instances from layouts generated from the original headers. |
-| `oni-geom`, `oni-texture`, `oni-sound`, `oni-bink` | Geometry, animations, textures, sounds, movies. |
-| `oni-schema` | The vocabulary both sides share: name tables (animation types, states, flags…) and **`files`, the formats of every converted file** — the converter writes those types, the engine reads them. |
-| `oni-config` | Input actions, key bindings, tuning. |
-| `oni-view` | The engine: simulation, rendering, audio, HUD and menus, the level-script runtime, the scenario host. |
+*where* it lives here. The crates are listed in `CLAUDE.md`.
 
 ## The engine (`crates/oni-view/src`)
 
