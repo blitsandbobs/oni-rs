@@ -25,7 +25,7 @@ impl WorldFrame {
         eye: Vec3,
         decals: bool,
     ) -> Self {
-        renderer.door_motion = world.door_motions();
+        renderer.door_motion = world.doors.motions();
         renderer.beams = world.beams.clone();
         renderer.sprites = world.sprites();
         renderer.decals = if decals {
@@ -35,7 +35,7 @@ impl WorldFrame {
         };
         renderer.hidden_refs = world.env_hidden.clone();
         renderer.env_shades = world.env_shades.clone();
-        renderer.door_shades = world.door_shades.clone();
+        renderer.door_shades = world.doors.shades.clone();
         renderer.broken_glass = world.broken_glass.clone();
         renderer.jello = world.jello.clone();
         renderer.jello_doors = world.jello_doors.iter().copied().collect();

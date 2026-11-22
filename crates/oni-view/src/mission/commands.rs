@@ -1397,6 +1397,7 @@ pub fn dispatch(
             for d in host
                 .world()
                 .doors
+                .list
                 .iter_mut()
                 .filter(|d| id < 0 || i64::from(d.id) == id)
             {

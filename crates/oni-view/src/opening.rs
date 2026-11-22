@@ -57,7 +57,9 @@ pub fn open_world(
             .map(|k| k.model)
     });
     progress(55);
-    world.attach_doors(crate::door_meshes(scene));
+    world
+        .doors
+        .attach(crate::door_meshes(scene), &mut world.quads);
     world.attach_glass(crate::glass_parts(scene));
     progress(65);
     world.attach_weapons(&o.level_dir.join("../../common"));

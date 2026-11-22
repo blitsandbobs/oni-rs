@@ -181,16 +181,8 @@ pub struct World {
     /// colour — for drawing).
     pub lasers: Vec<crate::lasers::Laser>,
     pub beams: Vec<(Vec3, Vec3, [f32; 3])>,
-    /// The level's doors, and each one's closed leaf (for collision).
-    pub doors: Vec<crate::doors::Door>,
-    door_meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
-    /// Each door's flat shade by object id (`ONrLevel_ObjectGunk_GetShade`).
-    pub door_shades: std::collections::HashMap<u32, [f32; 3]>,
-    /// Each door's leaf as character collision sees it.
-    door_boxes: Vec<crate::chrphys::DoorBox>,
-    /// Each door leaf's box in its own frame (what `door_boxes` places).
-    door_leaf_boxes: Vec<DoorLeaf>,
-    door_links: Vec<Vec<(usize, usize)>>,
+    /// The level's doors (`doors.rs`).
+    pub doors: crate::doors::Doors,
     /// The level parts scripts have hidden (`env_show`).
     pub env_hidden: std::collections::HashSet<u32>,
     /// The game camera (`world/camera.rs`).
@@ -232,8 +224,6 @@ pub struct World {
     /// The object animations scripts name (`OBAN`, the level's and the
     /// common ones), by name.
     pub object_anims: std::collections::HashMap<String, Rc<oni_geom::objanim::ObjectAnimation>>,
-    /// Whether each door's gunk is shown now.
-    door_applied: Vec<bool>,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
@@ -298,15 +288,6 @@ pub struct World {
     env_particles_started: bool,
 }
 
-/// A door leaf's box in its own frame (at its closed position, frame 0).
-#[derive(Clone, Copy, Debug)]
-struct DoorLeaf {
-    door: usize,
-    leaf: usize,
-    lo: Vec3,
-    hi: Vec3,
-}
-
 /// A breakable glass pane.
 struct Pane {
     quad: u32,
@@ -342,14 +323,9 @@ impl World {
             slowmo_timer: 0,
             killed_griffin: None,
             neutral_runs: Default::default(),
-            doors: Vec::new(),
+            doors: Default::default(),
             lasers: Vec::new(),
             beams: Vec::new(),
-            door_meshes: Vec::new(),
-            door_shades: Default::default(),
-            door_boxes: Vec::new(),
-            door_leaf_boxes: Vec::new(),
-            door_links: Vec::new(),
             env_hidden: Default::default(),
             camera: Default::default(),
             hud: Default::default(),
@@ -370,7 +346,6 @@ impl World {
             object_anims: Default::default(),
             object_setups: Vec::new(),
             objects: Vec::new(),
-            door_applied: Vec::new(),
             script_events: Vec::new(),
             key_mask: u32::MAX,
             input_enabled: true,
@@ -600,7 +575,8 @@ impl World {
         let portal_doors: std::collections::HashMap<(usize, usize), usize> = match self.nav.clone()
         {
             Some(nav) => self
-                .door_portals(&nav)
+                .doors
+                .portals(&nav)
                 .iter()
                 .enumerate()
                 .flat_map(|(d, ps)| ps.iter().map(move |&rk| (rk, d)))
@@ -637,7 +613,7 @@ impl World {
                 let gate = |r: usize, k: usize| {
                     portal_doors
                         .get(&(r, k))
-                        .map_or(Some(1.0), |&d| self.doors[d].sound_through(s.stimulus))
+                        .map_or(Some(1.0), |&d| self.doors.list[d].sound_through(s.stimulus))
                 };
                 let heard = self.quads.sees(s.at, eye)
                     || self.nav.as_ref().is_some_and(|nav| {
@@ -1244,7 +1220,7 @@ impl World {
         if !self.quirks.corpse_limit_20() {
             self.corpses.max = self.corpses.max.max(corpses::FIXED_MAX);
         }
-        self.doors = crate::doors::load(level_dir);
+        self.doors = crate::doors::Doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
         self.object_setups = objects::load(level_dir);
         self.objects.clear();
@@ -1270,7 +1246,7 @@ impl World {
             }
             for e in 0..self.lasers[k].emitters.len() {
                 let (from, dir, frame) = self.lasers[k].beam(e);
-                let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+                let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
                 let reach = self.lasers[k].reach(frame, || {
                     let len = crate::lasers::BEAM_LENGTH;
                     crate::chrphys::level_ray(&env, from, dir * len)
@@ -1339,116 +1315,6 @@ impl World {
         }
     }
 
-    /// Gives the doors their closed leaves (by object id, from the level's
-    /// geometry): while a door is closed they are its level quads; while it
-    /// moves or stands open each leaf is a box in its own frame (`OBrInit`'s
-    /// bounds: the geometry's), moving with it.
-    pub fn attach_doors(
-        &mut self,
-        mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>,
-    ) {
-        self.door_meshes = self
-            .doors
-            .iter()
-            .map(|d| meshes.remove(&d.object_id).unwrap_or_default())
-            .collect();
-        self.door_leaf_boxes.clear();
-        for (k, (d, (v, idx))) in self.doors.iter().zip(&self.door_meshes).enumerate() {
-            for l in 0..d.leaves.len() {
-                let inv = d.leaf_matrix(l, 0).inverse();
-                // (Each triangle to the leaf nearest its middle, as drawn.)
-                let pts: Vec<Vec3> = idx
-                    .chunks_exact(3)
-                    .map(|t| [0, 1, 2].map(|j| Vec3::from(v[t[j] as usize])))
-                    .filter(|t| d.leaf_of((t[0] + t[1] + t[2]) / 3.0) == l)
-                    .flatten()
-                    .map(|p| inv.transform_point3(p))
-                    .collect();
-                if pts.is_empty() {
-                    continue;
-                }
-                let (lo, hi) = pts.iter().fold(
-                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
-                    |(lo, hi), p| (lo.min(*p), hi.max(*p)),
-                );
-                self.door_leaf_boxes.push(DoorLeaf {
-                    door: k,
-                    leaf: l,
-                    lo,
-                    hi,
-                });
-            }
-        }
-        self.place_door_boxes();
-        self.mark_door_quads();
-    }
-
-    /// A door's flat shade (`ONrLevel_ObjectGunk_GetShade`): the average of
-    /// its level quads' corner shades (a triangle's three), counting only
-    /// corners with a component over 0x3F, rounded; none such, 0x3F grey;
-    /// no quads, white.
-    pub(super) fn door_shade(&self, object_id: u32) -> [f32; 3] {
-        const MIN: u32 = 0x3F;
-        let tag = (3 << 24) | (object_id & 0x00FF_FFFF);
-        let quads: Vec<_> = self
-            .quads
-            .quads
-            .iter()
-            .filter(|q| q.object_tag == tag)
-            .collect();
-        if quads.is_empty() {
-            return [1.0; 3];
-        }
-        let (mut sum, mut n) = ([0u32; 3], 0u32);
-        for q in quads {
-            let corners = if q.flags & crate::quads::flag::TRIANGLE != 0 {
-                3
-            } else {
-                4
-            };
-            for &c in &q.shades[..corners] {
-                let rgb = [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
-                if rgb.iter().any(|&v| v > MIN) {
-                    for k in 0..3 {
-                        sum[k] += rgb[k];
-                    }
-                    n += 1;
-                }
-            }
-        }
-        let avg = if n > 0 {
-            sum.map(|v| (v + n / 2) / n)
-        } else {
-            [MIN; 3]
-        };
-        avg.map(|v| v as f32 / 255.0)
-    }
-
-    /// The door leaves' boxes where they stand this tick: solid while their
-    /// door isn't closed (its leaf objects exist).
-    fn place_door_boxes(&mut self) {
-        self.door_boxes = self
-            .door_leaf_boxes
-            .iter()
-            .map(|b| {
-                let d = &self.doors[b.door];
-                let m = d.leaf_matrix(b.leaf, d.frame());
-                let axes = [
-                    m.x_axis.truncate(),
-                    m.y_axis.truncate(),
-                    m.z_axis.truncate(),
-                ];
-                let len = Vec3::new(axes[0].length(), axes[1].length(), axes[2].length());
-                crate::chrphys::DoorBox {
-                    center: m.transform_point3((b.lo + b.hi) * 0.5),
-                    axes: axes.map(|a| a.normalize_or_zero()),
-                    half: (b.hi - b.lo) * 0.5 * len,
-                    solid: d.state != crate::doors::State::Closed,
-                }
-            })
-            .collect();
-    }
-
     /// An object animation by name (exactly, else ignoring case, as the
     /// original's template names go).
     pub fn object_anim(&self, name: &str) -> Option<Rc<oni_geom::objanim::ObjectAnimation>> {
@@ -1467,7 +1333,8 @@ impl World {
     /// (`AMrRayToObject`): a placed object's sphere, or the leaf of a door
     /// that isn't closed (its leaves are objects then, met by their boxes).
     pub fn segment_meets_object(&self, a: Vec3, b: Vec3) -> bool {
-        self.door_boxes
+        self.doors
+            .boxes
             .iter()
             .any(|d| d.solid && d.meets_segment(a, b))
             || (0..self.objects.len()).any(|k| {
@@ -1496,91 +1363,6 @@ impl World {
             })
             .filter(|&t| t <= max)
             .min_by(f32::total_cmp)
-    }
-
-    /// The leaves (object id, leaf) of the doors that aren't closed whose
-    /// boxes the segment from `a` to `b` meets.
-    pub(crate) fn door_leaves_met(&self, a: Vec3, b: Vec3) -> Vec<(u32, u8)> {
-        self.door_leaf_boxes
-            .iter()
-            .zip(&self.door_boxes)
-            .filter(|(_, w)| w.solid && w.meets_segment(a, b))
-            .map(|(l, _)| (self.doors[l.door].object_id, l.leaf as u8))
-            .collect()
-    }
-
-    /// Door `id`'s leaves this tick: each one's box (centre, half sizes),
-    /// whether it is solid, and the ticks it stays paused.
-    pub fn door_leaves(&self, id: u16) -> Vec<(Vec3, Vec3, bool, u16)> {
-        self.door_leaf_boxes
-            .iter()
-            .zip(&self.door_boxes)
-            .filter(|(b, _)| self.doors[b.door].id == id)
-            .map(|(b, w)| {
-                (
-                    w.center,
-                    w.half,
-                    w.solid,
-                    self.doors[b.door].paused[b.leaf.min(1)],
-                )
-            })
-            .collect()
-    }
-
-    /// How each moving door leaf (object id, leaf) has moved from closed,
-    /// for drawing.
-    pub fn door_motions(&self) -> std::collections::HashMap<(u32, u8), glam::Mat4> {
-        self.doors
-            .iter()
-            .filter(|d| d.state != crate::doors::State::Closed)
-            .flat_map(|d| {
-                (0..d.leaves.len()).map(move |l| ((d.object_id, l as u8), d.leaf_motion(l)))
-            })
-            .collect()
-    }
-
-    /// Characters touched door leaves this tick (`OBrNotifyPhysicsCollision`):
-    /// a leaf moving into one in front of it pauses.
-    fn doors_touched(&mut self, touches: &[(usize, crate::chrphys::Touch)]) {
-        for &(who, t) in touches {
-            let Some(b) = t.door.and_then(|k| self.door_leaf_boxes.get(k)) else {
-                continue;
-            };
-            let at = self.fighters[who].feet();
-            let d = &mut self.doors[b.door];
-            let was = d.paused[b.leaf.min(1)];
-            d.touched(b.leaf, t.point, t.normal, at);
-            if d.paused[b.leaf.min(1)] > was {
-                d.blocker = Some(who);
-            }
-        }
-    }
-
-    /// Each door's own level quads — its closed leaves, the "gunk" — as its
-    /// state has them (`OBJrDoor_HideShowGunk`): solid and seen while it is
-    /// closed; invisible and passed through from the moment it starts to open
-    /// until it has shut. (Exported without collision, so the pathfinding grid
-    /// ignores them; a door's reset shows them.)
-    pub(crate) fn mark_door_quads(&mut self) {
-        let shown: std::collections::HashMap<u32, bool> = self
-            .doors
-            .iter()
-            .map(|d| (d.object_id, d.solid()))
-            .collect();
-        let hide = crate::quads::flag::NO_COLLISION | crate::quads::flag::INVISIBLE;
-        for q in &mut self.quads.quads {
-            if q.object_tag >> 24 != 3 {
-                continue;
-            }
-            if let Some(&show) = shown.get(&(q.object_tag & 0x00FF_FFFF)) {
-                q.flags = if show {
-                    q.flags & !hide
-                } else {
-                    q.flags | hide
-                };
-            }
-        }
-        self.door_applied = self.doors.iter().map(|d| d.solid()).collect();
     }
 
     /// A level quad's material (its texture's).
@@ -1714,8 +1496,8 @@ impl World {
     /// opens a manual one too) and runs its events; its leaf blocks only
     /// while closed.
     fn doors_tick(&mut self) {
-        for k in 0..self.doors.len() {
-            let d = &self.doors[k];
+        for k in 0..self.doors.list.len() {
+            let d = &self.doors.list[k];
             let closed_manual = d.manual && d.state == crate::doors::State::Closed;
             let opener = self.fighters.iter().position(|f| {
                 let near = f.alive() && !f.gone && f.feet().distance(d.position) < d.radius && d.may_open(f.feet(), false);
@@ -1724,7 +1506,7 @@ impl World {
                 near && (!closed_manual || walking)
             });
             let leaf0_only = self.quirks.door_first_leaf_only();
-            let d = &mut self.doors[k];
+            let d = &mut self.doors.list[k];
             let (tick, mut opener) = if closed_manual && opener.is_some() {
                 d.open();
                 (
@@ -1741,15 +1523,15 @@ impl World {
             // Closing and blocked too long: it opens for whoever is in the way
             // (`OBJrDoor_CharacterOpen`), if they may open it.
             if tick.reopen {
-                let blocker = self.doors[k].blocker;
+                let blocker = self.doors.list[k].blocker;
                 let feet = blocker.and_then(|b| self.fighters.get(b)).map(|f| f.feet());
-                if feet.is_some_and(|p| self.doors[k].may_open(p, false)) {
-                    self.doors[k].open();
+                if feet.is_some_and(|p| self.doors.list[k].may_open(p, false)) {
+                    self.doors.list[k].open();
                     started = true;
                     opener = blocker;
                 }
             }
-            let d = &mut self.doors[k];
+            let d = &mut self.doors.list[k];
             if started {
                 eprintln!("door {} ({}): opens", d.id, d.class);
                 let events = d.events.clone();
@@ -1757,129 +1539,42 @@ impl World {
             }
             // (Its sound and its leaf follow its state — whoever changed
             // it: this tick, a script, the Action key.)
-            let solid = self.doors[k].solid();
-            if self.door_applied.get(k).is_some_and(|&was| was != solid) {
-                self.mark_door_quads();
+            if self.doors.quads_stale(k) {
+                self.doors.mark_quads(&mut self.quads);
             }
         }
-        self.place_door_boxes();
+        self.doors.place_boxes();
         self.door_sounds();
     }
 
-    /// Each door's portals, linked as the original links them as it builds
-    /// the graph (`OBJrDoor_MakeConnectionLink`; `docs/PATHFINDING.md`,
-    /// *Doors*): each connection (room by room, portal by portal) takes the
-    /// first door whose base is within half the connection's width of the
-    /// connection's base midpoint (in 3D) and that will have it. A door keeps
-    /// two slots — not two connections the same way; a nearer one (by 10 %)
-    /// or a narrower one about as near replaces a slot's; the dual of the
-    /// other slot about as near and wide too. One replaced keeps its link to
-    /// the door (the original never clears it): so a door can gate more than
-    /// two connections, and some only one way.
-    fn door_portals(&mut self, nav: &crate::nav::Navigation) -> &Vec<Vec<(usize, usize)>> {
-        if self.door_links.len() != self.doors.len() {
-            type Slot = Option<((usize, usize), f32, f32)>; // (connection, dist², width)
-            let mut slots: Vec<[Slot; 2]> = vec![[None, None]; self.doors.len()];
-            let mut links: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.doors.len()];
-            let ends = |rk: (usize, usize)| (rk.0, nav.rooms[rk.0].portals[rk.1].to);
-            for (r, room) in nav.rooms.iter().enumerate() {
-                for (k, p) in room.portals.iter().enumerate() {
-                    let conn = (r, k);
-                    let (from, to) = (r, p.to);
-                    for (di, d) in self.doors.iter().enumerate() {
-                        let dist_sq = d.position.distance_squared(p.mid);
-                        if dist_sq > (p.width * 0.5).powi(2) {
-                            continue;
-                        }
-                        let s = &slots[di];
-                        let same = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (from, to));
-                        let dual = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (to, from));
-                        let (ex0, ex1) = (same(&s[1]), same(&s[0]));
-                        let field = |i: usize| s[i].map_or((0.0, 0.0), |(_, ds, w)| (ds, w));
-                        let ((d0, w0), (d1, w1)) = (field(0), field(1));
-                        let index = if !ex0 && s[0].is_none() {
-                            Some(0)
-                        } else if !ex1 && s[1].is_none() {
-                            Some(1)
-                        } else if !ex0 && d0 > 1.1 * dist_sq {
-                            Some(0)
-                        } else if !ex1 && d1 > 1.1 * dist_sq {
-                            Some(1)
-                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > p.width {
-                            Some(0)
-                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > p.width {
-                            Some(1)
-                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > 0.9 * p.width && dual(&s[1]) {
-                            Some(0)
-                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > 0.9 * p.width && dual(&s[0]) {
-                            Some(1)
-                        } else {
-                            None
-                        };
-                        let Some(index) = index else { continue }; // this door won't: the next may
-                        slots[di][index] = Some((conn, dist_sq, p.width));
-                        links[di].push(conn);
-                        break; // a connection links to one door
-                    }
-                }
-            }
-            self.door_links = links;
-        }
-        &self.door_links
+    /// The closed manual door fighter `i` faces in reach, and whether they
+    /// may open it (`OBJrDoor_TryDoorAction`).
+    fn door_in_reach(&self, i: usize) -> Option<(usize, bool)> {
+        let f = self.fighters.get(i)?;
+        self.doors
+            .manual_in_reach(f.sight_points()[0], f.facing.facing, f.feet())
     }
 
     /// Whether fighter `i` could open a manual door with Action now (the
-    /// autoprompt's `OBJrDoor_TryDoorAction`): a closed one in reach it
-    /// faces, that it may open.
-    fn door_prompt(&self, i: usize) -> bool {
-        let Some(f) = self.fighters.get(i) else {
-            return false;
-        };
-        let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
-        self.doors.iter().any(|d| {
-            let to = d.position - pelvis;
-            d.manual
-                && d.state == crate::doors::State::Closed
-                && feet.distance(d.position) < d.radius
-                && crate::ai::relative(crate::angle::yaw_of(to) - facing).abs()
-                    <= crate::doors::MANUAL_FACING
-                && d.may_open(feet, false)
-        })
+    /// autoprompt's `OBJrDoor_TryDoorAction`).
+    pub(super) fn door_prompt(&self, i: usize) -> bool {
+        self.door_in_reach(i).is_some_and(|(_, may)| may)
     }
 
     /// The player's Action at a manual door: the closed one in reach it
     /// faces most (preferring one it may open). True if there was one.
     fn door_action(&mut self, i: usize) -> bool {
-        let Some(f) = self.fighters.get(i) else {
-            return false;
-        };
-        let (pelvis, facing, feet) = (f.sight_points()[0], f.facing.facing, f.feet());
-        let pick = self
-            .doors
-            .iter()
-            .enumerate()
-            .filter(|(_, d)| {
-                d.manual
-                    && d.state == crate::doors::State::Closed
-                    && feet.distance(d.position) < d.radius
-            })
-            .filter_map(|(k, d)| {
-                let to = d.position - pelvis;
-                let off = crate::ai::relative(crate::angle::yaw_of(to) - facing).abs();
-                (off <= crate::doors::MANUAL_FACING).then_some((k, off, d.may_open(feet, false)))
-            })
-            .min_by(|a, b| b.2.cmp(&a.2).then(a.1.total_cmp(&b.1)));
-        let Some((k, _, may)) = pick else {
+        let Some((k, may)) = self.door_in_reach(i) else {
             return false;
         };
         if may {
-            self.doors[k].open();
-            eprintln!("door {}: opened (Action)", self.doors[k].id);
-            let events = self.doors[k].events.clone();
+            self.doors.list[k].open();
+            eprintln!("door {}: opened (Action)", self.doors.list[k].id);
+            let events = self.doors.list[k].events.clone();
             self.run_events(&events, Some(i));
         } else {
-            eprintln!("door {}: locked", self.doors[k].id);
-            let at = self.doors[k].position;
+            eprintln!("door {}: locked", self.doors.list[k].id);
+            let at = self.doors.list[k].position;
             self.event_sound("doorFail", Some(at));
         }
         true
@@ -1887,23 +1582,7 @@ impl World {
 
     /// Locks / unlocks / jams / unjams door `id` (`ALL` / -1: every door).
     pub fn door_set(&mut self, id: i64, lock: Option<bool>, jam: Option<bool>) {
-        let mut sounds = Vec::new();
-        for d in self
-            .doors
-            .iter_mut()
-            .filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id)
-        {
-            if let Some(l) = lock {
-                // (Locking or unlocking sounds only if it changes.)
-                if d.locked != l {
-                    sounds.push((if l { "doorLock" } else { "doorUnlock" }, d.position));
-                }
-                d.locked = l;
-            }
-            if let Some(j) = jam {
-                d.jammed = j;
-            }
-        }
+        let sounds = self.doors.set(id, lock, jam);
         for (event, at) in sounds {
             self.event_sound(event, Some(at));
         }
@@ -2331,11 +2010,11 @@ impl World {
                 set
             };
             // Doors it may not open shut their portals to it.
-            let links = self.door_portals(&nav).clone();
+            let links = self.doors.portals(&nav).clone();
             let shut: std::collections::HashSet<(usize, usize)> = links
                 .iter()
                 .enumerate()
-                .filter(|&(k, _)| !self.doors[k].may_open(from, false))
+                .filter(|&(k, _)| !self.doors.list[k].may_open(from, false))
                 .flat_map(|(_, ps)| ps.iter().copied())
                 .collect();
             let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful, &shut);
@@ -2371,7 +2050,7 @@ impl World {
                 continue;
             };
             let nav = self.nav.as_deref();
-            let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+            let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
             let me = view(&self.fighters, nav, &env, i, target);
             let them = view(&self.fighters, nav, &env, target, i);
             if let Some(m) = brain.melee_mut() {
@@ -2607,9 +2286,9 @@ impl World {
                 )
             }))
             .collect();
-        let mut env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        let mut env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
         env.touched = Some(&touched);
-        let mut ai_env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        let mut ai_env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
         ai_env.touched = Some(&touched);
         ai_env.spheres = &with_guns;
         env.spheres = &spheres;
@@ -2654,7 +2333,8 @@ impl World {
                 );
             }
         }
-        self.doors_touched(&touches);
+        let fighters = &self.fighters;
+        self.doors.touched(&touches, |who| fighters[who].feet());
         // Pushed guns (`WPiWeaponPhysics_Callback_ReceiveForce`): once they
         // have touched down, and not by an AI going for that very gun.
         for (who, w, push) in gun_pushes {
@@ -3084,7 +2764,7 @@ impl World {
             let facing = fa.facing.facing + info.target_facing;
             let coll = fa.motion.coll.clone();
             let clip = coll.entries[t.target_clip].name.clone();
-            let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+            let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
             let victim = &mut self.fighters[t.target];
             if victim.alive() && !victim.motion.dying {
                 victim.be_thrown(a, coll, t.target_clip, fight, dest, facing, &env);

@@ -128,16 +128,19 @@ impl World {
     /// Door `k` started opening or closing: its class's sound at the door,
     /// and its noise for the AI.
     pub(super) fn door_sounds(&mut self) {
-        let n = self.doors.len();
+        let n = self.doors.list.len();
         self.game_sounds.door_open.resize(n, false);
         for k in 0..n {
             use crate::doors::State;
-            let open = matches!(self.doors[k].state, State::Opening(_) | State::Open(_));
+            let open = matches!(self.doors.list[k].state, State::Opening(_) | State::Open(_));
             if open == self.game_sounds.door_open[k] {
                 continue;
             }
             self.game_sounds.door_open[k] = open;
-            let (class, at) = (self.doors[k].class.clone(), self.doors[k].position);
+            let (class, at) = (
+                self.doors.list[k].class.clone(),
+                self.doors.list[k].position,
+            );
             let Some((opens, closes, ai)) = self.game_sounds.doors.get(&class).cloned() else {
                 continue;
             };

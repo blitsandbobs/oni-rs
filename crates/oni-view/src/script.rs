@@ -757,6 +757,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .iter()
                 .filter_map(|&(o, l)| {
                     w.doors
+                        .list
                         .iter()
                         .find(|d| d.object_id == o)
                         .map(|d| format!("{}:{l}", d.id))
@@ -902,7 +903,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     g.set(
         "door_shade_of",
         lua.create_function(move |_, id: u32| {
-            Ok(h.borrow().world.door_shades.get(&id).map(|c| c.to_vec()))
+            Ok(h.borrow().world.doors.shades.get(&id).map(|c| c.to_vec()))
         })?,
     )?;
     // door_ids() → {object id, …}: the level's doors.
@@ -913,6 +914,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(h.borrow()
                 .world
                 .doors
+                .list
                 .iter()
                 .map(|d| d.object_id)
                 .collect::<Vec<_>>())
@@ -1437,7 +1439,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, id: u16| {
             let host = h.borrow();
             let t = lua.create_table()?;
-            for (k, (at, half, solid, paused)) in host.world.door_leaves(id).into_iter().enumerate()
+            for (k, (at, half, solid, paused)) in
+                host.world.doors.leaves(id).into_iter().enumerate()
             {
                 let l = lua.create_table()?;
                 l.set("at", vec![at.x, at.y, at.z])?;
@@ -1462,7 +1465,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 "jam" => w.door_set(i64::from(id), None, Some(true)),
                 "unjam" => w.door_set(i64::from(id), None, Some(false)),
                 _ => {
-                    for d in w.doors.iter_mut().filter(|d| d.id == id) {
+                    for d in w.doors.list.iter_mut().filter(|d| d.id == id) {
                         if what == "open" {
                             d.open();
                         } else {
@@ -2503,7 +2506,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "door_state",
         lua.create_function(move |_, id: u16| {
             let host = h.borrow();
-            let d = host.world.doors.iter().find(|d| d.id == id);
+            let d = host.world.doors.list.iter().find(|d| d.id == id);
             Ok((d.map(|d| d.state_name()), d.map(|d| d.locked)))
         })?,
     )?;

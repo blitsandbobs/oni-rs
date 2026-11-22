@@ -532,7 +532,7 @@ impl World {
             })
             .collect();
         // (A door not closed: its leaves are objects, met the same way.)
-        self.jello_doors = self.door_leaves_met(v.location, end);
+        self.jello_doors = self.doors.leaves_met(v.location, end);
     }
 }
 

@@ -942,7 +942,7 @@ impl World {
             .find(|p| p.bone == 0)
             .and_then(|p| Some(bones.first()?.transform_point3(p.bound_sphere?.0)))
             .unwrap_or_else(|| f.feet() + Vec3::Y * f.motion.height());
-        let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
         // (A long gun held over a ledge counts as through it, the original's
         // known limit.)
         let blocked = |to: Vec3| {
@@ -999,7 +999,7 @@ impl World {
                 }
             }
         }
-        let env = crate::chrphys::Env::new(&self.quads, &self.door_boxes);
+        let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
         if let Some(h) = crate::chrphys::level_ray(&env, from, dir * PICK_LIMIT) {
             let d = h.fraction * PICK_LIMIT;
             if hit.is_none_or(|(h, _)| d < h) {
@@ -1098,11 +1098,7 @@ impl World {
         self.quads =
             crate::quads::Quads::load(&self.level_dir.join("quads.bin")).unwrap_or_default();
         // (The doors' flat shades come from their quads.)
-        self.door_shades = self
-            .doors
-            .iter()
-            .map(|d| (d.object_id, self.door_shade(d.object_id)))
-            .collect();
+        self.doors.shade_from(&self.quads);
         // The object animations scripts name: the common ones, then the level's.
         self.object_anims.clear();
         for path in [
@@ -1118,7 +1114,7 @@ impl World {
                 }
             }
         }
-        self.mark_door_quads();
+        self.doors.mark_quads(&mut self.quads);
         // (Glass is breakable by its material, `AKiComputeBreakableFlags`.)
         for k in 0..self.glass.len() {
             let (quad, broken) = (self.glass[k].quad, self.glass[k].broken);
@@ -3295,7 +3291,7 @@ impl World {
         let objects = self.object_spheres();
         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
         host.pane_quads = pane_quads;
-        host.doors = &self.door_boxes;
+        host.doors = &self.doors.boxes;
         host.objects = objects;
         host.set_spread(inaccuracy, spread);
         host.panes = panes;

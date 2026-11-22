@@ -527,6 +527,40 @@ mod tests {
     }
 
     #[test]
+    fn locking_sounds_only_on_a_change_and_manual_doors_are_picked_by_facing() {
+        let mut doors = Doors {
+            list: vec![
+                door(),
+                Door {
+                    id: 2,
+                    position: Vec3::new(0.0, 0.0, -10.0),
+                    ..door()
+                },
+            ],
+            ..Default::default()
+        };
+        assert_eq!(doors.set(1, Some(true), None), [("doorLock", Vec3::ZERO)]);
+        assert!(doors.set(1, Some(true), None).is_empty(), "already locked");
+        assert_eq!(
+            doors.set(-1, Some(false), None).len(),
+            1,
+            "every door: one changed"
+        );
+        for d in &mut doors.list {
+            d.manual = true;
+        }
+        // Facing +Z from just behind door 1: it, not door 2 behind.
+        let at = Vec3::new(0.0, 0.0, -5.0);
+        assert_eq!(doors.manual_in_reach(at, 0.0, at), Some((0, true)));
+        doors.list[0].locked = true;
+        assert_eq!(
+            doors.manual_in_reach(at, 0.0, at),
+            Some((0, false)),
+            "locked, still the one faced"
+        );
+    }
+
+    #[test]
     fn opens_holds_and_closes() {
         let mut d = door();
         assert!(d.tick(true, false).started, "someone near: it opens");
@@ -610,4 +644,363 @@ mod tests {
         d.jammed = true;
         assert!(!d.may_open(Vec3::Z, false));
     }
+}
+
+/// A door leaf's box in its own frame (at its closed position, frame 0).
+#[derive(Clone, Copy, Debug)]
+struct LeafBox {
+    door: usize,
+    leaf: usize,
+    lo: Vec3,
+    hi: Vec3,
+}
+
+/// The level's doors and what is derived from them: their closed leaves'
+/// geometry, their leaves' boxes (in their own frames, and placed where
+/// they stand this tick), their flat shades, and their links to the
+/// pathfinding graph's connections.
+#[derive(Default)]
+pub struct Doors {
+    pub list: Vec<Door>,
+    /// Each door's closed leaves (its level geometry: vertices, indices).
+    meshes: Vec<(Vec<[f32; 3]>, Vec<u32>)>,
+    /// Each door's flat shade (`ONrLevel_ObjectGunk_GetShade`), by object id.
+    pub shades: std::collections::HashMap<u32, [f32; 3]>,
+    /// The leaves' boxes where they stand this tick (solid while their door
+    /// isn't closed).
+    pub boxes: Vec<crate::chrphys::DoorBox>,
+    /// Each leaf's box in its own frame (what `boxes` places).
+    leaf_boxes: Vec<LeafBox>,
+    /// Each door's connections in the pathfinding graph.
+    links: Vec<Vec<(usize, usize)>>,
+    /// Whether each door's quads were last marked solid.
+    applied: Vec<bool>,
+}
+
+impl Doors {
+    /// The level's doors (`doors.json`), nothing derived yet.
+    pub fn load(level_dir: &Path) -> Doors {
+        Doors {
+            list: load(level_dir),
+            ..Default::default()
+        }
+    }
+
+    /// Gives the doors their closed leaves (by object id, from the level's
+    /// geometry): while a door is closed they are its level quads; while it
+    /// moves or stands open each leaf is a box in its own frame (`OBrInit`'s
+    /// bounds: the geometry's), moving with it.
+    pub fn attach(
+        &mut self,
+        mut meshes: std::collections::HashMap<u32, (Vec<[f32; 3]>, Vec<u32>)>,
+        quads: &mut crate::quads::Quads,
+    ) {
+        self.meshes = self
+            .list
+            .iter()
+            .map(|d| meshes.remove(&d.object_id).unwrap_or_default())
+            .collect();
+        self.leaf_boxes.clear();
+        for (k, (d, (v, idx))) in self.list.iter().zip(&self.meshes).enumerate() {
+            for l in 0..d.leaves.len() {
+                let inv = d.leaf_matrix(l, 0).inverse();
+                // (Each triangle to the leaf nearest its middle, as drawn.)
+                let pts: Vec<Vec3> = idx
+                    .chunks_exact(3)
+                    .map(|t| [0, 1, 2].map(|j| Vec3::from(v[t[j] as usize])))
+                    .filter(|t| d.leaf_of((t[0] + t[1] + t[2]) / 3.0) == l)
+                    .flatten()
+                    .map(|p| inv.transform_point3(p))
+                    .collect();
+                if pts.is_empty() {
+                    continue;
+                }
+                let (lo, hi) = pts.iter().fold(
+                    (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN)),
+                    |(lo, hi), p| (lo.min(*p), hi.max(*p)),
+                );
+                self.leaf_boxes.push(LeafBox {
+                    door: k,
+                    leaf: l,
+                    lo,
+                    hi,
+                });
+            }
+        }
+        self.place_boxes();
+        self.mark_quads(quads);
+    }
+
+    /// Each door's flat shade from the level's quads (once they are loaded).
+    pub fn shade_from(&mut self, quads: &crate::quads::Quads) {
+        self.shades = self
+            .list
+            .iter()
+            .map(|d| (d.object_id, shade(quads, d.object_id)))
+            .collect();
+    }
+
+    /// The leaves' boxes where they stand this tick: solid while their door
+    /// isn't closed (its leaf objects exist).
+    pub fn place_boxes(&mut self) {
+        self.boxes = self
+            .leaf_boxes
+            .iter()
+            .map(|b| {
+                let d = &self.list[b.door];
+                let m = d.leaf_matrix(b.leaf, d.frame());
+                let axes = [
+                    m.x_axis.truncate(),
+                    m.y_axis.truncate(),
+                    m.z_axis.truncate(),
+                ];
+                let len = Vec3::new(axes[0].length(), axes[1].length(), axes[2].length());
+                crate::chrphys::DoorBox {
+                    center: m.transform_point3((b.lo + b.hi) * 0.5),
+                    axes: axes.map(|a| a.normalize_or_zero()),
+                    half: (b.hi - b.lo) * 0.5 * len,
+                    solid: d.state != State::Closed,
+                }
+            })
+            .collect();
+    }
+
+    /// The leaves (object id, leaf) of the doors that aren't closed whose
+    /// boxes the segment from `a` to `b` meets.
+    pub fn leaves_met(&self, a: Vec3, b: Vec3) -> Vec<(u32, u8)> {
+        self.leaf_boxes
+            .iter()
+            .zip(&self.boxes)
+            .filter(|(_, w)| w.solid && w.meets_segment(a, b))
+            .map(|(l, _)| (self.list[l.door].object_id, l.leaf as u8))
+            .collect()
+    }
+
+    /// Door `id`'s leaves this tick: each one's box (centre, half sizes),
+    /// whether it is solid, and the ticks it stays paused.
+    pub fn leaves(&self, id: u16) -> Vec<(Vec3, Vec3, bool, u16)> {
+        self.leaf_boxes
+            .iter()
+            .zip(&self.boxes)
+            .filter(|(b, _)| self.list[b.door].id == id)
+            .map(|(b, w)| {
+                (
+                    w.center,
+                    w.half,
+                    w.solid,
+                    self.list[b.door].paused[b.leaf.min(1)],
+                )
+            })
+            .collect()
+    }
+
+    /// How each moving door leaf (object id, leaf) has moved from closed,
+    /// for drawing.
+    pub fn motions(&self) -> std::collections::HashMap<(u32, u8), Mat4> {
+        self.list
+            .iter()
+            .filter(|d| d.state != State::Closed)
+            .flat_map(|d| {
+                (0..d.leaves.len()).map(move |l| ((d.object_id, l as u8), d.leaf_motion(l)))
+            })
+            .collect()
+    }
+
+    /// Characters touched door leaves this tick (`OBrNotifyPhysicsCollision`;
+    /// `feet`: where each toucher stands): a leaf moving into one in front of
+    /// it pauses.
+    pub fn touched(
+        &mut self,
+        touches: &[(usize, crate::chrphys::Touch)],
+        feet: impl Fn(usize) -> Vec3,
+    ) {
+        for &(who, t) in touches {
+            let Some(b) = t.door.and_then(|k| self.leaf_boxes.get(k)) else {
+                continue;
+            };
+            let d = &mut self.list[b.door];
+            let was = d.paused[b.leaf.min(1)];
+            d.touched(b.leaf, t.point, t.normal, feet(who));
+            if d.paused[b.leaf.min(1)] > was {
+                d.blocker = Some(who);
+            }
+        }
+    }
+
+    /// Each door's own level quads — its closed leaves, the "gunk" — as its
+    /// state has them (`OBJrDoor_HideShowGunk`): solid and seen while it is
+    /// closed; invisible and passed through from the moment it starts to open
+    /// until it has shut. (Exported without collision, so the pathfinding grid
+    /// ignores them; a door's reset shows them.)
+    pub fn mark_quads(&mut self, quads: &mut crate::quads::Quads) {
+        let shown: std::collections::HashMap<u32, bool> =
+            self.list.iter().map(|d| (d.object_id, d.solid())).collect();
+        let hide = crate::quads::flag::NO_COLLISION | crate::quads::flag::INVISIBLE;
+        for q in &mut quads.quads {
+            if q.object_tag >> 24 != 3 {
+                continue;
+            }
+            if let Some(&show) = shown.get(&(q.object_tag & 0x00FF_FFFF)) {
+                q.flags = if show {
+                    q.flags & !hide
+                } else {
+                    q.flags | hide
+                };
+            }
+        }
+        self.applied = self.list.iter().map(|d| d.solid()).collect();
+    }
+
+    /// Whether door `k`'s quads no longer match its state.
+    pub fn quads_stale(&self, k: usize) -> bool {
+        self.applied
+            .get(k)
+            .is_some_and(|&was| was != self.list[k].solid())
+    }
+
+    /// Each door's portals, linked as the original links them as it builds
+    /// the graph (`OBJrDoor_MakeConnectionLink`; `docs/PATHFINDING.md`,
+    /// *Doors*): each connection (room by room, portal by portal) takes the
+    /// first door whose base is within half the connection's width of the
+    /// connection's base midpoint (in 3D) and that will have it. A door keeps
+    /// two slots — not two connections the same way; a nearer one (by 10 %)
+    /// or a narrower one about as near replaces a slot's; the dual of the
+    /// other slot about as near and wide too. One replaced keeps its link to
+    /// the door (the original never clears it): so a door can gate more than
+    /// two connections, and some only one way.
+    pub fn portals(&mut self, nav: &crate::nav::Navigation) -> &Vec<Vec<(usize, usize)>> {
+        if self.links.len() != self.list.len() {
+            type Slot = Option<((usize, usize), f32, f32)>; // (connection, dist², width)
+            let mut slots: Vec<[Slot; 2]> = vec![[None, None]; self.list.len()];
+            let mut links: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.list.len()];
+            let ends = |rk: (usize, usize)| (rk.0, nav.rooms[rk.0].portals[rk.1].to);
+            for (r, room) in nav.rooms.iter().enumerate() {
+                for (k, p) in room.portals.iter().enumerate() {
+                    let conn = (r, k);
+                    let (from, to) = (r, p.to);
+                    for (di, d) in self.list.iter().enumerate() {
+                        let dist_sq = d.position.distance_squared(p.mid);
+                        if dist_sq > (p.width * 0.5).powi(2) {
+                            continue;
+                        }
+                        let s = &slots[di];
+                        let same = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (from, to));
+                        let dual = |o: &Slot| o.is_some_and(|(c, _, _)| ends(c) == (to, from));
+                        let (ex0, ex1) = (same(&s[1]), same(&s[0]));
+                        let field = |i: usize| s[i].map_or((0.0, 0.0), |(_, ds, w)| (ds, w));
+                        let ((d0, w0), (d1, w1)) = (field(0), field(1));
+                        let index = if !ex0 && s[0].is_none() {
+                            Some(0)
+                        } else if !ex1 && s[1].is_none() {
+                            Some(1)
+                        } else if !ex0 && d0 > 1.1 * dist_sq {
+                            Some(0)
+                        } else if !ex1 && d1 > 1.1 * dist_sq {
+                            Some(1)
+                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > p.width {
+                            Some(0)
+                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > p.width {
+                            Some(1)
+                        } else if !ex0 && d0 > 0.9 * dist_sq && w0 > 0.9 * p.width && dual(&s[1]) {
+                            Some(0)
+                        } else if !ex1 && d1 > 0.9 * dist_sq && w1 > 0.9 * p.width && dual(&s[0]) {
+                            Some(1)
+                        } else {
+                            None
+                        };
+                        let Some(index) = index else { continue }; // this door won't: the next may
+                        slots[di][index] = Some((conn, dist_sq, p.width));
+                        links[di].push(conn);
+                        break; // a connection links to one door
+                    }
+                }
+            }
+            self.links = links;
+        }
+        &self.links
+    }
+
+    /// The closed manual door in reach of someone with their pelvis at
+    /// `pelvis`, facing `facing`, feet at `feet`, that they face most —
+    /// preferring one they may open (`OBJrDoor_TryDoorAction`): its index
+    /// and whether they may open it.
+    pub fn manual_in_reach(&self, pelvis: Vec3, facing: f32, feet: Vec3) -> Option<(usize, bool)> {
+        self.list
+            .iter()
+            .enumerate()
+            .filter(|(_, d)| {
+                d.manual && d.state == State::Closed && feet.distance(d.position) < d.radius
+            })
+            .filter_map(|(k, d)| {
+                let off =
+                    crate::angle::relative(crate::angle::yaw_of(d.position - pelvis) - facing)
+                        .abs();
+                (off <= MANUAL_FACING).then_some((k, off, d.may_open(feet, false)))
+            })
+            .min_by(|a, b| b.2.cmp(&a.2).then(a.1.total_cmp(&b.1)))
+            .map(|(k, _, may)| (k, may))
+    }
+
+    /// Locks / unlocks / jams / unjams door `id` (`ALL` / -1: every door);
+    /// the sounds this makes (a lock or unlock that changes something).
+    pub fn set(
+        &mut self,
+        id: i64,
+        lock: Option<bool>,
+        jam: Option<bool>,
+    ) -> Vec<(&'static str, Vec3)> {
+        let mut sounds = Vec::new();
+        for d in self
+            .list
+            .iter_mut()
+            .filter(|d| id < 0 || id == 0xFFFF || i64::from(d.id) == id)
+        {
+            if let Some(l) = lock {
+                if d.locked != l {
+                    sounds.push((if l { "doorLock" } else { "doorUnlock" }, d.position));
+                }
+                d.locked = l;
+            }
+            if let Some(j) = jam {
+                d.jammed = j;
+            }
+        }
+        sounds
+    }
+}
+
+/// A door's flat shade (`ONrLevel_ObjectGunk_GetShade`): the average of
+/// its level quads' corner shades (a triangle's three), counting only
+/// corners with a component over 0x3F, rounded; none such, 0x3F grey;
+/// no quads, white.
+fn shade(quads: &crate::quads::Quads, object_id: u32) -> [f32; 3] {
+    const MIN: u32 = 0x3F;
+    let tag = (3 << 24) | (object_id & 0x00FF_FFFF);
+    let quads: Vec<_> = quads.quads.iter().filter(|q| q.object_tag == tag).collect();
+    if quads.is_empty() {
+        return [1.0; 3];
+    }
+    let (mut sum, mut n) = ([0u32; 3], 0u32);
+    for q in quads {
+        let corners = if q.flags & crate::quads::flag::TRIANGLE != 0 {
+            3
+        } else {
+            4
+        };
+        for &c in &q.shades[..corners] {
+            let rgb = [(c >> 16) & 0xFF, (c >> 8) & 0xFF, c & 0xFF];
+            if rgb.iter().any(|&v| v > MIN) {
+                for k in 0..3 {
+                    sum[k] += rgb[k];
+                }
+                n += 1;
+            }
+        }
+    }
+    let avg = if n > 0 {
+        sum.map(|v| (v + n / 2) / n)
+    } else {
+        [MIN; 3]
+    };
+    avg.map(|v| v as f32 / 255.0)
 }
