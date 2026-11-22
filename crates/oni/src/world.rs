@@ -906,8 +906,7 @@ impl World {
         let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
         let crouching = f.motion.crouching();
         let f_state_standing = f.motion.state == st::STANDING;
-        let powerup_type = oni_schema::value(&oni_schema::ANIM_TYPES, "powerup").unwrap_or(0);
-        let powerup_state = oni_schema::value(&oni_schema::ANIM_STATES, "powerup").unwrap_or(0);
+        let (powerup_type, powerup_state) = (crate::anim::types::ty::POWERUP, st::POWERUP);
         let body = crate::ai::goals::Body {
             hp: f.hp,
             max_hp: f.max_hp,
@@ -944,7 +943,7 @@ impl World {
                 )
                 .is_some(),
             can_pickup: picks_up(f.motion.current()),
-            picking_up: matches!(f.motion.kind, 157..=159 | 227..=229),
+            picking_up: crate::anim::types::ty::is_pickup(f.motion.kind),
         };
         let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
         // (The roll that way, else the slide: one that can pick up.)
@@ -1758,15 +1757,15 @@ impl World {
             return;
         };
         let now = self.now as u64;
-        let ty = |n: &str| oni_schema::value(&oni_schema::ANIM_TYPES, n).unwrap_or(0);
+        use crate::anim::types::ty;
         let Some(k) = self.consoles.get(u.console()).cloned() else {
             self.fighters[i].console = None;
             return;
         };
         let f = &mut self.fighters[i];
         let ch = f.character.clone();
-        let kind = oni_schema::name(&oni_schema::ANIM_TYPES, f.motion.kind).unwrap_or("");
-        if crate::anim::reaction::is_victim(f.motion.kind) || kind.starts_with("block") {
+        let kind = f.motion.kind;
+        if crate::anim::reaction::is_victim(kind) || kind == ty::BLOCK {
             f.console = None; // knocked out of it
             return;
         }
@@ -1789,23 +1788,23 @@ impl World {
                     f.teleport(k.stand());
                     f.motion.force_stand(&ch);
                     let anim = if k.punch {
-                        ty("consolePunch")
+                        ty::CONSOLE_PUNCH
                     } else {
-                        ty("console")
+                        ty::CONSOLE
                     };
                     if f.motion.request(&ch, Urge::Force, false, anim).is_none() {
-                        f.motion.request(&ch, Urge::Force, false, ty("console"));
+                        f.motion.request(&ch, Urge::Force, false, ty::CONSOLE);
                     }
                     f.console = Some(Use::Using(c));
                 } else {
                     f.physics.feet += step;
-                    if f.motion.kind != ty("consoleWalk") {
-                        f.motion.request(&ch, Urge::Force, false, ty("consoleWalk"));
+                    if f.motion.kind != ty::CONSOLE_WALK {
+                        f.motion.request(&ch, Urge::Force, false, ty::CONSOLE_WALK);
                     }
                 }
             }
             Use::Using(c) => {
-                if !matches!(kind, "console" | "consolePunch") {
+                if !matches!(kind, ty::CONSOLE | ty::CONSOLE_PUNCH) {
                     f.console = None;
                     return;
                 }

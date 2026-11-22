@@ -152,6 +152,31 @@ pub mod ty {
     pub const RUN_SIDESTEP_RIGHT_START: u16 = 218;
     pub const FALLING_FLAIL: u16 = 220;
     pub const PUNCH_RIFLE: u16 = 226;
+    pub const CONSOLE: u16 = 196;
+    pub const CONSOLE_WALK: u16 = 197;
+    pub const CONSOLE_PUNCH: u16 = 221;
+    pub const PICKUP_OBJECT: u16 = 157;
+    pub const PICKUP_PISTOL: u16 = 158;
+    pub const PICKUP_RIFLE: u16 = 159;
+    pub const HOLSTER: u16 = 160;
+    pub const DRAW_PISTOL: u16 = 161;
+    pub const DRAW_RIFLE: u16 = 162;
+    pub const RELOAD_PISTOL: u16 = 164;
+    pub const RELOAD_SCREAMER: u16 = 171;
+    pub const PICKUP_OBJECT_MID: u16 = 227;
+    pub const PICKUP_PISTOL_MID: u16 = 228;
+    pub const PICKUP_RIFLE_MID: u16 = 229;
+
+    /// A pickup clip (from the floor, or mid-height).
+    pub fn is_pickup(t: u16) -> bool {
+        (PICKUP_OBJECT..=PICKUP_RIFLE).contains(&t)
+            || (PICKUP_OBJECT_MID..=PICKUP_RIFLE_MID).contains(&t)
+    }
+
+    /// A reload clip (pistol … screamer).
+    pub fn is_reload(t: u16) -> bool {
+        (RELOAD_PISTOL..=RELOAD_SCREAMER).contains(&t)
+    }
 }
 
 /// Body states (the pose a clip starts from / ends in).
@@ -169,6 +194,7 @@ pub mod st {
     pub const FALLING_RIGHT: u16 = 46;
     pub const CROUCH_START: u16 = 47;
     pub const FALLEN_FRONT: u16 = 50;
+    pub const POWERUP: u16 = 68;
 
     /// The airborne states (a clip entered from one of these launches the
     /// character into the air).
@@ -231,4 +257,38 @@ pub mod strike {
     pub const LOW: u32 = 1 << 2;
     /// Breaks through a block at half damage.
     pub const SPECIAL: u32 = 1 << 3;
+}
+
+#[cfg(test)]
+mod tests {
+    /// Every type and state number here is the one the converted data
+    /// names so (`oni_schema::ANIM_TYPES` / `ANIM_STATES`: `STANDING_TURN_LEFT`
+    /// is `standingTurnLeft`).
+    #[test]
+    fn the_numbers_are_the_datas() {
+        let src = include_str!("types.rs");
+        for (module, table) in [
+            ("pub mod ty {", &oni_schema::ANIM_TYPES[..]),
+            ("pub mod st {", &oni_schema::ANIM_STATES[..]),
+        ] {
+            let body = &src[src.find(module).unwrap()..];
+            let body = &body[..body.find("\n}\n").unwrap()];
+            let mut n = 0;
+            for line in body.lines().map(str::trim) {
+                let Some(rest) = line.strip_prefix("pub const ") else {
+                    continue;
+                };
+                let (name, value) = rest.split_once(": u16 = ").unwrap();
+                let value: usize = value.trim_end_matches(';').parse().unwrap();
+                let data = table.get(value).copied().unwrap_or("");
+                assert_eq!(
+                    data.to_lowercase(),
+                    name.replace('_', "").to_lowercase(),
+                    "{name} = {value}"
+                );
+                n += 1;
+            }
+            assert!(n > 10);
+        }
+    }
 }

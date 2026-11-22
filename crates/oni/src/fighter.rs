@@ -1324,15 +1324,15 @@ impl Fighter {
         if damage > 0 {
             // The least pain the blow calls for: heavy blown up, medium
             // knocked down or landing dead.
-            let least = match oni_schema::name(&oni_schema::ANIM_TYPES, m.kind).unwrap_or("") {
-                "blownup" | "blownupBehind" => 2,
-                "landDead"
-                | "knockdownHead"
-                | "knockdownBody"
-                | "knockdownFoot"
-                | "knockdownHeadBehind"
-                | "knockdownBodyBehind"
-                | "knockdownFootBehind" => 1,
+            let least = match m.kind {
+                ty::BLOWNUP | ty::BLOWNUP_BEHIND => 2,
+                ty::LAND_DEAD
+                | ty::KNOCKDOWN_HEAD
+                | ty::KNOCKDOWN_BODY
+                | ty::KNOCKDOWN_FOOT
+                | ty::KNOCKDOWN_HEAD_BEHIND
+                | ty::KNOCKDOWN_BODY_BEHIND
+                | ty::KNOCKDOWN_FOOT_BEHIND => 1,
                 _ => 0,
             };
             self.hurts.push((damage as u32, least, self.hp <= damage));

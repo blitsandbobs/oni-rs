@@ -41,24 +41,6 @@ pub enum Item {
 }
 
 /// Animation types of the gun clips.
-mod clip {
-    pub const PICKUP_OBJECT: u16 = 157;
-    pub const PICKUP_PISTOL: u16 = 158;
-    pub const PICKUP_RIFLE: u16 = 159;
-    pub const HOLSTER: u16 = 160;
-    pub const DRAW_PISTOL: u16 = 161;
-    pub const DRAW_RIFLE: u16 = 162;
-    pub const PICKUP_OBJECT_MID: u16 = 227;
-    pub const PICKUP_PISTOL_MID: u16 = 228;
-    pub const PICKUP_RIFLE_MID: u16 = 229;
-
-    pub fn is_pickup(t: u16) -> bool {
-        (157..=159).contains(&t) || (227..=229).contains(&t)
-    }
-    pub fn is_reload(t: u16) -> bool {
-        (164..=171).contains(&t)
-    }
-}
 
 /// Finishing a pickup at the clip's action frame: the wider reach.
 const PICKUP_FINISH_RADIUS: f32 = 16.0;
@@ -1994,7 +1976,7 @@ impl World {
         self.start_overlay(
             who,
             crate::fighter::INVENTORY,
-            clip::HOLSTER,
+            crate::anim::types::ty::HOLSTER,
             crate::anim::types::st::STANDING,
             magic,
         )
@@ -2013,9 +1995,9 @@ impl World {
             return false;
         }
         let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) {
-            clip::DRAW_RIFLE
+            crate::anim::types::ty::DRAW_RIFLE
         } else {
-            clip::DRAW_PISTOL
+            crate::anim::types::ty::DRAW_PISTOL
         };
         self.start_overlay(
             who,
@@ -2086,8 +2068,8 @@ impl World {
             if reaction::is_knockdown(f.motion.current().anim_type) {
                 f.overlays[crate::fighter::INVENTORY] = None;
                 let c = f.motion.clip_of(o.clip);
-                let unfilled =
-                    clip::is_reload(c.anim_type) && c.action_frame.is_some_and(|a| o.frame <= a);
+                let unfilled = crate::anim::types::ty::is_reload(c.anim_type)
+                    && c.action_frame.is_some_and(|a| o.frame <= a);
                 if refund && unfilled && !f.infinite_ammo {
                     match f.hand.and_then(|w| self.armory.weapons[w].ammo_type()) {
                         Some(0) => f.inventory.ammo += 1,
@@ -2110,7 +2092,7 @@ impl World {
             let c = f.motion.clip_of(o.clip);
             let (kind, frames, action) = (c.anim_type, c.frames(), c.action_frame);
             if action == Some(o.frame) && slot == crate::fighter::INVENTORY {
-                if clip::is_reload(kind) {
+                if crate::anim::types::ty::is_reload(kind) {
                     if let Some(w) = f.hand {
                         let Armory {
                             particles, weapons, ..
@@ -2119,7 +2101,7 @@ impl World {
                         let mut host = ShotHost::new(&mut self.fighters, Some(&self.quads), now);
                         weapons[w].reloaded(particles, &mut host);
                     }
-                } else if kind == clip::HOLSTER {
+                } else if kind == crate::anim::types::ty::HOLSTER {
                     self.put_away(who, o.magic);
                     // A holstered gun coming out: its draw clip, from its
                     // action frame.
@@ -2127,9 +2109,9 @@ impl World {
                     if !o.magic {
                         if let Some(w) = f.hand {
                             let kind = if self.armory.weapons[w].class.has(flag::TWO_HANDED) {
-                                clip::DRAW_RIFLE
+                                crate::anim::types::ty::DRAW_RIFLE
                             } else {
-                                clip::DRAW_PISTOL
+                                crate::anim::types::ty::DRAW_PISTOL
                             };
                             if self.start_overlay(
                                 who,
@@ -2146,7 +2128,9 @@ impl World {
                             continue;
                         }
                     }
-                } else if kind == clip::DRAW_PISTOL || kind == clip::DRAW_RIFLE {
+                } else if kind == crate::anim::types::ty::DRAW_PISTOL
+                    || kind == crate::anim::types::ty::DRAW_RIFLE
+                {
                     self.bring_to_hand(who);
                 }
             }
@@ -2168,7 +2152,7 @@ impl World {
             return;
         };
         let c = f.motion.current();
-        if !clip::is_pickup(c.anim_type) {
+        if !crate::anim::types::ty::is_pickup(c.anim_type) {
             f.pickup = if started || waited > 10 {
                 None
             } else {
@@ -2327,12 +2311,12 @@ impl World {
             };
             let mid = at.y > f.feet().y + PICKUP_MID;
             let kind = match (rifle, mid) {
-                (None, false) => clip::PICKUP_OBJECT,
-                (None, true) => clip::PICKUP_OBJECT_MID,
-                (Some(false), false) => clip::PICKUP_PISTOL,
-                (Some(false), true) => clip::PICKUP_PISTOL_MID,
-                (Some(true), false) => clip::PICKUP_RIFLE,
-                (Some(true), true) => clip::PICKUP_RIFLE_MID,
+                (None, false) => crate::anim::types::ty::PICKUP_OBJECT,
+                (None, true) => crate::anim::types::ty::PICKUP_OBJECT_MID,
+                (Some(false), false) => crate::anim::types::ty::PICKUP_PISTOL,
+                (Some(false), true) => crate::anim::types::ty::PICKUP_PISTOL_MID,
+                (Some(true), false) => crate::anim::types::ty::PICKUP_RIFLE,
+                (Some(true), true) => crate::anim::types::ty::PICKUP_RIFLE_MID,
             };
             let f = &mut self.fighters[who];
             let ch = f.character.clone();
