@@ -1,5 +1,5 @@
 #!/bin/sh
-# Builds Oni.app (and Oni-macos.zip) into target/package/ (#105).
+# Builds Oni.app and its disk image, Oni.dmg, into target/package/ (#105).
 #   packaging/macos/build-app.sh            this Mac's architecture
 #   packaging/macos/build-app.sh --universal  arm64 + x86_64 (both targets
 #                                             installed: rustup target add …)
@@ -11,7 +11,7 @@ cd "$(dirname "$0")/../.."
 version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
 out=target/package
 app=$out/Oni.app
-rm -rf "$app" "$out/Oni-macos.zip"
+rm -rf "$app" "$out/Oni.dmg"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources"
 
 if [ "${1:-}" = "--universal" ]; then
@@ -46,5 +46,12 @@ cp packaging/NOTICE.md LICENSE "$app/Contents/Resources/licenses/"
 cp crates/oni/assets/launcher/OFL.txt "$app/Contents/Resources/licenses/Rajdhani-OFL.txt"
 
 codesign --force --deep --sign - "$app"
-(cd "$out" && ditto -c -k --keepParent Oni.app Oni-macos.zip)
-echo "built $app and $out/Oni-macos.zip ($version)"
+# The disk image: the app beside a link to Applications, to drag across.
+stage=$out/dmg
+rm -rf "$stage"
+mkdir -p "$stage"
+cp -R "$app" "$stage/"
+ln -s /Applications "$stage/Applications"
+hdiutil create -quiet -volname Oni -srcfolder "$stage" -ov -format UDZO "$out/Oni.dmg"
+rm -rf "$stage"
+echo "built $app and $out/Oni.dmg ($version)"

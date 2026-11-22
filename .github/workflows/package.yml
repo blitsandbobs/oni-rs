@@ -1,6 +1,7 @@
-# The packages (#105): Oni.app for macOS (arm64 + x86_64), a Flatpak for
+# The packages (#105): Oni.dmg for macOS (arm64 + x86_64), a Flatpak for
 # Linux, a zip for Windows. Run by hand (Actions → package → Run workflow)
-# or by pushing a v* tag; each package is kept as the run's artifact.
+# or by pushing a v* tag; each package is kept as the run's artifact, and a
+# tag's run publishes them as that tag's GitHub Release.
 name: package
 
 on:
@@ -20,7 +21,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: Oni-macos
-          path: target/package/Oni-macos.zip
+          path: target/package/Oni.dmg
 
   flatpak:
     runs-on: ubuntu-latest
@@ -53,3 +54,38 @@ jobs:
         with:
           name: Oni-windows
           path: target/package/Oni-windows.zip
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, flatpak, windows]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: The release, the packages attached as they are
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          ls -l artifacts
+          cat > notes.md <<'EOF'
+          Oni, preserved: the engine for today's computers. It contains none of
+          the original game — on first start it asks for your copy of **Oni:
+          Anniversary Edition** (its `.7z` or folder) and converts it in a few
+          seconds.
+
+          - **macOS** (Apple Silicon and Intel): open `Oni.dmg`, drag Oni to
+            Applications. It isn't notarized: the first time, right-click Oni →
+            Open. If macOS says it is damaged, run
+            `xattr -dr com.apple.quarantine /Applications/Oni.app` once.
+          - **Linux**: `flatpak install --user Oni.flatpak`, then
+            `flatpak run io.github.blitsandbobs.Oni`.
+          - **Windows**: unzip `Oni-windows.zip`, run `Oni.exe`.
+          EOF
+          gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --title "Oni $TAG" \
+            --notes-file notes.md --verify-tag \
+            artifacts/Oni.dmg artifacts/Oni.flatpak artifacts/Oni-windows.zip

@@ -119,15 +119,16 @@ port keeps that with the saved game.
 original game; the launcher installs the player's own:
 
 - macOS: `packaging/macos/build-app.sh [--universal]` → `target/package/Oni.app`
-  and `Oni-macos.zip` (signed ad hoc, not notarized: the first start is from
-  the context menu's Open).
+  and `Oni.dmg` (signed ad hoc, not notarized: the first start is from the
+  context menu's Open).
 - Linux: the Flatpak manifest `packaging/flatpak/io.github.blitsandbobs.Oni.yml`
   (`flatpak-builder`), with its desktop entry and AppStream metadata in
   `packaging/linux/`.
 - Windows: a zip of `Oni.exe` (no console window in release builds).
 
 The `package` workflow (`.github/workflows/package.yml`, run by hand or by a
-`v*` tag) builds all three, each with `LICENSE` and `packaging/NOTICE.md`.
+`v*` tag, which also publishes them as that tag's GitHub Release) builds all
+three, each with `LICENSE` and `packaging/NOTICE.md`.
 
 ## License
 
