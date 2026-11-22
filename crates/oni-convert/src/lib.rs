@@ -424,7 +424,7 @@ pub fn convert_with(
                 weapons::write_classes(&dat, &registry, &root)?;
                 turrets::write_classes(&dat, &registry, &root)?;
                 sounds::write(&dat, raw, &root)?;
-                impacts::write(&dat, raw, &root)?;
+                impacts::write(&dat, &registry, raw, &root)?;
                 anim_sounds::write(&dat, raw, &root)?;
                 std::fs::write(
                     root.join("laser_classes.json"),

@@ -4,7 +4,7 @@
 //! `common/impacts.json`.
 //!
 //! - The **impact types** (`Impt`) and **materials** (`Mtrl`) are trees: each
-//!   names its parent (a template reference at offset 8).
+//!   names its parent (their template layouts' `parent`).
 //! - The textures' materials come from level 0's `TMBD` table
 //!   (`materials.rs`).
 //! - The **table** is level 0's binary data `ONIE` ("impact_effects"): a
@@ -40,8 +40,13 @@ const MODIFIERS: [&str; 4] = ["any", "heavy", "medium", "light"];
 /// The AI's sound kinds.
 pub const AI_SOUNDS: [&str; 5] = ["ignore", "interesting", "danger", "melee", "gunshot"];
 
-/// A tree of named templates of `tag`: name → parent name.
-fn tree(dat: &Dat<'_>, tag: FourCc) -> BTreeMap<String, Option<String>> {
+/// A tree of named templates of `tag` (`MAtImpact` / `MAtMaterial`):
+/// name → parent name.
+fn tree(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    tag: FourCc,
+) -> BTreeMap<String, Option<String>> {
     let prefix = tag.to_string();
     let name_of = |k: usize| {
         dat.instances
@@ -53,13 +58,13 @@ fn tree(dat: &Dat<'_>, tag: FourCc) -> BTreeMap<String, Option<String>> {
         .iter()
         .filter(|i| i.tag == tag)
         .filter_map(|i| {
-            let d = dat.instance_data(i)?;
             let name = i
                 .name
                 .as_deref()?
                 .trim_start_matches(prefix.as_str())
                 .to_string();
-            let r = le_u32(d, 8);
+            let r = crate::fields::decoded(registry, dat, i)?;
+            let r = crate::fields::Fields(&r).u32("parent");
             Some((
                 name,
                 (r & 1 != 0).then(|| name_of((r >> 8) as usize)).flatten(),
@@ -282,7 +287,12 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8], out: &mut files::CharacterClass) {
 }
 
 /// Writes `impacts.json` into `common` (from level 0).
-pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize> {
+pub fn write(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    raw: &[u8],
+    common: &Path,
+) -> std::io::Result<usize> {
     let Some(inst) = dat
         .instances
         .iter()
@@ -306,8 +316,8 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize>
     std::fs::write(
         common.join("impacts.json"),
         serde_json::to_string_pretty(&files::ImpactsFile {
-            impacts: tree(dat, TAG_IMPT),
-            materials: tree(dat, TAG_MTRL),
+            impacts: tree(dat, registry, TAG_IMPT),
+            materials: tree(dat, registry, TAG_MTRL),
             textures,
             entries,
         })?,
