@@ -31,6 +31,7 @@ pub enum Error {
 
 /// A planned path: waypoints (world x / z, plus the height of the room they
 /// are in) and how close each must be reached.
+#[cfg(test)]
 #[derive(Clone, Debug, Default)]
 pub struct Path {
     pub points: Vec<(Vec3, f32)>,
@@ -259,9 +260,131 @@ fn crossing(nav: &Navigation, portals: &[(usize, usize)], i: usize, at: Vec3, to
     target
 }
 
-/// Plans a path from `from` to `to`. `obstructed(room)` gives what blocks
-/// the planner in a room's grid (`PHrPrepareRoomForPath`, as seen by it).
-/// `careful`: don't smooth (after a failure).
+/// A path through the rooms (`AI2iPath_FindGlobalPath`): the portals to
+/// take from the start room to the goal room, and the destination. Each
+/// room's grid is planned only on entering it ([`leg`]).
+#[derive(Clone, Debug)]
+pub struct Global {
+    pub start: usize,
+    pub goal: usize,
+    pub portals: Vec<(usize, usize)>,
+    pub to: Vec3,
+}
+
+impl Global {
+    /// How many rooms it passes through.
+    pub fn legs(&self) -> usize {
+        self.portals.len() + 1
+    }
+
+    /// The `i`th room.
+    pub fn room(&self, nav: &Navigation, i: usize) -> usize {
+        match i.checked_sub(1) {
+            None => self.start,
+            Some(k) => {
+                let (r, p) = self.portals[k];
+                nav.rooms[r].portals[p].to
+            }
+        }
+    }
+}
+
+/// The rooms to pass from `from` to `to` (`AI2iPath_MakePath`): none in
+/// either, or no way through, is an error. (`shut`: portals a door closes
+/// to this character.)
+pub fn global(
+    nav: &Navigation,
+    from: Vec3,
+    to: Vec3,
+    shut: &HashSet<(usize, usize)>,
+) -> Result<Global, Error> {
+    let start = nav.room_at(from).ok_or(Error::StartOutside)?;
+    let goal = nav
+        .room_at(to + Vec3::Y * 0.5)
+        .ok_or(Error::DestinationOutside)?;
+    let portals = route(nav, start, from, goal, to, shut).ok_or(Error::Unreachable)?;
+    Ok(Global {
+        start,
+        goal,
+        portals,
+        to,
+    })
+}
+
+/// One room's stretch of a path: its waypoints (with how close each must
+/// be reached), and where it starts and ends.
+#[derive(Clone, Debug, Default)]
+pub struct Leg {
+    pub points: Vec<(Vec3, f32)>,
+    pub start: Vec3,
+    pub end: Vec3,
+}
+
+/// Where leg `i` of `g` begins for a body at `at` (`AI2iMovementState_MakePath`):
+/// there in the first room; after, the nearest point of the portal it came
+/// through (it may still stand a little short of it).
+pub fn leg_start(nav: &Navigation, g: &Global, i: usize, at: Vec3) -> Vec3 {
+    match i.checked_sub(1) {
+        None => at,
+        Some(k) => {
+            let p = &nav.rooms[g.portals[k].0].portals[g.portals[k].1];
+            let d = Vec2::new(p.b.x - p.a.x, p.b.z - p.a.z).normalize_or_zero();
+            let t = Vec2::new(at.x - p.a.x, at.z - p.a.z)
+                .dot(d)
+                .clamp(0.0, p.width);
+            along(p, t)
+        }
+    }
+}
+
+/// Where leg `i` ends, starting from `start`: where it crosses into the next
+/// room (looking ahead, `AI2rPath_FindGhostWaypoint`), or the destination.
+pub fn leg_end(nav: &Navigation, g: &Global, i: usize, start: Vec3) -> Vec3 {
+    if i < g.portals.len() {
+        crossing(nav, &g.portals, i, start, g.to)
+    } else {
+        g.to
+    }
+}
+
+/// Plans room `i` of `g` for a body at `at` (`AI2iPath_NewNode` →
+/// `ASrPath_Generate`): A\* across its grid round what `obstructed` says
+/// blocks there, to where it crosses into the next room or to the
+/// destination. `careful`: don't smooth (after a failure).
+pub fn leg(
+    nav: &Navigation,
+    g: &Global,
+    i: usize,
+    at: Vec3,
+    obstructed: &mut dyn FnMut(usize) -> Option<super::dynamic::Blocking>,
+    careful: bool,
+) -> Result<Leg, Error> {
+    let room = g.room(nav, i);
+    let start = leg_start(nav, g, i, at);
+    let end = leg_end(nav, g, i, start);
+    let next_stairs = i < g.portals.len() && nav.rooms[g.room(nav, i + 1)].is_stairs();
+    let r = &nav.rooms[room];
+    let points = match &r.grid {
+        None => vec![(end, Square::Clear.arrive())],
+        Some(grid) => {
+            let blocked = obstructed(room);
+            let rules = Rules {
+                stairs: next_stairs || r.is_stairs(),
+                obstructed: blocked.as_ref(),
+            };
+            let (a, b) = (Vec2::new(start.x, start.z), Vec2::new(end.x, end.z));
+            let cells = grid::search(grid, a, b, rules).ok_or(Error::GridBlocked)?;
+            grid::waypoints(grid, &cells, b, r.is_stairs(), careful, blocked.as_ref())
+                .into_iter()
+                .map(|Waypoint { at: w, arrive }| (Vec3::new(w.x, end.y.max(r.min.y), w.y), arrive))
+                .collect()
+        }
+    };
+    Ok(Leg { points, start, end })
+}
+
+/// Plans a whole path at once, room after room (for tests).
+#[cfg(test)]
 pub fn plan(
     nav: &Navigation,
     from: Vec3,
@@ -270,55 +393,14 @@ pub fn plan(
     careful: bool,
     shut: &HashSet<(usize, usize)>,
 ) -> Result<Path, Error> {
-    let start = nav.room_at(from).ok_or(Error::StartOutside)?;
-    let goal = nav
-        .room_at(to + Vec3::Y * 0.5)
-        .ok_or(Error::DestinationOutside)?;
-    let portals = route(nav, start, from, goal, to, shut).ok_or(Error::Unreachable)?;
-
-    let mut path = Path {
-        points: Vec::new(),
-        rooms: vec![start],
-    };
+    let g = global(nav, from, to, shut)?;
+    let mut path = Path::default();
     let mut at = from;
-    for i in 0..=portals.len() {
-        let room = if i == 0 {
-            start
-        } else {
-            nav.rooms[portals[i - 1].0].portals[portals[i - 1].1].to
-        };
-        let (end, next_stairs) = if i < portals.len() {
-            let p = &nav.rooms[portals[i].0].portals[portals[i].1];
-            (
-                crossing(nav, &portals, i, at, to),
-                nav.rooms[p.to].is_stairs(),
-            )
-        } else {
-            (to, false)
-        };
-        if i > 0 {
-            path.rooms.push(room);
-        }
-        let r = &nav.rooms[room];
-        match &r.grid {
-            None => path.points.push((end, Square::Clear.arrive())),
-            Some(g) => {
-                let blocked = obstructed(room);
-                let rules = Rules {
-                    stairs: next_stairs || r.is_stairs(),
-                    obstructed: blocked.as_ref(),
-                };
-                let (a, b) = (Vec2::new(at.x, at.z), Vec2::new(end.x, end.z));
-                let cells = grid::search(g, a, b, rules).ok_or(Error::GridBlocked)?;
-                for Waypoint { at: w, arrive } in
-                    grid::waypoints(g, &cells, b, r.is_stairs(), careful, blocked.as_ref())
-                {
-                    path.points
-                        .push((Vec3::new(w.x, end.y.max(r.min.y), w.y), arrive));
-                }
-            }
-        }
-        at = end;
+    for i in 0..g.legs() {
+        path.rooms.push(g.room(nav, i));
+        let l = leg(nav, &g, i, at, obstructed, careful)?;
+        path.points.extend(l.points);
+        at = l.end;
     }
     Ok(path)
 }

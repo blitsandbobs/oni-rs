@@ -6,6 +6,8 @@
 use std::collections::HashSet;
 use std::rc::Rc;
 
+use glam::Vec3;
+
 use crate::nav::dynamic::{Blocking, DoorSource, Mode, Obstruction, Obstructions, Sources};
 use crate::nav::Navigation;
 
@@ -311,64 +313,203 @@ impl World {
         true
     }
 
-    /// Plans a path for every navigator that needs one, round what blocks
-    /// it.
+    /// Plans for every navigator that needs it, round what blocks it: a
+    /// whole new path (the rooms, and the first room's stretch), the
+    /// stretch of a room just come into, or — given a new destination while
+    /// following — whether the path can be kept.
     pub(super) fn plan_paths(&mut self) {
         let Some(nav) = self.nav.clone() else { return };
         let now = self.now as u64;
         for i in 0..self.fighters.len() {
-            let from = self.fighters[i].feet();
             let Some(n) = self.fighters[i].brain.as_ref().and_then(|b| b.navigator()) else {
                 continue;
             };
-            if !n.wants_plan(now) {
-                continue;
-            }
-            let (careful, follow) = (n.careful, n.follow);
-            // Following someone: the path heads for where they are now
-            // (`AI2iPath_MakePath` reads the followed character's place).
-            if let Some(at) = follow.and_then(|j| self.fighters.get(j)).map(|f| f.feet()) {
-                if let Some(n) = self.fighters[i]
-                    .brain
-                    .as_mut()
-                    .and_then(|b| b.navigator_mut())
-                {
-                    n.goal = at;
+            if n.retarget && !self.keep_path(&nav, i) {
+                if let Some(n) = self.navigator_of(i) {
+                    n.retarget = false;
+                    n.state = crate::ai::navigate::State::Planning;
                 }
             }
-            let goal = self.fighters[i]
-                .brain
-                .as_ref()
-                .and_then(|b| b.navigator())
-                .map_or(from, |n| n.goal);
-            let snap = self.tick_snapshot();
-            let through = self.paths_through(i);
-            // Doors it may not open shut their portals to it.
-            let links = self.doors.portals(&nav).clone();
-            let shut: HashSet<(usize, usize)> = links
-                .iter()
-                .enumerate()
-                .filter(|&(k, _)| !self.doors.list[k].may_open(from, false))
-                .flat_map(|(_, ps)| ps.iter().copied())
-                .collect();
-            let obstructions = &self.obstructions;
-            let mut blocking = |room: usize| {
-                let stamps = obstructions.room(&nav, room, now, &snap.sources)?;
-                Some(Blocking::new(stamps, |o| {
-                    snap.blocks(i, Mode::Directed, &|j| through.contains(&j), o)
-                }))
+            let Some(n) = self.fighters[i].brain.as_ref().and_then(|b| b.navigator()) else {
+                continue;
             };
-            let plan = crate::nav::plan::plan(&nav, from, goal, &mut blocking, careful, &shut);
-            if let Err(e) = &plan {
-                eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
-            }
-            if let Some(n) = self.fighters[i]
-                .brain
-                .as_mut()
-                .and_then(|b| b.navigator_mut())
-            {
-                n.take_plan(plan, now);
+            if n.wants_plan(now) {
+                self.plan_whole(&nav, i);
+            } else if n.wants_leg() {
+                self.plan_leg(&nav, i);
             }
         }
     }
+
+    fn navigator_of(&mut self, i: usize) -> Option<&mut crate::ai::navigate::Navigator> {
+        self.fighters[i]
+            .brain
+            .as_mut()
+            .and_then(|b| b.navigator_mut())
+    }
+
+    /// What blocks fighter `i` planning a path in a room.
+    fn planning_view<'a>(
+        &'a self,
+        nav: &'a crate::nav::Navigation,
+        snap: &'a Snapshot,
+        i: usize,
+    ) -> impl FnMut(usize) -> Option<Blocking> + 'a {
+        let through = self.paths_through(i);
+        let now = self.now as u64;
+        move |room: usize| {
+            let stamps = self.obstructions.room(nav, room, now, &snap.sources)?;
+            Some(Blocking::new(stamps, |o| {
+                snap.blocks(i, Mode::Directed, &|j| through.contains(&j), o)
+            }))
+        }
+    }
+
+    /// A whole new path for fighter `i` (`AI2iPath_MakePath`).
+    fn plan_whole(&mut self, nav: &crate::nav::Navigation, i: usize) {
+        use crate::nav::plan;
+        let now = self.now as u64;
+        let from = self.fighters[i].feet();
+        let Some(n) = self.fighters[i].brain.as_ref().and_then(|b| b.navigator()) else {
+            return;
+        };
+        let (careful, follow, mut goal) = (n.careful, n.follow, n.goal);
+        // Following someone: the path heads for where they are now
+        // (`AI2iPath_MakePath` reads the followed character's place).
+        if let Some(at) = follow.and_then(|j| self.fighters.get(j)).map(|f| f.feet()) {
+            goal = at;
+        }
+        let snap = self.tick_snapshot();
+        // Doors it may not open shut their portals to it.
+        let links = self.doors.portals(nav).clone();
+        let shut: HashSet<(usize, usize)> = links
+            .iter()
+            .enumerate()
+            .filter(|&(k, _)| !self.doors.list[k].may_open(from, false))
+            .flat_map(|(_, ps)| ps.iter().copied())
+            .collect();
+        let result = plan::global(nav, from, goal, &shut).and_then(|g| {
+            let mut view = self.planning_view(nav, &snap, i);
+            plan::leg(nav, &g, 0, from, &mut view, careful).map(|first| (g, first))
+        });
+        if let Err(e) = &result {
+            eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
+        }
+        if let Some(n) = self.navigator_of(i) {
+            n.goal = goal;
+            n.take_plan(result, now);
+        }
+    }
+
+    /// The stretch of the room fighter `i` has come into (`AI2iPath_NextNode`).
+    fn plan_leg(&mut self, nav: &crate::nav::Navigation, i: usize) {
+        let now = self.now as u64;
+        let from = self.fighters[i].feet();
+        let Some(n) = self.fighters[i].brain.as_ref().and_then(|b| b.navigator()) else {
+            return;
+        };
+        let (Some(g), k, careful) = (n.global.clone(), n.leg, n.careful) else {
+            return;
+        };
+        let snap = self.tick_snapshot();
+        let result = {
+            let mut view = self.planning_view(nav, &snap, i);
+            crate::nav::plan::leg(nav, &g, k, from, &mut view, careful)
+        };
+        if let Err(e) = &result {
+            eprintln!(
+                "nav: fighter {i}: no way across room {}: {e:?}",
+                g.room(nav, k)
+            );
+        }
+        if let Some(n) = self.navigator_of(i) {
+            n.take_leg(result, now);
+        }
+    }
+
+    /// Given a new destination, whether fighter `i` keeps its path
+    /// (`AI2iPath_MakePath`, `AI2rMovementState_MakePath`): planned under 90
+    /// ticks ago for a place under 20 from the new one, still in the room it
+    /// started from and going to the same room — and then its first room's
+    /// stretch too, if its ends move little (`AI2iMovementState_AdjustPathPoint`);
+    /// else that stretch is planned again. False: it needs a new path.
+    fn keep_path(&mut self, nav: &crate::nav::Navigation, i: usize) -> bool {
+        const MAX_REUSE_TIME: u64 = 90; // AI2cNewPath_MaxReuseTime
+        const MAX_REUSE_DIST: f32 = 20.0; // AI2cNewPath_MaxReuseDist
+        let now = self.now as u64;
+        let feet = self.fighters[i].feet();
+        let Some(n) = self.fighters[i].brain.as_ref().and_then(|b| b.navigator()) else {
+            return false;
+        };
+        let Some(mut g) = n.global.clone() else {
+            return false;
+        };
+        let reusable = n.leg == 0
+            && !n.leg_due
+            && now < n.planned.0 + MAX_REUSE_TIME
+            && n.goal.distance(n.planned.1) < MAX_REUSE_DIST
+            && nav.room_at(feet) == Some(g.start)
+            && nav.room_at(n.goal + Vec3::Y * 0.5) == Some(g.goal);
+        if !reusable {
+            return false;
+        }
+        let (goal, (old_start, old_end), careful) = (n.goal, n.leg_ends, n.careful);
+        g.to = goal;
+        let new_end = crate::nav::plan::leg_end(nav, &g, 0, feet);
+        let snap = self.tick_snapshot();
+        let grid_ok = {
+            let mut view = self.planning_view(nav, &snap, i);
+            let blocked = view(g.start);
+            let adjust =
+                |old: Vec3, new: Vec3| adjust_point(nav, g.start, old, new, blocked.as_ref());
+            adjust(old_start, feet) && adjust(old_end, new_end)
+        };
+        if grid_ok {
+            if let Some(n) = self.navigator_of(i) {
+                n.keep_leg(new_end);
+            }
+            return true;
+        }
+        // The rooms kept; the first room's stretch planned again.
+        let result = {
+            let mut view = self.planning_view(nav, &snap, i);
+            crate::nav::plan::leg(nav, &g, 0, feet, &mut view, careful)
+        };
+        if let Some(n) = self.navigator_of(i) {
+            n.global = Some(g);
+            n.retarget = false;
+            n.take_leg(result, now);
+        }
+        true
+    }
+}
+
+/// Whether a stretch's end can move from `old` to `new` without planning it
+/// again (`AI2iMovementState_AdjustPathPoint`): within 4 always, beyond 25
+/// never, else if the grid line between is clear (no worse than border 2,
+/// no escaping).
+fn adjust_point(
+    nav: &crate::nav::Navigation,
+    room: usize,
+    old: Vec3,
+    new: Vec3,
+    blocked: Option<&Blocking>,
+) -> bool {
+    const MIN: f32 = 4.0; // AI2cMovementState_Reuse_MinDist
+    const MAX: f32 = 25.0; // AI2cMovementState_Reuse_MaxDist
+    let d = old.distance(new);
+    if d < MIN {
+        return true;
+    }
+    if d > MAX {
+        return false;
+    }
+    let Some(g) = nav.rooms.get(room).and_then(|r| r.grid.as_ref()) else {
+        return true;
+    };
+    let (Some(a), Some(b)) = (g.cell_of(old.x, old.z), g.cell_of(new.x, new.z)) else {
+        return false;
+    };
+    let line = crate::nav::grid::line(g, a, b, crate::nav::Square::Border2, 3, blocked);
+    line.reached && !line.escaping
 }

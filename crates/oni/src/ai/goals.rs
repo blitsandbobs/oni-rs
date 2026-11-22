@@ -1323,8 +1323,26 @@ impl Agent {
             stop,
             face,
         });
-        self.nav = Some(Navigator::new(at, within, self.pace(cx)));
+        let pace = self.pace(cx);
+        self.move_order(at, within, pace, None);
         self.turning_to = None;
+    }
+
+    /// A movement order (`AI2rPath_GoToPoint`): its navigator takes the new
+    /// destination (and may keep its path), or one is made.
+    fn move_order(&mut self, at: Vec3, within: f32, pace: Pace, ignore: Option<usize>) {
+        match self.nav.as_mut() {
+            Some(n) => {
+                n.new_goal(at, within, pace);
+                n.follow = None;
+                n.ignore = ignore;
+            }
+            None => {
+                let mut n = Navigator::new(at, within, pace);
+                n.ignore = ignore;
+                self.nav = Some(n);
+            }
+        }
     }
 
     /// [`Self::go_to`], free to path through `ignore` (`AI2rPath_GoToPoint`'s
@@ -1363,9 +1381,8 @@ impl Agent {
             stop: true,
             face,
         });
-        let mut nav = Navigator::new(at, within, self.mode.pace(alert, false));
-        nav.ignore = ignore;
-        self.nav = Some(nav);
+        let pace = self.mode.pace(alert, false);
+        self.move_order(at, within, pace, ignore);
         self.turning_to = None;
         if let Some(p) = look {
             self.look = Look::At(p);

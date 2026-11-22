@@ -3234,7 +3234,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     )?;
 
     // Navigation: fighter `id` walks (pace "run" / "walk") to a point
-    // through the level, pathfinding; nav_state(id) reads its progress.
+    // through the level, pathfinding; nav_state(id) reads its progress. A new
+    // point while walking may keep the path (within 90 ticks, 20 of the last).
     let h = host.clone();
     g.set(
         "go_to",
@@ -3246,8 +3247,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 };
                 if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
                     f.passive = false;
-                    let n = crate::ai::navigate::Navigator::new(Vec3::new(x, y, z), 3.0, pace);
-                    f.brain = Some(crate::ai::Brain::GoTo(Box::new(n)));
+                    let at = Vec3::new(x, y, z);
+                    // (Already walking somewhere: a new order, which may keep
+                    // the path, as `AI2rPath_GoToPoint`.)
+                    match f.brain.as_mut() {
+                        Some(crate::ai::Brain::GoTo(n)) => n.new_goal(at, 3.0, pace),
+                        _ => {
+                            let n = crate::ai::navigate::Navigator::new(at, 3.0, pace);
+                            f.brain = Some(crate::ai::Brain::GoTo(Box::new(n)));
+                        }
+                    }
                 }
                 Ok(())
             },
@@ -3278,6 +3287,26 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 }
             }
             Ok(t)
+        })?,
+    )?;
+    // Fighter `id`'s path through the rooms → the room it is in along it (0:
+    // the first), how many rooms it passes, and when it was planned; nil
+    // without one.
+    let h = host.clone();
+    g.set(
+        "nav_legs",
+        lua.create_function(move |_, id: usize| {
+            let host = h.borrow();
+            let n = host
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.brain.as_ref())
+                .and_then(|b| b.navigator());
+            Ok(match n.and_then(|n| n.global.as_ref().map(|g| (n, g))) {
+                Some((n, g)) => (Some(n.leg), Some(g.legs()), Some(n.planned.0)),
+                None => (None, None, None),
+            })
         })?,
     )?;
     // Fighter `id`'s navigation → "planning", "following", "arrived", "failed:

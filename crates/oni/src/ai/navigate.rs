@@ -1,13 +1,15 @@
 //! Walking to a point through the level:
-//! a planned path is followed
-//! waypoint by waypoint (each with its own arrival radius); being stuck,
-//! straying off the path or a failed plan leads to planning again, and
-//! repeated failure to giving up.
+//! a path through the rooms is planned, then each room's stretch on
+//! entering it (`AI2iPath_NewNode`), followed waypoint by waypoint (each
+//! with its own arrival radius); being stuck, straying off the path or a
+//! failed plan leads to planning again, and repeated failure to giving up.
+//! A new order soon after, to near the same place, may keep the path
+//! (`AI2iPath_MakePath`'s reuse).
 
 use glam::Vec3;
 
 use super::{Direction, Orders, Pace, Route};
-use crate::nav::plan::{Error, Path};
+use crate::nav::plan::{Error, Global, Leg};
 
 /// Stuck: moved less than this…
 const STUCK_DISTANCE: f32 = 0.5;
@@ -25,6 +27,9 @@ const MIN_REPATH: u64 = 30;
 const RETRY_AFTER: u64 = 90;
 /// A destination is reached within at least this.
 const MIN_ARRIVE: f32 = 3.0;
+/// A new destination this far from the last resets the error count
+/// (`AI2cNewDestination_Distance`).
+const NEW_DESTINATION: f32 = 15.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum State {
@@ -58,6 +63,17 @@ pub struct Navigator {
     /// each new path heads for where it is then.
     pub follow: Option<usize>,
     stuck_from: (Vec3, u32),
+    /// The path through the rooms, the room it is in along it, and when and
+    /// for where it was planned (for reuse).
+    pub global: Option<Global>,
+    pub leg: usize,
+    pub planned: (u64, Vec3),
+    /// The current room's stretch (its start and end, for reuse).
+    pub leg_ends: (Vec3, Vec3),
+    /// It has reached the next room: its stretch there needs planning.
+    pub leg_due: bool,
+    /// Given a new destination while following: keep the path if it may.
+    pub retarget: bool,
 }
 
 impl Navigator {
@@ -76,6 +92,12 @@ impl Navigator {
             ignore: None,
             follow: None,
             stuck_from: (Vec3::ZERO, 0),
+            global: None,
+            leg: 0,
+            planned: (0, Vec3::ZERO),
+            leg_ends: (Vec3::ZERO, Vec3::ZERO),
+            leg_due: false,
+            retarget: false,
         }
     }
 
@@ -103,18 +125,70 @@ impl Navigator {
         }
     }
 
-    /// Whether the world should plan for it now.
+    /// Whether the world should plan its whole path now.
     pub fn wants_plan(&self, now: u64) -> bool {
         self.state == State::Planning && now >= self.retry_at
     }
 
-    /// Takes a plan (or its failure).
-    pub fn take_plan(&mut self, plan: Result<Path, Error>, now: u64) {
+    /// Whether the room it has come into needs its stretch planned.
+    pub fn wants_leg(&self) -> bool {
+        self.state == State::Following && self.leg_due && self.global.is_some()
+    }
+
+    /// A new destination (`AI2rPath_GoToPoint`): while following, the world
+    /// decides whether the path can be kept ([`Self::retarget`]); otherwise
+    /// it plans afresh. One far from the last starts its error count over.
+    pub fn new_goal(&mut self, goal: Vec3, arrive: f32, pace: Pace) {
+        if goal.distance(self.goal) > NEW_DESTINATION {
+            self.errors = 0;
+            self.careful = false;
+        }
+        self.goal = goal;
+        self.arrive = arrive.max(MIN_ARRIVE);
+        self.set_pace(pace);
+        match self.state {
+            State::Following => self.retarget = true,
+            State::Planning => {}
+            _ => {
+                self.state = State::Planning;
+                self.retry_at = 0;
+                self.plan_failed = false;
+            }
+        }
+    }
+
+    /// Takes a whole new path: the rooms, and the first room's stretch (or
+    /// the failure).
+    pub fn take_plan(&mut self, plan: Result<(Global, Leg), Error>, now: u64) {
+        self.retarget = false;
         match plan {
-            Ok(path) => {
-                let n = path.points.len();
-                let (points, mut radii): (Vec<Vec3>, Vec<f32>) = path.points.into_iter().unzip();
-                if let Some(last) = radii.last_mut() {
+            Ok((g, first)) => {
+                self.global = Some(g);
+                self.leg = 0;
+                self.planned = (now, self.goal);
+                self.plan_failed = false;
+                self.take_leg(Ok(first), now);
+            }
+            Err(e) => {
+                self.plan_failed = true;
+                self.retry_at = now + RETRY_AFTER;
+                self.error(now, &format!("{e:?}"));
+            }
+        }
+    }
+
+    /// Takes the current room's stretch (or the failure).
+    pub fn take_leg(&mut self, leg: Result<Leg, Error>, now: u64) {
+        self.leg_due = false;
+        match leg {
+            Ok(leg) => {
+                let n = leg.points.len();
+                let (points, mut radii): (Vec<Vec3>, Vec<f32>) = leg.points.into_iter().unzip();
+                let last_leg = self
+                    .global
+                    .as_ref()
+                    .is_none_or(|g| self.leg + 1 >= g.legs());
+                if let Some(last) = radii.last_mut().filter(|_| last_leg) {
                     *last = last.min(self.arrive).max(MIN_ARRIVE);
                 }
                 if self.careful {
@@ -123,14 +197,23 @@ impl Navigator {
                 let mut route = Route::new(points, self.pace, false);
                 route.radii = radii;
                 self.route = (n > 0).then_some(route);
+                self.leg_ends = (leg.start, leg.end);
                 self.state = State::Following;
-                self.plan_failed = false;
             }
-            Err(e) => {
-                self.plan_failed = true;
-                self.retry_at = now + RETRY_AFTER;
-                self.error(now, &format!("{e:?}"));
-            }
+            Err(e) => self.error(now, &format!("{e:?}")),
+        }
+    }
+
+    /// The current room's stretch kept for a moved destination: its last
+    /// waypoint moved to the stretch's new end.
+    pub fn keep_leg(&mut self, end: Vec3) {
+        self.retarget = false;
+        if let Some(g) = self.global.as_mut() {
+            g.to = self.goal;
+        }
+        self.leg_ends.1 = end;
+        if let Some(p) = self.route.as_mut().and_then(|r| r.points.last_mut()) {
+            *p = end;
         }
     }
 
@@ -142,6 +225,9 @@ impl Navigator {
         self.last_error = now;
         self.careful = true;
         self.route = None;
+        self.global = None;
+        self.leg_due = false;
+        self.retarget = false;
         self.state = if self.errors >= GIVE_UP {
             State::Failed(why.to_string())
         } else {
@@ -168,6 +254,14 @@ impl Navigator {
         if self.state != State::Following {
             return Orders::default();
         }
+        if self.leg_due {
+            // (Waiting on the next room's stretch: on as it was going.)
+            return Orders {
+                direction: Direction::Forward,
+                pace: self.pace,
+                face: Some(yaw),
+            };
+        }
         let Some(route) = self.route.as_mut() else {
             return Orders::default();
         };
@@ -188,6 +282,21 @@ impl Navigator {
         }
         let orders = route.orders(feet, yaw);
         if route.finished() {
+            // Into the next room: its stretch is planned before the next
+            // tick; meanwhile it keeps on as it was going.
+            if self
+                .global
+                .as_ref()
+                .is_some_and(|g| self.leg + 1 < g.legs())
+            {
+                self.leg += 1;
+                self.leg_due = true;
+                return Orders {
+                    direction: Direction::Forward,
+                    pace: self.pace,
+                    face: Some(yaw),
+                };
+            }
             self.state = State::Arrived;
             return Orders::default();
         }
