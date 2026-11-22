@@ -7,8 +7,6 @@ use oni_schema::files;
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde_json::Value;
-
 use crate::ai::perception::Stimulus;
 
 /// Weights ("modifiers"): any matches every weight.
@@ -419,73 +417,62 @@ pub struct Pain {
 }
 
 impl ClassSounds {
-    pub fn from_json(c: &Value) -> ClassSounds {
-        let names = |j: &Value| {
-            j.as_array()
-                .map(|a| a.iter().map(|v| v.as_str().map(str::to_string)).collect())
+    pub fn from_class(c: &files::CharacterClass) -> ClassSounds {
+        let pain = c.pain.as_ref();
+        let u = |f: fn(&files::PainConstants) -> u16| pain.map_or(0, |p| u32::from(f(p)));
+        let s =
+            |f: fn(&files::PainConstants) -> &String| pain.map_or(String::new(), |p| f(p).clone());
+        let parts = |f: fn(&files::PartImpacts) -> &Vec<Option<String>>| {
+            c.part_impacts
+                .as_ref()
+                .map(|p| f(p).clone())
                 .unwrap_or_default()
         };
         ClassSounds {
-            modifier: modifier(c["animImpacts"]["modifier"].as_str().unwrap_or("")),
-            anim: c["animImpacts"]["impacts"]
-                .as_array()
-                .map(|a| {
-                    a.iter()
-                        .map(|v| v.as_str().unwrap_or("").to_string())
-                        .collect()
-                })
+            modifier: modifier(c.anim_impacts.as_ref().map_or("", |a| a.modifier.as_str())),
+            anim: c
+                .anim_impacts
+                .as_ref()
+                .map(|a| a.impacts.clone())
                 .unwrap_or_default(),
-            attacks: c["attackImpacts"]
-                .as_array()
-                .into_iter()
+            attacks: c
+                .attack_impacts
+                .iter()
                 .flatten()
-                .filter_map(|a| {
-                    Some((
-                        a["attack"].as_str()?.to_string(),
-                        (
-                            a["impact"].as_str()?.to_string(),
-                            modifier(a["modifier"].as_str().unwrap_or("")),
-                        ),
-                    ))
-                })
+                .map(|a| (a.attack.clone(), (a.impact.clone(), modifier(&a.modifier))))
                 .collect(),
-            part_materials: names(&c["partMaterials"]),
+            part_materials: c.part_materials.clone().unwrap_or_default(),
             part_impacts: [
-                names(&c["partImpacts"]["hit"]),
-                names(&c["partImpacts"]["blocked"]),
-                names(&c["partImpacts"]["killed"]),
+                parts(|p| &p.hit),
+                parts(|p| &p.blocked),
+                parts(|p| &p.killed),
             ],
-            variant: c["variant"].as_str().map(str::to_string),
-            pain: {
-                let p = &c["pain"];
-                let u = |k: &str| p[k].as_u64().unwrap_or(0) as u32;
-                let s = |k: &str| p[k].as_str().unwrap_or("").to_string();
-                Pain {
-                    base_percentage: u("basePercentage"),
-                    max_percentage: u("maxPercentage"),
-                    percentage_threshold: u("percentageThreshold"),
-                    timer: u("timer"),
-                    min_timer: u("minTimer"),
-                    max_light: u("maxLight"),
-                    max_medium: u("maxMedium"),
-                    death_chance: u("deathChance"),
-                    volume_threshold: u("volumeThreshold"),
-                    medium_threshold: u("mediumThreshold"),
-                    heavy_threshold: u("heavyThreshold"),
-                    min_volume: p["minVolume"].as_f64().unwrap_or(0.0) as f32,
-                    sounds: [s("light"), s("medium"), s("heavy"), s("death")],
-                }
+            variant: c.variant.clone(),
+            pain: Pain {
+                base_percentage: u(|p| p.base_percentage),
+                max_percentage: u(|p| p.max_percentage),
+                percentage_threshold: u(|p| p.percentage_threshold),
+                timer: u(|p| p.timer),
+                min_timer: u(|p| p.min_timer),
+                max_light: u(|p| p.max_light),
+                max_medium: u(|p| p.max_medium),
+                death_chance: u(|p| p.death_chance),
+                volume_threshold: u(|p| p.volume_threshold),
+                medium_threshold: u(|p| p.medium_threshold),
+                heavy_threshold: u(|p| p.heavy_threshold),
+                min_volume: pain.map_or(0.0, |p| p.min_volume),
+                sounds: [
+                    s(|p| &p.light),
+                    s(|p| &p.medium),
+                    s(|p| &p.heavy),
+                    s(|p| &p.death),
+                ],
             },
-            vocalizations: c["vocalizations"]
-                .as_array()
-                .into_iter()
+            vocalizations: c
+                .vocalizations
+                .iter()
                 .flatten()
-                .map(|v| {
-                    (
-                        v["chance"].as_u64().unwrap_or(0) as u8,
-                        v["sound"].as_str().unwrap_or("").to_string(),
-                    )
-                })
+                .map(|v| (v.chance, v.sound.clone()))
                 .collect(),
         }
     }

@@ -299,22 +299,18 @@ impl World {
 }
 
 /// A class's particles from its `classes.json` entry.
-pub fn class_particles(c: &serde_json::Value) -> Vec<ClassParticle> {
-    c["particles"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|p| {
-            let part = match &p["part"] {
-                serde_json::Value::String(s) if s == "hitFlash" => ClassPart::HitFlash,
-                serde_json::Value::Number(n) => ClassPart::Part(n.as_u64()? as usize),
-                _ => ClassPart::Animation,
-            };
-            Some(ClassParticle {
-                name: p["name"].as_str()?.to_string(),
-                class: p["class"].as_str()?.to_string(),
-                part,
-            })
+pub fn class_particles(c: &oni_schema::files::CharacterClass) -> Vec<ClassParticle> {
+    use oni_schema::files::AnimRef;
+    c.particles
+        .iter()
+        .map(|p| ClassParticle {
+            name: p.name.clone(),
+            class: p.class.clone(),
+            part: match &p.part {
+                AnimRef::Name(s) if s == "hitFlash" => ClassPart::HitFlash,
+                AnimRef::Number(n) => ClassPart::Part(usize::from(*n)),
+                AnimRef::Name(_) => ClassPart::Animation,
+            },
         })
         .collect()
 }

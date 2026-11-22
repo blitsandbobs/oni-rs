@@ -24,7 +24,7 @@ pub struct Classes {
     anim_dir: PathBuf,
     /// The level being played (clips introduced later are unavailable).
     level: u16,
-    entries: Vec<serde_json::Value>,
+    entries: Vec<oni_schema::files::CharacterClass>,
     collections: HashMap<String, Rc<AnimCollection>>,
     kinds: HashMap<String, CharKind>,
     /// Clips loaded on their own (`clip`).
@@ -42,13 +42,13 @@ impl Classes {
         let melee =
             crate::ai::melee::profile::load(&dir.join("melee_profiles.json")).unwrap_or_default();
         let text = std::fs::read_to_string(dir.join("classes.json"))?;
-        let doc: serde_json::Value = serde_json::from_str(&text)
+        let doc: oni_schema::files::CharacterClassesFile = serde_json::from_str(&text)
             .map_err(|e| std::io::Error::other(format!("classes.json: {e}")))?;
         Ok(Classes {
             dir,
             anim_dir: oni_root.join("common/animations"),
             level,
-            entries: doc["classes"].as_array().cloned().unwrap_or_default(),
+            entries: doc.classes,
             collections: HashMap::new(),
             kinds: HashMap::new(),
             singles: HashMap::new(),
@@ -71,28 +71,27 @@ impl Classes {
         let c = self
             .entries
             .iter()
-            .find(|c| c["name"].as_str() == Some(name))
+            .find(|c| c.name.as_deref() == Some(name))
             .cloned()
             .ok_or_else(|| format!("no character class {name:?}"))?;
 
-        let model = c["model"]
-            .as_str()
+        let model = c
+            .model
+            .as_deref()
             .ok_or_else(|| format!("{name}: no model"))?;
         let mut character = skel::load_character(&self.dir.join(model))
             .map_err(|e| format!("{name}: model {model}: {e}"))?;
         // The class's own skin over the shared body.
-        if let Some(skin) = c["partTextures"].as_array() {
-            for part in &mut character.parts {
-                if let Some(t) = skin.get(part.bone).and_then(|t| t.as_str()) {
-                    part.texture = Some(self.dir.join(t));
-                }
+        for part in &mut character.parts {
+            if let Some(Some(t)) = c.part_textures.get(part.bone) {
+                part.texture = Some(self.dir.join(t));
             }
         }
 
-        let coll_name = c["animationCollection"]
-            .as_str()
-            .ok_or_else(|| format!("{name}: no animation collection"))?
-            .to_string();
+        let coll_name = c
+            .animation_collection
+            .clone()
+            .ok_or_else(|| format!("{name}: no animation collection"))?;
         let anims = match self.collections.get(&coll_name) {
             Some(a) => a.clone(),
             None => {
@@ -112,10 +111,10 @@ impl Classes {
             }
         };
 
-        let daze = (
-            c["dazed"]["min"].as_u64().unwrap_or(60) as u32,
-            c["dazed"]["max"].as_u64().unwrap_or(100) as u32,
-        );
+        let daze = c
+            .dazed
+            .as_ref()
+            .map_or((60, 100), |d| (d.min.max(0) as u32, d.max.max(0) as u32));
         // Its low body, which magic effects are drawn over.
         let low = self.dir.join(model).with_file_name("low.glb");
         let magic_model = skel::load_character(&low).ok().map(|c| upload(&c));
@@ -125,24 +124,33 @@ impl Classes {
             character: Rc::new(character),
             anims,
             tuning: tuning(&c),
-            melee: c["meleeProfile"]
-                .as_str()
+            melee: c
+                .melee_profile
+                .as_ref()
                 .and_then(|n| self.melee.get(n))
                 .cloned(),
             daze,
-            perception: crate::ai::perception::Tuning::from_json(&c["perception"]),
-            class_combat: crate::ai::goals::ClassCombat::from_json(&c["perception"]),
-            death_delete: c["stats"]["deathDeleteDelay"].as_u64().unwrap_or(0) as u32,
-            aiming: Rc::new(crate::anim::aim::load(&c["aiming"], &self.anim_dir)),
+            perception: crate::ai::perception::Tuning::from_class(c.perception.as_ref()),
+            class_combat: crate::ai::goals::ClassCombat::from_class(c.perception.as_ref()),
+            death_delete: c
+                .stats
+                .as_ref()
+                .map_or(0, |s| u32::from(s.death_delete_delay)),
+            aiming: Rc::new(crate::anim::aim::load(&c.aiming, &self.anim_dir)),
             shooting: Rc::new(
-                c["perception"]["shootingSkill"]
-                    .as_array()
-                    .map(|a| a.iter().map(crate::ai::ranged::Skill::from_json).collect())
-                    .unwrap_or_default(),
+                c.perception
+                    .iter()
+                    .flat_map(|p| &p.shooting_skill)
+                    .map(crate::ai::ranged::Skill::from_file)
+                    .collect(),
             ),
-            targeting: crate::ai::ranged::Params::from_json(&c["perception"]["targeting"]),
-            sounds: Rc::new(crate::impacts::ClassSounds::from_json(&c)),
-            shadow: crate::decal::Shadow::from_json(&c["shadow"]).map(Rc::new),
+            targeting: c
+                .perception
+                .as_ref()
+                .map(|p| crate::ai::ranged::Params::from_file(&p.targeting))
+                .unwrap_or_default(),
+            sounds: Rc::new(crate::impacts::ClassSounds::from_class(&c)),
+            shadow: crate::decal::Shadow::from_class(c.shadow.as_ref()).map(Rc::new),
             // (Its super particles: those named `super…`, on a body part.)
             super_particles: Rc::new(
                 crate::world::anim_particles::class_particles(&c)
@@ -183,22 +191,22 @@ impl Classes {
         let Some(c) = self
             .entries
             .iter()
-            .find(|c| c["name"].as_str() == Some(class))
+            .find(|c| c.name.as_deref() == Some(class))
         else {
             return class.to_string();
         };
-        let Some(variant) = c["variantName"].as_str() else {
+        let Some(variant) = c.variant_name.as_deref() else {
             return class.to_string();
         };
-        let desired = match c["variantUpgrade"].as_str() {
+        let desired = match c.variant_upgrade.as_deref() {
             Some(u) if upgrade && hard && !u.is_empty() => u,
             _ => variant,
         };
         let pool: Vec<&str> = self
             .entries
             .iter()
-            .filter(|e| e["variantName"].as_str() == Some(desired))
-            .filter_map(|e| e["name"].as_str())
+            .filter(|e| e.variant_name.as_deref() == Some(desired))
+            .filter_map(|e| e.name.as_deref())
             .collect();
         if pool.is_empty() {
             eprintln!("classes: {class} (variant {variant}) found no classes of variant {desired}");
@@ -213,8 +221,8 @@ impl Classes {
         let c = self
             .entries
             .iter()
-            .find(|c| c["name"].as_str() == Some(class))?;
-        self.melee.get(c["meleeProfile"].as_str()?).map(|p| p.id)
+            .find(|c| c.name.as_deref() == Some(class))?;
+        self.melee.get(c.melee_profile.as_ref()?).map(|p| p.id)
     }
 
     /// A single clip by name, from any class (loaded once).
@@ -250,80 +258,47 @@ impl Classes {
 }
 
 /// The movement model's tuning from a class entry's `stats` and `air`.
-fn tuning(c: &serde_json::Value) -> ClassTuning {
+fn tuning(c: &oni_schema::files::CharacterClass) -> ClassTuning {
     let mut t = ClassTuning::default();
-    let (stats, air) = (&c["stats"], &c["air"]);
-    let u = |v: &serde_json::Value| v.as_u64();
-    let f = |v: &serde_json::Value| v.as_f64().map(|x| x as f32);
-    if let Some(v) = u(&stats["fightModeDuration"]) {
-        t.fight_mode_duration = v.min(u64::from(u16::MAX)) as u16;
-    }
-    if let Some(v) = u(&stats["idleDelay"]) {
-        t.idle_delay = v as u32;
-    }
-    if let Some(v) = u(&stats["idleRestartDelay"]) {
-        t.idle_restart_delay = v as u32;
-    }
-    if let Some(v) = u(&stats["maxHitPoints"]) {
-        t.max_hit_points = v as i32;
-    }
-    if let Some(v) = stats["knockdownResistant"].as_bool() {
-        t.knockdown_resistant = v;
-    }
-    if let Some(v) = stats["leftHanded"].as_bool() {
-        t.left_handed = v;
-    }
-    if let Some(v) = stats["superHypo"].as_bool() {
-        t.super_hypo = v;
-    }
-    if let Some(v) = stats["superShield"].as_bool() {
-        t.super_shield = v;
-    }
-    for (k, name) in [
-        "normal",
-        "minorStun",
-        "majorStun",
-        "minorKnockdown",
-        "majorKnockdown",
-        "blownUp",
-        "pickUp",
-    ]
-    .iter()
-    .enumerate()
-    {
-        if let Some(v) = f(&stats["damageResistance"][name]) {
-            t.damage_resistance[k] = v;
+    if let Some(s) = &c.stats {
+        t.fight_mode_duration = s.fight_mode_duration.min(u32::from(u16::MAX)) as u16;
+        t.idle_delay = s.idle_delay;
+        t.idle_restart_delay = s.idle_restart_delay;
+        t.max_hit_points = s.max_hit_points as i32;
+        t.knockdown_resistant = s.knockdown_resistant;
+        t.left_handed = s.left_handed;
+        t.super_hypo = s.super_hypo;
+        t.super_shield = s.super_shield;
+        for (k, name) in [
+            "normal",
+            "minorStun",
+            "majorStun",
+            "minorKnockdown",
+            "majorKnockdown",
+            "blownUp",
+            "pickUp",
+        ]
+        .iter()
+        .enumerate()
+        {
+            if let Some(&v) = s.damage_resistance.get(*name) {
+                t.damage_resistance[k] = v;
+            }
         }
+        t.boss_shield = s.boss_shield;
     }
-    if let Some(v) = f(&stats["bossShield"]) {
-        t.boss_shield = v;
-    }
-    if let Some(v) = u(&c["hypoTime"]) {
+    if let Some(v) = c.hypo_time {
         t.hypo_time = v as u16;
     }
-    if let Some(v) = f(&air["jumpGravity"]) {
-        t.jump_gravity = v;
-    }
-    if let Some(v) = f(&air["fallGravity"]) {
-        t.fall_gravity = v;
-    }
-    if let Some(v) = f(&air["jumpAmount"]) {
-        t.jump_amount = v;
-    }
-    if let Some(v) = f(&air["maxVelocity"]) {
-        t.max_velocity = v;
-    }
-    if let Some(v) = f(&air["jumpAccelAmount"]) {
-        t.jump_accel_amount = v;
-    }
-    if let Some(v) = u(&air["numJumpAccelFrames"]) {
-        t.num_jump_accel_frames = v as u16;
-    }
-    if let Some(v) = f(&air["damageStart"]) {
-        t.damage_start = v;
-    }
-    if let Some(v) = f(&air["damageEnd"]) {
-        t.damage_end = v;
+    if let Some(a) = &c.air {
+        t.jump_gravity = a.jump_gravity;
+        t.fall_gravity = a.fall_gravity;
+        t.jump_amount = a.jump_amount;
+        t.max_velocity = a.max_velocity;
+        t.jump_accel_amount = a.jump_accel_amount;
+        t.num_jump_accel_frames = a.num_jump_accel_frames;
+        t.damage_start = a.damage_start;
+        t.damage_end = a.damage_end;
     }
     t
 }

@@ -7,7 +7,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 use glam::Quat;
-use serde_json::Value;
 
 use crate::skel::{Character, Clip, Layer, FPS};
 
@@ -30,29 +29,23 @@ impl Screen {
 }
 
 /// Loads a class's screens (`classes.json` `aiming`) from `anim_dir`.
-pub fn load(list: &Value, anim_dir: &Path) -> Vec<Screen> {
-    let side = |j: &Value| {
+pub fn load(list: &[oni_schema::files::AimingScreen], anim_dir: &Path) -> Vec<Screen> {
+    let side = |j: &oni_schema::files::AimSteps| {
         (
+            [j.negative_delta, j.positive_delta],
             [
-                j["negativeDelta"].as_f64().unwrap_or(0.0) as f32,
-                j["positiveDelta"].as_f64().unwrap_or(0.0) as f32,
-            ],
-            [
-                j["negativeFrames"].as_i64().unwrap_or(0).max(0) as u16,
-                j["positiveFrames"].as_i64().unwrap_or(0).max(0) as u16,
+                j.negative_frames.max(0) as u16,
+                j.positive_frames.max(0) as u16,
             ],
         )
     };
-    list.as_array()
-        .into_iter()
-        .flatten()
+    list.iter()
         .filter_map(|s| {
-            let name = s["clip"].as_str()?;
-            let clip = crate::skel::load_clip(&anim_dir.join(format!("{name}.glb"))).ok()?;
+            let clip = crate::skel::load_clip(&anim_dir.join(format!("{}.glb", s.clip))).ok()?;
             Some(Screen {
                 clip: Rc::new(clip),
-                yaw: side(&s["yaw"]),
-                pitch: side(&s["pitch"]),
+                yaw: side(&s.yaw),
+                pitch: side(&s.pitch),
             })
         })
         .collect()

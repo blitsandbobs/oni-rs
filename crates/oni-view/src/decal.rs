@@ -62,18 +62,18 @@ pub struct Shadow {
 }
 
 impl Shadow {
-    pub fn from_json(j: &serde_json::Value) -> Option<Shadow> {
-        let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
-        let u = |k: &str| j[k].as_u64().unwrap_or(0) as u16;
+    /// A class's (`classes.json`'s `shadow`; none without a texture).
+    pub fn from_class(j: Option<&oni_schema::files::ClassShadow>) -> Option<Shadow> {
+        let j = j?;
         Some(Shadow {
-            texture: j["texture"].as_str()?.to_string(),
-            height_max: f("heightMax"),
-            height_fade: f("heightFade"),
-            size_max: f("sizeMax"),
-            size_fade: f("sizeFade"),
-            size_min: f("sizeMin"),
-            alpha_max: u("alphaMax"),
-            alpha_fade: u("alphaFade"),
+            texture: j.texture.clone()?,
+            height_max: j.height_max,
+            height_fade: j.height_fade,
+            size_max: j.size_max,
+            size_fade: j.size_fade,
+            size_min: j.size_min,
+            alpha_max: j.alpha_max as u16,
+            alpha_fade: j.alpha_fade as u16,
         })
     }
 

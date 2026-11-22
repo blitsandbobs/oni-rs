@@ -24,10 +24,6 @@ pub struct Skill {
 }
 
 impl Skill {
-    pub fn from_json(j: &serde_json::Value) -> Skill {
-        Skill::from_file(&serde_json::from_value(j.clone()).unwrap_or_default())
-    }
-
     pub fn from_file(s: &oni_schema::files::ShootSkill) -> Skill {
         Skill {
             recoil_compensation: s.recoil_compensation,
@@ -71,13 +67,6 @@ impl Default for Params {
 }
 
 impl Params {
-    /// From its JSON form (`Targeting`; unreadable: the defaults).
-    pub fn from_json(j: &serde_json::Value) -> Params {
-        serde_json::from_value(j.clone())
-            .map(|t| Params::from_file(&t))
-            .unwrap_or_default()
-    }
-
     pub fn from_file(t: &oni_schema::files::Targeting) -> Params {
         Params {
             startle_ratio: t.startle_miss_ratio,

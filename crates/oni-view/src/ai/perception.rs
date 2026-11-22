@@ -204,33 +204,40 @@ impl Default for Tuning {
 }
 
 impl Tuning {
-    pub fn from_json(p: &serde_json::Value) -> Tuning {
-        let f = |v: &serde_json::Value, d: f32| v.as_f64().map_or(d, |x| x as f32);
-        let u = |v: &serde_json::Value, d: u32| v.as_u64().map_or(d, |x| x as u32);
+    /// A class's (`classes.json`'s `perception`; none: the defaults).
+    pub fn from_class(p: Option<&oni_schema::files::ClassPerception>) -> Tuning {
         let base = Tuning::default();
-        let v = &p["vision"];
+        let Some(p) = p else {
+            return Tuning {
+                hearing: 1.0,
+                contact_decay: [180, 900, 3600],
+                alert_decay: [3600, 18000, 36000],
+                never_startle: false,
+                ..base
+            };
+        };
+        let v = &p.vision;
+        let u = |x: i64| x.max(0) as u32;
         Tuning {
-            central_distance: f(&v["centralDistance"], base.central_distance),
-            peripheral_distance: f(&v["peripheralDistance"], base.peripheral_distance),
-            vertical: f(&v["verticalAngle"], base.vertical),
-            central_full: f(&v["centralFullAngle"], base.central_full),
-            central_max: f(&v["centralMaxAngle"], base.central_max),
-            peripheral_full: f(&v["peripheralFullAngle"], base.peripheral_full),
-            peripheral_max: f(&v["peripheralMaxAngle"], base.peripheral_max),
-            hearing: f(&p["hearingAcuity"], 1.0),
+            central_distance: v.central_distance,
+            peripheral_distance: v.peripheral_distance,
+            vertical: v.vertical_angle,
+            central_full: v.central_full_angle,
+            central_max: v.central_max_angle,
+            peripheral_full: v.peripheral_full_angle,
+            peripheral_max: v.peripheral_max_angle,
+            hearing: p.hearing_acuity,
             contact_decay: [
-                u(&p["contactDecay"]["definite"], 180),
-                u(&p["contactDecay"]["strong"], 900),
-                u(&p["contactDecay"]["weak"], 3600),
+                u(p.contact_decay.definite),
+                u(p.contact_decay.strong),
+                u(p.contact_decay.weak),
             ],
             alert_decay: [
-                u(&p["alertDecay"]["high"], 3600),
-                u(&p["alertDecay"]["medium"], 18000),
-                u(&p["alertDecay"]["low"], 36000),
+                u(p.alert_decay.high),
+                u(p.alert_decay.medium),
+                u(p.alert_decay.low),
             ],
-            never_startle: p["flags"]
-                .as_array()
-                .is_some_and(|a| a.iter().any(|f| f == "neverStartle")),
+            never_startle: p.flags.iter().any(|f| f == "neverStartle"),
         }
     }
 

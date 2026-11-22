@@ -306,7 +306,7 @@ pub fn convert_with(
     let registry = oni_template::Registry::load();
     // Character classes (ONCC) are named/global; accumulate the canonical ones
     // across files into a single catalog written at the end.
-    let mut character_classes: Vec<serde_json::Value> = Vec::new();
+    let mut character_classes: Vec<oni_schema::files::CharacterClass> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
     let mut game_settings: Option<oni_schema::files::GameSettingsFile> = None;
     let mut part_specs = BTreeMap::new();
@@ -539,26 +539,25 @@ pub fn convert_with(
         std::fs::create_dir_all(&dir)?;
         // Each class's melee profile, by name (the data links them by id).
         for c in &mut character_classes {
-            let id = c.as_object_mut().and_then(|o| o.remove("meleeProfileId"));
-            let name = id
-                .and_then(|v| v.as_u64())
-                .and_then(|id| melee_profiles.iter().find(|p| u64::from(p.id) == id))
+            c.melee_profile = c
+                .melee_profile_id
+                .take()
+                .and_then(|id| melee_profiles.iter().find(|p| i64::from(p.id) == id))
                 .map(|p| p.name.clone());
-            c["meleeProfile"] = serde_json::json!(name);
         }
         if !melee_profiles.is_empty() {
-            let doc = serde_json::json!({
-                "profiles": melee_profiles.iter().map(|p| &p.json).collect::<Vec<_>>(),
-            });
+            let doc = oni_schema::files::MeleeProfilesFile {
+                profiles: melee_profiles.iter().map(|p| p.file.clone()).collect(),
+            };
             std::fs::write(
                 dir.join("melee_profiles.json"),
                 serde_json::to_string_pretty(&doc)?,
             )?;
         }
-        let doc = serde_json::json!({
-            "count": character_classes.len(),
-            "classes": character_classes,
-        });
+        let doc = oni_schema::files::CharacterClassesFile {
+            count: character_classes.len(),
+            classes: character_classes,
+        };
         std::fs::write(
             dir.join("classes.json"),
             serde_json::to_string_pretty(&doc)?,
@@ -878,65 +877,69 @@ fn collect_game_settings(
 /// A class's AI perception tuning (`docs/PERCEPTION.md`): vision (the
 /// stored cosines turned back into angles, radians), hearing, memory and
 /// alert decay (ticks), behaviour flags, turning speed.
-fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
+fn perception_json(rec: &oni_template::Record) -> oni_schema::files::ClassPerception {
+    use oni_schema::files as f;
     let float = |name: &str| match rec.get(name).map(|e| &e.value) {
         Some(oni_template::Value::Float(f)) => *f,
         _ => 0.0,
     };
     let int = |name: &str| rec.int(name).unwrap_or(0);
     let angle = |name: &str| float(name).clamp(-1.0, 1.0).acos();
-    serde_json::json!({
-        "vision": {
-            "centralDistance": float("vision.central_distance"),
-            "peripheralDistance": float("vision.periph_distance"),
-            "verticalAngle": angle("vision.vertical_range"),
-            "centralFullAngle": angle("vision.central_range"),
-            "centralMaxAngle": angle("vision.central_max"),
-            "peripheralFullAngle": angle("vision.periph_range"),
-            "peripheralMaxAngle": angle("vision.periph_max"),
+    let combat = |n: &str| int(&format!("ai2_behavior.combat_parameters.{n}"));
+    let targeting = |n: &str| format!("ai2_behavior.combat_parameters.targeting_params.{n}");
+    f::ClassPerception {
+        vision: f::Vision {
+            central_distance: float("vision.central_distance"),
+            peripheral_distance: float("vision.periph_distance"),
+            vertical_angle: angle("vision.vertical_range"),
+            central_full_angle: angle("vision.central_range"),
+            central_max_angle: angle("vision.central_max"),
+            peripheral_full_angle: angle("vision.periph_range"),
+            peripheral_max_angle: angle("vision.periph_max"),
         },
-        "hearingAcuity": float("hearing"),
-        "contactDecay": {
-            "definite": int("memory.definite_to_strong"),
-            "strong": int("memory.strong_to_weak"),
-            "weak": int("memory.weak_to_forgotten"),
+        hearing_acuity: float("hearing"),
+        contact_decay: f::ContactDecay {
+            definite: int("memory.definite_to_strong"),
+            strong: int("memory.strong_to_weak"),
+            weak: int("memory.weak_to_forgotten"),
         },
-        "alertDecay": {
-            "high": int("memory.high_to_med"),
-            "medium": int("memory.med_to_low"),
-            "low": int("memory.low_to_lull"),
+        alert_decay: f::AlertDecay {
+            high: int("memory.high_to_med"),
+            medium: int("memory.med_to_low"),
+            low: int("memory.low_to_lull"),
         },
-        "flags": oni_schema::bit_names(&oni_schema::AI_FLAGS, int("ai2_behavior.flags") as u32),
-        "turningNimbleness": float("ai2_behavior.turning_nimbleness"),
-        "combat": {
-            "makeSureTicks": int("ai2_behavior.combat_parameters.dead_makesure_delay"),
-            "investigateBodyTicks": int("ai2_behavior.combat_parameters.investigate_body_delay"),
-            "lostContactTicks": int("ai2_behavior.combat_parameters.lost_contact_delay"),
-            "deadTauntPercent": int("ai2_behavior.combat_parameters.dead_taunt_percentage"),
-            "gunPickupPercent": int("ai2_behavior.combat_parameters.gun_pickup_percentage"),
-            "gunRunningPickupPercent": int("ai2_behavior.combat_parameters.gun_runningpickup_percentage"),
-            "defaultCombatProfileId": int("ai2_behavior.default_combat_id"),
+        flags: oni_schema::bit_names(&oni_schema::AI_FLAGS, int("ai2_behavior.flags") as u32)
+            .into_iter()
+            .map(String::from)
+            .collect(),
+        turning_nimbleness: float("ai2_behavior.turning_nimbleness"),
+        combat: f::ClassCombatSettings {
+            make_sure_ticks: combat("dead_makesure_delay"),
+            investigate_body_ticks: combat("investigate_body_delay"),
+            lost_contact_ticks: combat("lost_contact_delay"),
+            dead_taunt_percent: combat("dead_taunt_percentage"),
+            gun_pickup_percent: combat("gun_pickup_percentage"),
+            gun_running_pickup_percent: combat("gun_runningpickup_percentage"),
+            default_combat_profile_id: int("ai2_behavior.default_combat_id"),
         },
-        "dodge": {
-            "reactTicks": int("ai2_behavior.dodge_react_frames"),
-            "timeScale": float("ai2_behavior.dodge_time_scale"),
-            "weightScale": float("ai2_behavior.dodge_weight_scale"),
+        dodge: f::DodgeSettings {
+            react_ticks: int("ai2_behavior.dodge_react_frames"),
+            time_scale: float("ai2_behavior.dodge_time_scale"),
+            weight_scale: float("ai2_behavior.dodge_weight_scale"),
         },
-        "targeting": oni_schema::files::Targeting {
-            startle_miss_ratio: float("ai2_behavior.combat_parameters.targeting_params.startle_miss_angle"),
-            startle_miss_distance: float("ai2_behavior.combat_parameters.targeting_params.startle_miss_distance"),
-            predict_amount: float("ai2_behavior.combat_parameters.targeting_params.predict_amount"),
-            predict_position_delay: int("ai2_behavior.combat_parameters.targeting_params.predict_positiondelayframes") as u32,
-            predict_delay: int("ai2_behavior.combat_parameters.targeting_params.predict_delayframes") as u32,
-            predict_velocity: int("ai2_behavior.combat_parameters.targeting_params.predict_velocityframes") as u32,
-            predict_trend: int("ai2_behavior.combat_parameters.targeting_params.predict_trendframes") as u32,
+        targeting: f::Targeting {
+            startle_miss_ratio: float(&targeting("startle_miss_angle")),
+            startle_miss_distance: float(&targeting("startle_miss_distance")),
+            predict_amount: float(&targeting("predict_amount")),
+            predict_position_delay: int(&targeting("predict_positiondelayframes")) as u32,
+            predict_delay: int(&targeting("predict_delayframes")) as u32,
+            predict_velocity: int(&targeting("predict_velocityframes")) as u32,
+            predict_trend: int(&targeting("predict_trendframes")) as u32,
         },
-        "shootingSkill": shooting_skill(rec),
-    })
+        shooting_skill: shooting_skill(rec),
+    }
 }
 
-/// A class's shooting skill per weapon slot (`AI2tShootingSkill` ×13; a
-/// gun picks its slot by `shootSkillIndex`).
 fn shooting_skill(rec: &oni_template::Record) -> Vec<oni_schema::files::ShootSkill> {
     let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value)
     else {
@@ -962,11 +965,10 @@ fn shooting_skill(rec: &oni_template::Record) -> Vec<oni_schema::files::ShootSki
         .collect()
 }
 
-/// Appends this file's canonical `ONCC` character classes to `out` as JSON.
 /// A class's aiming screens (`TRSC` named `name` → its `TRAS` list): each
 /// screen's clip (a grid of yaw × pitch poses) and its steps — per side, the
 /// angle between frames and how many frames.
-fn aiming_screens(dat: &Dat<'_>, name: &str) -> Vec<serde_json::Value> {
+fn aiming_screens(dat: &Dat<'_>, name: &str) -> Vec<oni_schema::files::AimingScreen> {
     const TAG_TRSC: FourCc = FourCc(u32::from_be_bytes(*b"TRSC"));
     const TAG_TRAS: FourCc = FourCc(u32::from_be_bytes(*b"TRAS"));
     let named = |i: &&oni_dat::Instance| {
@@ -995,11 +997,17 @@ fn aiming_screens(dat: &Dat<'_>, name: &str) -> Vec<serde_json::Value> {
             let t = dat.instance_data(s)?;
             let clip = at(le_u32(t, 0)).and_then(|i| i.name.clone())?;
             let i16_at = |o: usize| le_u16(t, o) as i16;
-            Some(serde_json::json!({
-                "clip": clip,
-                "yaw": { "negativeDelta": le_f32(t, 4), "positiveDelta": le_f32(t, 8), "negativeFrames": i16_at(12), "positiveFrames": i16_at(14) },
-                "pitch": { "negativeDelta": le_f32(t, 16), "positiveDelta": le_f32(t, 20), "negativeFrames": i16_at(24), "positiveFrames": i16_at(26) },
-            }))
+            let steps = |o: usize| oni_schema::files::AimSteps {
+                negative_delta: le_f32(t, o),
+                positive_delta: le_f32(t, o + 4),
+                negative_frames: i16_at(o + 8),
+                positive_frames: i16_at(o + 10),
+            };
+            Some(oni_schema::files::AimingScreen {
+                clip,
+                yaw: steps(4),
+                pitch: steps(16),
+            })
         })
         .collect()
 }
@@ -1010,9 +1018,10 @@ fn collect_character_classes(
     fi: usize,
     global_named: &BTreeMap<(FourCc, String), usize>,
     registry: &oni_template::Registry,
-    out: &mut Vec<serde_json::Value>,
+    out: &mut Vec<oni_schema::files::CharacterClass>,
 ) {
     use oni_geom::charclass::{decode_character_class, TAG_ONCC};
+    use oni_schema::files as f;
     let layout = registry.get(TAG_ONCC);
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_ONCC) {
         // Only the canonical file for this named class emits it.
@@ -1026,43 +1035,40 @@ fn collect_character_classes(
             .body
             .as_ref()
             .map(|b| format!("{}/model.glb", sanitize(b)));
-        let stats = cc.stats.map(|s| {
+        let stats = cc.stats.as_ref().map(|s| {
             use oni_geom::charclass::DAMAGE_TYPES;
-            let resist: serde_json::Map<String, serde_json::Value> = DAMAGE_TYPES
-                .iter()
-                .zip(s.damage_resistance.iter())
-                .filter(|(_, &r)| r != 0.0)
-                .map(|(name, &r)| (name.to_string(), serde_json::json!(r)))
-                .collect();
-            serde_json::json!({
-                "maxHitPoints": s.max_hit_points,
-                "scale": [s.scale_low, s.scale_high],
-                "damageResistance": resist,
-                "bossShield": s.boss_shield,
-                "shotTime": s.shot_time,
-                "fightModeDuration": s.fight_mode_duration,
-                "idleDelay": s.idle_delay,
-                "idleRestartDelay": s.idle_restart_delay,
-                "deathDeleteDelay": s.death_delete_delay,
-                "feetBits": s.feet_bits,
-                "leftHanded": s.left_handed,
-                "superHypo": s.super_hypo,
-                "superShield": s.super_shield,
-                "knockdownResistant": s.knockdown_resistant,
-            })
+            f::ClassStats {
+                max_hit_points: s.max_hit_points,
+                scale: [s.scale_low, s.scale_high],
+                damage_resistance: DAMAGE_TYPES
+                    .iter()
+                    .zip(s.damage_resistance.iter())
+                    .filter(|(_, &r)| r != 0.0)
+                    .map(|(name, &r)| (name.to_string(), r))
+                    .collect(),
+                boss_shield: s.boss_shield,
+                shot_time: s.shot_time,
+                fight_mode_duration: s.fight_mode_duration,
+                idle_delay: s.idle_delay,
+                idle_restart_delay: s.idle_restart_delay,
+                death_delete_delay: s.death_delete_delay,
+                feet_bits: s.feet_bits,
+                left_handed: s.left_handed,
+                super_hypo: s.super_hypo,
+                super_shield: s.super_shield,
+                knockdown_resistant: s.knockdown_resistant,
+            }
         });
-        let air = cc.air.map(|a| {
-            serde_json::json!({
-                "fallGravity": a.fall_gravity,
-                "jumpGravity": a.jump_gravity,
-                "jumpAmount": a.jump_amount,
-                "maxVelocity": a.max_velocity,
-                "jumpAccelAmount": a.jump_accel_amount,
-                "framesFallGravity": a.frames_fall_gravity,
-                "numJumpAccelFrames": a.num_jump_accel_frames,
-                "damageStart": a.damage_start,
-                "damageEnd": a.damage_end,
-            })
+        let air = cc.air.as_ref().map(|a| f::ClassAir {
+            fall_gravity: a.fall_gravity,
+            jump_gravity: a.jump_gravity,
+            jump_amount: a.jump_amount,
+            max_velocity: a.max_velocity,
+            jump_accel_amount: a.jump_accel_amount,
+            frames_fall_gravity: a.frames_fall_gravity,
+            num_jump_accel_frames: a.num_jump_accel_frames,
+            damage_start: a.damage_start,
+            damage_end: a.damage_end,
         });
         // The class's own skin: one texture per body part (part order), as a
         // path relative to this file. Several classes share one body model
@@ -1092,12 +1098,14 @@ fn collect_character_classes(
         // @20, then 88 bytes each — `name[16]`, `particle_classname[64]`,
         // `override_partindex` u16): what its animations and powers attach
         // (the super particles: those named `super…`).
-        let class_particles: Vec<serde_json::Value> = dat
+        let class_particles: Vec<f::ClassParticle> = dat
             .instance_data(inst)
             .and_then(|d| {
                 let refs = (0..d.len() / 4).filter_map(|k| {
                     let r = le_u32(d, k * 4);
-                    (r & 1 != 0).then(|| dat.instances.get((r >> 8) as usize)).flatten()
+                    (r & 1 != 0)
+                        .then(|| dat.instances.get((r >> 8) as usize))
+                        .flatten()
                 });
                 let mut refs = refs.filter(|i| i.tag == FourCc(u32::from_be_bytes(*b"ONCP")));
                 let oncp = refs.next_back()?;
@@ -1109,63 +1117,60 @@ fn collect_character_classes(
                             let at = 24 + k * 88;
                             p.get(at..at + 88)?;
                             let part = le_u16(p, at + 80);
-                            Some(serde_json::json!({
-                                "name": cstr(p, at, 16),
-                                "class": cstr(p, at + 16, 64),
-                                "part": if part == 0xFFFF { serde_json::json!("animation") } else if part == 0x8000 { serde_json::json!("hitFlash") } else { serde_json::json!(part) },
-                            }))
+                            Some(f::ClassParticle {
+                                name: cstr(p, at, 16),
+                                class: cstr(p, at + 16, 64),
+                                part: match part {
+                                    0xFFFF => f::AnimRef::Name("animation".into()),
+                                    0x8000 => f::AnimRef::Name("hitFlash".into()),
+                                    part => f::AnimRef::Number(part),
+                                },
+                            })
                         })
                         .collect(),
                 )
             })
             .unwrap_or_default();
-        out.push(serde_json::json!({
-            "name": cc.name,
-            "variant": cc.variant,
-            "particles": class_particles,
-            "variantName": variant_data.as_ref().map(|v| v.0.clone()),
-            "variantUpgrade": variant_data.as_ref().map(|v| v.1.clone()).filter(|u| !u.is_empty()),
-            "body": cc.body,
-            "model": model,
-            "textures": cc.textures,
-            "partTextures": part_textures,
-            "aimingScreens": cc.aiming_screens,
-            "aiming": cc.aiming_screens.as_deref().map(|n| aiming_screens(dat, n)).unwrap_or_default(),
-            "animationCollection": cc.animation_collection,
-            "animationCount": cc.animations.len(),
-            "animations": cc.animations,
-            "stats": stats,
-            "air": air,
-        }));
-        if let (Some(d), Some(entry)) = (dat.instance_data(inst), out.last_mut()) {
-            if let (Some(e), Some(f)) = (
-                entry.as_object_mut(),
-                impacts::class_fields(dat, d).as_object(),
-            ) {
-                e.extend(f.clone());
-            }
+        let mut class = f::CharacterClass {
+            name: cc.name.clone(),
+            variant: cc.variant.clone(),
+            particles: class_particles,
+            variant_name: variant_data.as_ref().map(|v| v.0.clone()),
+            variant_upgrade: variant_data
+                .as_ref()
+                .map(|v| v.1.clone())
+                .filter(|u| !u.is_empty()),
+            body: cc.body.clone(),
+            model,
+            textures: cc.textures.clone(),
+            part_textures,
+            aiming: cc
+                .aiming_screens
+                .as_deref()
+                .map(|n| aiming_screens(dat, n))
+                .unwrap_or_default(),
+            aiming_screens: cc.aiming_screens.clone(),
+            animation_collection: cc.animation_collection.clone(),
+            animation_count: cc.animations.len(),
+            animations: cc.animations.clone(),
+            stats,
+            air,
+            ..Default::default()
+        };
+        if let Some(d) = dat.instance_data(inst) {
+            impacts::class_fields(dat, d, &mut class);
         }
-        // The AI's melee profile (resolved to a name once all are read) and
-        // how long it lies dazed after a knockdown.
         let rec = layout.and_then(|l| {
             oni_template::decode(l, dat.instance_data(inst)?, dat.header.endian).ok()
         });
-        if let (Some(rec), Some(entry)) = (rec, out.last_mut()) {
+        if let Some(rec) = rec {
             let field = |n: &str| rec.int(&format!("ai2_behavior.{n}"));
-            if let Some(id) = field("default_melee_id").filter(|&id| id != 0xFFFF) {
-                entry["meleeProfileId"] = serde_json::json!(id);
-            }
+            class.melee_profile_id = field("default_melee_id").filter(|&id| id != 0xFFFF);
             if let (Some(min), Some(max)) = (field("dazed_minframes"), field("dazed_maxframes")) {
-                entry["dazed"] = serde_json::json!({ "min": min, "max": max });
+                class.dazed = Some(f::Dazed { min, max });
             }
-            entry["perception"] = perception_json(&rec);
-            // A hypo heals a point every this many ticks (`inventoryConstants`).
-            entry["hypoTime"] =
-                serde_json::json!(rec.int("inventoryConstants.hypoTime").unwrap_or(0));
-            // Its shadow (`ONtShadowConstants`): texture, heights (fade
-            // begins, none above), sizes (half-widths: on the ground, at the
-            // fade, at the top), opacities (0–255: on the ground, at the
-            // fade).
+            class.perception = Some(perception_json(&rec));
+            class.hypo_time = Some(rec.int("inventoryConstants.hypoTime").unwrap_or(0));
             let float = |n: &str| match rec.get(&format!("shadowConstants.{n}")).map(|e| &e.value) {
                 Some(oni_template::Value::Float(v)) => *v,
                 _ => 0.0,
@@ -1177,17 +1182,18 @@ fn collect_character_classes(
                     .map(|i| asset_name(dat, i)),
                 _ => None,
             };
-            entry["shadow"] = serde_json::json!({
-                "texture": texture,
-                "heightMax": float("height_max"),
-                "heightFade": float("height_fade"),
-                "sizeMax": float("size_max"),
-                "sizeFade": float("size_fade"),
-                "sizeMin": float("size_min"),
-                "alphaMax": rec.int("shadowConstants.alpha_max").unwrap_or(0),
-                "alphaFade": rec.int("shadowConstants.alpha_fade").unwrap_or(0),
+            class.shadow = Some(f::ClassShadow {
+                texture,
+                height_max: float("height_max"),
+                height_fade: float("height_fade"),
+                size_max: float("size_max"),
+                size_fade: float("size_fade"),
+                size_min: float("size_min"),
+                alpha_max: rec.int("shadowConstants.alpha_max").unwrap_or(0),
+                alpha_fade: rec.int("shadowConstants.alpha_fade").unwrap_or(0),
             });
         }
+        out.push(class);
     }
 }
 

@@ -1,12 +1,12 @@
 //! Melee profiles, loaded from the converter's
 //! `common/characters/melee_profiles.json` (`docs/ASSET_FORMAT.md`).
 
+use oni_schema::files;
 use std::collections::HashMap;
 use std::path::Path;
 use std::rc::Rc;
 
 use oni_schema as sc;
-use serde_json::Value;
 
 /// One step of a technique. Indices are into the tables of
 /// [`super::tables`]; times are ticks, angles radians, distances units.
@@ -102,113 +102,91 @@ impl Profile {
 /// All profiles by name.
 pub fn load(path: &Path) -> std::io::Result<HashMap<String, Rc<Profile>>> {
     let text = std::fs::read_to_string(path)?;
-    let doc: Value = serde_json::from_str(&text)
+    let doc: files::MeleeProfilesFile = serde_json::from_str(&text)
         .map_err(|e| std::io::Error::other(format!("{}: {e}", path.display())))?;
-    Ok(doc["profiles"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(profile)
-                .map(|p| (p.name.clone(), Rc::new(p)))
-                .collect()
-        })
-        .unwrap_or_default())
+    Ok(doc
+        .profiles
+        .iter()
+        .map(profile)
+        .map(|p| (p.name.clone(), Rc::new(p)))
+        .collect())
 }
 
-fn f(v: &Value) -> f32 {
-    v.as_f64().unwrap_or(0.0) as f32
-}
-
-fn profile(p: &Value) -> Profile {
-    let id = p["id"].as_u64().unwrap_or(0) as u16;
-    let w = &p["weights"];
+fn profile(p: &files::MeleeProfile) -> Profile {
+    let w = &p.weights;
     let mut techniques = Vec::new();
-    for (key, kind) in [
-        ("actions", Kind::Action),
-        ("reactions", Kind::Reaction),
-        ("spacing", Kind::Spacing),
+    for (list, kind) in [
+        (&p.actions, Kind::Action),
+        (&p.reactions, Kind::Reaction),
+        (&p.spacing, Kind::Spacing),
     ] {
-        for t in p[key].as_array().into_iter().flatten() {
+        for t in list {
             techniques.push(technique(t, kind));
         }
     }
     Profile {
-        id,
-        name: p["name"].as_str().unwrap_or("").to_string(),
-        class: p["class"].as_str().unwrap_or("").to_string(),
-        notice_percent: f(&p["attackNoticePercent"]),
-        dodge_base: f(&p["dodge"]["basePercent"]),
-        dodge_additional: f(&p["dodge"]["additionalPercent"]),
-        dodge_damage_threshold: f(&p["dodge"]["damageThreshold"]),
-        block_skill: f(&p["block"]["skillPercent"]),
-        block_group: f(&p["block"]["groupPercent"]),
+        id: p.id as u16,
+        name: p.name.clone(),
+        class: p.class.clone(),
+        notice_percent: p.attack_notice_percent as f32,
+        dodge_base: p.dodge.base_percent as f32,
+        dodge_additional: p.dodge.additional_percent as f32,
+        dodge_damage_threshold: p.dodge.damage_threshold as f32,
+        block_skill: p.block.skill_percent as f32,
+        block_group: p.block.group_percent as f32,
         weights: GuardWeights {
-            not_blocking: f(&w["targetNotBlocking"]),
-            wrong_stance: f(&w["targetWrongStance"]),
-            unblockable: f(&w["blockedButUnblockable"]),
-            staggers: f(&w["blockedButStaggers"]),
-            block_stun: f(&w["blockedButBlockStun"]),
-            blocked: f(&w["blocked"]),
-            throw_into_danger: f(&w["throwIntoDanger"]),
+            not_blocking: w.target_not_blocking,
+            wrong_stance: w.target_wrong_stance,
+            unblockable: w.blocked_but_unblockable,
+            staggers: w.blocked_but_staggers,
+            block_stun: w.blocked_but_block_stun,
+            blocked: w.blocked,
+            throw_into_danger: w.throw_into_danger,
         },
         techniques,
     }
 }
 
-fn technique(t: &Value, kind: Kind) -> Technique {
-    let flags: Vec<&str> = t["flags"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|v| v.as_str())
-        .collect();
+fn technique(t: &files::Technique, kind: Kind) -> Technique {
+    let has = |f: &str| t.flags.iter().any(|x| x == f);
     Technique {
-        name: t["name"].as_str().unwrap_or("").to_string(),
+        name: t.name.clone(),
         kind,
-        interruptible: flags.contains(&"interruptible"),
-        generous_direction: flags.contains(&"generousDirection"),
-        fearless: flags.contains(&"fearless"),
-        weight: f(&t["weight"]),
-        repeat_delay: t["repeatDelay"].as_u64().unwrap_or(0) as u32,
-        moves: t["moves"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(parse_move)
-            .collect(),
+        interruptible: has("interruptible"),
+        generous_direction: has("generousDirection"),
+        fearless: has("fearless"),
+        weight: t.weight as f32,
+        repeat_delay: t.repeat_delay,
+        moves: t.moves.iter().filter_map(parse_move).collect(),
     }
 }
 
-fn parse_move(m: &Value) -> Option<Move> {
-    let name = m["move"].as_str()?;
+fn parse_move(m: &files::MeleeMove) -> Option<Move> {
+    let name = m.name.as_deref()?;
     let index = |table: &[&str]| sc::value(table, name).map(usize::from);
-    Some(match m["type"].as_str()? {
+    Some(match m.kind.as_str() {
         "attack" => Move::Attack(index(&sc::MELEE_ATTACKS)?),
         "position" => Move::Position {
             index: index(&sc::MELEE_POSITIONS)?,
-            run_in: m.get("maxRunIn").map(|_| RunIn {
-                min: f(&m["minRunIn"]),
-                max: f(&m["maxRunIn"]),
-                tolerance: f(&m["tolerance"]),
+            run_in: m.max_run_in.map(|max| RunIn {
+                min: m.min_run_in.unwrap_or(0.0),
+                max,
+                tolerance: m.tolerance.unwrap_or(0.0),
             }),
         },
-        "maneuver" => {
-            // The two extra parameters, whichever names this maneuver uses.
-            let pick = |keys: &[&str]| keys.iter().find_map(|k| m.get(*k)).map(f).unwrap_or(0.0);
-            Move::Maneuver {
-                index: index(&sc::MELEE_MANEUVERS)?,
-                duration: m["duration"].as_u64().unwrap_or(0) as u32,
-                a: pick(&[
-                    "minRange",
-                    "maxRange",
-                    "targetRange",
-                    "minAngle",
-                    "closenessAngle",
-                    "chancePercent",
-                ]),
-                b: pick(&["threshold", "tolerance", "maxAngle"]),
-            }
-        }
+        // The two extra parameters, whichever this maneuver has.
+        "maneuver" => Move::Maneuver {
+            index: index(&sc::MELEE_MANEUVERS)?,
+            duration: m.duration.unwrap_or(0),
+            a: m.min_range
+                .or(m.max_range)
+                .or(m.target_range)
+                .or(m.min_angle)
+                .or(m.closeness_angle)
+                .or(m.chance_percent)
+                .unwrap_or(0.0),
+            b: m.threshold.or(m.tolerance).or(m.max_angle).unwrap_or(0.0),
+        },
         "evade" => Move::Evade(index(&sc::MELEE_EVADES)?),
         "throw" => Move::Throw(index(&sc::MELEE_THROWS)?),
         _ => return None,
@@ -218,6 +196,7 @@ fn parse_move(m: &Value) -> Option<Move> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::Value;
     use std::path::PathBuf;
 
     #[test]

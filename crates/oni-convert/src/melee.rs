@@ -9,7 +9,7 @@
 
 use oni_dat::Dat;
 use oni_schema as sc;
-use serde_json::{json, Value};
+use oni_schema::files;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -23,7 +23,7 @@ const DELAYING_POSITIONS: [usize; 12] = [0, 1, 2, 3, 12, 13, 14, 15, 16, 17, 18,
 pub struct Profile {
     pub id: u32,
     pub name: String,
-    pub json: Value,
+    pub file: files::MeleeProfile,
 }
 
 /// The melee profiles stored in this file (empty unless it's level 0).
@@ -60,110 +60,129 @@ fn profile(d: &[u8]) -> Option<Profile> {
             (u(o), [f(o + 4), f(o + 8), f(o + 12)])
         })
         .collect();
-    let technique = |k: usize, spacing: bool| -> Value {
+    let technique = |k: usize, spacing: bool| -> files::Technique {
         let o = 204 + k * TECHNIQUE_SIZE;
         let (n, first) = (u(o + 80) as usize, u(o + 84) as usize);
-        let moves: Vec<Value> = pool
+        let moves: Vec<files::MeleeMove> = pool
             .get(first..first + n)
             .unwrap_or(&[])
             .iter()
             .map(|&(m, p)| move_json(m, p, spacing))
             .collect();
-        let mut t = json!({
-            "name": cstr(d, o, 64),
-            "weight": u(o + 68),
-            "importance": u(o + 72),
-            "repeatDelay": u(o + 76),
-            "moves": moves,
-        });
-        let flags = sc::bit_names(&sc::TECHNIQUE_FLAGS, u(o + 64));
-        if !flags.is_empty() {
-            t["flags"] = json!(flags);
+        files::Technique {
+            name: cstr(d, o, 64),
+            weight: u(o + 68),
+            importance: u(o + 72),
+            repeat_delay: u(o + 76),
+            moves,
+            flags: sc::bit_names(&sc::TECHNIQUE_FLAGS, u(o + 64))
+                .into_iter()
+                .map(String::from)
+                .collect(),
         }
-        t
     };
     let id = u(0);
     let name = cstr(d, 4, 64);
-    let json = json!({
-        "id": id,
-        "name": name,
-        "class": cstr(d, 68, 64),
-        "attackNoticePercent": u(132),
-        "dodge": {
-            "basePercent": u(136),
-            "additionalPercent": u(140),
-            "damageThreshold": u(144),
+    let file = files::MeleeProfile {
+        id,
+        name: name.clone(),
+        class: cstr(d, 68, 64),
+        attack_notice_percent: u(132),
+        dodge: files::MeleeDodge {
+            base_percent: u(136),
+            additional_percent: u(140),
+            damage_threshold: u(144),
         },
-        "block": { "skillPercent": u(148), "groupPercent": u(152) },
-        "weights": {
-            "targetNotBlocking": f(156),
-            "targetWrongStance": f(160),
-            "blockedButUnblockable": f(164),
-            "blockedButStaggers": f(168),
-            "blockedButBlockStun": f(172),
-            "blocked": f(176),
-            "throwIntoDanger": f(180),
+        block: files::MeleeBlock {
+            skill_percent: u(148),
+            group_percent: u(152),
         },
-        "dazed": { "min": le_u16(d, 184), "max": le_u16(d, 186) },
-        "actions": (0..actions).map(|k| technique(k, false)).collect::<Vec<_>>(),
-        "reactions": (actions..actions + reactions).map(|k| technique(k, false)).collect::<Vec<_>>(),
-        "spacing": (actions + reactions..techniques).map(|k| technique(k, true)).collect::<Vec<_>>(),
-    });
-    Some(Profile { id, name, json })
+        weights: files::MeleeWeights {
+            target_not_blocking: f(156),
+            target_wrong_stance: f(160),
+            blocked_but_unblockable: f(164),
+            blocked_but_staggers: f(168),
+            blocked_but_block_stun: f(172),
+            blocked: f(176),
+            throw_into_danger: f(180),
+        },
+        dazed: files::MeleeDazed {
+            min: le_u16(d, 184),
+            max: le_u16(d, 186),
+        },
+        actions: (0..actions).map(|k| technique(k, false)).collect(),
+        reactions: (actions..actions + reactions)
+            .map(|k| technique(k, false))
+            .collect(),
+        spacing: (actions + reactions..techniques)
+            .map(|k| technique(k, true))
+            .collect(),
+    };
+    Some(Profile { id, name, file })
 }
 
 /// A move as `{type, move, …named parameters}`. Times become ticks, angles
 /// radians.
-fn move_json(code: u32, p: [f32; 3], spacing: bool) -> Value {
+fn move_json(code: u32, p: [f32; 3], spacing: bool) -> files::MeleeMove {
     let index = (code & 0x0FFF_FFFF) as usize;
-    let name = |table: &[&'static str]| table.get(index).copied().unwrap_or("unknown");
-    let ticks = |s: f32| (s * 60.0).round() as u32;
+    let name =
+        |table: &[&'static str]| Some(table.get(index).copied().unwrap_or("unknown").to_string());
+    let ticks = |s: f32| Some((s * 60.0).round() as u32);
+    let of = |kind: &str, name| files::MeleeMove {
+        kind: kind.to_string(),
+        name,
+        ..Default::default()
+    };
     match code >> 28 {
-        0 => json!({ "type": "attack", "move": name(&sc::MELEE_ATTACKS) }),
+        0 => of("attack", name(&sc::MELEE_ATTACKS)),
         1 => {
-            let mut m = json!({ "type": "position", "move": name(&sc::MELEE_POSITIONS) });
+            let mut m = of("position", name(&sc::MELEE_POSITIONS));
             if DELAYING_POSITIONS.contains(&index) {
-                m["minRunIn"] = json!(p[0]);
-                m["maxRunIn"] = json!(p[1]);
-                m["tolerance"] = json!(p[2]);
+                m.min_run_in = Some(p[0]);
+                m.max_run_in = Some(p[1]);
+                m.tolerance = Some(p[2]);
             }
             m
         }
         2 => {
-            let mut m = json!({ "type": "maneuver", "move": name(&sc::MELEE_MANEUVERS) });
+            let mut m = of("maneuver", name(&sc::MELEE_MANEUVERS));
             match (index, spacing) {
-                (8, _) => m["chancePercent"] = json!(p[0]), // random stop
-                (13, _) => m["maxRange"] = json!(p[0]),     // Barabas' wave
+                (8, _) => m.chance_percent = Some(p[0]), // random stop
+                (13, _) => m.max_range = Some(p[0]),     // Barabas' wave
                 (0, false) => {
-                    m["duration"] = json!(ticks(p[0]));
-                    m["minRange"] = json!(p[1]);
-                    m["threshold"] = json!(p[2]);
+                    m.duration = ticks(p[0]);
+                    m.min_range = Some(p[1]);
+                    m.threshold = Some(p[2]);
                 }
                 (1, false) => {
-                    m["duration"] = json!(ticks(p[0]));
-                    m["maxRange"] = json!(p[1]);
-                    m["threshold"] = json!(p[2]);
+                    m.duration = ticks(p[0]);
+                    m.max_range = Some(p[1]);
+                    m.threshold = Some(p[2]);
                 }
                 (0 | 1, true) => {
-                    m["duration"] = json!(ticks(p[0]));
-                    m["targetRange"] = json!(p[1]);
-                    m["tolerance"] = json!(p[2]);
+                    m.duration = ticks(p[0]);
+                    m.target_range = Some(p[1]);
+                    m.tolerance = Some(p[2]);
                 }
                 (2 | 3, false) => {
-                    m["duration"] = json!(ticks(p[0]));
-                    m["minAngle"] = json!(p[1].to_radians());
-                    m["maxAngle"] = json!(p[2].to_radians());
+                    m.duration = ticks(p[0]);
+                    m.min_angle = Some(p[1].to_radians());
+                    m.max_angle = Some(p[2].to_radians());
                 }
                 (2 | 3, true) => {
-                    m["duration"] = json!(ticks(p[0]));
-                    m["closenessAngle"] = json!(p[1].to_radians());
+                    m.duration = ticks(p[0]);
+                    m.closeness_angle = Some(p[1].to_radians());
                 }
-                _ => m["duration"] = json!(ticks(p[0])),
+                _ => m.duration = ticks(p[0]),
             }
             m
         }
-        3 => json!({ "type": "evade", "move": name(&sc::MELEE_EVADES) }),
-        4 => json!({ "type": "throw", "move": name(&sc::MELEE_THROWS) }),
-        _ => json!({ "type": "unknown", "code": code }),
+        3 => of("evade", name(&sc::MELEE_EVADES)),
+        4 => of("throw", name(&sc::MELEE_THROWS)),
+        _ => files::MeleeMove {
+            kind: "unknown".into(),
+            code: Some(code),
+            ..Default::default()
+        },
     }
 }

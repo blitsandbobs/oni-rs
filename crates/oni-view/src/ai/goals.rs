@@ -142,28 +142,39 @@ impl Default for ClassCombat {
 }
 
 impl ClassCombat {
-    pub fn from_json(p: &serde_json::Value) -> ClassCombat {
-        let c = &p["combat"];
-        let u = |k: &str, d: u32| c[k].as_u64().map_or(d, |v| v as u32);
-        let has = |f: &str| {
-            p["flags"]
-                .as_array()
-                .is_some_and(|a| a.iter().any(|x| x.as_str() == Some(f)))
-        };
+    /// A class's (`classes.json`'s `perception`; none: the defaults).
+    pub fn from_class(p: Option<&oni_schema::files::ClassPerception>) -> ClassCombat {
         let d = ClassCombat::default();
+        let Some(p) = p else {
+            return ClassCombat {
+                default_profile: 0,
+                gun_pickup_percent: 0,
+                gun_running_pickup_percent: 0,
+                dodge: false,
+                dodge_while_firing: false,
+                dodge_stops_firing: false,
+                dodge_react: 0,
+                dodge_time_scale: 1.0,
+                dodge_weight_scale: 1.0,
+                ..d
+            };
+        };
+        let c = &p.combat;
+        let u = |x: i64| x.max(0) as u32;
+        let has = |f: &str| p.flags.iter().any(|x| x == f);
         ClassCombat {
-            investigate_body: u("investigateBodyTicks", d.investigate_body),
-            lost_contact: u("lostContactTicks", d.lost_contact),
-            taunt_percent: u("deadTauntPercent", d.taunt_percent),
-            default_profile: u("defaultCombatProfileId", 0) as u16,
-            gun_pickup_percent: u("gunPickupPercent", 0),
-            gun_running_pickup_percent: u("gunRunningPickupPercent", 0),
+            investigate_body: u(c.investigate_body_ticks),
+            lost_contact: u(c.lost_contact_ticks),
+            taunt_percent: u(c.dead_taunt_percent),
+            default_profile: c.default_combat_profile_id as u16,
+            gun_pickup_percent: u(c.gun_pickup_percent),
+            gun_running_pickup_percent: u(c.gun_running_pickup_percent),
             dodge: has("dodge"),
             dodge_while_firing: has("dodgeWhileFiring"),
             dodge_stops_firing: has("dodgeStopsFiring"),
-            dodge_react: p["dodge"]["reactTicks"].as_u64().unwrap_or(0) as u32,
-            dodge_time_scale: p["dodge"]["timeScale"].as_f64().unwrap_or(1.0) as f32,
-            dodge_weight_scale: p["dodge"]["weightScale"].as_f64().unwrap_or(1.0) as f32,
+            dodge_react: u(p.dodge.react_ticks),
+            dodge_time_scale: p.dodge.time_scale,
+            dodge_weight_scale: p.dodge.weight_scale,
         }
     }
 }

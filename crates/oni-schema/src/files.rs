@@ -1689,6 +1689,386 @@ pub struct WeaponTunnel {
     pub spacing: f32,
 }
 
+/// `common/characters/classes.json`: the character classes (`ONCC`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CharacterClassesFile {
+    pub count: usize,
+    pub classes: Vec<CharacterClass>,
+}
+
+/// A character class: its body, textures and animations, how it moves,
+/// fights, sounds and sees.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterClass {
+    pub name: Option<String>,
+    pub variant: Option<String>,
+    /// Its particles (`ONCP`): on a body part, its animations, or its hit
+    /// flash.
+    pub particles: Vec<ClassParticle>,
+    pub variant_name: Option<String>,
+    pub variant_upgrade: Option<String>,
+    pub body: Option<String>,
+    /// Its model (a path under `common/characters/`).
+    pub model: Option<String>,
+    pub textures: Option<String>,
+    /// Each body part's texture (a path from its folder).
+    pub part_textures: Vec<Option<String>>,
+    pub aiming_screens: Option<String>,
+    pub aiming: Vec<AimingScreen>,
+    pub animation_collection: Option<String>,
+    pub animation_count: usize,
+    pub animations: Vec<String>,
+    pub stats: Option<ClassStats>,
+    pub air: Option<ClassAir>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anim_impacts: Option<AnimImpacts>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pain: Option<PainConstants>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocalizations: Option<Vec<Vocalization>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_impacts: Option<Vec<AttackImpact>>,
+    /// Per body part, the material struck.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_materials: Option<Vec<Option<String>>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_impacts: Option<PartImpacts>,
+    /// Its default melee profile, by name.
+    pub melee_profile: Option<String>,
+    /// Its melee profile's id, while the converter resolves it (not written).
+    #[serde(skip)]
+    pub melee_profile_id: Option<i64>,
+    /// Ticks dazed, at least and at most.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dazed: Option<Dazed>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub perception: Option<ClassPerception>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hypo_time: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shadow: Option<ClassShadow>,
+}
+
+/// A class's particle: its name, class, and where (a body part's number,
+/// `animation` or `hitFlash`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClassParticle {
+    pub name: String,
+    pub class: String,
+    pub part: AnimRef,
+}
+
+/// An aiming screen: its clip, and its yaw and pitch steps.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AimingScreen {
+    pub clip: String,
+    pub yaw: AimSteps,
+    pub pitch: AimSteps,
+}
+
+/// An aiming screen's steps one way: the angle between frames and how many
+/// frames, each side.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AimSteps {
+    pub negative_delta: f32,
+    pub positive_delta: f32,
+    pub negative_frames: i16,
+    pub positive_frames: i16,
+}
+
+/// A class's stats.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassStats {
+    pub max_hit_points: u32,
+    pub scale: [f32; 2],
+    /// By damage type (only those not zero).
+    pub damage_resistance: BTreeMap<String, f32>,
+    pub boss_shield: f32,
+    pub shot_time: u16,
+    pub fight_mode_duration: u32,
+    pub idle_delay: u32,
+    pub idle_restart_delay: u32,
+    pub death_delete_delay: u16,
+    pub feet_bits: u32,
+    pub left_handed: bool,
+    pub super_hypo: bool,
+    pub super_shield: bool,
+    pub knockdown_resistant: bool,
+}
+
+/// A class's air constants.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassAir {
+    pub fall_gravity: f32,
+    pub jump_gravity: f32,
+    pub jump_amount: f32,
+    pub max_velocity: f32,
+    pub jump_accel_amount: f32,
+    pub frames_fall_gravity: u16,
+    pub num_jump_accel_frames: u16,
+    pub damage_start: f32,
+    pub damage_end: f32,
+}
+
+/// The impact types a class's movements make, and its steps' weight.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AnimImpacts {
+    pub modifier: String,
+    pub impacts: Vec<String>,
+}
+
+/// How a class cries out (`painConstants`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PainConstants {
+    pub base_percentage: u16,
+    pub max_percentage: u16,
+    pub percentage_threshold: u16,
+    pub timer: u16,
+    pub min_timer: u16,
+    pub max_light: u16,
+    pub max_medium: u16,
+    pub death_chance: u16,
+    pub volume_threshold: u16,
+    pub medium_threshold: u16,
+    pub heavy_threshold: u16,
+    pub min_volume: f32,
+    pub light: String,
+    pub medium: String,
+    pub heavy: String,
+    pub death: String,
+}
+
+/// What a class's AI says: a chance (%) and an ambient, per kind.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Vocalization {
+    pub kind: String,
+    pub chance: u8,
+    pub sound: String,
+}
+
+/// A special attack's impact type and weight.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AttackImpact {
+    pub attack: String,
+    pub impact: String,
+    pub modifier: String,
+}
+
+/// Per body part, the impact a blow with it makes on a hit, a block, a kill.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PartImpacts {
+    pub hit: Vec<Option<String>>,
+    pub blocked: Vec<Option<String>>,
+    pub killed: Vec<Option<String>>,
+}
+
+/// Ticks dazed, at least and at most.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Dazed {
+    pub min: i64,
+    pub max: i64,
+}
+
+/// A class's AI perception and combat settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassPerception {
+    pub vision: Vision,
+    pub hearing_acuity: f32,
+    pub contact_decay: ContactDecay,
+    pub alert_decay: AlertDecay,
+    /// `AI_FLAGS` names.
+    pub flags: Vec<String>,
+    pub turning_nimbleness: f32,
+    pub combat: ClassCombatSettings,
+    pub dodge: DodgeSettings,
+    pub targeting: Targeting,
+    pub shooting_skill: Vec<ShootSkill>,
+}
+
+/// How far and wide a class sees (angles in radians).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Vision {
+    pub central_distance: f32,
+    pub peripheral_distance: f32,
+    pub vertical_angle: f32,
+    pub central_full_angle: f32,
+    pub central_max_angle: f32,
+    pub peripheral_full_angle: f32,
+    pub peripheral_max_angle: f32,
+}
+
+/// Ticks a contact takes to weaken a step.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ContactDecay {
+    pub definite: i64,
+    pub strong: i64,
+    pub weak: i64,
+}
+
+/// Ticks an alert level takes to fall a step.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AlertDecay {
+    pub high: i64,
+    pub medium: i64,
+    pub low: i64,
+}
+
+/// A class's combat settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassCombatSettings {
+    pub make_sure_ticks: i64,
+    pub investigate_body_ticks: i64,
+    pub lost_contact_ticks: i64,
+    pub dead_taunt_percent: i64,
+    pub gun_pickup_percent: i64,
+    pub gun_running_pickup_percent: i64,
+    pub default_combat_profile_id: i64,
+}
+
+/// How a class dodges projectiles.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DodgeSettings {
+    pub react_ticks: i64,
+    pub time_scale: f32,
+    pub weight_scale: f32,
+}
+
+/// A class's shadow.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClassShadow {
+    pub texture: Option<String>,
+    pub height_max: f32,
+    pub height_fade: f32,
+    pub size_max: f32,
+    pub size_fade: f32,
+    pub size_min: f32,
+    pub alpha_max: i64,
+    pub alpha_fade: i64,
+}
+
+/// `common/characters/melee_profiles.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MeleeProfilesFile {
+    pub profiles: Vec<MeleeProfile>,
+}
+
+/// A melee profile (`ONCC`'s `CMPr`): its techniques and how it weighs
+/// them.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeleeProfile {
+    pub id: u32,
+    pub name: String,
+    pub class: String,
+    pub attack_notice_percent: u32,
+    pub dodge: MeleeDodge,
+    pub block: MeleeBlock,
+    pub weights: MeleeWeights,
+    pub dazed: MeleeDazed,
+    pub actions: Vec<Technique>,
+    pub reactions: Vec<Technique>,
+    pub spacing: Vec<Technique>,
+}
+
+/// A melee profile's dodge chances.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeleeDodge {
+    pub base_percent: u32,
+    pub additional_percent: u32,
+    pub damage_threshold: u32,
+}
+
+/// A melee profile's block chances.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeleeBlock {
+    pub skill_percent: u32,
+    pub group_percent: u32,
+}
+
+/// A melee profile's technique weights.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeleeWeights {
+    pub target_not_blocking: f32,
+    pub target_wrong_stance: f32,
+    pub blocked_but_unblockable: f32,
+    pub blocked_but_staggers: f32,
+    pub blocked_but_block_stun: f32,
+    pub blocked: f32,
+    pub throw_into_danger: f32,
+}
+
+/// Ticks dazed, at least and at most (a melee profile's).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MeleeDazed {
+    pub min: u16,
+    pub max: u16,
+}
+
+/// A melee technique: its moves and how it is chosen.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Technique {
+    pub name: String,
+    pub weight: u32,
+    pub importance: u32,
+    pub repeat_delay: u32,
+    pub moves: Vec<MeleeMove>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+}
+
+/// A melee move: its type (`attack`, `position`, `maneuver`, `evade`,
+/// `throw`, `unknown`), which move, and the parameters it has (times in
+/// ticks, angles in radians).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MeleeMove {
+    #[serde(rename = "type")]
+    pub kind: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(rename = "move")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub code: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_run_in: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_run_in: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chance_percent: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_range: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub duration: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_range: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub threshold: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub target_range: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_angle: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_angle: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub closeness_angle: Option<f32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

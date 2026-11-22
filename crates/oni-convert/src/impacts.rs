@@ -26,7 +26,8 @@ use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
 use oni_schema::files;
-use serde_json::{json, Value};
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -181,7 +182,7 @@ fn table(b: &[u8]) -> Option<Vec<files::ImpactEntry>> {
 /// weight), and per body part (19, part order) the material struck and the
 /// impact a blow with that part makes on a hit, a block, a kill (`CBPM`,
 /// `CBPI`).
-pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
+pub fn class_fields(dat: &Dat<'_>, d: &[u8], out: &mut files::CharacterClass) {
     let at = |r: u32| {
         (r & 1 != 0)
             .then(|| dat.instances.get((r >> 8) as usize))
@@ -192,22 +193,33 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
             .and_then(|i| i.name.as_deref())
             .map(|n| n.trim_start_matches(prefix).to_string())
     };
-    let mut out = json!({});
     if d.len() >= 1100 + 15 * 130 {
-        let names: Vec<String> = (0..15).map(|k| cstr(d, 1100 + k * 130, 128)).collect();
-        out["animImpacts"] =
-            json!({ "modifier": cstr(d, 1084, 16).to_lowercase(), "impacts": names });
+        out.anim_impacts = Some(files::AnimImpacts {
+            modifier: cstr(d, 1084, 16).to_lowercase(),
+            impacts: (0..15).map(|k| cstr(d, 1100 + k * 130, 128)).collect(),
+        });
     }
     // How it cries out (`painConstants` @116): eleven u16 tunings, the
     // quietest grunt's volume, the four impulse names.
     if d.len() >= 272 {
         let u = |k: usize| le_u16(d, 116 + k * 2);
-        out["pain"] = json!({
-            "basePercentage": u(0), "maxPercentage": u(1), "percentageThreshold": u(2),
-            "timer": u(3), "minTimer": u(4), "maxLight": u(5), "maxMedium": u(6),
-            "deathChance": u(7), "volumeThreshold": u(8), "mediumThreshold": u(9), "heavyThreshold": u(10),
-            "minVolume": crate::le_f32(d, 140),
-            "light": cstr(d, 144, 32), "medium": cstr(d, 176, 32), "heavy": cstr(d, 208, 32), "death": cstr(d, 240, 32),
+        out.pain = Some(files::PainConstants {
+            base_percentage: u(0),
+            max_percentage: u(1),
+            percentage_threshold: u(2),
+            timer: u(3),
+            min_timer: u(4),
+            max_light: u(5),
+            max_medium: u(6),
+            death_chance: u(7),
+            volume_threshold: u(8),
+            medium_threshold: u(9),
+            heavy_threshold: u(10),
+            min_volume: crate::le_f32(d, 140),
+            light: cstr(d, 144, 32),
+            medium: cstr(d, 176, 32),
+            heavy: cstr(d, 208, 32),
+            death: cstr(d, 240, 32),
         });
     }
     // What its AI says (`ai2_behavior.vocalizations`): a chance (%) and an
@@ -225,25 +237,35 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
             "super3",
             "super4",
         ];
-        out["vocalizations"] = json!(KINDS
-            .iter()
-            .enumerate()
-            .map(|(k, kind)| json!({ "kind": kind, "chance": d[680 + k], "sound": cstr(d, 692 + k * 32, 32) }))
-            .collect::<Vec<_>>());
+        out.vocalizations = Some(
+            KINDS
+                .iter()
+                .enumerate()
+                .map(|(k, kind)| files::Vocalization {
+                    kind: kind.to_string(),
+                    chance: d[680 + k],
+                    sound: cstr(d, 692 + k * 32, 32),
+                })
+                .collect(),
+        );
     }
     if let Some(a) = at(le_u32(d, 1076)).and_then(|i| dat.instance_data(i)) {
         let n = (le_u32(a, 20) as usize).min(a.len().saturating_sub(24) / 164);
-        out["attackImpacts"] = json!((0..n)
-            .map(|k| {
-                let o = 24 + k * 164;
-                json!({ "attack": cstr(a, o, 16), "impact": cstr(a, o + 16, 128), "modifier": cstr(a, o + 144, 16).to_lowercase() })
-            })
-            .collect::<Vec<_>>());
+        out.attack_impacts = Some(
+            (0..n)
+                .map(|k| {
+                    let o = 24 + k * 164;
+                    files::AttackImpact {
+                        attack: cstr(a, o, 16),
+                        impact: cstr(a, o + 16, 128),
+                        modifier: cstr(a, o + 144, 16).to_lowercase(),
+                    }
+                })
+                .collect(),
+        );
     }
     if let Some(m) = at(le_u32(d, 3132)).and_then(|i| dat.instance_data(i)) {
-        out["partMaterials"] = json!((0..19)
-            .map(|k| name_of(le_u32(m, k * 4), "Mtrl"))
-            .collect::<Vec<_>>());
+        out.part_materials = Some((0..19).map(|k| name_of(le_u32(m, k * 4), "Mtrl")).collect());
     }
     if let Some(m) = at(le_u32(d, 3136)).and_then(|i| dat.instance_data(i)) {
         let list = |s: usize| {
@@ -251,9 +273,12 @@ pub fn class_fields(dat: &Dat<'_>, d: &[u8]) -> Value {
                 .map(|k| name_of(le_u32(m, (s * 19 + k) * 4), "Impt"))
                 .collect::<Vec<_>>()
         };
-        out["partImpacts"] = json!({ "hit": list(0), "blocked": list(1), "killed": list(2) });
+        out.part_impacts = Some(files::PartImpacts {
+            hit: list(0),
+            blocked: list(1),
+            killed: list(2),
+        });
     }
-    out
 }
 
 /// Writes `impacts.json` into `common` (from level 0).
