@@ -49,6 +49,7 @@ mod text_consoles;
 mod turrets;
 mod weapons;
 
+use oni_bytes::at;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -286,9 +287,10 @@ pub fn convert_with(
                 if !name.is_empty() {
                     if let Some(d) = dat.instance_data(inst) {
                         global_named.entry((inst.tag, name.clone())).or_insert(fi);
-                        // TXMP flags live at offset 128 (M3cTextureFlags).
-                        if inst.tag == TAG_TXMP_ && d.len() >= 132 {
-                            let fl = u32::from_le_bytes([d[128], d[129], d[130], d[131]]);
+                        if let Some(fl) = (inst.tag == TAG_TXMP_)
+                            .then(|| at::u32(d, oni_texture::OFF_FLAGS))
+                            .flatten()
+                        {
                             texture_flags.entry(name.clone()).or_insert((
                                 fl & oni_texture::FLAG_BLEND_ADDITIVE != 0,
                                 fl & oni_texture::FLAG_SELF_ILLUMINENT != 0,
@@ -1878,27 +1880,29 @@ const TAG_IGST: FourCc = FourCc(0x4947_5374); // 'I','G','S','t'
 const TAG_TSTR: FourCc = FourCc(0x5453_7472); // 'T','S','t','r'
 const TAG_FILM: FourCc = FourCc(0x4649_4C4D);
 
+// Little-endian fields at an offset (`oni_bytes::at`), 0 or empty past the
+// end: a short instance reads as its fields' zero values.
 pub(crate) fn le_u16(d: &[u8], o: usize) -> u16 {
-    d.get(o..o + 2)
-        .map_or(0, |b| u16::from_le_bytes([b[0], b[1]]))
+    at::u16(d, o).unwrap_or(0)
 }
 pub(crate) fn le_i16(d: &[u8], o: usize) -> i16 {
-    le_u16(d, o) as i16
+    at::i16(d, o).unwrap_or(0)
 }
 pub(crate) fn le_u32(d: &[u8], o: usize) -> u32 {
-    d.get(o..o + 4)
-        .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    at::u32(d, o).unwrap_or(0)
 }
 fn le_u64(d: &[u8], o: usize) -> u64 {
-    (le_u32(d, o) as u64) | ((le_u32(d, o + 4) as u64) << 32)
+    at::u64(d, o).unwrap_or(0)
 }
 pub(crate) fn le_f32(d: &[u8], o: usize) -> f32 {
-    f32::from_bits(le_u32(d, o))
+    at::f32(d, o).unwrap_or(0.0)
+}
+/// Three `f32`s (each 0 past the end).
+pub(crate) fn le_vec3(d: &[u8], o: usize) -> [f32; 3] {
+    [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
 }
 pub(crate) fn cstr(d: &[u8], o: usize, n: usize) -> String {
-    let s = d.get(o..o + n).unwrap_or(&[]);
-    let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
-    String::from_utf8_lossy(&s[..end]).into_owned()
+    at::cstr(d, o, n).unwrap_or_default()
 }
 
 /// Writes `<root>/strings.json` — the internal `TStr` string table (animation
@@ -2593,7 +2597,7 @@ fn resolve_texture_ref(
 ) -> Option<(String, bool)> {
     let inst = &dat.instances[m3gm_index];
     let d = dat.instance_data(inst)?;
-    let r = u32::from_le_bytes([*d.get(28)?, d[29], d[30], d[31]]);
+    let r = at::u32(d, 28)?;
     if r & 1 == 0 {
         return None;
     }

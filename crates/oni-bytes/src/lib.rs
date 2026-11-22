@@ -4,6 +4,9 @@
 //! (Mac/PowerPC) form, so every multi-byte read is parameterised by an
 //! [`Endian`] carried on the [`Reader`]. All reads are bounds-checked and
 //! return [`Result`]; a parser never panics on malformed input.
+//!
+//! [`at`] reads single little-endian fields at an offset instead, for
+//! decoders that index into a template instance's fixed layout.
 
 #![forbid(unsafe_code)]
 
@@ -168,8 +171,60 @@ impl<'a> Reader<'a> {
     }
 }
 
+/// Little-endian fields at a byte offset of a slice (the PC data's order):
+/// `None` when the field runs past the end.
+pub mod at {
+    fn bytes<const N: usize>(d: &[u8], o: usize) -> Option<[u8; N]> {
+        d.get(o..o.checked_add(N)?)?.try_into().ok()
+    }
+
+    pub fn u8(d: &[u8], o: usize) -> Option<u8> {
+        d.get(o).copied()
+    }
+    pub fn u16(d: &[u8], o: usize) -> Option<u16> {
+        bytes(d, o).map(u16::from_le_bytes)
+    }
+    pub fn i16(d: &[u8], o: usize) -> Option<i16> {
+        bytes(d, o).map(i16::from_le_bytes)
+    }
+    pub fn u32(d: &[u8], o: usize) -> Option<u32> {
+        bytes(d, o).map(u32::from_le_bytes)
+    }
+    pub fn i32(d: &[u8], o: usize) -> Option<i32> {
+        bytes(d, o).map(i32::from_le_bytes)
+    }
+    pub fn u64(d: &[u8], o: usize) -> Option<u64> {
+        bytes(d, o).map(u64::from_le_bytes)
+    }
+    pub fn f32(d: &[u8], o: usize) -> Option<f32> {
+        bytes(d, o).map(f32::from_le_bytes)
+    }
+    /// Three `f32`s.
+    pub fn vec3(d: &[u8], o: usize) -> Option<[f32; 3]> {
+        Some([f32(d, o)?, f32(d, o + 4)?, f32(d, o + 8)?])
+    }
+    /// A fixed `char[n]` field: up to its first NUL, as UTF-8 (lossy).
+    pub fn cstr(d: &[u8], o: usize, n: usize) -> Option<String> {
+        let s = d.get(o..o.checked_add(n)?)?;
+        let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
+        Some(String::from_utf8_lossy(&s[..end]).into_owned())
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn fields_at_an_offset_stop_at_the_end() {
+        let d = [1, 0, 0x80, 0x3f, b'a', b'b', 0, b'c'];
+        assert_eq!(super::at::u16(&d, 0), Some(1));
+        assert_eq!(super::at::f32(&d, 0), Some(f32::from_bits(0x3f80_0001)));
+        assert_eq!(super::at::u32(&d, 5), None);
+        assert_eq!(super::at::u16(&d, 7), None, "one byte left");
+        assert_eq!(super::at::u16(&d, usize::MAX), None, "no overflow");
+        assert_eq!(super::at::cstr(&d, 4, 4).as_deref(), Some("ab"));
+        assert_eq!(super::at::cstr(&d, 4, 5), None);
+    }
+
     use super::*;
 
     #[test]

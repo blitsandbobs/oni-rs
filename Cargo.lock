@@ -1548,6 +1548,7 @@ version = "0.0.1"
 name = "oni-convert"
 version = "0.0.1"
 dependencies = [
+ "oni-bytes",
  "oni-dat",
  "oni-geom",
  "oni-schema",
@@ -1576,6 +1577,7 @@ version = "0.0.1"
 name = "oni-geom"
 version = "0.0.1"
 dependencies = [
+ "oni-bytes",
  "oni-dat",
 ]
 

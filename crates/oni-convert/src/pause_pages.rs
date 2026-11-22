@@ -155,8 +155,8 @@ pub fn hud_help(dat: &Dat<'_>) -> Option<files::HudHelpFile> {
         .iter()
         .find(|i| i.tag.to_string() == "IGHH" && dat.instance_data(i).is_some())?;
     let d = dat.instance_data(inst)?;
-    let u = |o: usize| Some(u32::from_le_bytes(d.get(o..o + 4)?.try_into().ok()?));
-    let s = |o: usize| Some(i16::from_le_bytes(d.get(o..o + 2)?.try_into().ok()?));
+    let u = |o: usize| oni_bytes::at::u32(d, o);
+    let s = |o: usize| oni_bytes::at::i16(d, o);
     let name = |r: u32| -> Option<String> {
         (r & 1 != 0)
             .then(|| dat.instances.get((r >> 8) as usize))

@@ -12,6 +12,8 @@ use std::io::Write;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc, Instance};
+
+use crate::{cstr, le_f32, le_u16, le_u32};
 use oni_template::{decode, Record, Registry, Value};
 
 /// Object tags worth surfacing as semantic level data.
@@ -34,25 +36,6 @@ const OBJECT_TAGS: &[[u8; 4]] = &[
 /// The `OBOA` (Starting Object Array) tag — the placed-object list.
 const TAG_OBOA: FourCc = FourCc(0x4F42_4F41);
 const OBOA_STRIDE: usize = 240; // sizeof(OBtObjectSetup)
-
-fn le_u16(d: &[u8], o: usize) -> u16 {
-    d.get(o..o + 2)
-        .map(|b| u16::from_le_bytes([b[0], b[1]]))
-        .unwrap_or(0)
-}
-fn le_u32(d: &[u8], o: usize) -> u32 {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-        .unwrap_or(0)
-}
-fn le_f32(d: &[u8], o: usize) -> f32 {
-    f32::from_bits(le_u32(d, o))
-}
-fn cstr(d: &[u8], o: usize, n: usize) -> String {
-    let s = d.get(o..o + n).unwrap_or(&[]);
-    let end = s.iter().position(|&b| b == 0).unwrap_or(s.len());
-    String::from_utf8_lossy(&s[..end]).into_owned()
-}
 
 /// Decodes `OBOA` into the authored placement list: each object's name,
 /// transform (`position`/`orientation`/`scale`), script id and door flag.

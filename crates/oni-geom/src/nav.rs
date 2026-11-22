@@ -4,6 +4,7 @@
 //! between rooms (`AKAA`) through portal quads (`AGQG`), and each room's
 //! run-length-encoded **walkability grid** in the `.raw`.
 
+use oni_bytes::at;
 use oni_dat::{Dat, Instance};
 
 use crate::level::TAG_AKEV;
@@ -88,19 +89,6 @@ pub struct Link {
     pub quad: [[f32; 3]; 4],
 }
 
-fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn i16_at(d: &[u8], o: usize) -> Option<i16> {
-    d.get(o..o + 2).map(|b| i16::from_le_bytes([b[0], b[1]]))
-}
-fn u16_at(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
-}
-fn f32_at(d: &[u8], o: usize) -> Option<f32> {
-    u32_at(d, o).map(f32::from_bits)
-}
 fn resolve<'a>(dat: &'a Dat<'a>, v: u32) -> Option<&'a [u8]> {
     if v & 1 == 0 {
         return None;
@@ -135,33 +123,33 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
         return None;
     }
     let d = dat.instance_data(akev)?;
-    let points = resolve(dat, u32_at(d, OFF_POINTS)?)?;
-    let planes = resolve(dat, u32_at(d, OFF_PLANES)?)?;
-    let quads = resolve(dat, u32_at(d, OFF_QUADS)?)?;
-    let rooms = resolve(dat, u32_at(d, OFF_ROOMS)?)?;
-    let sides = resolve(dat, u32_at(d, OFF_SIDES)?)?;
-    let bsp = resolve(dat, u32_at(d, OFF_BSP)?)?;
-    let links = resolve(dat, u32_at(d, OFF_LINKS)?)?;
+    let points = resolve(dat, at::u32(d, OFF_POINTS)?)?;
+    let planes = resolve(dat, at::u32(d, OFF_PLANES)?)?;
+    let quads = resolve(dat, at::u32(d, OFF_QUADS)?)?;
+    let rooms = resolve(dat, at::u32(d, OFF_ROOMS)?)?;
+    let sides = resolve(dat, at::u32(d, OFF_SIDES)?)?;
+    let bsp = resolve(dat, at::u32(d, OFF_BSP)?)?;
+    let links = resolve(dat, at::u32(d, OFF_LINKS)?)?;
 
     let point = |i: u32| -> Option<[f32; 3]> {
-        if i >= u32_at(points, POINTS_NUM)? {
+        if i >= at::u32(points, POINTS_NUM)? {
             return None;
         }
         let o = POINTS_DATA + i as usize * 12;
         Some([
-            f32_at(points, o)?,
-            f32_at(points, o + 4)?,
-            f32_at(points, o + 8)?,
+            at::f32(points, o)?,
+            at::f32(points, o + 4)?,
+            at::f32(points, o + 8)?,
         ])
     };
     // A plane reference: index, with bit 31 meaning "negated".
     let plane = |r: u32| -> Option<[f32; 4]> {
         let o = DATA + (r & 0x7FFF_FFFF) as usize * 16;
         let p = [
-            f32_at(planes, o)?,
-            f32_at(planes, o + 4)?,
-            f32_at(planes, o + 8)?,
-            f32_at(planes, o + 12)?,
+            at::f32(planes, o)?,
+            at::f32(planes, o + 4)?,
+            at::f32(planes, o + 8)?,
+            at::f32(planes, o + 12)?,
         ];
         Some(if r & 0x8000_0000 != 0 {
             p.map(|v| -v)
@@ -169,14 +157,14 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
             p
         })
     };
-    let num_bsp = u16_at(bsp, NUM16)? as u32;
-    let num_links = u32_at(links, NUM)?;
+    let num_bsp = at::u16(bsp, NUM16)? as u32;
+    let num_links = at::u32(links, NUM)?;
 
-    let n = u32_at(rooms, NUM)? as usize;
+    let n = at::u32(rooms, NUM)? as usize;
     let mut out = Vec::with_capacity(n);
     for r in 0..n {
         let o = DATA + r * ROOM_SIZE;
-        let field = |at: usize| u32_at(rooms, o + at);
+        let field = |at: usize| at::u32(rooms, o + at);
         let flags = field(92)?;
 
         // The hull: the BSP chain from the room's root (each node's
@@ -185,15 +173,15 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
         let mut node = field(0)?;
         while node != u32::MAX && node < num_bsp && hull.len() < 64 {
             let b = DATA + node as usize * BSP_SIZE;
-            hull.push(plane(u32_at(bsp, b)?)?);
-            node = u32_at(bsp, b + 4)?;
+            hull.push(plane(at::u32(bsp, b)?)?);
+            node = at::u32(bsp, b + 4)?;
         }
 
         let vec3 = |at: usize| -> Option<[f32; 3]> {
             Some([
-                f32_at(rooms, o + at)?,
-                f32_at(rooms, o + at + 4)?,
-                f32_at(rooms, o + at + 8)?,
+                at::f32(rooms, o + at)?,
+                at::f32(rooms, o + at + 4)?,
+                at::f32(rooms, o + at + 8)?,
             ])
         };
         let (min, max) = (vec3(48)?, vec3(60)?);
@@ -201,19 +189,19 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
             .then(|| -> Option<([f32; 4], f32)> {
                 Some((
                     [
-                        f32_at(rooms, o + 96)?,
-                        f32_at(rooms, o + 100)?,
-                        f32_at(rooms, o + 104)?,
-                        f32_at(rooms, o + 108)?,
+                        at::f32(rooms, o + 96)?,
+                        at::f32(rooms, o + 100)?,
+                        at::f32(rooms, o + 104)?,
+                        at::f32(rooms, o + 108)?,
                     ],
-                    f32_at(rooms, o + 112)?,
+                    at::f32(rooms, o + 112)?,
                 ))
             })
             .flatten();
 
         let (gw, gh) = (field(28)?, field(32)?);
         let (rle_at, rle_len) = (field(36)? as usize, field(40)? as usize);
-        let (gox, goy) = (i16_at(rooms, o + 72)?, i16_at(rooms, o + 74)?);
+        let (gox, goy) = (at::i16(rooms, o + 72)?, at::i16(rooms, o + 74)?);
         let grid = (rle_at != 0 && gw > 0 && gh > 0)
             .then(|| -> Option<Grid> {
                 let rle = raw.get(rle_at..rle_at + rle_len)?;
@@ -234,15 +222,15 @@ pub fn extract_navigation(dat: &Dat<'_>, akev: &Instance, raw: &[u8]) -> Option<
         let mut room_links = Vec::new();
         for s in side_start..side_end {
             let so = DATA + s as usize * SIDE_SIZE;
-            let (a0, a1) = (u32_at(sides, so + 4)?, u32_at(sides, so + 8)?);
+            let (a0, a1) = (at::u32(sides, so + 4)?, at::u32(sides, so + 8)?);
             for a in a0..a1.min(num_links) {
                 let ao = DATA + a as usize * LINK_SIZE;
-                let (to, q) = (u32_at(links, ao)?, u32_at(links, ao + 4)?);
+                let (to, q) = (at::u32(links, ao)?, at::u32(links, ao + 4)?);
                 let qo = DATA + q as usize * QUAD_SIZE;
-                let quad_flags = u32_at(quads, qo + QUAD_FLAGS)?;
+                let quad_flags = at::u32(quads, qo + QUAD_FLAGS)?;
                 let mut corners = [[0.0; 3]; 4];
                 for (k, c) in corners.iter_mut().enumerate() {
-                    *c = point(u32_at(quads, qo + k * 4)?)?;
+                    *c = point(at::u32(quads, qo + k * 4)?)?;
                 }
                 room_links.push(Link {
                     to,

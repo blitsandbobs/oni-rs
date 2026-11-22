@@ -20,6 +20,7 @@
 //! A placed object (`OBtObjectSetup.animation`) points at its `OBAN`, so the
 //! clip is matched to the object by that reference (and by the `OBAN` name).
 
+use oni_bytes::at;
 use oni_dat::{Dat, FourCc, Instance};
 
 /// The `OBAN` (object animation) template tag.
@@ -141,20 +142,6 @@ impl ObjectAnimation {
     }
 }
 
-fn read_u16(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
-}
-fn read_u32(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn read_i32(d: &[u8], o: usize) -> Option<i32> {
-    read_u32(d, o).map(|v| v as i32)
-}
-fn read_f32(d: &[u8], o: usize) -> Option<f32> {
-    read_u32(d, o).map(f32::from_bits)
-}
-
 /// Decodes an [`ObjectAnimation`] from an `OBAN` instance.
 pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectAnimation> {
     if inst.tag != TAG_OBAN {
@@ -162,7 +149,7 @@ pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectA
     }
     let d = dat.instance_data(inst)?;
 
-    let num_keys = read_u16(d, OFF_NUM_KEYFRAMES)? as usize;
+    let num_keys = at::u16(d, OFF_NUM_KEYFRAMES)? as usize;
     // Sanity-bound the key count against the available data.
     if OFF_KEYFRAMES + num_keys.checked_mul(KEYFRAME_SIZE)? > d.len() {
         return None;
@@ -172,17 +159,17 @@ pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectA
     for k in 0..num_keys {
         let o = OFF_KEYFRAMES + k * KEYFRAME_SIZE;
         let rotation = [
-            read_f32(d, o)?,
-            read_f32(d, o + 4)?,
-            read_f32(d, o + 8)?,
-            read_f32(d, o + 12)?,
+            at::f32(d, o)?,
+            at::f32(d, o + 4)?,
+            at::f32(d, o + 8)?,
+            at::f32(d, o + 12)?,
         ];
         let translation = [
-            read_f32(d, o + 16)?,
-            read_f32(d, o + 20)?,
-            read_f32(d, o + 24)?,
+            at::f32(d, o + 16)?,
+            at::f32(d, o + 20)?,
+            at::f32(d, o + 24)?,
         ];
-        let frame = read_i32(d, o + 28)?;
+        let frame = at::i32(d, o + 28)?;
         keys.push(ObjAnimKey {
             frame,
             translation,
@@ -192,12 +179,12 @@ pub fn decode_object_animation(dat: &Dat<'_>, inst: &Instance) -> Option<ObjectA
 
     Some(ObjectAnimation {
         name: inst.name.clone(),
-        flags: read_u32(d, OFF_FLAGS)?,
-        ticks_per_frame: read_u16(d, OFF_TICKS_PER_FRAME)?,
-        num_frames: read_u16(d, OFF_NUM_FRAMES)?,
-        door_open_frames: read_u16(d, OFF_DOOR_OPEN_FRAMES)?,
+        flags: at::u32(d, OFF_FLAGS)?,
+        ticks_per_frame: at::u16(d, OFF_TICKS_PER_FRAME)?,
+        num_frames: at::u16(d, OFF_NUM_FRAMES)?,
+        door_open_frames: at::u16(d, OFF_DOOR_OPEN_FRAMES)?,
         keys,
-        scale: std::array::from_fn(|i| read_f32(d, OFF_SCALE + i * 4).unwrap_or(0.0)),
+        scale: std::array::from_fn(|i| at::f32(d, OFF_SCALE + i * 4).unwrap_or(0.0)),
     })
 }
 

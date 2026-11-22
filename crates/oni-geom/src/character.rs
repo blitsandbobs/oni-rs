@@ -12,6 +12,7 @@
 //! tree — one node per part, carrying the bone translation and the part mesh —
 //! which also makes it animation-ready (rotations drive node transforms).
 
+use oni_bytes::at;
 use oni_dat::{Dat, FourCc, Instance};
 
 use crate::{extract_mesh, Mesh};
@@ -89,13 +90,6 @@ pub struct Body {
     pub parts: Vec<BodyPart>,
 }
 
-fn read_u32(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn read_f32(d: &[u8], o: usize) -> Option<f32> {
-    read_u32(d, o).map(f32::from_bits)
-}
 fn ref_index(v: u32) -> Option<usize> {
     if v & 1 != 0 {
         Some((v >> 8) as usize)
@@ -113,29 +107,28 @@ pub fn extract_body(dat: &Dat<'_>, trbs: &Instance, lod: usize) -> Option<Body> 
         return None;
     }
     let bs = dat.instance_data(trbs)?;
-    let body_ref = read_u32(bs, lod * 4)?;
+    let body_ref = at::u32(bs, lod * 4)?;
     let body = resolve(dat, body_ref)?;
 
-    let num_parts =
-        u16::from_le_bytes([*body.get(TRCM_NUM_PARTS)?, body[TRCM_NUM_PARTS + 1]]) as usize;
+    let num_parts = at::u16(body, TRCM_NUM_PARTS)? as usize;
 
-    let geo = resolve(dat, read_u32(body, TRCM_GEO_STORE)?)?;
-    let trans = resolve(dat, read_u32(body, TRCM_TRANS_STORE)?)?;
-    let idx = resolve(dat, read_u32(body, TRCM_IDX_STORE)?)?;
+    let geo = resolve(dat, at::u32(body, TRCM_GEO_STORE)?)?;
+    let trans = resolve(dat, at::u32(body, TRCM_TRANS_STORE)?)?;
+    let idx = resolve(dat, at::u32(body, TRCM_IDX_STORE)?)?;
 
     let mut parts = Vec::with_capacity(num_parts);
     for i in 0..num_parts {
         // geometry (M3GM) for this part
-        let geo_ref = read_u32(geo, ARR_DATA + i * 4)?;
+        let geo_ref = at::u32(geo, ARR_DATA + i * 4)?;
         let m3gm_inst = dat.instances.get(ref_index(geo_ref)?)?;
         let mesh = extract_mesh(dat, m3gm_inst)?;
 
         // translation (M3tPoint3D, 12 bytes)
         let to = ARR_DATA + i * 12;
         let translation = [
-            read_f32(trans, to)?,
-            read_f32(trans, to + 4)?,
-            read_f32(trans, to + 8)?,
+            at::f32(trans, to)?,
+            at::f32(trans, to + 4)?,
+            at::f32(trans, to + 8)?,
         ];
 
         // hierarchy (TRtIndexBlock: parent, child, sibling, zero)
@@ -333,18 +326,6 @@ pub struct Attack {
     pub flags: u32,
 }
 
-fn read_u16(b: &[u8], o: usize) -> Option<u16> {
-    Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]]))
-}
-
-fn read_i16(b: &[u8], o: usize) -> Option<i16> {
-    Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]]))
-}
-
-fn read_u8(b: &[u8], o: usize) -> Option<u8> {
-    b.get(o).copied()
-}
-
 /// Decodes frame 0's per-part rotation quaternions `[x,y,z,w]` from a `TRAM`
 /// animation (the first keyframe of each part's stream — no interpolation). The
 /// frame data lives in the companion `.raw` and is self-describing:
@@ -355,10 +336,10 @@ pub fn frame0_pose(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Vec<[f3
         return None;
     }
     let d = dat.instance_data(anim)?;
-    let data_off = read_u32(d, PTR_DATA * 4)? as usize;
+    let data_off = at::u32(d, PTR_DATA * 4)? as usize;
 
     // numParts = size of the u16 offset table = offsets[0] / 2.
-    let off0 = read_u16(raw, data_off)? as usize;
+    let off0 = at::u16(raw, data_off)? as usize;
     if off0 < 2 || !off0.is_multiple_of(2) {
         return None;
     }
@@ -368,7 +349,7 @@ pub fn frame0_pose(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Vec<[f3
     }
 
     let offsets: Vec<usize> = (0..num_parts)
-        .map(|i| read_u16(raw, data_off + i * 2).map(|v| v as usize))
+        .map(|i| at::u16(raw, data_off + i * 2).map(|v| v as usize))
         .collect::<Option<_>>()?;
     let comp = derive_compression(&offsets)?;
 
@@ -541,9 +522,9 @@ fn decode_shortcuts(raw: &[u8], ptrs: &[u32], count: usize) -> Vec<Shortcut> {
         .filter_map(|s| {
             let o = off + s * SHORTCUT_SIZE;
             Some(Shortcut {
-                state: read_u16(raw, o)?,
-                length: read_u16(raw, o + 2)?,
-                flags: read_u32(raw, o + 4)?,
+                state: at::u16(raw, o)?,
+                length: at::u16(raw, o + 2)?,
+                flags: at::u32(raw, o + 4)?,
             })
         })
         .collect()
@@ -560,8 +541,8 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         return None;
     }
     let d = dat.instance_data(anim)?;
-    let data_off = read_u32(d, PTR_DATA * 4)? as usize;
-    let off0 = read_u16(raw, data_off)? as usize;
+    let data_off = at::u32(d, PTR_DATA * 4)? as usize;
+    let off0 = at::u16(raw, data_off)? as usize;
     if off0 < 2 || !off0.is_multiple_of(2) {
         return None;
     }
@@ -570,7 +551,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         return None;
     }
     let offsets: Vec<usize> = (0..num_parts)
-        .map(|i| read_u16(raw, data_off + i * 2).map(|v| v as usize))
+        .map(|i| at::u16(raw, data_off + i * 2).map(|v| v as usize))
         .collect::<Option<_>>()?;
     let comp = derive_compression(&offsets)? as usize;
 
@@ -615,13 +596,13 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
 
     // Root motion: the `positions` track = `numFrames` pairs of local (x, z).
     let total_frames = (num_frames + 1) as usize;
-    let root_motion = match read_u32(d, PTR_POSITIONS * 4) {
+    let root_motion = match at::u32(d, PTR_POSITIONS * 4) {
         Some(pos_off) if pos_off != 0 => (0..total_frames)
             .map(|f| {
                 let o = pos_off as usize + f * 8;
                 [
-                    read_f32(raw, o).unwrap_or(0.0),
-                    read_f32(raw, o + 4).unwrap_or(0.0),
+                    at::f32(raw, o).unwrap_or(0.0),
+                    at::f32(raw, o + 4).unwrap_or(0.0),
                 ]
             })
             .collect(),
@@ -630,9 +611,9 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
 
     // Height track: the `heights` array = `numFrames` floats, the pelvis
     // elevation above the ground point for each frame (`heightThisFrame`).
-    let heights = match read_u32(d, PTR_HEIGHTS * 4) {
+    let heights = match at::u32(d, PTR_HEIGHTS * 4) {
         Some(h_off) if h_off != 0 => (0..total_frames)
-            .map(|f| read_f32(raw, h_off as usize + f * 4).unwrap_or(0.0))
+            .map(|f| at::f32(raw, h_off as usize + f * 4).unwrap_or(0.0))
             .collect(),
         _ => Vec::new(),
     };
@@ -640,31 +621,27 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
     // Combat: flags (stable, right after the pointer block) + the attacks array
     // (bounded by the next-larger tm_raw pointer, so we never read the drifted
     // `numAttacks` scalar).
-    let flags = read_u32(d, TRAM_FLAGS).unwrap_or(0);
+    let flags = at::u32(d, TRAM_FLAGS).unwrap_or(0);
     let ptrs: Vec<u32> = (0..TRAM_NUM_PTRS)
-        .filter_map(|k| read_u32(d, k * 4))
+        .filter_map(|k| at::u32(d, k * 4))
         .collect();
     let attacks = decode_attacks(raw, &ptrs);
-    let num_shortcuts = read_u8(d, TRAM_NUM_SHORTCUTS).unwrap_or(0) as usize;
+    let num_shortcuts = at::u8(d, TRAM_NUM_SHORTCUTS).unwrap_or(0) as usize;
     let shortcuts = decode_shortcuts(raw, &ptrs, num_shortcuts);
     let throw = (ptrs.get(PTR_THROW).copied().unwrap_or(0) != 0)
         .then(|| {
             let o = ptrs[PTR_THROW] as usize;
             Some(Throw {
-                target_offset: [
-                    read_f32(raw, o)?,
-                    read_f32(raw, o + 4)?,
-                    read_f32(raw, o + 8)?,
-                ],
-                target_facing: read_f32(raw, o + 12)?,
-                range: read_f32(raw, o + 16)?,
-                target_anim_type: read_u16(raw, o + 20)?,
+                target_offset: [at::f32(raw, o)?, at::f32(raw, o + 4)?, at::f32(raw, o + 8)?],
+                target_facing: at::f32(raw, o + 12)?,
+                range: at::f32(raw, o + 16)?,
+                target_anim_type: at::u16(raw, o + 20)?,
             })
         })
         .flatten();
     let self_damage = {
         let off = ptrs.get(PTR_SELF_DAMAGE).copied().unwrap_or(0) as usize;
-        let count = read_u8(d, TRAM_NUM_SELF_DAMAGE).unwrap_or(0) as usize;
+        let count = at::u8(d, TRAM_NUM_SELF_DAMAGE).unwrap_or(0) as usize;
         let bound = ptrs
             .iter()
             .map(|&p| p as usize)
@@ -677,7 +654,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
             (0..count.min((bound - off) / 4))
                 .filter_map(|k| {
                     let o = off + k * 4;
-                    Some((read_u16(raw, o + 2)?, read_u16(raw, o)?))
+                    Some((at::u16(raw, o + 2)?, at::u16(raw, o)?))
                 })
                 .collect()
         }
@@ -686,7 +663,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
     // `particleName[16]`).
     let particles = {
         let off = ptrs.get(PTR_PARTICLES).copied().unwrap_or(0) as usize;
-        let count = read_u8(d, TRAM_NUM_PARTICLES).unwrap_or(0) as usize;
+        let count = at::u8(d, TRAM_NUM_PARTICLES).unwrap_or(0) as usize;
         if off == 0 {
             Vec::new()
         } else {
@@ -696,9 +673,9 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                     let name = raw.get(o + 8..o + 24)?;
                     let end = name.iter().position(|&b| b == 0).unwrap_or(16);
                     Some(AnimParticle {
-                        start: read_u16(raw, o)?,
-                        stop: read_u16(raw, o + 2)?,
-                        part: read_u16(raw, o + 4)?,
+                        start: at::u16(raw, o)?,
+                        stop: at::u16(raw, o + 2)?,
+                        part: at::u16(raw, o + 4)?,
                         name: String::from_utf8_lossy(&name[..end]).into_owned(),
                     })
                 })
@@ -707,7 +684,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
     };
     let footsteps = {
         let off = ptrs.get(PTR_FOOTSTEPS).copied().unwrap_or(0) as usize;
-        let count = read_u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
+        let count = at::u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
         let bound = ptrs
             .iter()
             .map(|&p| p as usize)
@@ -720,24 +697,24 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
             (0..count.min((bound - off) / 4))
                 .filter_map(|k| {
                     let o = off + k * 4;
-                    let kind = read_u16(raw, o + 2)?;
-                    (kind != 0).then_some(read_u16(raw, o)?)
+                    let kind = at::u16(raw, o + 2)?;
+                    (kind != 0).then_some(at::u16(raw, o)?)
                 })
                 .collect()
         }
     };
     let footstep_kinds = {
         let off = ptrs.get(PTR_FOOTSTEPS).copied().unwrap_or(0) as usize;
-        let count = read_u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
+        let count = at::u8(d, TRAM_NUM_FOOTSTEPS).unwrap_or(0) as usize;
         (0..if off == 0 { 0 } else { count })
-            .filter_map(|k| read_u16(raw, off + k * 4 + 2))
+            .filter_map(|k| at::u16(raw, off + k * 4 + 2))
             .filter(|&kind| kind != 0)
             .take(footsteps.len())
             .collect()
     };
     let sounds = {
         let off = ptrs.get(PTR_SOUNDS).copied().unwrap_or(0) as usize;
-        let count = read_u32(d, TRAM_NUM_SOUNDS).unwrap_or(0) as usize;
+        let count = at::u32(d, TRAM_NUM_SOUNDS).unwrap_or(0) as usize;
         (0..if off == 0 { 0 } else { count.min(64) })
             .filter_map(|k| {
                 let o = off + k * 34;
@@ -745,7 +722,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
                 let end = name.iter().position(|&c| c == 0).unwrap_or(32);
                 Some((
                     String::from_utf8_lossy(&name[..end]).into_owned(),
-                    read_u16(raw, o + 32)?,
+                    at::u16(raw, o + 32)?,
                 ))
             })
             .filter(|(n, _)| !n.is_empty())
@@ -760,17 +737,17 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
     let reach = decode_reach(d, raw);
     let body = {
         let off = ptrs.get(PTR_BODY).copied().unwrap_or(0) as usize;
-        let n = read_u16(d, TRAM_FRAME_COUNT).unwrap_or(0) as usize;
+        let n = at::u16(d, TRAM_FRAME_COUNT).unwrap_or(0) as usize;
         if off == 0 {
             Vec::new()
         } else {
             (0..n)
                 .map_while(|k| {
                     let o = off + k * 8;
-                    let c = |at: usize| read_i16(raw, o + at).map(|v| f32::from(v) * 0.01);
+                    let c = |at: usize| at::i16(raw, o + at).map(|v| f32::from(v) * 0.01);
                     Some(BodyPoint {
                         offset: [c(0)?, c(2)?],
-                        height: f32::from(read_u16(raw, o + 4)?) * 0.01,
+                        height: f32::from(at::u16(raw, o + 4)?) * 0.01,
                         floor: c(6)?,
                     })
                 })
@@ -778,7 +755,7 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         }
     };
     let direct = (0..2)
-        .filter_map(|k| read_u32(d, TRAM_DIRECT_ANIM + k * 4))
+        .filter_map(|k| at::u32(d, TRAM_DIRECT_ANIM + k * 4))
         .filter_map(|v| ref_name(dat, v))
         .collect();
 
@@ -790,36 +767,36 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
         heights,
         flags,
         attacks,
-        anim_type: read_u16(d, TRAM_TYPE).unwrap_or(0),
-        aiming_type: read_u16(d, TRAM_AIMING).unwrap_or(0),
-        from_state: read_u16(d, TRAM_FROM_STATE).unwrap_or(0),
-        to_state: read_u16(d, TRAM_TO_STATE).unwrap_or(0),
-        varient: read_u16(d, TRAM_VARIENT).unwrap_or(0),
-        final_rotation: read_f32(d, TRAM_FINAL_ROTATION).unwrap_or(0.0),
-        used_parts: read_u32(d, TRAM_USED_PARTS).unwrap_or(0),
-        replace_parts: read_u32(d, TRAM_REPLACE_PARTS).unwrap_or(0),
-        move_direction: read_u16(d, TRAM_MOVE_DIRECTION).unwrap_or(0),
-        end_interpolation: read_u16(d, TRAM_END_INTERP).unwrap_or(0),
-        max_interpolation: read_u16(d, TRAM_MAX_INTERP).unwrap_or(0),
-        vocalization_type: read_u16(d, TRAM_VOCALIZATION).unwrap_or(0),
-        hard_pause: read_u16(d, TRAM_HARD_PAUSE).unwrap_or(0),
-        soft_pause: read_u16(d, TRAM_SOFT_PAUSE).unwrap_or(0),
-        action_frame: read_i16(d, TRAM_ACTION_FRAME).unwrap_or(0),
-        invulnerable_start: read_u8(d, TRAM_INVULN_START).unwrap_or(0),
-        invulnerable_length: read_u8(d, TRAM_INVULN_LENGTH).unwrap_or(0),
+        anim_type: at::u16(d, TRAM_TYPE).unwrap_or(0),
+        aiming_type: at::u16(d, TRAM_AIMING).unwrap_or(0),
+        from_state: at::u16(d, TRAM_FROM_STATE).unwrap_or(0),
+        to_state: at::u16(d, TRAM_TO_STATE).unwrap_or(0),
+        varient: at::u16(d, TRAM_VARIENT).unwrap_or(0),
+        final_rotation: at::f32(d, TRAM_FINAL_ROTATION).unwrap_or(0.0),
+        used_parts: at::u32(d, TRAM_USED_PARTS).unwrap_or(0),
+        replace_parts: at::u32(d, TRAM_REPLACE_PARTS).unwrap_or(0),
+        move_direction: at::u16(d, TRAM_MOVE_DIRECTION).unwrap_or(0),
+        end_interpolation: at::u16(d, TRAM_END_INTERP).unwrap_or(0),
+        max_interpolation: at::u16(d, TRAM_MAX_INTERP).unwrap_or(0),
+        vocalization_type: at::u16(d, TRAM_VOCALIZATION).unwrap_or(0),
+        hard_pause: at::u16(d, TRAM_HARD_PAUSE).unwrap_or(0),
+        soft_pause: at::u16(d, TRAM_SOFT_PAUSE).unwrap_or(0),
+        action_frame: at::i16(d, TRAM_ACTION_FRAME).unwrap_or(0),
+        invulnerable_start: at::u8(d, TRAM_INVULN_START).unwrap_or(0),
+        invulnerable_length: at::u8(d, TRAM_INVULN_LENGTH).unwrap_or(0),
         shortcuts,
         direct,
-        varient_end: read_u16(d, TRAM_VARIENT_END).unwrap_or(0),
-        atomic_start: read_u16(d, TRAM_ATOMIC_START).unwrap_or(1),
-        atomic_end: read_u16(d, TRAM_ATOMIC_END).unwrap_or(0),
-        first_level: read_u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
+        varient_end: at::u16(d, TRAM_VARIENT_END).unwrap_or(0),
+        atomic_start: at::u16(d, TRAM_ATOMIC_START).unwrap_or(1),
+        atomic_end: at::u16(d, TRAM_ATOMIC_END).unwrap_or(0),
+        first_level: at::u16(d, TRAM_FIRST_LEVEL).unwrap_or(0),
         throw,
         self_damage,
         footsteps,
         particles,
         footstep_kinds,
         attack_name,
-        sound_frame: read_u16(d, TRAM_SOUND_FRAME).unwrap_or(0),
+        sound_frame: at::u16(d, TRAM_SOUND_FRAME).unwrap_or(0),
         sounds,
         reach,
         body,
@@ -828,20 +805,20 @@ pub fn decode_animation(dat: &Dat<'_>, anim: &Instance, raw: &[u8]) -> Option<Cl
 
 /// Decodes the clip's reach (`extentInfo`), if it has strikes.
 fn decode_reach(d: &[u8], raw: &[u8]) -> Option<Reach> {
-    let n = read_u32(d, TRAM_NUM_STRIKES)? as usize;
+    let n = at::u32(d, TRAM_NUM_STRIKES)? as usize;
     if n == 0 {
         return None;
     }
-    let f = |o: usize| read_f32(d, o);
+    let f = |o: usize| at::f32(d, o);
     let mut spokes = [0.0; 36];
     for (i, s) in spokes.iter_mut().enumerate() {
         *s = f(TRAM_RING + 12 + i * 4)?;
     }
     let bound = |o: usize| -> Option<StrikeBound> {
         Some(StrikeBound {
-            tick: read_u16(d, o)?,
-            attack: read_u8(d, o + 2)?,
-            strike: read_u8(d, o + 3)?,
+            tick: at::u16(d, o)?,
+            attack: at::u8(d, o + 2)?,
+            strike: at::u8(d, o + 3)?,
             // The importer stores this y with the opposite sign to the
             // body track's: negated, it is the distance ahead.
             offset: [f(o + 4)?, -f(o + 8)?],
@@ -852,17 +829,17 @@ fn decode_reach(d: &[u8], raw: &[u8]) -> Option<Reach> {
             angle: f(o + 28)?,
         })
     };
-    let at = read_u32(d, TRAM_STRIKES)? as usize;
+    let at = at::u32(d, TRAM_STRIKES)? as usize;
     let angle = std::f32::consts::TAU / 65535.0;
     let strikes = (0..n.min(255))
         .map_while(|k| {
             let o = at + k * 12;
             Some(Strike {
-                tick: read_u16(raw, o)?,
-                angle: f32::from(read_u16(raw, o + 2)?) * angle,
-                distance: f32::from(read_u16(raw, o + 4)?) * 0.01,
-                min_height: f32::from(read_i16(raw, o + 8)?) * 0.01,
-                max_height: f32::from(read_i16(raw, o + 10)?) * 0.01,
+                tick: at::u16(raw, o)?,
+                angle: f32::from(at::u16(raw, o + 2)?) * angle,
+                distance: f32::from(at::u16(raw, o + 4)?) * 0.01,
+                min_height: f32::from(at::i16(raw, o + 8)?) * 0.01,
+                max_height: f32::from(at::i16(raw, o + 10)?) * 0.01,
             })
         })
         .collect();
@@ -873,7 +850,7 @@ fn decode_reach(d: &[u8], raw: &[u8]) -> Option<Reach> {
         spokes,
         first: bound(TRAM_FIRST_STRIKE)?,
         farthest: bound(TRAM_FARTHEST_STRIKE)?,
-        direction: read_u32(d, TRAM_STRIKE_DIRECTION)? as u16,
+        direction: at::u32(d, TRAM_STRIKE_DIRECTION)? as u16,
         strikes,
     })
 }
@@ -906,17 +883,17 @@ fn decode_attacks(raw: &[u8], ptrs: &[u32]) -> Vec<Attack> {
         .filter_map(|a| {
             let o = off + a * ATTACK_SIZE;
             Some(Attack {
-                damage_bits: read_u32(raw, o)?,
-                knockback: read_f32(raw, o + 4)?,
-                flags: read_u32(raw, o + 8)?,
-                damage: read_u16(raw, o + 12)?,
-                first_damage_frame: read_u16(raw, o + 14)?,
-                last_damage_frame: read_u16(raw, o + 16)?,
-                damage_animation: read_u16(raw, o + 18)?,
-                hit_stun: read_u16(raw, o + 20)?,
-                block_stun: read_u16(raw, o + 22)?,
-                stagger: read_u16(raw, o + 24)?,
-                precedence: read_u16(raw, o + 26)?,
+                damage_bits: at::u32(raw, o)?,
+                knockback: at::f32(raw, o + 4)?,
+                flags: at::u32(raw, o + 8)?,
+                damage: at::u16(raw, o + 12)?,
+                first_damage_frame: at::u16(raw, o + 14)?,
+                last_damage_frame: at::u16(raw, o + 16)?,
+                damage_animation: at::u16(raw, o + 18)?,
+                hit_stun: at::u16(raw, o + 20)?,
+                block_stun: at::u16(raw, o + 22)?,
+                stagger: at::u16(raw, o + 24)?,
+                precedence: at::u16(raw, o + 26)?,
                 // attackExtentIndex @28, pad @30 (skipped)
             })
         })
@@ -947,8 +924,8 @@ pub fn apply_pose(body: &mut Body, quats: &[[f32; 4]], zero_root: bool) {
 /// every clip shares one convention, and composing them reverses the
 /// original's order.
 fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
-    let u16le = |o: usize| -> Option<u16> { Some(u16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
-    let i16le = |o: usize| -> Option<i16> { Some(i16::from_le_bytes([*b.get(o)?, b[o + 1]])) };
+    let u16le = |o: usize| at::u16(b, o);
+    let i16le = |o: usize| at::i16(b, o);
     Some(match comp {
         6 => {
             // Euler XYZ: each u16 maps to [0, 2*pi).
@@ -970,7 +947,7 @@ fn decode_quat(comp: u16, b: &[u8]) -> Option<[f32; 4]> {
             ])
         }
         16 => {
-            let f = |o: usize| read_f32(b, o);
+            let f = |o: usize| at::f32(b, o);
             normalize([f(0)?, f(4)?, f(8)?, -f(12)?])
         }
         // 3/4-byte packings are rare for bipeds; fall back to identity.

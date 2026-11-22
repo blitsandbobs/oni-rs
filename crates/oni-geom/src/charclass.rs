@@ -18,6 +18,7 @@
 //! may `recursiveLookup` into a parent collection it inherits from; we follow
 //! that chain to produce the full set.
 
+use oni_bytes::at;
 use std::collections::BTreeSet;
 
 use oni_dat::{Dat, FourCc, Instance};
@@ -158,17 +159,6 @@ pub struct CharacterClass {
     pub air: Option<AirConstants>,
 }
 
-fn read_u16(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
-}
-fn read_u32(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn read_f32(d: &[u8], o: usize) -> Option<f32> {
-    read_u32(d, o).map(f32::from_bits)
-}
-
 /// Resolves a reference-form word to the referenced instance index.
 fn ref_index(v: u32) -> Option<usize> {
     (v & 1 != 0).then_some((v >> 8) as usize)
@@ -190,7 +180,7 @@ pub fn decode_character_class(dat: &Dat<'_>, inst: &Instance) -> Option<Characte
     let mut body_off = None;
     let mut off = 0;
     while off + 4 <= d.len() {
-        if let Some(idx) = read_u32(d, off).and_then(ref_index) {
+        if let Some(idx) = at::u32(d, off).and_then(ref_index) {
             if let Some(t) = dat.instances.get(idx) {
                 match t.tag {
                     TAG_ONCV => variant_i = Some(idx),
@@ -221,21 +211,21 @@ pub fn decode_character_class(dat: &Dat<'_>, inst: &Instance) -> Option<Characte
     // order after `body` is fixed (the drift is all in the earlier AI section),
     // and we sanity-check it: `animations` must sit at body+76.
     let stats = body_off
-        .filter(|&b| trac_i.is_none() || read_u32(d, b + 76).and_then(ref_index) == trac_i)
+        .filter(|&b| trac_i.is_none() || at::u32(d, b + 76).and_then(ref_index) == trac_i)
         .and_then(|b| read_stats(d, b));
 
     // Air constants are the first struct field (offset 0) — stable regardless of
     // the AI-section drift that forces the body-anchored read above.
     let air = Some(AirConstants {
-        fall_gravity: read_f32(d, 0)?,
-        jump_gravity: read_f32(d, 4)?,
-        jump_amount: read_f32(d, 8)?,
-        max_velocity: read_f32(d, 12)?,
-        jump_accel_amount: read_f32(d, 16)?,
-        frames_fall_gravity: read_u16(d, 20)?,
-        num_jump_accel_frames: read_u16(d, 22)?,
-        damage_start: read_f32(d, 24)?,
-        damage_end: read_f32(d, 28)?,
+        fall_gravity: at::f32(d, 0)?,
+        jump_gravity: at::f32(d, 4)?,
+        jump_amount: at::f32(d, 8)?,
+        max_velocity: at::f32(d, 12)?,
+        jump_accel_amount: at::f32(d, 16)?,
+        frames_fall_gravity: at::u16(d, 20)?,
+        num_jump_accel_frames: at::u16(d, 22)?,
+        damage_start: at::f32(d, 24)?,
+        damage_end: at::f32(d, 28)?,
     });
 
     Some(CharacterClass {
@@ -260,20 +250,20 @@ fn read_stats(d: &[u8], b: usize) -> Option<CharacterStats> {
     }
     let mut damage_resistance = [0.0f32; 7];
     for (i, r) in damage_resistance.iter_mut().enumerate() {
-        *r = read_f32(d, b + 44 + i * 4)?;
+        *r = at::f32(d, b + 44 + i * 4)?;
     }
     Some(CharacterStats {
-        fight_mode_duration: read_u32(d, b + 16)?,
-        idle_delay: read_u32(d, b + 20)?,
-        idle_restart_delay: read_u32(d, b + 24)?,
-        max_hit_points: read_u32(d, b + 28)?,
-        feet_bits: read_u32(d, b + 32)?,
-        scale_low: read_f32(d, b + 36)?,
-        scale_high: read_f32(d, b + 40)?,
+        fight_mode_duration: at::u32(d, b + 16)?,
+        idle_delay: at::u32(d, b + 20)?,
+        idle_restart_delay: at::u32(d, b + 24)?,
+        max_hit_points: at::u32(d, b + 28)?,
+        feet_bits: at::u32(d, b + 32)?,
+        scale_low: at::f32(d, b + 36)?,
+        scale_high: at::f32(d, b + 40)?,
         damage_resistance,
-        boss_shield: read_f32(d, b + 72)?,
-        shot_time: read_u16(d, b + 84)?,
-        death_delete_delay: read_u16(d, b + 86)?,
+        boss_shield: at::f32(d, b + 72)?,
+        shot_time: at::u16(d, b + 84)?,
+        death_delete_delay: at::u16(d, b + 86)?,
         left_handed: d[b + 88] != 0,
         super_hypo: d[b + 89] != 0,
         super_shield: d[b + 90] != 0,
@@ -299,10 +289,10 @@ fn collect_animations(dat: &Dat<'_>, trac_idx: usize) -> Vec<String> {
         let Some(d) = dat.instance_data(inst) else {
             break;
         };
-        let num = read_u16(d, TRAC_NUM).unwrap_or(0) as usize;
+        let num = at::u16(d, TRAC_NUM).unwrap_or(0) as usize;
         for e in 0..num {
             let ao = TRAC_ENTRY + e * TRAC_ENTRY_SIZE + TRAC_ENTRY_ANIM;
-            if let Some(ai) = read_u32(d, ao).and_then(ref_index) {
+            if let Some(ai) = at::u32(d, ao).and_then(ref_index) {
                 if let Some(name) = dat.instances.get(ai).and_then(|x| x.name.clone()) {
                     if seen.insert(name.clone()) {
                         out.push(name);
@@ -310,7 +300,7 @@ fn collect_animations(dat: &Dat<'_>, trac_idx: usize) -> Vec<String> {
                 }
             }
         }
-        cur = read_u32(d, TRAC_RECURSIVE).and_then(ref_index);
+        cur = at::u32(d, TRAC_RECURSIVE).and_then(ref_index);
     }
     out
 }
@@ -322,17 +312,17 @@ pub fn decode_animation_collection(dat: &Dat<'_>, inst: &Instance) -> Option<Ani
         return None;
     }
     let d = dat.instance_data(inst)?;
-    let num = read_u16(d, TRAC_NUM)? as usize;
+    let num = at::u16(d, TRAC_NUM)? as usize;
     let entries = (0..num)
         .filter_map(|e| {
             let base = TRAC_ENTRY + e * TRAC_ENTRY_SIZE;
-            let weight = read_u16(d, base)?;
-            let ai = read_u32(d, base + TRAC_ENTRY_ANIM).and_then(ref_index)?;
+            let weight = at::u16(d, base)?;
+            let ai = at::u32(d, base + TRAC_ENTRY_ANIM).and_then(ref_index)?;
             let animation = dat.instances.get(ai)?.name.clone()?;
             Some(CollectionEntry { animation, weight })
         })
         .collect();
-    let recursive = read_u32(d, TRAC_RECURSIVE)
+    let recursive = at::u32(d, TRAC_RECURSIVE)
         .and_then(ref_index)
         .and_then(|i| dat.instances.get(i))
         .and_then(|x| x.name.clone());

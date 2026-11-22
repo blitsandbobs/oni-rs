@@ -31,6 +31,7 @@ pub mod level;
 pub mod nav;
 pub mod objanim;
 
+use oni_bytes::at;
 use oni_dat::{Dat, FourCc, Instance};
 
 /// The `M3GM` (geometry) template tag.
@@ -86,14 +87,6 @@ impl Mesh {
     }
 }
 
-fn read_u32(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn read_f32(d: &[u8], o: usize) -> Option<f32> {
-    read_u32(d, o).map(f32::from_bits)
-}
-
 /// Resolves a template-reference value to the referenced instance's data.
 fn resolve<'a>(dat: &'a Dat<'a>, ref_val: u32) -> Option<&'a [u8]> {
     if ref_val & 1 == 0 {
@@ -112,20 +105,20 @@ pub fn extract_mesh(dat: &Dat<'_>, inst: &Instance) -> Option<Mesh> {
     let d = dat.instance_data(inst)?;
 
     // --- positions (PNTA) ---
-    let pa = resolve(dat, read_u32(d, OFF_POINT_ARRAY)?)?;
-    let num_points = read_u32(pa, PNTA_NUM)? as usize;
+    let pa = resolve(dat, at::u32(d, OFF_POINT_ARRAY)?)?;
+    let num_points = at::u32(pa, PNTA_NUM)? as usize;
     let mut positions = Vec::with_capacity(num_points);
     for i in 0..num_points {
         let o = PNTA_DATA + i * 12;
-        positions.push([read_f32(pa, o)?, read_f32(pa, o + 4)?, read_f32(pa, o + 8)?]);
+        positions.push([at::f32(pa, o)?, at::f32(pa, o + 4)?, at::f32(pa, o + 8)?]);
     }
 
     let bound_sphere = (|| {
         Some([
-            read_f32(pa, PNTA_SPHERE)?,
-            read_f32(pa, PNTA_SPHERE + 4)?,
-            read_f32(pa, PNTA_SPHERE + 8)?,
-            read_f32(pa, PNTA_SPHERE + 12)?,
+            at::f32(pa, PNTA_SPHERE)?,
+            at::f32(pa, PNTA_SPHERE + 4)?,
+            at::f32(pa, PNTA_SPHERE + 8)?,
+            at::f32(pa, PNTA_SPHERE + 12)?,
         ])
     })()
     .filter(|s| s.iter().all(|v| v.is_finite()) && s[3] > 0.0);
@@ -137,12 +130,12 @@ pub fn extract_mesh(dat: &Dat<'_>, inst: &Instance) -> Option<Mesh> {
     };
 
     // --- normals (VCRA), only if parallel to points ---
-    if let Some(va) = read_u32(d, OFF_VERTEX_NORMAL_ARRAY).and_then(|r| resolve(dat, r)) {
-        if read_u32(va, VCRA_NUM) == Some(num_points as u32) {
+    if let Some(va) = at::u32(d, OFF_VERTEX_NORMAL_ARRAY).and_then(|r| resolve(dat, r)) {
+        if at::u32(va, VCRA_NUM) == Some(num_points as u32) {
             for i in 0..num_points {
                 let o = VCRA_DATA + i * 12;
                 if let (Some(x), Some(y), Some(z)) =
-                    (read_f32(va, o), read_f32(va, o + 4), read_f32(va, o + 8))
+                    (at::f32(va, o), at::f32(va, o + 4), at::f32(va, o + 8))
                 {
                     mesh.normals.push([x, y, z]);
                 }
@@ -154,11 +147,11 @@ pub fn extract_mesh(dat: &Dat<'_>, inst: &Instance) -> Option<Mesh> {
     }
 
     // --- texcoords (TXCA), only if parallel to points ---
-    if let Some(ta) = read_u32(d, OFF_TEXCOORD_ARRAY).and_then(|r| resolve(dat, r)) {
-        if read_u32(ta, TXCA_NUM).map(|n| n as usize >= num_points) == Some(true) {
+    if let Some(ta) = at::u32(d, OFF_TEXCOORD_ARRAY).and_then(|r| resolve(dat, r)) {
+        if at::u32(ta, TXCA_NUM).map(|n| n as usize >= num_points) == Some(true) {
             for i in 0..num_points {
                 let o = TXCA_DATA + i * 8;
-                if let (Some(u), Some(v)) = (read_f32(ta, o), read_f32(ta, o + 4)) {
+                if let (Some(u), Some(v)) = (at::f32(ta, o), at::f32(ta, o + 4)) {
                     mesh.texcoords.push([u, v]);
                 }
             }
@@ -169,19 +162,19 @@ pub fn extract_mesh(dat: &Dat<'_>, inst: &Instance) -> Option<Mesh> {
     }
 
     // --- triangles: walk the strip ---
-    let strip_arr = resolve(dat, read_u32(d, OFF_TRISTRIP_ARRAY)?)?;
-    let num_strip = read_u32(strip_arr, IDXA_NUM)? as usize;
+    let strip_arr = resolve(dat, at::u32(d, OFF_TRISTRIP_ARRAY)?)?;
+    let num_strip = at::u32(strip_arr, IDXA_NUM)? as usize;
     let mut strip = Vec::with_capacity(num_strip);
     for i in 0..num_strip {
-        strip.push(read_u32(strip_arr, IDXA_DATA + i * 4)?);
+        strip.push(at::u32(strip_arr, IDXA_DATA + i * 4)?);
     }
-    let tni = resolve(dat, read_u32(d, OFF_TRINORMAL_INDEX_ARRAY)?)?;
-    let num_tris = read_u32(tni, IDXA_NUM)? as usize;
+    let tni = resolve(dat, at::u32(d, OFF_TRINORMAL_INDEX_ARRAY)?)?;
+    let num_tris = at::u32(tni, IDXA_NUM)? as usize;
 
     mesh.indices = walk_strip(&strip, num_tris, num_points)?;
 
     // --- base texture name ---
-    if let Some(r) = read_u32(d, OFF_BASE_MAP) {
+    if let Some(r) = at::u32(d, OFF_BASE_MAP) {
         if r & 1 != 0 {
             if let Some(bm) = dat.instances.get((r >> 8) as usize) {
                 mesh.base_texture = bm.name.clone();

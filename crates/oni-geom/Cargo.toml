@@ -6,6 +6,7 @@ license.workspace = true
 description = "Oni M3GM geometry decoding to triangle meshes and glTF (.glb)"
 
 [dependencies]
+oni-bytes.workspace = true
 oni-dat = { workspace = true }
 
 [lints.rust]

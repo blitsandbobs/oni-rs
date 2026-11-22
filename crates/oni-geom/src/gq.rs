@@ -2,6 +2,7 @@
 //! `BFW_Akira.h`): every quad of the `AKEV` — drawn or not — with its
 //! corners, flags, plane, baked corner shades and texture.
 
+use oni_bytes::at;
 use oni_dat::{Dat, Instance};
 
 use crate::level::TAG_AKEV;
@@ -38,17 +39,8 @@ pub struct Quads {
     pub quads: Vec<Quad>,
 }
 
-fn u32_at(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-
-fn f32_at(d: &[u8], o: usize) -> Option<f32> {
-    u32_at(d, o).map(f32::from_bits)
-}
-
 fn array<'a>(dat: &'a Dat<'a>, akev: &[u8], field: usize) -> Option<&'a [u8]> {
-    let r = u32_at(akev, field)?;
+    let r = at::u32(akev, field)?;
     if r & 1 == 0 {
         return None;
     }
@@ -71,41 +63,43 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
         array(dat, d, 20)?,
         array(dat, d, 28)?,
     );
-    let n_points = u32_at(pa, 52)? as usize;
+    let n_points = at::u32(pa, 52)? as usize;
     let points = (0..n_points)
         .map(|i| {
             let o = 56 + i * 12;
-            Some([f32_at(pa, o)?, f32_at(pa, o + 4)?, f32_at(pa, o + 8)?])
+            Some([at::f32(pa, o)?, at::f32(pa, o + 4)?, at::f32(pa, o + 8)?])
         })
         .collect::<Option<Vec<_>>>()?;
-    let n_planes = u32_at(pl, 20)? as usize;
+    let n_planes = at::u32(pl, 20)? as usize;
     let planes = (0..n_planes)
         .map(|i| {
             let o = 24 + i * 16;
             Some([
-                f32_at(pl, o)?,
-                f32_at(pl, o + 4)?,
-                f32_at(pl, o + 8)?,
-                f32_at(pl, o + 12)?,
+                at::f32(pl, o)?,
+                at::f32(pl, o + 4)?,
+                at::f32(pl, o + 8)?,
+                at::f32(pl, o + 12)?,
             ])
         })
         .collect::<Option<Vec<_>>>()?;
-    let n_tex = u32_at(tm, 20)? as usize;
+    let n_tex = at::u32(tm, 20)? as usize;
     let textures = (0..n_tex)
         .map(|i| {
-            u32_at(tm, 24 + i * 4)
+            at::u32(tm, 24 + i * 4)
                 .filter(|r| r & 1 != 0)
                 .map(|r| (r >> 8) as usize)
         })
         .collect();
-    let n = u32_at(gg, 20)?.min(u32_at(gr, 20)?).min(u32_at(gc, 20)?) as usize;
+    let n = at::u32(gg, 20)?.min(at::u32(gr, 20)?).min(at::u32(gc, 20)?) as usize;
     // The quads scripts show and hide: parallel index arrays of quads and
     // their references (the first reference of a quad counts).
     let mut refs: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
     if let (Some(ri), Some(rr)) = (array(dat, d, 40), array(dat, d, 44)) {
-        let count = u32_at(ri, 20).unwrap_or(0).min(u32_at(rr, 20).unwrap_or(0)) as usize;
+        let count = at::u32(ri, 20)
+            .unwrap_or(0)
+            .min(at::u32(rr, 20).unwrap_or(0)) as usize;
         for i in 0..count {
-            if let (Some(q), Some(r)) = (u32_at(ri, 24 + i * 4), u32_at(rr, 24 + i * 4)) {
+            if let (Some(q), Some(r)) = (at::u32(ri, 24 + i * 4), at::u32(rr, 24 + i * 4)) {
                 refs.entry(q).or_insert(r);
             }
         }
@@ -116,19 +110,17 @@ pub fn extract_quads(dat: &Dat<'_>, akev: &Instance) -> Option<Quads> {
             // object tag (56 bytes); render: texture, alpha (4); collision:
             // plane, box (28).
             let g = 24 + q * 56;
-            let at = |k: usize| u32_at(gg, g + k * 4);
+            let word = |k: usize| at::u32(gg, g + k * 4);
             Some(Quad {
-                points: [at(0)?, at(1)?, at(2)?, at(3)?],
-                shades: [at(8)?, at(9)?, at(10)?, at(11)?],
-                flags: at(12)?,
-                object_tag: at(13)?,
-                texture: gr
-                    .get(24 + q * 4..26 + q * 4)
-                    .map(|b| u16::from_le_bytes([b[0], b[1]]))?,
-                plane: u32_at(gc, 24 + q * 28)?,
+                points: [word(0)?, word(1)?, word(2)?, word(3)?],
+                shades: [word(8)?, word(9)?, word(10)?, word(11)?],
+                flags: word(12)?,
+                object_tag: word(13)?,
+                texture: at::u16(gr, 24 + q * 4)?,
+                plane: at::u32(gc, 24 + q * 28)?,
                 env_ref: refs.get(&(q as u32)).copied(),
                 bbox: {
-                    let c = |k: usize| f32_at(gc, 28 + q * 28 + k * 4);
+                    let c = |k: usize| at::f32(gc, 28 + q * 28 + k * 4);
                     [[c(0)?, c(1)?, c(2)?], [c(3)?, c(4)?, c(5)?]]
                 },
             })

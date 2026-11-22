@@ -26,7 +26,7 @@ use std::path::Path;
 use oni_dat::{Dat, FourCc};
 use oni_schema::files;
 
-use crate::{cstr, le_f32, le_u16, le_u32};
+use crate::{cstr, le_f32, le_u16, le_u32, le_vec3};
 
 const TAG_TURR: FourCc = FourCc(u32::from_be_bytes(*b"TURR"));
 const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
@@ -34,10 +34,6 @@ const SIZE: usize = 1600;
 const ATTACHMENTS: usize = 140;
 const ATTACHMENT: usize = 76;
 const NAME: usize = 63;
-
-fn vec3(d: &[u8], o: usize) -> [f32; 3] {
-    [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
-}
 
 /// One turret class (`model` resolves a geometry reference).
 pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<files::TurretClass> {
@@ -68,8 +64,8 @@ pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<files::T
         name: cstr(d, 0, 32),
         head: model(le_u32(d, 100)),
         barrel: model(le_u32(d, 108)),
-        head_pivot: vec3(d, 116),
-        barrel_pivot: vec3(d, 128),
+        head_pivot: le_vec3(d, 116),
+        barrel_pivot: le_vec3(d, 128),
         timeout: le_u32(d, 1536),
         pitch: files::Limits {
             min: le_f32(d, 1540),

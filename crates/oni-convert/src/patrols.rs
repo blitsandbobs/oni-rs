@@ -8,11 +8,7 @@ use oni_dat::Dat;
 use oni_schema as sc;
 use oni_schema::files;
 
-use crate::{cstr, le_f32, le_u16, le_u32};
-
-fn i16_at(d: &[u8], o: usize) -> i16 {
-    le_u16(d, o) as i16
-}
+use crate::{cstr, le_f32, le_i16, le_u16, le_u32};
 
 /// A level's patrol paths.
 pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
@@ -39,7 +35,7 @@ pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
                 let kind = le_u32(d, at);
                 at += 4;
                 let point = |at: usize| [le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)];
-                let flag = |at: usize| i16_at(d, at);
+                let flag = |at: usize| le_i16(d, at);
                 let (w, size) = match kind {
                     0 => (W::MoveToFlag { flag: flag(at) }, 2),
                     1 => (W::Stop, 0),
@@ -115,7 +111,7 @@ pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
                     ),
                     17 => (
                         W::Scan {
-                            ticks: i16_at(d, at),
+                            ticks: le_i16(d, at),
                             angle: le_f32(d, at + 2).to_radians(),
                         },
                         6,
@@ -124,14 +120,14 @@ pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
                     // Frames before the flag (the file order, not the struct's).
                     19 => (
                         W::Guard {
-                            ticks: Some(i16_at(d, at)).filter(|&t| t != 0),
-                            flag: i16_at(d, at + 2),
+                            ticks: Some(le_i16(d, at)).filter(|&t| t != 0),
+                            flag: le_i16(d, at + 2),
                             max_angle: le_f32(d, at + 4).min(180.0).to_radians(),
                         },
                         8,
                     ),
                     20 | 21 => {
-                        let script = format!("patrolscript{:04}", i16_at(d, at));
+                        let script = format!("patrolscript{:04}", le_i16(d, at));
                         let w = if kind == 20 {
                             W::TriggerScript { script }
                         } else {
@@ -148,7 +144,7 @@ pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
                     23 => (
                         W::ShootAtFlag {
                             flag: flag(at),
-                            ticks: i16_at(d, at + 2),
+                            ticks: le_i16(d, at + 2),
                             inaccuracy: le_f32(d, at + 4),
                         },
                         8,

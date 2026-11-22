@@ -16,6 +16,7 @@
 //! …). We split those off into per-object groups so doors/consoles/furniture
 //! become separate, transformable entities in a modern engine.
 
+use oni_bytes::at;
 use std::collections::BTreeMap;
 
 use oni_dat::{Dat, FourCc, Instance};
@@ -158,16 +159,6 @@ pub struct Level {
     pub objects: Vec<LevelObject>,
 }
 
-fn read_u32(d: &[u8], o: usize) -> Option<u32> {
-    d.get(o..o + 4)
-        .map(|b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
-}
-fn read_u16(d: &[u8], o: usize) -> Option<u16> {
-    d.get(o..o + 2).map(|b| u16::from_le_bytes([b[0], b[1]]))
-}
-fn read_f32(d: &[u8], o: usize) -> Option<f32> {
-    read_u32(d, o).map(f32::from_bits)
-}
 fn resolve<'a>(dat: &'a Dat<'a>, v: u32) -> Option<&'a [u8]> {
     if v & 1 == 0 {
         return None;
@@ -192,9 +183,9 @@ pub fn extract_level_with(
     }
     let d = dat.instance_data(akev)?;
 
-    let pa = resolve(dat, read_u32(d, OFF_POINT_ARRAY)?)?;
-    let ta = resolve(dat, read_u32(d, OFF_TEXCOORD_ARRAY)?)?;
-    let gg = resolve(dat, read_u32(d, OFF_GQ_GENERAL)?)?;
+    let pa = resolve(dat, at::u32(d, OFF_POINT_ARRAY)?)?;
+    let ta = resolve(dat, at::u32(d, OFF_TEXCOORD_ARRAY)?)?;
+    let gg = resolve(dat, at::u32(d, OFF_GQ_GENERAL)?)?;
     // Each quad's plane (its front: the side the original draws it from).
     let gq = crate::gq::extract_quads(dat, akev);
     let plane_of = |q: usize| -> Option<[f32; 3]> {
@@ -207,25 +198,25 @@ pub fn extract_level_with(
             [a, b, c]
         })
     };
-    let gr = resolve(dat, read_u32(d, OFF_GQ_RENDER)?)?;
-    let tm = resolve(dat, read_u32(d, OFF_TEXMAP_ARRAY)?)?;
+    let gr = resolve(dat, at::u32(d, OFF_GQ_RENDER)?)?;
+    let tm = resolve(dat, at::u32(d, OFF_TEXMAP_ARRAY)?)?;
 
-    let num_points = read_u32(pa, PNTA_NUM)? as usize;
-    let num_tc = read_u32(ta, TXCA_NUM)? as usize;
-    let num_gq = read_u32(gg, ARR20_NUM)?.min(read_u32(gr, ARR20_NUM)?) as usize;
-    let num_tex = read_u32(tm, ARR20_NUM)? as usize;
+    let num_points = at::u32(pa, PNTA_NUM)? as usize;
+    let num_tc = at::u32(ta, TXCA_NUM)? as usize;
+    let num_gq = at::u32(gg, ARR20_NUM)?.min(at::u32(gr, ARR20_NUM)?) as usize;
+    let num_tex = at::u32(tm, ARR20_NUM)? as usize;
 
     let point = |i: usize| -> Option<[f32; 3]> {
         let o = PNTA_DATA + i * 12;
-        Some([read_f32(pa, o)?, read_f32(pa, o + 4)?, read_f32(pa, o + 8)?])
+        Some([at::f32(pa, o)?, at::f32(pa, o + 4)?, at::f32(pa, o + 8)?])
     };
     let tc = |i: usize| -> Option<[f32; 2]> {
         let o = TXCA_DATA + i * 8;
         // glTF's V axis points down vs Oni's up — flip V.
-        Some([read_f32(ta, o)?, 1.0 - read_f32(ta, o + 4)?])
+        Some([at::f32(ta, o)?, 1.0 - at::f32(ta, o + 4)?])
     };
     let tex_lookup = |ti: usize| -> (Option<usize>, Option<String>) {
-        match read_u32(tm, ARR20_DATA + ti * 4) {
+        match at::u32(tm, ARR20_DATA + ti * 4) {
             Some(r) if r & 1 != 0 => {
                 let idx = (r >> 8) as usize;
                 (
@@ -241,16 +232,16 @@ pub fn extract_level_with(
     // Which quads scripts can show and hide, and by what reference.
     let mut remap: std::collections::HashMap<usize, u32> = std::collections::HashMap::new();
     if let (Some(ri), Some(rr)) = (
-        read_u32(d, OFF_REMAP_INDICES).and_then(|v| resolve(dat, v)),
-        read_u32(d, OFF_REMAPS).and_then(|v| resolve(dat, v)),
+        at::u32(d, OFF_REMAP_INDICES).and_then(|v| resolve(dat, v)),
+        at::u32(d, OFF_REMAPS).and_then(|v| resolve(dat, v)),
     ) {
-        let n = read_u32(ri, IDXA_NUM)
+        let n = at::u32(ri, IDXA_NUM)
             .unwrap_or(0)
-            .min(read_u32(rr, IDXA_NUM).unwrap_or(0)) as usize;
+            .min(at::u32(rr, IDXA_NUM).unwrap_or(0)) as usize;
         for i in 0..n {
             if let (Some(q), Some(r)) = (
-                read_u32(ri, IDXA_DATA + i * 4),
-                read_u32(rr, IDXA_DATA + i * 4),
+                at::u32(ri, IDXA_DATA + i * 4),
+                at::u32(rr, IDXA_DATA + i * 4),
             ) {
                 remap.entry(q as usize).or_insert(r);
             }
@@ -263,7 +254,7 @@ pub fn extract_level_with(
 
     for q in 0..num_gq {
         let go = ARR20_DATA + q * GQ_GENERAL_SIZE;
-        let flags = read_u32(gg, go + GQ_FLAGS)?;
+        let flags = at::u32(gg, go + GQ_FLAGS)?;
         let visible = flags & GQ_FLAG_INVISIBLE == 0;
         let collide = flags & GQ_FLAG_CHR_COL_SKIP == 0;
         if !visible && !collide {
@@ -279,8 +270,8 @@ pub fn extract_level_with(
         let mut uvidx = [0usize; 4];
         let mut ok = true;
         for k in 0..4 {
-            vidx[k] = read_u32(gg, go + k * 4)? as usize;
-            uvidx[k] = read_u32(gg, go + 16 + k * 4)? as usize;
+            vidx[k] = at::u32(gg, go + k * 4)? as usize;
+            uvidx[k] = at::u32(gg, go + 16 + k * 4)? as usize;
             if vidx[k] >= num_points || uvidx[k] >= num_tc {
                 ok = false;
             }
@@ -288,11 +279,11 @@ pub fn extract_level_with(
         if !ok {
             continue;
         }
-        let tex_index = read_u16(gr, ARR20_DATA + q * GQ_RENDER_SIZE)?;
+        let tex_index = at::u16(gr, ARR20_DATA + q * GQ_RENDER_SIZE)?;
         if tex_index as usize >= num_tex {
             continue;
         }
-        let object_tag = read_u32(gg, go + GQ_OBJECT_TAG)?;
+        let object_tag = at::u32(gg, go + GQ_OBJECT_TAG)?;
         let blend = flags & GQ_FLAG_TRANSPARENT != 0;
         let is_triangle = flags & GQ_FLAG_TRIANGLE != 0;
         let two_sided = flags & GQ_FLAG_TWO_SIDED != 0;
@@ -347,7 +338,7 @@ pub fn extract_level_with(
             grp.positions.push(corners[k]);
             grp.texcoords.push(tc(uvidx[k])?);
             grp.normals.push(n);
-            let shade = read_u32(gg, go + GQ_SHADES + k * 4).unwrap_or(0x00FF_FFFF);
+            let shade = at::u32(gg, go + GQ_SHADES + k * 4).unwrap_or(0x00FF_FFFF);
             grp.colors.push(shade_rgb(shade));
         }
         let tris: &[u32] = match (is_triangle, flip) {

@@ -33,7 +33,7 @@ use oni_schema::files;
 #[cfg(test)]
 use serde_json::json;
 
-use crate::{cstr, le_f32, le_u16, le_u32};
+use crate::{cstr, le_f32, le_u16, le_u32, le_vec3};
 
 const TAG_ONWC: FourCc = FourCc(u32::from_be_bytes(*b"ONWC"));
 const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
@@ -75,10 +75,6 @@ const POWERUPS: [(&[u8; 4], &str); 6] = [
     (b"ALSI", "lsi"),
 ];
 
-fn vec3(d: &[u8], o: usize) -> [f32; 3] {
-    [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
-}
-
 fn anim_type(t: u16) -> oni_schema::files::AnimRef {
     oni_schema::ANIM_TYPES
         .get(t as usize)
@@ -105,8 +101,8 @@ pub(crate) fn ai_params(d: &[u8], o: usize) -> oni_schema::files::AiGunParams {
         dodge_pattern: [le_f32(d, o + 116), le_f32(d, o + 120), le_f32(d, o + 124)],
         // Where the shot leaves the gun (gun space): its direction, its
         // offset off that line, and the turn from it onto the barrel.
-        shooter_direction: vec3(d, o + 52),
-        shooter_offset: vec3(d, o + 64),
+        shooter_direction: le_vec3(d, o + 52),
+        shooter_offset: le_vec3(d, o + 64),
         shooter_inverse: std::array::from_fn(|k| le_f32(d, o + 4 + k * 4)),
     }
 }
@@ -164,17 +160,17 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<files::WeaponClass> {
             firing_return_speed: le_f32(d, 144),
         },
         sight: files::WeaponSight {
-            position: vec3(d, 0),
-            vector: vec3(d, 12),
+            position: le_vec3(d, 0),
+            vector: le_vec3(d, 12),
         },
         max_sight_distance: le_f32(d, 24),
         laser_color: format!("#{:08x}", le_u32(d, 28)),
         second_hand: files::SecondHand {
-            position: vec3(d, 172),
-            vector: vec3(d, 148),
-            up: vec3(d, 160),
+            position: le_vec3(d, 172),
+            vector: le_vec3(d, 148),
+            up: le_vec3(d, 160),
         },
-        pickup_offset: vec3(d, 1796),
+        pickup_offset: le_vec3(d, 1796),
         display_y_offset: le_f32(d, 1808),
         empty_sound: (!empty.is_empty()).then_some(empty),
         ai: ai_params(d, 208),

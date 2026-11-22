@@ -33,7 +33,8 @@ use oni_dat::{Dat, FourCc, Instance};
 pub const TAG_TXMP: FourCc = FourCc(0x5458_4D50); // 'TXMP'
 
 // Field offsets within a TXMP instance's data.
-const OFF_FLAGS: usize = 128;
+/// Where the flags (`M3cTextureFlags_*`) are.
+pub const OFF_FLAGS: usize = 128;
 const OFF_WIDTH: usize = 132;
 const OFF_HEIGHT: usize = 134;
 const OFF_TEXEL: usize = 136;
