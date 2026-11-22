@@ -115,10 +115,7 @@ fn name(v: &Value) -> Option<String> {
 impl Defs {
     pub fn load(common: &Path) -> Defs {
         let mut d = Defs::default();
-        let Some(j) = std::fs::read_to_string(common.join("sounds.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-        else {
+        let Some(j) = crate::json::read(common.join("sounds.json")) else {
             return d;
         };
         for (k, a) in j["ambients"].as_object().into_iter().flatten() {

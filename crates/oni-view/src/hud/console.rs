@@ -113,10 +113,7 @@ pub fn page(p: &serde_json::Value) -> Page {
 
 /// A level's consoles (`levels/NN/text_consoles.json`), by lowercase name.
 pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("text_consoles.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    let doc: serde_json::Value = crate::json::load(level_dir.join("text_consoles.json"));
     let Some(consoles) = doc["consoles"].as_object() else {
         return HashMap::new();
     };
@@ -136,9 +133,7 @@ pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
 
 /// The dialog's layout (`common/text_console.json`).
 pub fn load_dialog(common: &Path) -> Option<Dialog> {
-    let doc: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(common.join("text_console.json")).ok()?)
-            .ok()?;
+    let doc: serde_json::Value = crate::json::read(common.join("text_console.json"))?;
     let item = |id: i64| {
         doc["items"]
             .as_array()

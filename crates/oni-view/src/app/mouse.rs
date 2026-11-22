@@ -43,9 +43,7 @@ impl Mouse {
 
 /// The arrow's texture: its part specification's (`common/part_specs.json`).
 fn arrow_texture(common: &Path) -> Option<PathBuf> {
-    let doc: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(common.join("part_specs.json")).ok()?)
-            .ok()?;
+    let doc: serde_json::Value = crate::json::read(common.join("part_specs.json"))?;
     let name = doc["partSpecs"]["ps_cursor_arrow"]["texture"].as_str()?;
     Some(common.join("textures").join(format!("{name}.png"))).filter(|p| p.exists())
 }

@@ -248,16 +248,10 @@ pub struct LevelAi {
 }
 
 fn read(path: &Path) -> Value {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    crate::json::load(path)
 }
 
-fn v3(v: &Value) -> Vec3 {
-    let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-    Vec3::new(f(0), f(1), f(2))
-}
+use crate::json::vec3 as v3;
 
 /// An alert level by name (`lull`, `low`, `medium`, `high`, `combat`).
 pub fn alert_named(n: &str) -> Alert {

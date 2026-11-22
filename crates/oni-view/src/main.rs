@@ -34,6 +34,7 @@ mod geom;
 mod gltf;
 mod hud;
 mod impacts;
+mod json;
 mod lasers;
 mod mission;
 mod movie;

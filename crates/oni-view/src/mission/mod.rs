@@ -175,10 +175,7 @@ impl Mission {
         let mut state = State::default();
         state.vars.insert("save_point".into(), Value::Integer(0));
         let doc: serde_json::Value =
-            std::fs::read_to_string(level_dir.join("../../common/messages.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
+            crate::json::load(level_dir.join("../../common/messages.json"));
         state.texts = doc["messages"]
             .as_object()
             .map(|m| {

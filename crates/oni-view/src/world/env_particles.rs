@@ -81,10 +81,7 @@ pub(crate) fn parse(p: &Value, classes: &p3::Classes) -> EnvParticle {
 /// Loads a level's environmental particles (classes resolved against the
 /// particle system's).
 pub(crate) fn load(level_dir: &Path, classes: &p3::Classes) -> Vec<EnvParticle> {
-    let Some(j) = std::fs::read_to_string(level_dir.join("env_particles.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-    else {
+    let Some(j) = crate::json::read(level_dir.join("env_particles.json")) else {
         return Vec::new();
     };
     j["particles"]

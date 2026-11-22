@@ -159,13 +159,7 @@ impl Turret {
     }
 }
 
-fn v3(j: &Value) -> Vec3 {
-    Vec3::new(
-        j[0].as_f64().unwrap_or(0.0) as f32,
-        j[1].as_f64().unwrap_or(0.0) as f32,
-        j[2].as_f64().unwrap_or(0.0) as f32,
-    )
-}
+use crate::json::vec3 as v3;
 
 fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
     let f = |j: &Value| j.as_f64().unwrap_or(0.0) as f32;
@@ -203,11 +197,7 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
 
 /// Loads the turret classes and a level's placed turrets.
 pub fn load(level_dir: &Path, common: &Path, particles: &p3::Classes) -> Vec<Turret> {
-    let read = |p: &Path| {
-        std::fs::read_to_string(p)
-            .ok()
-            .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-    };
+    let read = |p: &Path| crate::json::read(p);
     let (Some(classes), Some(placed)) = (
         read(&common.join("turrets.json")),
         read(&level_dir.join("turrets.json")),

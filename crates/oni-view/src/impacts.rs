@@ -137,9 +137,7 @@ fn stimulus(name: &str) -> Stimulus {
 
 impl Impacts {
     pub fn load(common: &Path) -> Option<Impacts> {
-        let j: Value =
-            serde_json::from_str(&std::fs::read_to_string(common.join("impacts.json")).ok()?)
-                .ok()?;
+        let j: Value = crate::json::read(common.join("impacts.json"))?;
         Some(Impacts::from_json(&j))
     }
 

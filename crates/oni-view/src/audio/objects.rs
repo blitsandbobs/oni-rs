@@ -15,7 +15,6 @@
 use std::path::Path;
 
 use glam::Vec3;
-use serde_json::Value;
 
 use super::system::LOW;
 use super::Audio;
@@ -75,14 +74,11 @@ impl SoundObject {
 
 /// Loads a level's sound objects (`levels/NN/sounds.json`).
 pub(super) fn load(level_dir: &Path) -> Vec<SoundObject> {
-    let Some(j) = std::fs::read_to_string(level_dir.join("sounds.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Value>(&t).ok())
-    else {
+    let Some(j) = crate::json::read(level_dir.join("sounds.json")) else {
         return Vec::new();
     };
-    let f = |v: &Value| v.as_f64().unwrap_or(0.0) as f32;
-    let v3 = |v: &Value| Vec3::new(f(&v[0]), f(&v[1]), f(&v[2]));
+    use crate::json::f32 as f;
+    use crate::json::vec3 as v3;
     j["objects"]
         .as_array()
         .into_iter()

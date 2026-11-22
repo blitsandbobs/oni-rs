@@ -57,10 +57,7 @@ fn names(j: &Value) -> HashMap<String, String> {
 }
 
 fn read(path: &Path) -> Value {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default()
+    crate::json::load(path)
 }
 
 impl GameSounds {

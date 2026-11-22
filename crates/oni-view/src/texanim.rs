@@ -62,11 +62,7 @@ impl TexAnim {
 /// The animated textures by file stem, their frames under `oni` (the
 /// converted tree's root).
 pub fn load(oni: &Path) -> HashMap<String, TexAnim> {
-    let doc: serde_json::Value =
-        std::fs::read_to_string(oni.join("common/texture_animations.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+    let doc: serde_json::Value = crate::json::load(oni.join("common/texture_animations.json"));
     let Some(map) = doc.as_object() else {
         return HashMap::new();
     };

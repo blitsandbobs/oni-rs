@@ -71,13 +71,7 @@ pub fn load(level_dir: &std::path::Path) -> Corpses {
         return Corpses::default();
     };
     let doc: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    let v3 = |v: &serde_json::Value| {
-        Vec3::new(
-            v[0].as_f64().unwrap_or(0.0) as f32,
-            v[1].as_f64().unwrap_or(0.0) as f32,
-            v[2].as_f64().unwrap_or(0.0) as f32,
-        )
-    };
+    use crate::json::vec3 as v3;
     let list: Vec<Corpse> = doc["corpses"]
         .as_array()
         .into_iter()

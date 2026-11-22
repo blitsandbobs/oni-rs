@@ -84,10 +84,7 @@ pub struct Object {
 
 /// Loads a level's object setups (`objects.json`).
 pub fn load(level_dir: &Path) -> Vec<Setup> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("objects.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
+    let doc: serde_json::Value = crate::json::load(level_dir.join("objects.json"));
     let common = level_dir.join("../../common");
     let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
     doc["objects"]

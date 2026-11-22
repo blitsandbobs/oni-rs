@@ -353,20 +353,11 @@ impl Door {
 }
 
 pub fn load(level_dir: &Path) -> Vec<Door> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("doors.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let v3 = |v: &serde_json::Value| {
-        let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-        Vec3::new(f(0), f(1), f(2))
-    };
+    let doc: serde_json::Value = crate::json::load(level_dir.join("doors.json"));
+    use crate::json::vec3 as v3;
     // The classes' leaf animations (`common/door_classes.json`).
     let classes: serde_json::Value =
-        std::fs::read_to_string(level_dir.join("../../common/door_classes.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        crate::json::load(level_dir.join("../../common/door_classes.json"));
     let mut anims: std::collections::HashMap<String, Option<Rc<ObjectAnimation>>> =
         Default::default();
     doc["doors"]

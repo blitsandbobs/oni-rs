@@ -81,14 +81,8 @@ const WALK_IN_DONE: f32 = 2.0;
 const WALK_IN_TICKS: u64 = 180;
 
 pub fn load(level_dir: &Path) -> Vec<Console> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("consoles.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let v3 = |v: &serde_json::Value| {
-        let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-        Vec3::new(f(0), f(1), f(2))
-    };
+    let doc: serde_json::Value = crate::json::load(level_dir.join("consoles.json"));
+    use crate::json::vec3 as v3;
     doc["consoles"]
         .as_array()
         .into_iter()

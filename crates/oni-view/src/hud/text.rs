@@ -53,10 +53,7 @@ pub struct Fonts {
 impl Fonts {
     /// Loads the default family (Tahoma) from `common/fonts.json`.
     pub fn load(common: &Path) -> Fonts {
-        let Some(doc) = std::fs::read_to_string(common.join("fonts.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        else {
+        let Some(doc) = crate::json::read(common.join("fonts.json")) else {
             return Fonts::default();
         };
         let fam = doc["families"]

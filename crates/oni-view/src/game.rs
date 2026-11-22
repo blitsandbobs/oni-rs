@@ -330,10 +330,7 @@ pub fn set_game_faithful(on: bool) {
 }
 
 fn read_continues(path: &std::path::Path) -> serde_json::Value {
-    std::fs::read_to_string(path)
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_else(|| serde_json::json!({}))
+    crate::json::read(path).unwrap_or_else(|| serde_json::json!({}))
 }
 
 /// The continue kept for `level`'s save point `n`, if one was made.

@@ -53,10 +53,7 @@ impl Classes {
             kinds: HashMap::new(),
             singles: HashMap::new(),
             melee,
-            settings: std::fs::read_to_string(oni_root.join("common/game_settings.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default(),
+            settings: crate::json::load(oni_root.join("common/game_settings.json")),
         })
     }
 

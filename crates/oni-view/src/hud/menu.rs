@@ -169,12 +169,7 @@ fn shade(v: &serde_json::Value) -> u32 {
 
 impl Data {
     pub fn load(common: &Path) -> Data {
-        let read = |name: &str| -> serde_json::Value {
-            std::fs::read_to_string(common.join(name))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default()
-        };
+        let read = |name: &str| -> serde_json::Value { crate::json::load(common.join(name)) };
         let doc = read("menus.json");
         let dialogs = doc["dialogs"]
             .as_object()

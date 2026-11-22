@@ -356,10 +356,7 @@ impl Hud {
     /// The HUD for a level: its textures, fonts and message tables from
     /// `common`.
     pub fn load(common: &Path, level: u16) -> Hud {
-        let doc: serde_json::Value = std::fs::read_to_string(common.join("messages.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let doc: serde_json::Value = crate::json::load(common.join("messages.json"));
         let table = |k: &str| -> HashMap<String, String> {
             doc[k]
                 .as_object()
@@ -372,11 +369,7 @@ impl Hud {
                 })
                 .unwrap_or_default()
         };
-        let settings: serde_json::Value =
-            std::fs::read_to_string(common.join("game_settings.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
+        let settings: serde_json::Value = crate::json::load(common.join("game_settings.json"));
         let autoprompts = settings["autoprompts"]
             .as_array()
             .into_iter()
@@ -390,20 +383,14 @@ impl Hud {
                 )
             })
             .collect();
-        let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let flags: serde_json::Value = crate::json::load(common.join("texture_flags.json"));
         let additive = flags["additive"]
             .as_array()
             .into_iter()
             .flatten()
             .filter_map(|n| n.as_str().map(str::to_string))
             .collect();
-        let specs: serde_json::Value = std::fs::read_to_string(common.join("part_specs.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let specs: serde_json::Value = crate::json::load(common.join("part_specs.json"));
         let border = PartSpec::from_json(
             &specs["partSpecs"]["cinematic_border"],
             &common.join("textures"),

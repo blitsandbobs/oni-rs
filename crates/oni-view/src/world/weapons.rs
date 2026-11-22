@@ -1068,16 +1068,9 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
-        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let gs: serde_json::Value = crate::json::load(common.join("game_settings.json"));
         self.hypo = super::hypo::HypoSettings::load(&gs);
-        let settings: serde_json::Value =
-            std::fs::read_to_string(common.join("game_settings.json"))
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
+        let settings: serde_json::Value = crate::json::load(common.join("game_settings.json"));
         // The magic effects' textures (shield, super shield, invisibility).
         self.magic_textures = ["shield", "daodanShield", "invis"].map(|k| {
             settings["magicTextures"][k]
@@ -1116,10 +1109,7 @@ impl World {
             common.join("object_animations.json"),
             self.level_dir.join("object_animations.json"),
         ] {
-            let doc: serde_json::Value = std::fs::read_to_string(&path)
-                .ok()
-                .and_then(|t| serde_json::from_str(&t).ok())
-                .unwrap_or_default();
+            let doc: serde_json::Value = crate::json::load(&path);
             for a in doc["animations"].as_array().into_iter().flatten() {
                 if let (Some(name), Some(anim)) =
                     (a["name"].as_str(), crate::doors::object_animation(a))
@@ -1144,10 +1134,7 @@ impl World {
             let quads = &self.quads;
             self.fighters[k].snap_to_floor(quads);
         }
-        let flags: serde_json::Value = std::fs::read_to_string(common.join("texture_flags.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let flags: serde_json::Value = crate::json::load(common.join("texture_flags.json"));
         self.additive_textures = flags["additive"]
             .as_array()
             .into_iter()
@@ -1156,10 +1143,7 @@ impl World {
             .collect();
         self.texture_anims = crate::texanim::load(&common.join(".."));
         // The health colour ramp.
-        let gs: serde_json::Value = std::fs::read_to_string(common.join("game_settings.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default();
+        let gs: serde_json::Value = crate::json::load(common.join("game_settings.json"));
         self.health_color = gs["healthColor"]
             .as_array()
             .into_iter()

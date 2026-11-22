@@ -208,9 +208,7 @@ pub struct AnimSounds {
 
 impl AnimSounds {
     pub fn load(common: &Path) -> Option<AnimSounds> {
-        let j: Value =
-            serde_json::from_str(&std::fs::read_to_string(common.join("anim_sounds.json")).ok()?)
-                .ok()?;
+        let j: Value = crate::json::read(common.join("anim_sounds.json"))?;
         let s = |v: &Value| v.as_str().map(str::to_string);
         let mut a = AnimSounds {
             parents: j["variants"]

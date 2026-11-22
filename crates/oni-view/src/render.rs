@@ -1052,10 +1052,7 @@ impl Renderer {
     /// without the file.
     pub fn attach_sky(&mut self, gpu: &Gpu, level_dir: &std::path::Path) {
         self.sky.clear();
-        let Some(doc) = std::fs::read_to_string(level_dir.join("sky.json"))
-            .ok()
-            .and_then(|t| serde_json::from_str::<serde_json::Value>(&t).ok())
-        else {
+        let Some(doc) = crate::json::read(level_dir.join("sky.json")) else {
             return;
         };
         const D: f32 = 5.0;

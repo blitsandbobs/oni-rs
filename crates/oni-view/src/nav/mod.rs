@@ -141,13 +141,7 @@ impl Navigation {
         let doc: serde_json::Value = serde_json::from_str(&text)
             .map_err(|e| std::io::Error::other(format!("navigation.json: {e}")))?;
         let bin = std::fs::read(level_dir.join(doc["grids"].as_str().unwrap_or("navigation.bin")))?;
-        let v3 = |v: &serde_json::Value| {
-            Vec3::new(
-                v[0].as_f64().unwrap_or(0.0) as f32,
-                v[1].as_f64().unwrap_or(0.0) as f32,
-                v[2].as_f64().unwrap_or(0.0) as f32,
-            )
-        };
+        use crate::json::vec3 as v3;
         let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
         let plane = |v: &serde_json::Value| [f(&v[0]), f(&v[1]), f(&v[2]), f(&v[3])];
         let mut rooms: Vec<Room> = Vec::new();

@@ -231,7 +231,7 @@ fn vec3(j: &Json) -> Vec3 {
 }
 
 fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponClass {
-    let f = |j: &Json| j.as_f64().unwrap_or(0.0) as f32;
+    use crate::json::f32 as f;
     let u = |j: &Json| j.as_u64().unwrap_or(0) as u16;
     let flags = c["flags"]
         .as_array()
@@ -258,7 +258,7 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         })
         .unwrap_or_default();
     let r = &c["recoil"];
-    let v3 = |j: &Json| Vec3::new(f(&j[0]), f(&j[1]), f(&j[2]));
+    use crate::json::vec3 as v3;
     let tunnel = c["tunnel"]["texture"].as_str().map(|t| Tunnel {
         texture: t.to_string(),
         color: rgb(&c["tunnel"]["shade"]),

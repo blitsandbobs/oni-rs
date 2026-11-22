@@ -38,9 +38,7 @@ pub const TEXT_COLOR: u32 = 0x00FF00;
 
 impl Help {
     pub fn load(common: &Path) -> Option<Help> {
-        let doc: serde_json::Value =
-            serde_json::from_str(&std::fs::read_to_string(common.join("hud_help.json")).ok()?)
-                .ok()?;
+        let doc: serde_json::Value = crate::json::read(common.join("hud_help.json"))?;
         let pair = |v: &serde_json::Value| {
             [
                 v[0].as_i64().unwrap_or(0) as i32,

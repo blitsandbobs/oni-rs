@@ -213,14 +213,8 @@ pub fn ray_sphere(from: Vec3, dir: Vec3, max: f32, centre: Vec3, radius: f32) ->
 }
 
 pub fn load(level_dir: &Path) -> Vec<Laser> {
-    let doc: serde_json::Value = std::fs::read_to_string(level_dir.join("lasers.json"))
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    let v3 = |v: &serde_json::Value| {
-        let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-        Vec3::new(f(0), f(1), f(2))
-    };
+    let doc: serde_json::Value = crate::json::load(level_dir.join("lasers.json"));
+    use crate::json::vec3 as v3;
     let common = level_dir.join("../../common");
     let mut eyes: std::collections::HashMap<String, Rc<(std::path::PathBuf, Vec<glam::Mat4>)>> =
         Default::default();
