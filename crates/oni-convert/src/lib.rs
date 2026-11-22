@@ -309,7 +309,7 @@ pub fn convert_with(
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
     let mut game_settings: Option<oni_schema::files::GameSettingsFile> = None;
-    let mut part_specs = serde_json::Map::new();
+    let mut part_specs = BTreeMap::new();
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
     // The text console dialog's text font (level 0's), the pages' base.
@@ -564,7 +564,7 @@ pub fn convert_with(
         std::fs::create_dir_all(&dir)?;
         std::fs::write(
             dir.join("part_specs.json"),
-            serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?,
+            serde_json::to_string_pretty(&oni_schema::files::PartSpecsFile { part_specs })?,
         )?;
     }
     if let Some(gs) = game_settings {
@@ -625,9 +625,9 @@ pub fn convert_with(
 fn collect_part_specs(
     dat: &Dat<'_>,
     registry: &oni_template::Registry,
-) -> serde_json::Map<String, serde_json::Value> {
+) -> BTreeMap<String, oni_schema::files::PartSpec> {
     const TAG_PSPC: FourCc = FourCc(0x5053_7063);
-    let mut out = serde_json::Map::new();
+    let mut out = BTreeMap::new();
     let Some(layout) = registry.get(TAG_PSPC) else {
         return out;
     };
@@ -652,7 +652,11 @@ fn collect_part_specs(
         };
         out.insert(
             name.to_string(),
-            serde_json::json!({ "texture": sanitize(texture), "tl": points("part_matrix_tl"), "br": points("part_matrix_br") }),
+            oni_schema::files::PartSpec {
+                texture: sanitize(texture),
+                tl: points("part_matrix_tl"),
+                br: points("part_matrix_br"),
+            },
         );
     }
     out
@@ -1883,8 +1887,9 @@ fn convert_ui_text(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
 /// scripts' `message` shows, by name) and `subtitles` (dialogue lines):
 /// each entry a name and its text in the `.raw` block. Returns the count.
 fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<usize> {
+    use oni_schema::files::MessageTable;
     const TAG_SUBT: FourCc = FourCc(0x5355_4254);
-    let mut out = serde_json::Map::new();
+    let mut out = BTreeMap::new();
     let mut n = 0;
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_SUBT) {
         let Some(d) = dat.instance_data(inst) else {
@@ -1901,7 +1906,7 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
         // the table's order, whose key the line's name starts with — so they
         // keep their order: `[key, text]` pairs.)
         let ordered = name == "subtitles";
-        let mut table = serde_json::Map::new();
+        let mut table = BTreeMap::new();
         let mut pairs = Vec::new();
         for k in 0..count {
             let at = base + le_u32(d, 24 + 4 * k) as usize;
@@ -1909,9 +1914,9 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
             let text = cstr(raw, at + key.len() + 1, 1024);
             if !key.is_empty() {
                 if ordered {
-                    pairs.push(serde_json::json!([key, text]));
+                    pairs.push((key, text));
                 } else {
-                    table.insert(key, serde_json::json!(text));
+                    table.insert(key, text);
                 }
             }
         }
@@ -1919,9 +1924,9 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
         out.insert(
             name,
             if ordered {
-                serde_json::Value::Array(pairs)
+                MessageTable::Ordered(pairs)
             } else {
-                serde_json::Value::Object(table)
+                MessageTable::ByName(table)
             },
         );
     }
@@ -1931,7 +1936,7 @@ fn convert_messages(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<u
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("messages.json"),
-        serde_json::to_string_pretty(&serde_json::Value::Object(out))?,
+        serde_json::to_string_pretty(&oni_schema::files::MessagesFile { tables: out })?,
     )?;
     Ok(n)
 }

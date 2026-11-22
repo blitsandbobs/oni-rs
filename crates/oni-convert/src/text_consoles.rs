@@ -4,10 +4,11 @@
 //! arrays, `IGSA` of `IGSt`), each with font info that stacks over the
 //! dialog's text font. Also the dialog itself (`WMDD` `dialog_text_console`).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
+use oni_schema::files;
 use serde_json::{json, Value};
 
 /// `IGUIcFontInfoFlag_*`: which parts of a font info apply.
@@ -45,12 +46,12 @@ impl Font {
         f
     }
 
-    fn json(self) -> Value {
-        let mut v = json!({ "size": self.size, "style": self.style });
-        if let Some(s) = self.shade {
-            v["shade"] = json!(format!("#{s:08x}"));
+    fn file(self) -> files::TextFont {
+        files::TextFont {
+            size: self.size,
+            style: self.style,
+            shade: self.shade.map(|s| format!("#{s:08x}")),
         }
-        v
     }
 }
 
@@ -110,7 +111,7 @@ pub(crate) fn text(v: &Value) -> String {
 }
 
 /// A string array's strings, each with its font pushed over `font`.
-fn strings(r: &Records<'_>, link: &Value, font: Font) -> Vec<Value> {
+fn strings(r: &Records<'_>, link: &Value, font: Font) -> Vec<files::TextRun> {
     let Some((_, sa)) = r.get(link) else {
         return Vec::new();
     };
@@ -119,39 +120,46 @@ fn strings(r: &Records<'_>, link: &Value, font: Font) -> Vec<Value> {
         .into_iter()
         .flatten()
         .filter_map(|s| r.get(s))
-        .map(|(_, s)| json!({ "text": text(&s["string"]), "font": font.push(&s["font_info"]).json() }))
+        .map(|(_, s)| files::TextRun {
+            text: text(&s["string"]),
+            font: font.push(&s["font_info"]).file(),
+        })
         .collect()
 }
 
 /// A page's picture: a texture (drawn at its size, centred) or a part
 /// specification (its top row across the area).
-fn picture(r: &Records<'_>, link: &Value) -> Option<Value> {
+fn picture(r: &Records<'_>, link: &Value) -> Option<files::Picture> {
     let (tag, _) = r.get(link)?;
+    let name = link["$ref"].as_str().map(str::to_string);
     match &tag.to_string()[..] {
-        "TXMP" => Some(json!({ "texture": link["$ref"] })),
+        "TXMP" => Some(files::Picture {
+            texture: name,
+            part_spec: None,
+        }),
         // (By name: `common/part_specs.json` has it.)
-        "PSpc" => Some(json!({ "partSpec": link["$ref"] })),
+        "PSpc" => Some(files::Picture {
+            texture: None,
+            part_spec: name,
+        }),
         _ => None,
     }
 }
 
 /// A page (`IGPG`): its picture, then its text and hint strings, fonts
 /// pushed over `base`.
-pub(crate) fn page(r: &Records<'_>, link: &Value, base: Font) -> Option<Value> {
+pub(crate) fn page(r: &Records<'_>, link: &Value, base: Font) -> Option<files::Page> {
     let (_, page) = r.get(link)?;
     let font = base.push(&page["font_info"]);
-    let mut v = json!({
-        "text": strings(r, &page["text"], font),
-        "hint": strings(r, &page["hint"], font),
-    });
-    if let Some(pic) = picture(r, &page["pict"]) {
-        v["picture"] = pic;
-    }
-    Some(v)
+    Some(files::Page {
+        text: strings(r, &page["text"], font),
+        hint: strings(r, &page["hint"], font),
+        picture: picture(r, &page["pict"]),
+    })
 }
 
 /// A page array's (`IGPA`) pages.
-pub(crate) fn page_array(r: &Records<'_>, link: &Value, base: Font) -> Vec<Value> {
+pub(crate) fn page_array(r: &Records<'_>, link: &Value, base: Font) -> Vec<files::Page> {
     let Some((_, pa)) = r.get(link) else {
         return Vec::new();
     };
@@ -169,9 +177,9 @@ pub fn consoles(
     dat: &Dat<'_>,
     registry: &oni_template::Registry,
     base: Font,
-) -> serde_json::Map<String, Value> {
+) -> BTreeMap<String, files::TextConsole> {
     let r = Records::new(dat, registry);
-    let mut out = serde_json::Map::new();
+    let mut out = BTreeMap::new();
     for inst in dat.instances.iter().filter(|i| i.tag.to_string() == "TxtC") {
         let Some(name) = inst.name.as_deref().filter(|n| !n.is_empty()) else {
             continue;
@@ -181,7 +189,9 @@ pub fn consoles(
         };
         out.insert(
             name.to_string(),
-            json!({ "pages": page_array(&r, &txtc["console_data"], base) }),
+            files::TextConsole {
+                pages: page_array(&r, &txtc["console_data"], base),
+            },
         );
     }
     out
@@ -189,7 +199,7 @@ pub fn consoles(
 
 /// The text console dialog (`dialog_text_console`): its size and controls,
 /// and its text area's font (the pages' base), if `dat` has it.
-pub fn dialog(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(Value, Font)> {
+pub fn dialog(dat: &Dat<'_>, registry: &oni_template::Registry) -> Option<(files::Dialog, Font)> {
     named_dialog(dat, registry, "dialog_text_console")
 }
 
@@ -199,11 +209,12 @@ pub(crate) fn named_dialog(
     dat: &Dat<'_>,
     registry: &oni_template::Registry,
     name: &str,
-) -> Option<(Value, Font)> {
+) -> Option<(files::Dialog, Font)> {
     let r = Records::new(dat, registry);
     let (_, d) = r.get(&json!({ "$ref": name }))?;
     let mut base = None;
-    let items: Vec<Value> = d["items"]
+    let int = |v: &Value| v.as_i64().unwrap_or(0);
+    let items: Vec<files::DialogItem> = d["items"]
         .as_array()?
         .iter()
         .map(|it| {
@@ -216,20 +227,31 @@ pub(crate) fn named_dialog(
             if it["id"] == 110 {
                 base = Some(font);
             }
-            json!({
-                "id": it["id"], "type": it["windowtype"], "title": text(&it["title"]),
-                "rect": [it["x"], it["y"], it["width"], it["height"]], "font": font.json(),
-            })
+            files::DialogItem {
+                id: int(&it["id"]),
+                kind: int(&it["windowtype"]),
+                title: text(&it["title"]),
+                rect: [
+                    int(&it["x"]),
+                    int(&it["y"]),
+                    int(&it["width"]),
+                    int(&it["height"]),
+                ],
+                font: font.file(),
+            }
         })
         .collect();
     Some((
-        json!({ "size": [d["width"], d["height"]], "items": items }),
+        files::Dialog {
+            size: [int(&d["width"]), int(&d["height"])],
+            items,
+        },
         base?,
     ))
 }
 
 /// Writes `common/text_console.json` (the dialog).
-pub fn write_dialog(dialog: &Value, common: &Path) -> std::io::Result<()> {
+pub fn write_dialog(dialog: &files::Dialog, common: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(common)?;
     std::fs::write(
         common.join("text_console.json"),
@@ -238,12 +260,15 @@ pub fn write_dialog(dialog: &Value, common: &Path) -> std::io::Result<()> {
 }
 
 /// Writes a level's `text_consoles.json`.
-pub fn write(consoles: serde_json::Map<String, Value>, root: &Path) -> std::io::Result<usize> {
+pub fn write(
+    consoles: BTreeMap<String, files::TextConsole>,
+    root: &Path,
+) -> std::io::Result<usize> {
     let n = consoles.len();
     if n > 0 {
         std::fs::write(
             root.join("text_consoles.json"),
-            serde_json::to_string_pretty(&json!({ "consoles": consoles }))?,
+            serde_json::to_string_pretty(&files::TextConsolesFile { consoles })?,
         )?;
     }
     Ok(n)

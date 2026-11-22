@@ -174,17 +174,10 @@ impl Mission {
             .map_err(|e| e.to_string())?;
         let mut state = State::default();
         state.vars.insert("save_point".into(), Value::Integer(0));
-        let doc: serde_json::Value =
-            crate::json::load(level_dir.join("../../common/messages.json"));
-        state.texts = doc["messages"]
-            .as_object()
-            .map(|m| {
-                m.iter()
-                    .map(|(n, v)| (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        state.subtitles = crate::hud::Subtitles::from_json(&doc["subtitles"]);
+        let doc: oni_schema::files::MessagesFile =
+            crate::json::read_file(level_dir.join("../../common/messages.json"));
+        state.texts = crate::hud::messages_by_name(&doc, "messages");
+        state.subtitles = crate::hud::Subtitles::from_table(doc.tables.get("subtitles"));
         Ok(Mission {
             lua,
             tasks: Vec::new(),

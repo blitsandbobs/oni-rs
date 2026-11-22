@@ -1233,6 +1233,239 @@ pub struct DifficultySettings {
     pub enemy_hp_multiplier: Vec<f32>,
 }
 
+/// A text run's font (`size`, `style`; its shade `#aarrggbb`, when set).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextFont {
+    pub size: i64,
+    pub style: i64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub shade: Option<String>,
+}
+
+/// A run of text in its font.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextRun {
+    pub text: String,
+    pub font: TextFont,
+}
+
+/// A page (a text console's, the pause screen's): its text, its hint, and
+/// a picture.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Page {
+    pub text: Vec<TextRun>,
+    pub hint: Vec<TextRun>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub picture: Option<Picture>,
+}
+
+/// A page's picture: a texture or a part spec, by name.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Picture {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub texture: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub part_spec: Option<String>,
+}
+
+/// A dialog (`WMtDialogData`) as the text console and pause screen use it:
+/// its size and items. (`common/text_console.json`.)
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Dialog {
+    pub size: [i64; 2],
+    pub items: Vec<DialogItem>,
+}
+
+/// A dialog's item: its id, window type, title, rectangle and font.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct DialogItem {
+    pub id: i64,
+    #[serde(rename = "type")]
+    pub kind: i64,
+    pub title: String,
+    /// x, y, width, height.
+    pub rect: [i64; 4],
+    pub font: TextFont,
+}
+
+/// `levels/NN/text_consoles.json`: the level's text consoles, by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TextConsolesFile {
+    pub consoles: BTreeMap<String, TextConsole>,
+}
+
+/// A text console's pages.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TextConsole {
+    pub pages: Vec<Page>,
+}
+
+/// `common/pause_screen.json`: the pause screen's dialog and the pages
+/// every level shares.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PauseScreenFile {
+    pub dialog: Dialog,
+    pub help: Vec<Page>,
+    pub items: Vec<ItemPage>,
+    pub weapons: Vec<WeaponPage>,
+    pub diary: Vec<DiaryPage>,
+    /// The move keys' icons (textures), by key.
+    pub key_icons: Option<BTreeMap<String, String>>,
+}
+
+/// `levels/NN/pause_pages.json`: a level's objectives and its own item
+/// pages.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PausePagesFile {
+    pub objectives: Vec<Page>,
+    pub items: Vec<ItemPage>,
+}
+
+/// An item's page: the powerup type and its name.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ItemPage {
+    #[serde(rename = "type")]
+    pub kind: i64,
+    pub name: String,
+    pub page: Page,
+}
+
+/// A weapon class's page.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeaponPage {
+    pub class: Option<String>,
+    pub page: Page,
+}
+
+/// A diary page: its level and number, whether it shows a new move, the
+/// move's keys, and its content.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiaryPage {
+    pub level: i64,
+    pub page: i64,
+    pub new_move: bool,
+    pub keys: Vec<i64>,
+    pub content: Page,
+}
+
+/// `common/hud_help.json`: the HUD help overlay's rings and labels.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct HudHelpFile {
+    pub left: HelpRing,
+    pub right: HelpRing,
+    pub items: Vec<HelpItem>,
+}
+
+/// A HUD help ring: its texture and offset.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct HelpRing {
+    pub texture: Option<String>,
+    pub offset: [i16; 2],
+}
+
+/// A HUD help label: its text, offset and which ring it labels.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HelpItem {
+    pub text: String,
+    pub offset: [i16; 2],
+    pub right: bool,
+}
+
+/// `common/menus.json`: the main menu's dialogs, the level names, the
+/// out-of-game skin and the popup menus.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct MenusFile {
+    pub dialogs: BTreeMap<String, MenuDialog>,
+    pub levels: Vec<MenuLevel>,
+    /// Each skin part's part spec.
+    pub skin: Option<BTreeMap<String, String>>,
+    pub popups: BTreeMap<String, Vec<PopupItem>>,
+}
+
+/// A menu dialog (`WMtDialogData`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MenuDialog {
+    pub id: i64,
+    pub title: String,
+    pub flags: i64,
+    pub style: i64,
+    pub size: [i64; 2],
+    pub items: Vec<MenuItem>,
+}
+
+/// A menu dialog's item.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MenuItem {
+    pub id: i64,
+    #[serde(rename = "type")]
+    pub kind: i64,
+    pub title: String,
+    pub flags: i64,
+    pub style: i64,
+    pub rect: [i64; 4],
+    pub font: MenuFont,
+}
+
+/// A menu item's font: its family, size, style and shade (`#aarrggbb`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MenuFont {
+    pub family: Option<String>,
+    pub size: i64,
+    pub style: i64,
+    pub shade: String,
+}
+
+/// A level as the menus know it: its number, the next one, its name.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct MenuLevel {
+    pub level: i64,
+    pub next: i64,
+    pub name: String,
+}
+
+/// A popup menu's item.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PopupItem {
+    pub id: i64,
+    pub flags: i64,
+    pub title: String,
+}
+
+/// `common/part_specs.json`: the part specs (`PSpc`), by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PartSpecsFile {
+    pub part_specs: BTreeMap<String, PartSpec>,
+}
+
+/// A part spec: its texture and its 3 × 3 slices' corners (top-left and
+/// bottom-right, by column then row).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PartSpec {
+    pub texture: String,
+    pub tl: Vec<[i64; 2]>,
+    pub br: Vec<[i64; 2]>,
+}
+
+/// `common/messages.json` (and a level's): the message tables, by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct MessagesFile {
+    pub tables: BTreeMap<String, MessageTable>,
+}
+
+/// A message table: by name (`messages`), or in order (`subtitles`, found
+/// by the first key a line's name starts with).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum MessageTable {
+    Ordered(Vec<(String, String)>),
+    ByName(BTreeMap<String, String>),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

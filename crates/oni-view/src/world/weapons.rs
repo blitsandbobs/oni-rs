@@ -138,7 +138,7 @@ const POWERUP_DYNAMIC_FRICTION: f32 = 0.75;
 const POWERUP_STILL: f32 = 5.0 / 60.0;
 const POWERUP_REST: u32 = 120;
 /// A glow's size without settings (`WPcPowerupDefaultGlowSize`).
-const POWERUP_GLOW_SIZE: f64 = 5.0;
+const POWERUP_GLOW_SIZE: f32 = 5.0;
 
 /// Guns, their classes and the particles.
 pub struct Armory {
@@ -1088,7 +1088,7 @@ impl World {
                     model: p.and_then(|p| p.model.as_ref()).map(|m| common.join(m)),
                     radius: p.map_or(2.0, |p| p.radius),
                     glow: p.and_then(|p| p.glow.as_deref()).map(texture),
-                    glow_size: p.map_or([POWERUP_GLOW_SIZE as f32; 2], |p| p.glow_size),
+                    glow_size: p.map_or([POWERUP_GLOW_SIZE; 2], |p| p.glow_size),
                     glow_height: p.and_then(|p| p.glow_height).unwrap_or(0.0),
                 }
             })

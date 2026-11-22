@@ -1535,6 +1535,7 @@ dependencies = [
  "oni-template",
  "oni-texture",
  "png",
+ "serde",
  "serde_json",
  "sha2",
 ]

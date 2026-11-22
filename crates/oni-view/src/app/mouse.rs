@@ -43,8 +43,9 @@ impl Mouse {
 
 /// The arrow's texture: its part specification's (`common/part_specs.json`).
 fn arrow_texture(common: &Path) -> Option<PathBuf> {
-    let doc: serde_json::Value = crate::json::read(common.join("part_specs.json"))?;
-    let name = doc["partSpecs"]["ps_cursor_arrow"]["texture"].as_str()?;
+    let doc: oni_schema::files::PartSpecsFile =
+        crate::json::read_some(common.join("part_specs.json"))?;
+    let name = &doc.part_specs.get("ps_cursor_arrow")?.texture;
     Some(common.join("textures").join(format!("{name}.png"))).filter(|p| p.exists())
 }
 

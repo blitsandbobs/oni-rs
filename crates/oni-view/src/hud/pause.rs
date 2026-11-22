@@ -71,84 +71,71 @@ pub struct Data {
     objectives: Vec<Page>,
 }
 
-fn read(path: &Path) -> serde_json::Value {
-    crate::json::load(path)
-}
-
 impl Data {
     pub fn load(common: &Path, level_dir: &Path) -> Data {
-        let c = read(&common.join("pause_screen.json"));
-        let l = read(&level_dir.join("pause_pages.json"));
-        let pages = |v: &serde_json::Value| {
-            v.as_array()
-                .into_iter()
-                .flatten()
-                .map(console::page)
-                .collect::<Vec<_>>()
+        use oni_schema::files;
+        let c: Option<files::PauseScreenFile> =
+            crate::json::read_some(common.join("pause_screen.json"));
+        let l: files::PausePagesFile = crate::json::read_file(level_dir.join("pause_pages.json"));
+        let pages = |v: &[files::Page]| v.iter().map(console::page).collect::<Vec<_>>();
+        let Some(c) = c else {
+            return Data {
+                size: [640.0, 480.0],
+                item_pages: l
+                    .items
+                    .iter()
+                    .map(|i| (i.kind as u32, console::page(&i.page)))
+                    .collect(),
+                objectives: pages(&l.objectives),
+                ..Default::default()
+            };
         };
-        let items = c["dialog"]["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let items = c
+            .dialog
+            .items
+            .iter()
             .map(|i| Item {
-                id: i["id"].as_i64().unwrap_or(-1),
-                title: i["title"].as_str().unwrap_or("").to_string(),
-                rect: std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32),
-                font: (
-                    i["font"]["size"].as_u64().unwrap_or(10) as u16,
-                    i["font"]["style"].as_u64().unwrap_or(1) as u8,
-                ),
-                shade: i["font"]["shade"]
-                    .as_str()
+                id: i.id,
+                title: i.title.clone(),
+                rect: i.rect.map(|v| v as f32),
+                font: (i.font.size as u16, i.font.style as u8),
+                shade: i
+                    .font
+                    .shade
+                    .as_deref()
                     .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
                     .unwrap_or(0xFFFF_7F00),
             })
             .collect();
-        let item_pages = c["items"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .chain(l["items"].as_array().into_iter().flatten())
-            .map(|i| {
-                (
-                    i["type"].as_u64().unwrap_or(0) as u32,
-                    console::page(&i["page"]),
-                )
-            })
+        let item_pages = c
+            .items
+            .iter()
+            .chain(&l.items)
+            .map(|i| (i.kind as u32, console::page(&i.page)))
             .collect();
-        let mut diary: Vec<Diary> = c["diary"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let mut diary: Vec<Diary> = c
+            .diary
+            .iter()
             .map(|d| Diary {
-                level: d["level"].as_i64().unwrap_or(0),
-                page: d["page"].as_i64().unwrap_or(0),
-                new_move: d["newMove"].as_bool().unwrap_or(false),
-                content: console::page(&d["content"]),
+                level: d.level,
+                page: d.page,
+                new_move: d.new_move,
+                content: console::page(&d.content),
             })
             .collect();
         diary.sort_by_key(|d| (d.level, d.page));
         Data {
-            size: [
-                c["dialog"]["size"][0].as_f64().unwrap_or(640.0) as f32,
-                c["dialog"]["size"][1].as_f64().unwrap_or(480.0) as f32,
-            ],
+            size: c.dialog.size.map(|v| v as f32),
             items,
-            help: pages(&c["help"]),
+            help: pages(&c.help),
             item_pages,
-            weapons: c["weapons"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|w| {
-                    (
-                        w["class"].as_str().unwrap_or("").to_string(),
-                        console::page(&w["page"]),
-                    )
-                })
+            weapons: c
+                .weapons
+                .iter()
+                .map(|w| (w.class.clone().unwrap_or_default(), console::page(&w.page)))
                 .collect(),
             diary,
-            objectives: pages(&l["objectives"]),
+            objectives: pages(&l.objectives),
         }
     }
 

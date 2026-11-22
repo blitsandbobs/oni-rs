@@ -194,7 +194,7 @@ pub struct Hud {
     consoles: HashMap<String, Vec<console::Page>>,
     console_dialog: Option<console::Dialog>,
     /// `part_specs.json`: the part specifications by name.
-    part_specs: serde_json::Value,
+    part_specs: oni_schema::files::PartSpecsFile,
     /// The pause screen up (F1), and what it can show.
     pub pause: Option<pause::Pause>,
     pause_data: pause::Data,
@@ -270,7 +270,7 @@ impl Default for Hud {
             text_console: None,
             consoles: HashMap::new(),
             console_dialog: None,
-            part_specs: serde_json::Value::Null,
+            part_specs: Default::default(),
             pause: None,
             help: None,
             help_on: false,
@@ -319,16 +319,27 @@ impl Default for Hud {
 #[derive(Clone, Debug, Default)]
 pub struct Subtitles(Vec<(String, String)>);
 
+/// A message table by name (`messages`), its names in lower case.
+pub fn messages_by_name(
+    doc: &oni_schema::files::MessagesFile,
+    table: &str,
+) -> HashMap<String, String> {
+    match doc.tables.get(table) {
+        Some(oni_schema::files::MessageTable::ByName(m)) => m
+            .iter()
+            .map(|(n, v)| (n.to_ascii_lowercase(), v.clone()))
+            .collect(),
+        _ => HashMap::new(),
+    }
+}
+
 impl Subtitles {
-    /// From `messages.json`'s `subtitles`: `[key, text]` pairs.
-    pub fn from_json(v: &serde_json::Value) -> Subtitles {
-        Subtitles(
-            v.as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|p| Some((p[0].as_str()?.to_string(), p[1].as_str()?.to_string())))
-                .collect(),
-        )
+    /// From `messages.json`'s `subtitles`: `[key, text]` pairs in order.
+    pub fn from_table(t: Option<&oni_schema::files::MessageTable>) -> Subtitles {
+        match t {
+            Some(oni_schema::files::MessageTable::Ordered(pairs)) => Subtitles(pairs.clone()),
+            _ => Subtitles::default(),
+        }
     }
 
     /// A line's subtitle (`SSiSubtitleArray_FindByNumber`): the first entry,
@@ -356,19 +367,9 @@ impl Hud {
     /// The HUD for a level: its textures, fonts and message tables from
     /// `common`.
     pub fn load(common: &Path, level: u16) -> Hud {
-        let doc: serde_json::Value = crate::json::load(common.join("messages.json"));
-        let table = |k: &str| -> HashMap<String, String> {
-            doc[k]
-                .as_object()
-                .map(|m| {
-                    m.iter()
-                        .map(|(n, v)| {
-                            (n.to_ascii_lowercase(), v.as_str().unwrap_or("").to_string())
-                        })
-                        .collect()
-                })
-                .unwrap_or_default()
-        };
+        let doc: oni_schema::files::MessagesFile =
+            crate::json::read_file(common.join("messages.json"));
+        let table = |k: &str| messages_by_name(&doc, k);
         let settings: oni_schema::files::GameSettingsFile =
             crate::json::read_file(common.join("game_settings.json"));
         let autoprompts = settings
@@ -379,9 +380,10 @@ impl Hud {
         let flags: oni_schema::files::TextureFlagsFile =
             crate::json::read_file(common.join("texture_flags.json"));
         let additive = flags.additive.into_iter().collect();
-        let specs: serde_json::Value = crate::json::load(common.join("part_specs.json"));
-        let border = PartSpec::from_json(
-            &specs["partSpecs"]["cinematic_border"],
+        let specs: oni_schema::files::PartSpecsFile =
+            crate::json::read_file(common.join("part_specs.json"));
+        let border = PartSpec::from_file(
+            specs.part_specs.get("cinematic_border"),
             &common.join("textures"),
         );
         Hud {
@@ -395,7 +397,7 @@ impl Hud {
             fonts: Fonts::load(common),
             help: help::Help::load(common),
             texts: table("messages"),
-            subtitle_texts: Subtitles::from_json(&doc["subtitles"]),
+            subtitle_texts: Subtitles::from_table(doc.tables.get("subtitles")),
             level,
             autoprompts,
             ..Hud::default()
@@ -857,7 +859,7 @@ impl Hud {
 
     /// A part specification by name (`part_specs.json`).
     fn part(&self, name: &str) -> Option<PartSpec> {
-        PartSpec::from_json(&self.part_specs["partSpecs"][name], &self.textures)
+        PartSpec::from_file(self.part_specs.part_specs.get(name), &self.textures)
     }
 
     /// A texture's size (loaded once).
@@ -1542,19 +1544,20 @@ pub struct PartSpec {
 }
 
 impl PartSpec {
-    fn from_json(v: &serde_json::Value, textures: &std::path::Path) -> Option<PartSpec> {
-        let name = v["texture"].as_str()?;
-        let texture = textures.join(format!("{name}.png"));
+    fn from_file(
+        v: Option<&oni_schema::files::PartSpec>,
+        textures: &std::path::Path,
+    ) -> Option<PartSpec> {
+        let v = v?;
+        let texture = textures.join(format!("{}.png", v.texture));
         let f = std::fs::File::open(&texture).ok()?;
         let r = png::Decoder::new(std::io::BufReader::new(f))
             .read_info()
             .ok()?;
         let size = [r.info().width as f32, r.info().height as f32];
         let p = |k: &str, i: usize| -> [f32; 2] {
-            [
-                v[k][i][0].as_f64().unwrap_or(0.0) as f32,
-                v[k][i][1].as_f64().unwrap_or(0.0) as f32,
-            ]
+            let points = if k == "tl" { &v.tl } else { &v.br };
+            points.get(i).map_or([0.0; 2], |p| p.map(|x| x as f32))
         };
         let mut slices = [[[0.0; 4]; 3]; 3];
         for (c, column) in slices.iter_mut().enumerate() {
@@ -1847,13 +1850,19 @@ mod tests {
 
     #[test]
     fn subtitles_match_as_the_original_finds_them() {
-        let t = Subtitles::from_json(&serde_json::json!([
-            ["00_01_113", "line 113"],
-            ["brain07final", "Deadly Brain: hello"],
-            ["00_01_11", "line 11"],
-            ["gift_field", "field"],
-            ["gift_fields", "fields"],
-        ]));
+        let pairs = [
+            ("00_01_113", "line 113"),
+            ("brain07final", "Deadly Brain: hello"),
+            ("00_01_11", "line 11"),
+            ("gift_field", "field"),
+            ("gift_fields", "fields"),
+        ];
+        let t = Subtitles::from_table(Some(&oni_schema::files::MessageTable::Ordered(
+            pairs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.to_string()))
+                .collect(),
+        )));
         // A numbered key against the name after its first letter.
         assert_eq!(t.find("c00_01_113shinatama"), Some("line 113"));
         assert_eq!(t.find("C00_01_11Shinatama"), Some("line 11"));

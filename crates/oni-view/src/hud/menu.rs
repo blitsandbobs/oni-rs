@@ -99,7 +99,7 @@ pub struct DialogDef {
 #[derive(Clone, Debug, Default)]
 pub struct Look {
     fonts: Fonts,
-    specs: serde_json::Value,
+    specs: oni_schema::files::PartSpecsFile,
     skin: HashMap<String, String>,
     textures: PathBuf,
     sizes: std::cell::RefCell<HashMap<PathBuf, Option<[f32; 2]>>>,
@@ -109,7 +109,7 @@ impl Look {
     /// A skin part (`button_off`, `outline`, …) by its name in the skin.
     fn part(&self, key: &str) -> Option<PartSpec> {
         let name = self.skin.get(key)?;
-        PartSpec::from_json(&self.specs["partSpecs"][name.as_str()], &self.textures)
+        PartSpec::from_file(self.specs.part_specs.get(name), &self.textures)
     }
 
     fn font(&self, f: FontDef) -> Option<&text::Font> {
@@ -161,83 +161,52 @@ pub struct Data {
     pub look: Look,
 }
 
-fn shade(v: &serde_json::Value) -> u32 {
-    v.as_str()
-        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
-        .unwrap_or(0xFFFF_FFFF)
+fn shade(v: &str) -> u32 {
+    u32::from_str_radix(v.trim_start_matches('#'), 16).unwrap_or(0xFFFF_FFFF)
 }
 
 impl Data {
     pub fn load(common: &Path) -> Data {
-        let read = |name: &str| -> serde_json::Value { crate::json::load(common.join(name)) };
-        let doc = read("menus.json");
-        let dialogs = doc["dialogs"]
-            .as_object()
-            .into_iter()
-            .flatten()
+        let doc: oni_schema::files::MenusFile = crate::json::read_file(common.join("menus.json"));
+        let dialogs = doc
+            .dialogs
+            .iter()
             .map(|(name, d)| {
-                let items = d["items"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
+                let items = d
+                    .items
+                    .iter()
                     .map(|i| ItemDef {
-                        id: i["id"].as_i64().unwrap_or(0),
-                        kind: i["type"].as_u64().unwrap_or(0) as u16,
-                        title: i["title"].as_str().unwrap_or("").to_string(),
-                        flags: i["flags"].as_u64().unwrap_or(1) as u32,
-                        style: i["style"].as_u64().unwrap_or(0) as u32,
-                        rect: std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32),
+                        id: i.id,
+                        kind: i.kind as u16,
+                        title: i.title.clone(),
+                        flags: i.flags as u32,
+                        style: i.style as u32,
+                        rect: i.rect.map(|v| v as f32),
                         font: FontDef {
-                            size: i["font"]["size"].as_u64().unwrap_or(10) as u16,
-                            style: i["font"]["style"].as_u64().unwrap_or(0) as u8,
-                            shade: shade(&i["font"]["shade"]),
+                            size: i.font.size as u16,
+                            style: i.font.style as u8,
+                            shade: shade(&i.font.shade),
                         },
                     })
                     .collect();
-                let size = [
-                    d["size"][0].as_f64().unwrap_or(640.0) as f32,
-                    d["size"][1].as_f64().unwrap_or(480.0) as f32,
-                ];
+                let size = d.size.map(|v| v as f32);
                 (name.clone(), DialogDef { size, items })
             })
             .collect();
-        let levels = doc["levels"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|l| {
-                (
-                    l["level"].as_u64().unwrap_or(0) as u16,
-                    l["name"].as_str().unwrap_or("").to_string(),
-                )
-            })
+        let levels = doc
+            .levels
+            .iter()
+            .map(|l| (l.level as u16, l.name.clone()))
             .collect();
-        let popups = doc["popups"]
-            .as_object()
-            .into_iter()
-            .flatten()
+        let popups = doc
+            .popups
+            .iter()
             .map(|(name, items)| {
                 (
                     name.clone(),
-                    items
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .map(|i| {
-                            (
-                                i["id"].as_i64().unwrap_or(0),
-                                i["title"].as_str().unwrap_or("").to_string(),
-                            )
-                        })
-                        .collect(),
+                    items.iter().map(|i| (i.id, i.title.clone())).collect(),
                 )
             })
-            .collect();
-        let skin = doc["skin"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(k, v)| v.as_str().map(|n| (k.clone(), n.to_string())))
             .collect();
         Data {
             dialogs,
@@ -245,8 +214,8 @@ impl Data {
             popups,
             look: Look {
                 fonts: Fonts::load(common),
-                specs: read("part_specs.json"),
-                skin,
+                specs: crate::json::read_file(common.join("part_specs.json")),
+                skin: doc.skin.unwrap_or_default().into_iter().collect(),
                 textures: common.join("textures"),
                 sizes: Default::default(),
             },

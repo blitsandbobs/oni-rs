@@ -38,27 +38,23 @@ pub const TEXT_COLOR: u32 = 0x00FF00;
 
 impl Help {
     pub fn load(common: &Path) -> Option<Help> {
-        let doc: serde_json::Value = crate::json::read(common.join("hud_help.json"))?;
-        let pair = |v: &serde_json::Value| {
-            [
-                v[0].as_i64().unwrap_or(0) as i32,
-                v[1].as_i64().unwrap_or(0) as i32,
-            ]
-        };
-        let side = |v: &serde_json::Value| Side {
-            texture: v["texture"].as_str().map(str::to_string),
-            offset: pair(&v["offset"]),
+        let doc: oni_schema::files::HudHelpFile =
+            crate::json::read_some(common.join("hud_help.json"))?;
+        let pair = |v: [i16; 2]| v.map(i32::from);
+        let side = |v: &oni_schema::files::HelpRing| Side {
+            texture: v.texture.clone(),
+            offset: pair(v.offset),
         };
         Some(Help {
-            left: side(&doc["left"]),
-            right: side(&doc["right"]),
-            labels: doc["items"]
-                .as_array()?
+            left: side(&doc.left),
+            right: side(&doc.right),
+            labels: doc
+                .items
                 .iter()
                 .map(|i| Label {
-                    text: i["text"].as_str().unwrap_or("").to_string(),
-                    offset: pair(&i["offset"]),
-                    right: i["right"].as_bool().unwrap_or(false),
+                    text: i.text.clone(),
+                    offset: pair(i.offset),
+                    right: i.right,
                 })
                 .collect(),
         })

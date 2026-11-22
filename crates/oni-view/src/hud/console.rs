@@ -5,6 +5,7 @@
 //! its own font — with Next (Space) until the last, then Close (Esc closes
 //! at any time). The game stands still while it is up.
 
+use oni_schema::files;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -73,96 +74,69 @@ impl Open {
     }
 }
 
-fn shade(v: &serde_json::Value) -> Option<u32> {
-    v.as_str()
-        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
+fn shade(v: Option<&str>) -> Option<u32> {
+    v.and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
 }
 
-fn line(v: &serde_json::Value) -> Line {
-    let f = &v["font"];
+fn line(v: &files::TextRun) -> Line {
     Line {
-        text: v["text"].as_str().unwrap_or("").to_string(),
-        size: f["size"].as_u64().unwrap_or(10) as u16,
-        style: f["style"].as_u64().unwrap_or(0) as u8,
-        shade: shade(&f["shade"]),
+        text: v.text.clone(),
+        size: v.font.size as u16,
+        style: v.font.style as u8,
+        shade: shade(v.font.shade.as_deref()),
     }
 }
 
-/// A page from its JSON (`text_consoles.json`, `pause_screen.json`).
-pub fn page(p: &serde_json::Value) -> Page {
+/// A page from its file form (`text_consoles.json`, `pause_screen.json`).
+pub fn page(p: &files::Page) -> Page {
     Page {
-        picture: match (&p["picture"]["texture"], &p["picture"]["partSpec"]) {
-            (serde_json::Value::String(t), _) => Some(Picture::Texture(t.clone())),
-            (_, serde_json::Value::String(s)) => Some(Picture::PartSpec(s.clone())),
-            _ => None,
-        },
-        text: p["text"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(line)
-            .collect(),
-        hint: p["hint"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(line)
-            .collect(),
+        picture: p
+            .picture
+            .as_ref()
+            .and_then(|pic| match (&pic.texture, &pic.part_spec) {
+                (Some(t), _) => Some(Picture::Texture(t.clone())),
+                (_, Some(s)) => Some(Picture::PartSpec(s.clone())),
+                _ => None,
+            }),
+        text: p.text.iter().map(line).collect(),
+        hint: p.hint.iter().map(line).collect(),
     }
 }
 
 /// A level's consoles (`levels/NN/text_consoles.json`), by lowercase name.
 pub fn load(level_dir: &Path) -> HashMap<String, Vec<Page>> {
-    let doc: serde_json::Value = crate::json::load(level_dir.join("text_consoles.json"));
-    let Some(consoles) = doc["consoles"].as_object() else {
-        return HashMap::new();
-    };
-    consoles
+    let doc: files::TextConsolesFile = crate::json::read_file(level_dir.join("text_consoles.json"));
+    doc.consoles
         .iter()
         .map(|(name, c)| {
-            let pages = c["pages"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(page)
-                .collect();
-            (name.to_ascii_lowercase(), pages)
+            (
+                name.to_ascii_lowercase(),
+                c.pages.iter().map(page).collect(),
+            )
         })
         .collect()
 }
 
 /// The dialog's layout (`common/text_console.json`).
 pub fn load_dialog(common: &Path) -> Option<Dialog> {
-    let doc: serde_json::Value = crate::json::read(common.join("text_console.json"))?;
-    let item = |id: i64| {
-        doc["items"]
-            .as_array()
-            .and_then(|a| a.iter().find(|i| i["id"].as_i64() == Some(id)))
-    };
-    let r = |i: &serde_json::Value| -> [f32; 4] {
-        std::array::from_fn(|k| i["rect"][k].as_f64().unwrap_or(0.0) as f32)
-    };
+    let doc: files::Dialog = crate::json::read_some(common.join("text_console.json"))?;
+    let item = |id: i64| doc.items.iter().find(|i| i.id == id);
+    let r = |i: &files::DialogItem| -> [f32; 4] { i.rect.map(|v| v as f32) };
     let (text, next) = (item(110)?, item(102)?);
     // (The Close button: the dialog's cancel item, 2.)
     let close = item(2);
-    let f = &next["font"];
+    let f = &next.font;
     Some(Dialog {
-        size: [
-            doc["size"][0].as_f64()? as f32,
-            doc["size"][1].as_f64()? as f32,
-        ],
+        size: doc.size.map(|v| v as f32),
         text: r(text),
         button: r(next),
         button_font: (
-            f["size"].as_u64().unwrap_or(10) as u16,
-            f["style"].as_u64().unwrap_or(0) as u8,
-            shade(&f["shade"]).unwrap_or(0xFFFF_FFFF),
+            f.size as u16,
+            f.style as u8,
+            shade(f.shade.as_deref()).unwrap_or(0xFFFF_FFFF),
         ),
-        next: next["title"].as_str().unwrap_or("Next").to_string(),
-        close: close
-            .and_then(|c| c["title"].as_str())
-            .unwrap_or("Close")
-            .to_string(),
+        next: next.title.clone(),
+        close: close.map_or("Close", |c| c.title.as_str()).to_string(),
     })
 }
 
