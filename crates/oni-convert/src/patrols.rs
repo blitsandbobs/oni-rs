@@ -7,6 +7,7 @@ use std::path::Path;
 
 use oni_dat::Dat;
 use oni_schema as sc;
+use oni_schema::files;
 use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
@@ -16,7 +17,8 @@ fn i16_at(d: &[u8], o: usize) -> i16 {
 }
 
 /// A level's patrol paths.
-fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Patrol> {
+    use files::Waypoint as W;
     let (version, objects) = crate::objects::read(dat, raw, "Patrol Path");
     objects
         .iter()
@@ -38,103 +40,138 @@ fn patrols(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
                 }
                 let kind = le_u32(d, at);
                 at += 4;
-                let name = sc::name(&sc::PATROL_WAYPOINTS, kind as u16).unwrap_or("unknown");
-                let mut w = json!({ "type": name });
-                let point =
-                    |at: usize| json!([le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)]);
-                let size = match kind {
-                    0 | 3 | 5 => {
-                        w["flag"] = json!(i16_at(d, at));
-                        2
-                    }
-                    2 => {
-                        w["ticks"] = json!(le_u32(d, at) as i32);
-                        4
-                    }
-                    4 | 8 => {
-                        w["point"] = point(at);
-                        12
-                    }
-                    7 => {
-                        w["mode"] = json!(sc::name(&sc::MOVEMENT_MODES, le_u32(d, at) as u16)
-                            .unwrap_or("byAlertLevel"));
-                        4
-                    }
-                    9 => {
-                        w["direction"] =
-                            json!(sc::name(&sc::MOVE_DIRECTIONS, le_u32(d, at) as u16)
-                                .unwrap_or("forward"));
-                        4
-                    }
-                    10 => {
-                        w["flag"] = json!(i16_at(d, at));
-                        w["distance"] = json!(le_f32(d, at + 2));
-                        6
-                    }
-                    11 => {
-                        w["point"] = point(at);
-                        w["distance"] = json!(le_f32(d, at + 12));
-                        16
-                    }
-                    14 => {
-                        w["flag"] = json!(i16_at(d, at));
-                        w["ticks"] = json!(le_u32(d, at + 2));
-                        6
-                    }
-                    15 if version >= 19 => {
-                        w["flag"] = json!(i16_at(d, at));
-                        w["distance"] = json!(le_f32(d, at + 2));
-                        6
-                    }
-                    16 => {
-                        w["waypoint"] = json!(le_u32(d, at));
-                        4
-                    }
-                    17 => {
-                        w["ticks"] = json!(i16_at(d, at));
-                        w["angle"] = json!(le_f32(d, at + 2).to_radians());
-                        6
-                    }
-                    19 => {
-                        // Frames before the flag (the file order, not the struct's).
-                        let ticks = i16_at(d, at);
-                        if ticks != 0 {
-                            w["ticks"] = json!(ticks);
-                        }
-                        w["flag"] = json!(i16_at(d, at + 2));
-                        w["maxAngle"] = json!(le_f32(d, at + 4).min(180.0).to_radians());
-                        8
-                    }
+                let point = |at: usize| [le_f32(d, at), le_f32(d, at + 4), le_f32(d, at + 8)];
+                let flag = |at: usize| i16_at(d, at);
+                let (w, size) = match kind {
+                    0 => (W::MoveToFlag { flag: flag(at) }, 2),
+                    1 => (W::Stop, 0),
+                    2 => (
+                        W::Pause {
+                            ticks: le_u32(d, at) as i32,
+                        },
+                        4,
+                    ),
+                    3 => (W::LookAtFlag { flag: flag(at) }, 2),
+                    4 => (W::LookAtPoint { point: point(at) }, 12),
+                    5 => (W::MoveAndFaceFlag { flag: flag(at) }, 2),
+                    6 => (W::Loop, 0),
+                    7 => (
+                        W::MovementMode {
+                            mode: sc::name(&sc::MOVEMENT_MODES, le_u32(d, at) as u16)
+                                .unwrap_or("byAlertLevel")
+                                .to_string(),
+                        },
+                        4,
+                    ),
+                    8 => (W::MoveToPoint { point: point(at) }, 12),
+                    9 => (
+                        W::LookInDirection {
+                            direction: sc::name(&sc::MOVE_DIRECTIONS, le_u32(d, at) as u16)
+                                .unwrap_or("forward")
+                                .to_string(),
+                        },
+                        4,
+                    ),
+                    10 => (
+                        W::MoveThroughFlag {
+                            flag: flag(at),
+                            distance: le_f32(d, at + 2),
+                        },
+                        6,
+                    ),
+                    11 => (
+                        W::MoveThroughPoint {
+                            point: point(at),
+                            distance: le_f32(d, at + 12),
+                        },
+                        16,
+                    ),
+                    12 => (W::StopLooking, 0),
+                    13 => (W::FreeFacing, 0),
+                    14 => (
+                        W::GlanceAtFlag {
+                            flag: flag(at),
+                            ticks: le_u32(d, at + 2),
+                        },
+                        6,
+                    ),
+                    15 if version >= 19 => (
+                        W::MoveNearFlag {
+                            flag: Some(flag(at)),
+                            distance: Some(le_f32(d, at + 2)),
+                        },
+                        6,
+                    ),
+                    15 => (
+                        W::MoveNearFlag {
+                            flag: None,
+                            distance: None,
+                        },
+                        0,
+                    ),
+                    16 => (
+                        W::LoopToWaypoint {
+                            waypoint: le_u32(d, at),
+                        },
+                        4,
+                    ),
+                    17 => (
+                        W::Scan {
+                            ticks: i16_at(d, at),
+                            angle: le_f32(d, at + 2).to_radians(),
+                        },
+                        6,
+                    ),
+                    18 => (W::StopScanning, 0),
+                    // Frames before the flag (the file order, not the struct's).
+                    19 => (
+                        W::Guard {
+                            ticks: Some(i16_at(d, at)).filter(|&t| t != 0),
+                            flag: i16_at(d, at + 2),
+                            max_angle: le_f32(d, at + 4).min(180.0).to_radians(),
+                        },
+                        8,
+                    ),
                     20 | 21 => {
-                        w["script"] = json!(format!("patrolscript{:04}", i16_at(d, at)));
-                        2
+                        let script = format!("patrolscript{:04}", i16_at(d, at));
+                        let w = if kind == 20 {
+                            W::TriggerScript { script }
+                        } else {
+                            W::PlayScript { script }
+                        };
+                        (w, 2)
                     }
-                    22 => {
-                        w["lock"] = json!(d.get(at).copied().unwrap_or(0) != 0);
-                        1
-                    }
-                    23 => {
-                        w["flag"] = json!(i16_at(d, at));
-                        w["ticks"] = json!(i16_at(d, at + 2));
-                        w["inaccuracy"] = json!(le_f32(d, at + 4));
-                        8
-                    }
-                    _ => 0,
+                    22 => (
+                        W::LockIntoPatrol {
+                            lock: d.get(at).copied().unwrap_or(0) != 0,
+                        },
+                        1,
+                    ),
+                    23 => (
+                        W::ShootAtFlag {
+                            flag: flag(at),
+                            ticks: i16_at(d, at + 2),
+                            inaccuracy: le_f32(d, at + 4),
+                        },
+                        8,
+                    ),
+                    _ => (W::Unknown, 0),
                 };
                 at += size;
                 waypoints.push(w);
             }
-            let mut p = json!({ "id": id, "name": cstr(d, 0, 32), "waypoints": waypoints });
-            if flags & 1 != 0 {
-                p["returnToNearest"] = json!(true);
-            }
-            Some(p)
+            Some(files::Patrol {
+                id,
+                name: cstr(d, 0, 32),
+                waypoints,
+                return_to_nearest: flags & 1 != 0,
+            })
         })
         .collect()
 }
 
 /// A level's flags: id, display name, position and facing.
-fn flags(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+fn flags(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Flag> {
     crate::objects::read(dat, raw, "Flag")
         .1
         .iter()
@@ -152,17 +189,17 @@ fn flags(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             let [a, b, c] = o.rotation.map(f32::to_radians);
             let zx = a.cos() * b.sin() * c.cos() + a.sin() * c.sin();
             let zz = a.cos() * b.cos();
-            let facing = zx.atan2(zz).rem_euclid(std::f32::consts::TAU);
-            let mut f = json!({ "id": id, "name": name, "position": o.position, "facing": facing });
-            let note = if d.len() >= 136 {
-                cstr(d, 8, 128)
-            } else {
-                String::new()
-            };
-            if !note.is_empty() {
-                f["note"] = json!(note);
+            files::Flag {
+                id,
+                name,
+                position: o.position,
+                facing: zx.atan2(zz).rem_euclid(std::f32::consts::TAU),
+                note: if d.len() >= 136 {
+                    cstr(d, 8, 128)
+                } else {
+                    String::new()
+                },
             }
-            f
         })
         .collect()
 }
@@ -176,17 +213,17 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("patrols.json"),
-        serde_json::to_string_pretty(&json!({ "patrols": p }))?,
+        serde_json::to_string_pretty(&files::PatrolsFile { patrols: p })?,
     )?;
     std::fs::write(
         root.join("flags.json"),
-        serde_json::to_string_pretty(&json!({ "flags": f }))?,
+        serde_json::to_string_pretty(&files::FlagsFile { flags: f })?,
     )?;
     let t = triggers(dat, raw);
     if !t.is_empty() {
         std::fs::write(
             root.join("triggers.json"),
-            serde_json::to_string_pretty(&json!({ "triggers": t }))?,
+            serde_json::to_string_pretty(&files::TriggersFile { triggers: t })?,
         )?;
     }
     Ok(())
@@ -266,7 +303,7 @@ pub fn euler_axes(rotation: [f32; 3]) -> [[f32; 3]; 3] {
 
 /// A level's trigger volumes (`OT_TriggerVolume`): boxes from their
 /// position (a corner) to `size` along their rotated axes.
-pub fn triggers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn triggers(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::TriggerVolume> {
     let (version, objects) = crate::objects::read(dat, raw, "Trigger Volume");
     objects
         .iter()
@@ -290,31 +327,27 @@ pub fn triggers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             };
             let note = cstr(d, at, 128);
             let flags = le_u32(d, at + 128);
-            let mut t = json!({
-                "id": id,
-                "name": name,
-                "position": o.position,
-                "axes": euler_axes(o.rotation),
-                "size": size,
-                "teams": sc::bit_names(&sc::TEAMS, teams & 0xFF),
-            });
-            for (k, at) in [("entry", 63), ("inside", 95), ("exit", 127)] {
-                let s = script(at);
-                if !s.is_empty() {
-                    t[k] = json!(s);
-                }
+            let script = |at: usize| Some(script(at)).filter(|s| !s.is_empty());
+            files::TriggerVolume {
+                id,
+                name,
+                position: o.position,
+                axes: euler_axes(o.rotation),
+                size,
+                teams: sc::bit_names(&sc::TEAMS, teams & 0xFF)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                entry: script(63),
+                inside: script(95),
+                exit: script(127),
+                parent: (parent != 0).then_some(parent),
+                flags: sc::bit_names(&sc::TRIGGER_FLAGS, flags)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
+                note,
             }
-            if parent != 0 {
-                t["parent"] = json!(parent);
-            }
-            let f = sc::bit_names(&sc::TRIGGER_FLAGS, flags);
-            if !f.is_empty() {
-                t["flags"] = json!(f);
-            }
-            if !note.is_empty() {
-                t["note"] = json!(note);
-            }
-            t
         })
         .collect()
 }

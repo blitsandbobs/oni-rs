@@ -82,27 +82,27 @@ fn anim_type(t: u16) -> Value {
 }
 
 /// The AI's aiming and shooting parameters for one shooter.
-pub(crate) fn ai_params(d: &[u8], o: usize) -> Value {
-    json!({
-        "noWildShots": le_u32(d, o) & 1 != 0,
-        "predictionSpeed": le_f32(d, o + 76),
-        "burstRadius": le_f32(d, o + 80),
-        "aimRadius": le_f32(d, o + 84),
-        "detectionVolume": le_f32(d, o + 88),
-        "minSafeDistance": le_f32(d, o + 92),
-        "maxRange": le_f32(d, o + 96),
-        "maxStartleMisses": le_u16(d, o + 100),
-        "shootSkillIndex": le_u16(d, o + 102),
-        "meleeAssistTimer": le_u32(d, o + 104),
-        "ballisticSpeed": le_f32(d, o + 108),
-        "ballisticGravity": le_f32(d, o + 112),
-        "dodgePattern": [le_f32(d, o + 116), le_f32(d, o + 120), le_f32(d, o + 124)],
+pub(crate) fn ai_params(d: &[u8], o: usize) -> oni_schema::files::AiGunParams {
+    oni_schema::files::AiGunParams {
+        no_wild_shots: le_u32(d, o) & 1 != 0,
+        prediction_speed: le_f32(d, o + 76),
+        burst_radius: le_f32(d, o + 80),
+        aim_radius: le_f32(d, o + 84),
+        detection_volume: le_f32(d, o + 88),
+        min_safe_distance: le_f32(d, o + 92),
+        max_range: le_f32(d, o + 96),
+        max_startle_misses: le_u16(d, o + 100),
+        shoot_skill_index: le_u16(d, o + 102),
+        melee_assist_timer: le_u32(d, o + 104),
+        ballistic_speed: le_f32(d, o + 108),
+        ballistic_gravity: le_f32(d, o + 112),
+        dodge_pattern: [le_f32(d, o + 116), le_f32(d, o + 120), le_f32(d, o + 124)],
         // Where the shot leaves the gun (gun space): its direction, its
         // offset off that line, and the turn from it onto the barrel.
-        "shooterDirection": vec3(d, o + 52),
-        "shooterOffset": vec3(d, o + 64),
-        "shooterInverse": (0..12).map(|k| le_f32(d, o + 4 + k * 4)).collect::<Vec<_>>(),
-    })
+        shooter_direction: vec3(d, o + 52),
+        shooter_offset: vec3(d, o + 64),
+        shooter_inverse: std::array::from_fn(|k| le_f32(d, o + 4 + k * 4)),
+    }
 }
 
 /// One weapon class as JSON. `model` is its geometry's path under `common/`.
@@ -178,9 +178,9 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<Value> {
     if !empty.is_empty() {
         c.insert("emptySound".into(), json!(empty));
     }
-    c.insert("ai".into(), ai_params(d, 208));
+    c.insert("ai".into(), json!(ai_params(d, 208)));
     if le_u16(d, 196) > 1 {
-        c.insert("aiAlternate".into(), ai_params(d, 336));
+        c.insert("aiAlternate".into(), json!(ai_params(d, 336)));
     }
     c.insert("attachments".into(), json!(attachments));
     Some(Value::Object(c))

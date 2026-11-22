@@ -238,6 +238,325 @@ pub struct ObjectAnimationKey {
     pub rotation: [f32; 4],
 }
 
+/// `common/turrets.json`: the turret classes (`TURR`), by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TurretClassesFile {
+    pub classes: BTreeMap<String, TurretClass>,
+}
+
+/// A turret class.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TurretClass {
+    pub name: String,
+    /// Its head's and barrel's models (paths under `common/`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub barrel: Option<String>,
+    pub head_pivot: V3,
+    pub barrel_pivot: V3,
+    /// Ticks it stays on (0: for ever).
+    pub timeout: u32,
+    pub pitch: Limits,
+    pub yaw: Limits,
+    pub active_sound: String,
+    pub ai: AiGunParams,
+    pub targeting: Targeting,
+    pub skill: ShootSkill,
+    pub attachments: Vec<TurretAttachment>,
+}
+
+/// A turning part's limits (radians) and speed (radians a tick).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Limits {
+    pub min: f32,
+    pub max: f32,
+    pub speed: f32,
+}
+
+/// A turret's particle attachment: its class, which shooter it is (−1:
+/// none), its chamber time (shooters only) and its matrix (4×3).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TurretAttachment {
+    pub class: String,
+    pub shooter: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chamber: Option<u16>,
+    pub matrix: [f32; 12],
+}
+
+/// How the AI uses a gun (`WPtAIParameters`; weapons' and turrets').
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiGunParams {
+    pub no_wild_shots: bool,
+    pub prediction_speed: f32,
+    pub burst_radius: f32,
+    pub aim_radius: f32,
+    pub detection_volume: f32,
+    pub min_safe_distance: f32,
+    pub max_range: f32,
+    pub max_startle_misses: u16,
+    pub shoot_skill_index: u16,
+    pub melee_assist_timer: u32,
+    pub ballistic_speed: f32,
+    pub ballistic_gravity: f32,
+    pub dodge_pattern: V3,
+    /// Where the shot leaves the gun (gun space): its direction, its offset
+    /// off that line, and the turn from it onto the barrel (4×3).
+    pub shooter_direction: V3,
+    pub shooter_offset: V3,
+    pub shooter_inverse: [f32; 12],
+}
+
+impl Default for AiGunParams {
+    /// None given: all zero, the shot leaving along the barrel.
+    fn default() -> Self {
+        AiGunParams {
+            no_wild_shots: false,
+            prediction_speed: 0.0,
+            burst_radius: 0.0,
+            aim_radius: 0.0,
+            detection_volume: 0.0,
+            min_safe_distance: 0.0,
+            max_range: 0.0,
+            max_startle_misses: 0,
+            shoot_skill_index: 0,
+            melee_assist_timer: 0,
+            ballistic_speed: 0.0,
+            ballistic_gravity: 0.0,
+            dodge_pattern: [0.0; 3],
+            shooter_direction: [0.0; 3],
+            shooter_offset: [0.0; 3],
+            shooter_inverse: [1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0],
+        }
+    }
+}
+
+/// Targeting settings (`AI2tTargetingParams`; characters' and turrets').
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Targeting {
+    pub startle_miss_ratio: f32,
+    pub startle_miss_distance: f32,
+    pub predict_amount: f32,
+    pub predict_position_delay: u32,
+    pub predict_delay: u32,
+    pub predict_velocity: u32,
+    pub predict_trend: u32,
+}
+
+/// A shooting skill (`AI2tShootingSkill`; characters' and turrets').
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShootSkill {
+    pub recoil_compensation: f32,
+    pub best_aiming_sine: f32,
+    pub shot_error_percent: f32,
+    pub shot_decay: f32,
+    pub gun_inaccuracy: f32,
+    pub delay_min: u16,
+    pub delay_max: u16,
+}
+
+/// `levels/NN/turrets.json`: the level's placed turrets.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TurretsFile {
+    pub turrets: Vec<Turret>,
+}
+
+/// A placed turret (`OBJtOSD_Turret`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Turret {
+    pub object_id: u32,
+    pub id: u16,
+    pub class: String,
+    pub position: V3,
+    pub axes: [V3; 3],
+    /// The teams it fires at (bits).
+    pub target_teams: u32,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+}
+
+/// `levels/NN/corpses.json`: the level's corpse array (`CRSA`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CorpsesFile {
+    /// Its size: the static corpses and room for the dead of play.
+    pub max: u32,
+    pub corpses: Vec<Corpse>,
+}
+
+/// A pre-placed corpse: its class, each body part's matrix (4×3) and its
+/// bounds.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Corpse {
+    pub name: String,
+    pub class: String,
+    pub matrices: Vec<[f32; 12]>,
+    pub bbox: Bounds,
+}
+
+/// A box's corners.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Bounds {
+    pub min: V3,
+    pub max: V3,
+}
+
+/// `levels/NN/flags.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FlagsFile {
+    pub flags: Vec<Flag>,
+}
+
+/// A flag: id, display name, position, facing and its note.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Flag {
+    pub id: u16,
+    pub name: String,
+    pub position: V3,
+    pub facing: f32,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// `levels/NN/triggers.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct TriggersFile {
+    pub triggers: Vec<TriggerVolume>,
+}
+
+/// A trigger volume (`OT_TriggerVolume`): a box from `position` (a corner)
+/// `size` along its axes, the scripts it runs, who sets it off.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct TriggerVolume {
+    pub id: i32,
+    pub name: String,
+    pub position: V3,
+    pub axes: [V3; 3],
+    pub size: V3,
+    /// `TEAMS` names.
+    pub teams: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub entry: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub inside: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<i32>,
+    /// `TRIGGER_FLAGS` names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub note: String,
+}
+
+/// `levels/NN/patrols.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct PatrolsFile {
+    pub patrols: Vec<Patrol>,
+}
+
+/// A patrol path.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Patrol {
+    pub id: u16,
+    pub name: String,
+    pub waypoints: Vec<Waypoint>,
+    /// Joined (and rejoined) at its nearest waypoint.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub return_to_nearest: bool,
+}
+
+/// A patrol waypoint (`AI2tWaypoint`; `PATROL_WAYPOINTS`). Ticks keep the
+/// data's own widths.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum Waypoint {
+    MoveToFlag {
+        flag: i16,
+    },
+    Stop,
+    Pause {
+        ticks: i32,
+    },
+    LookAtFlag {
+        flag: i16,
+    },
+    LookAtPoint {
+        point: V3,
+    },
+    MoveAndFaceFlag {
+        flag: i16,
+    },
+    Loop,
+    MovementMode {
+        mode: String,
+    },
+    MoveToPoint {
+        point: V3,
+    },
+    LookInDirection {
+        direction: String,
+    },
+    MoveThroughFlag {
+        flag: i16,
+        distance: f32,
+    },
+    MoveThroughPoint {
+        point: V3,
+        distance: f32,
+    },
+    StopLooking,
+    FreeFacing,
+    GlanceAtFlag {
+        flag: i16,
+        ticks: u32,
+    },
+    /// (Old files keep neither.)
+    MoveNearFlag {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        flag: Option<i16>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        distance: Option<f32>,
+    },
+    LoopToWaypoint {
+        waypoint: u32,
+    },
+    Scan {
+        ticks: i16,
+        angle: f32,
+    },
+    StopScanning,
+    Guard {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        ticks: Option<i16>,
+        flag: i16,
+        #[serde(rename = "maxAngle")]
+        max_angle: f32,
+    },
+    TriggerScript {
+        script: String,
+    },
+    PlayScript {
+        script: String,
+    },
+    LockIntoPatrol {
+        lock: bool,
+    },
+    ShootAtFlag {
+        flag: i16,
+        ticks: i16,
+        inaccuracy: f32,
+    },
+    Unknown,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use glam::{Mat3, Mat4, Quat, Vec3};
-use serde_json::Value;
+use oni_schema::files;
 
 use super::weapons::ShotHost;
 use super::World;
@@ -159,73 +159,59 @@ impl Turret {
     }
 }
 
-use crate::json::vec3 as v3;
-
-fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
-    let f = |j: &Value| j.as_f64().unwrap_or(0.0) as f32;
-    let limits = |j: &Value| (f(&j["min"]), f(&j["max"]), f(&j["speed"]));
-    let mut gun = crate::weapons::AiGun::from_json(&c["ai"]).aim;
+fn class(c: &files::TurretClass, common: &Path, particles: &p3::Classes) -> TurretClass {
+    let limits = |l: &files::Limits| (l.min, l.max, l.speed);
+    let mut gun = crate::weapons::AiGun::from_file(&c.ai).aim;
     gun.barrel_z = true;
     TurretClass {
-        head: c["head"].as_str().map(|m| common.join(m)),
-        barrel: c["barrel"].as_str().map(|m| common.join(m)),
-        head_pivot: v3(&c["headPivot"]),
-        barrel_pivot: v3(&c["barrelPivot"]),
-        timeout: c["timeout"].as_u64().unwrap_or(0) as u32,
-        active_sound: c["activeSound"]
-            .as_str()
-            .filter(|s| !s.is_empty())
-            .map(str::to_string),
-        pitch: limits(&c["pitch"]),
-        yaw: limits(&c["yaw"]),
-        attachments: c["attachments"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        head: c.head.as_ref().map(|m| common.join(m)),
+        barrel: c.barrel.as_ref().map(|m| common.join(m)),
+        head_pivot: Vec3::from(c.head_pivot),
+        barrel_pivot: Vec3::from(c.barrel_pivot),
+        timeout: c.timeout,
+        active_sound: Some(c.active_sound.clone()).filter(|s| !s.is_empty()),
+        pitch: limits(&c.pitch),
+        yaw: limits(&c.yaw),
+        attachments: c
+            .attachments
+            .iter()
             .map(|a| Attachment {
-                class: a["class"].as_str().and_then(|n| particles.get(n)),
-                shooter: a["shooter"].as_i64().unwrap_or(-1) as i32,
-                chamber: a["chamber"].as_u64().unwrap_or(0) as u16,
-                matrix: crate::geom::mat4_json(&a["matrix"]),
+                class: particles.get(&a.class),
+                shooter: a.shooter,
+                chamber: a.chamber.unwrap_or(0),
+                matrix: crate::geom::mat4_4x3(&a.matrix),
             })
             .collect(),
         gun,
-        params: crate::ai::ranged::Params::from_json(&c["targeting"]),
-        skill: crate::ai::ranged::Skill::from_json(&c["skill"]),
+        params: crate::ai::ranged::Params::from_file(&c.targeting),
+        skill: crate::ai::ranged::Skill::from_file(&c.skill),
     }
 }
 
 /// Loads the turret classes and a level's placed turrets.
 pub fn load(level_dir: &Path, common: &Path, particles: &p3::Classes) -> Vec<Turret> {
-    let read = |p: &Path| crate::json::read(p);
-    let (Some(classes), Some(placed)) = (
-        read(&common.join("turrets.json")),
-        read(&level_dir.join("turrets.json")),
-    ) else {
-        return Vec::new();
-    };
-    let mut by_name: std::collections::HashMap<String, Rc<TurretClass>> = Default::default();
-    placed["turrets"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let classes: files::TurretClassesFile = crate::json::read_file(common.join("turrets.json"));
+    let placed: files::TurretsFile = crate::json::read_file(level_dir.join("turrets.json"));
+    let mut by_name: std::collections::HashMap<&str, Rc<TurretClass>> = Default::default();
+    placed
+        .turrets
+        .iter()
         .filter_map(|t| {
-            let name = t["class"].as_str()?;
-            let class = match by_name.get(name) {
+            let class = match by_name.get(t.class.as_str()) {
                 Some(c) => c.clone(),
                 None => {
-                    let c = Rc::new(class(&classes["classes"][name], common, particles));
-                    by_name.insert(name.to_string(), c.clone());
+                    let c = Rc::new(class(classes.classes.get(&t.class)?, common, particles));
+                    by_name.insert(t.class.as_str(), c.clone());
                     c
                 }
             };
-            let a = &t["axes"];
+            let a = t.axes.map(Vec3::from);
             let tu = Turret {
                 class,
-                id: t["id"].as_u64().unwrap_or(0) as u16,
-                position: v3(&t["position"]),
-                rotation: Mat3::from_cols(v3(&a[0]), v3(&a[1]), v3(&a[2])),
-                teams: t["targetTeams"].as_u64().unwrap_or(1) as u32,
+                id: t.id,
+                position: Vec3::from(t.position),
+                rotation: Mat3::from_cols(a[0], a[1], a[2]),
+                teams: t.target_teams,
                 active: false,
                 yaw: 0.0,
                 pitch: 0.0,

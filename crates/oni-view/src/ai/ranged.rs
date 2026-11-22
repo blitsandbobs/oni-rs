@@ -25,17 +25,17 @@ pub struct Skill {
 
 impl Skill {
     pub fn from_json(j: &serde_json::Value) -> Skill {
-        let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
+        Skill::from_file(&serde_json::from_value(j.clone()).unwrap_or_default())
+    }
+
+    pub fn from_file(s: &oni_schema::files::ShootSkill) -> Skill {
         Skill {
-            recoil_compensation: f("recoilCompensation"),
-            best_aiming_sine: f("bestAimingSine"),
-            error_percent: f("shotErrorPercent"),
-            decay: f("shotDecay").clamp(0.0, 1.0),
-            gun_inaccuracy: f("gunInaccuracy"),
-            delay: (
-                j["delayMin"].as_u64().unwrap_or(0) as u16,
-                j["delayMax"].as_u64().unwrap_or(0) as u16,
-            ),
+            recoil_compensation: s.recoil_compensation,
+            best_aiming_sine: s.best_aiming_sine,
+            error_percent: s.shot_error_percent,
+            decay: s.shot_decay.clamp(0.0, 1.0),
+            gun_inaccuracy: s.gun_inaccuracy,
+            delay: (s.delay_min, s.delay_max),
         }
     }
 }
@@ -71,18 +71,22 @@ impl Default for Params {
 }
 
 impl Params {
+    /// From its JSON form (`Targeting`; unreadable: the defaults).
     pub fn from_json(j: &serde_json::Value) -> Params {
-        let d = Params::default();
-        let f = |k: &str, v: f32| j[k].as_f64().map_or(v, |x| x as f32);
-        let u = |k: &str, v: usize| j[k].as_u64().map_or(v, |x| x as usize);
+        serde_json::from_value(j.clone())
+            .map(|t| Params::from_file(&t))
+            .unwrap_or_default()
+    }
+
+    pub fn from_file(t: &oni_schema::files::Targeting) -> Params {
         Params {
-            startle_ratio: f("startleMissRatio", d.startle_ratio),
-            startle_distance: f("startleMissDistance", d.startle_distance),
-            predict_amount: f("predictAmount", d.predict_amount),
-            position_delay: u("predictPositionDelay", d.position_delay),
-            delay: u("predictDelay", d.delay),
-            velocity: u("predictVelocity", d.velocity),
-            trend: u("predictTrend", d.trend).max(1),
+            startle_ratio: t.startle_miss_ratio,
+            startle_distance: t.startle_miss_distance,
+            predict_amount: t.predict_amount,
+            position_delay: t.predict_position_delay as usize,
+            delay: t.predict_delay as usize,
+            velocity: t.predict_velocity as usize,
+            trend: (t.predict_trend as usize).max(1),
         }
     }
 }

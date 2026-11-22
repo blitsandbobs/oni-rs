@@ -67,41 +67,24 @@ impl Corpses {
 
 /// The level's corpses (none without the file).
 pub fn load(level_dir: &std::path::Path) -> Corpses {
-    let Ok(text) = std::fs::read_to_string(level_dir.join("corpses.json")) else {
-        return Corpses::default();
-    };
-    let doc: serde_json::Value = serde_json::from_str(&text).unwrap_or_default();
-    use crate::json::vec3 as v3;
-    let list: Vec<Corpse> = doc["corpses"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|c| {
-            let class = c["class"].as_str()?.to_string();
-            let bones = c["matrices"]
-                .as_array()?
+    let doc: oni_schema::files::CorpsesFile =
+        crate::json::read_file(level_dir.join("corpses.json"));
+    let list: Vec<Corpse> = doc
+        .corpses
+        .iter()
+        .map(|c| Corpse {
+            class: c.class.clone(),
+            bones: c
+                .matrices
                 .iter()
-                .map(|m| {
-                    let f: Vec<f32> = m
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|x| x.as_f64())
-                        .map(|x| x as f32)
-                        .collect();
-                    (f.len() == 12).then(|| crate::geom::mat4_4x3(&f))
-                })
-                .collect::<Option<Vec<Mat4>>>()?;
-            Some(Corpse {
-                class,
-                bones,
-                model: None,
-                bbox: (v3(&c["bbox"]["min"]), v3(&c["bbox"]["max"])),
-            })
+                .map(|m| crate::geom::mat4_4x3(m))
+                .collect(),
+            model: None,
+            bbox: (Vec3::from(c.bbox.min), Vec3::from(c.bbox.max)),
         })
         .collect();
     let fixed = list.len();
-    let max = doc["max"].as_u64().map_or(fixed, |m| m as usize).max(fixed);
+    let max = (doc.max as usize).max(fixed);
     Corpses {
         list,
         fixed,

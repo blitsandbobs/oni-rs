@@ -155,33 +155,30 @@ const TRACKED: usize = 4;
 
 impl Triggers {
     pub fn load(path: &std::path::Path) -> Triggers {
-        let doc: serde_json::Value = crate::json::load(path);
-        use crate::json::vec3 as v3;
-        let volumes = doc["triggers"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let doc: oni_schema::files::TriggersFile = crate::json::read_file(path);
+        let bits = |names: &[String], table: &[&str]| -> u32 {
+            names
+                .iter()
+                .filter_map(|n| table.iter().position(|x| x == n))
+                .fold(0, |m, b| m | 1 << b)
+        };
+        let volumes = doc
+            .triggers
+            .iter()
             .map(|t| {
-                let s = |k: &str| t[k].as_str().unwrap_or("").to_string();
-                let scripts = [s("entry"), s("inside"), s("exit")];
-                let names = |k: &str, table: &[&str]| -> u32 {
-                    t[k].as_array()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|n| table.iter().position(|x| Some(*x) == n.as_str()))
-                        .fold(0, |m, b| m | 1 << b)
-                };
-                let flags = names("flags", &oni_schema::TRIGGER_FLAGS);
+                let s = |v: &Option<String>| v.clone().unwrap_or_default();
+                let scripts = [s(&t.entry), s(&t.inside), s(&t.exit)];
+                let flags = bits(&t.flags, &oni_schema::TRIGGER_FLAGS);
                 Volume {
-                    id: t["id"].as_i64().unwrap_or(0),
-                    name: s("name"),
+                    id: i64::from(t.id),
+                    name: t.name.clone(),
                     authored_scripts: scripts.clone(),
                     scripts,
-                    teams: names("teams", &oni_schema::TEAMS),
-                    corner: v3(&t["position"]),
-                    axes: [v3(&t["axes"][0]), v3(&t["axes"][1]), v3(&t["axes"][2])],
-                    size: v3(&t["size"]),
-                    parent: t["parent"].as_i64(),
+                    teams: bits(&t.teams, &oni_schema::TEAMS),
+                    corner: Vec3::from(t.position),
+                    axes: t.axes.map(Vec3::from),
+                    size: Vec3::from(t.size),
+                    parent: t.parent.map(i64::from),
                     flags,
                     authored_flags: flags,
                 }

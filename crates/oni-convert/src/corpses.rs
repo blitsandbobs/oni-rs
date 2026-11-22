@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Value};
+use oni_schema::files;
 
 use crate::{cstr, le_f32, le_u32};
 
@@ -25,7 +25,7 @@ const PARTS: usize = 19;
 
 /// The level's static corpses (the first `static_corpses`; the rest of the
 /// array is room for the dead of play).
-pub fn corpses(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
+pub fn corpses(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<files::Corpse> {
     let Some(inst) = dat.instances.iter().find(|i| i.tag == TAG_CRSA) else {
         return Vec::new();
     };
@@ -42,12 +42,8 @@ pub fn corpses(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
             let at = CORPSES + k * CORPSE_SIZE;
             d.get(at..at + CORPSE_SIZE)?;
             let class = fields["corpses"][k]["corpse_data"]["characterClass"]["$ref"].as_str()?;
-            let matrices: Vec<Vec<f32>> = (0..PARTS)
-                .map(|p| {
-                    (0..12)
-                        .map(|i| le_f32(d, at + MATRICES + p * 48 + i * 4))
-                        .collect()
-                })
+            let matrices: Vec<[f32; 12]> = (0..PARTS)
+                .map(|p| std::array::from_fn(|i| le_f32(d, at + MATRICES + p * 48 + i * 4)))
                 .collect();
             let v = |o: usize| {
                 [
@@ -56,12 +52,15 @@ pub fn corpses(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<Value> {
                     le_f32(d, at + o + 8),
                 ]
             };
-            Some(json!({
-                "name": cstr(d, at, 32),
-                "class": class,
-                "matrices": matrices,
-                "bbox": { "min": v(BBOX), "max": v(BBOX + 12) },
-            }))
+            Some(files::Corpse {
+                name: cstr(d, at, 32),
+                class: class.to_string(),
+                matrices,
+                bbox: files::Bounds {
+                    min: v(BBOX),
+                    max: v(BBOX + 12),
+                },
+            })
         })
         .collect()
 }
@@ -82,6 +81,6 @@ pub fn write(dat: &Dat<'_>, registry: &oni_template::Registry, root: &Path) -> s
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("corpses.json"),
-        serde_json::to_string_pretty(&json!({ "max": max, "corpses": c }))?,
+        serde_json::to_string_pretty(&files::CorpsesFile { max, corpses: c })?,
     )
 }

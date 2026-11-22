@@ -24,7 +24,7 @@
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Map, Value};
+use oni_schema::files;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -39,77 +39,70 @@ fn vec3(d: &[u8], o: usize) -> [f32; 3] {
     [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
 }
 
-/// One turret class as JSON (`model` resolves a geometry reference).
-pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<Value> {
+/// One turret class (`model` resolves a geometry reference).
+pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<files::TurretClass> {
     if d.len() < SIZE {
         return None;
     }
     let n = (le_u16(d, 78) as usize).min(16);
-    let attachments: Vec<Value> = (0..n)
+    let attachments = (0..n)
         .map(|i| {
             let o = ATTACHMENTS + i * ATTACHMENT;
             let shooter = le_u16(d, o + 22);
-            let mut a = json!({
-                "class": cstr(d, o, 16),
-                "shooter": if shooter == 0xFFFF { -1 } else { i32::from(shooter) },
-                "matrix": (0..12).map(|k| le_f32(d, o + 24 + k * 4)).collect::<Vec<_>>(),
-            });
-            // (Only shooters' chamber times mean anything.)
-            if shooter != 0xFFFF {
-                a["chamber"] = json!(le_u16(d, o + 20));
+            files::TurretAttachment {
+                class: cstr(d, o, 16),
+                shooter: if shooter == 0xFFFF {
+                    -1
+                } else {
+                    i32::from(shooter)
+                },
+                // (Only shooters' chamber times mean anything.)
+                chamber: (shooter != 0xFFFF).then(|| le_u16(d, o + 20)),
+                matrix: std::array::from_fn(|k| le_f32(d, o + 24 + k * 4)),
             }
-            a
         })
         .collect();
     let t = 1484;
     let s = 1512;
-    let mut c = Map::new();
-    c.insert("name".into(), json!(cstr(d, 0, 32)));
-    if let Some(m) = model(le_u32(d, 100)) {
-        c.insert("head".into(), json!(m));
-    }
-    if let Some(m) = model(le_u32(d, 108)) {
-        c.insert("barrel".into(), json!(m));
-    }
-    c.insert("headPivot".into(), json!(vec3(d, 116)));
-    c.insert("barrelPivot".into(), json!(vec3(d, 128)));
-    c.insert("timeout".into(), json!(le_u32(d, 1536)));
-    c.insert(
-        "pitch".into(),
-        json!({ "min": le_f32(d, 1540), "max": le_f32(d, 1544), "speed": le_f32(d, 1556) }),
-    );
-    c.insert(
-        "yaw".into(),
-        json!({ "min": le_f32(d, 1548), "max": le_f32(d, 1552), "speed": le_f32(d, 1560) }),
-    );
-    c.insert("activeSound".into(), json!(cstr(d, 1564, 32)));
-    c.insert("ai".into(), crate::weapons::ai_params(d, 1356));
-    c.insert(
-        "targeting".into(),
-        json!({
-            "startleMissRatio": le_f32(d, t),
-            "startleMissDistance": le_f32(d, t + 4),
-            "predictAmount": le_f32(d, t + 8),
-            "predictPositionDelay": le_u32(d, t + 12),
-            "predictDelay": le_u32(d, t + 16),
-            "predictVelocity": le_u32(d, t + 20),
-            "predictTrend": le_u32(d, t + 24),
-        }),
-    );
-    c.insert(
-        "skill".into(),
-        json!({
-            "recoilCompensation": le_f32(d, s),
-            "bestAimingSine": le_f32(d, s + 4),
-            "shotErrorPercent": le_f32(d, s + 8),
-            "shotDecay": le_f32(d, s + 12),
-            "gunInaccuracy": le_f32(d, s + 16),
-            "delayMin": le_u16(d, s + 20),
-            "delayMax": le_u16(d, s + 22),
-        }),
-    );
-    c.insert("attachments".into(), json!(attachments));
-    Some(Value::Object(c))
+    Some(files::TurretClass {
+        name: cstr(d, 0, 32),
+        head: model(le_u32(d, 100)),
+        barrel: model(le_u32(d, 108)),
+        head_pivot: vec3(d, 116),
+        barrel_pivot: vec3(d, 128),
+        timeout: le_u32(d, 1536),
+        pitch: files::Limits {
+            min: le_f32(d, 1540),
+            max: le_f32(d, 1544),
+            speed: le_f32(d, 1556),
+        },
+        yaw: files::Limits {
+            min: le_f32(d, 1548),
+            max: le_f32(d, 1552),
+            speed: le_f32(d, 1560),
+        },
+        active_sound: cstr(d, 1564, 32),
+        ai: crate::weapons::ai_params(d, 1356),
+        targeting: files::Targeting {
+            startle_miss_ratio: le_f32(d, t),
+            startle_miss_distance: le_f32(d, t + 4),
+            predict_amount: le_f32(d, t + 8),
+            predict_position_delay: le_u32(d, t + 12),
+            predict_delay: le_u32(d, t + 16),
+            predict_velocity: le_u32(d, t + 20),
+            predict_trend: le_u32(d, t + 24),
+        },
+        skill: files::ShootSkill {
+            recoil_compensation: le_f32(d, s),
+            best_aiming_sine: le_f32(d, s + 4),
+            shot_error_percent: le_f32(d, s + 8),
+            shot_decay: le_f32(d, s + 12),
+            gun_inaccuracy: le_f32(d, s + 16),
+            delay_min: le_u16(d, s + 20),
+            delay_max: le_u16(d, s + 22),
+        },
+        attachments,
+    })
 }
 
 /// Writes `turrets.json` (every `TURR` in `dat`, level 0) into `common`.
@@ -121,58 +114,59 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             .filter(|g| g.tag == TAG_M3GM)
             .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)))
     };
-    let mut out = Map::new();
+    let mut file = files::TurretClassesFile::default();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_TURR) {
         let Some(c) = dat.instance_data(inst).and_then(|d| class(d, &model)) else {
             continue;
         };
-        out.insert(c["name"].as_str().unwrap_or_default().to_string(), c);
+        file.classes.insert(c.name.clone(), c);
     }
-    let count = out.len();
+    let count = file.classes.len();
     if count > 0 {
         std::fs::create_dir_all(common)?;
         std::fs::write(
             common.join("turrets.json"),
-            serde_json::to_string_pretty(&json!({ "classes": out }))?,
+            serde_json::to_string_pretty(&file)?,
         )?;
     }
     Ok(count)
 }
 
 /// A level's placed turrets.
-pub fn turrets(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn turrets(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Turret> {
     crate::objects::read(dat, raw, "Turret")
         .1
         .iter()
         .filter(|o| o.data.len() >= 107)
         .map(|o| {
             let d = o.data;
-            let mut t = json!({
-                "objectId": o.id,
-                "id": le_u16(d, NAME),
-                "class": cstr(d, 0, NAME),
-                "position": o.position,
-                "axes": crate::patrols::euler_axes(o.rotation),
-                "targetTeams": le_u32(d, 103),
-            });
-            if le_u16(d, NAME + 2) & 0x2 != 0 {
-                t["flags"] = json!(["initialActive"]);
+            files::Turret {
+                object_id: o.id,
+                id: le_u16(d, NAME),
+                class: cstr(d, 0, NAME),
+                position: o.position,
+                axes: crate::patrols::euler_axes(o.rotation),
+                target_teams: le_u32(d, 103),
+                flags: if le_u16(d, NAME + 2) & 0x2 != 0 {
+                    vec!["initialActive".into()]
+                } else {
+                    Vec::new()
+                },
             }
-            t
         })
         .collect()
 }
 
 /// Writes `turrets.json` into a level folder (only if it places any).
 pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
-    let t = turrets(dat, raw);
-    if t.is_empty() {
+    let turrets = turrets(dat, raw);
+    if turrets.is_empty() {
         return Ok(());
     }
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("turrets.json"),
-        serde_json::to_string_pretty(&json!({ "turrets": t }))?,
+        serde_json::to_string_pretty(&files::TurretsFile { turrets })?,
     )
 }
 
@@ -193,13 +187,13 @@ mod tests {
         d[a1 + 20..a1 + 22].copy_from_slice(&0xDEADu16.to_le_bytes());
         d[1536..1540].copy_from_slice(&900u32.to_le_bytes());
         let c = class(&d, &|_| None).unwrap();
-        assert_eq!(c["name"], json!("x_turret_w"));
-        assert_eq!(c["timeout"], json!(900));
-        assert_eq!(c["attachments"][0]["chamber"], json!(5));
-        assert_eq!(c["attachments"][0]["shooter"], json!(0));
-        assert_eq!(c["attachments"][1]["shooter"], json!(-1));
-        assert!(
-            c["attachments"][1].get("chamber").is_none(),
+        assert_eq!(c.name, "x_turret_w");
+        assert_eq!(c.timeout, 900);
+        assert_eq!(c.attachments[0].chamber, Some(5));
+        assert_eq!(c.attachments[0].shooter, 0);
+        assert_eq!(c.attachments[1].shooter, -1);
+        assert_eq!(
+            c.attachments[1].chamber, None,
             "junk chamber of a follower dropped"
         );
     }

@@ -350,16 +350,14 @@ impl LevelAi {
                     .unwrap_or_default(),
             });
         }
-        for f in read(&level_dir.join("flags.json"))["flags"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
+        let flags: oni_schema::files::FlagsFile =
+            crate::json::read_file(level_dir.join("flags.json"));
+        for f in &flags.flags {
             out.flags.insert(
-                f["id"].as_i64().unwrap_or(0) as i16,
+                f.id as i16,
                 Flag {
-                    at: v3(&f["position"]),
-                    facing: f["facing"].as_f64().unwrap_or(0.0) as f32,
+                    at: Vec3::from(f.position),
+                    facing: f.facing,
                 },
             );
         }
@@ -386,21 +384,14 @@ impl LevelAi {
             };
             out.setups.insert(setup.script_id, setup);
         }
-        for p in read(&level_dir.join("patrols.json"))["patrols"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
+        let patrols: oni_schema::files::PatrolsFile =
+            crate::json::read_file(level_dir.join("patrols.json"));
+        for p in &patrols.patrols {
             let path = PatrolPath {
-                id: p["id"].as_u64().unwrap_or(0) as u16,
-                name: s(&p["name"]),
-                return_to_nearest: p["returnToNearest"].as_bool().unwrap_or(false),
-                waypoints: p["waypoints"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(waypoint)
-                    .collect(),
+                id: p.id,
+                name: p.name.clone(),
+                return_to_nearest: p.return_to_nearest,
+                waypoints: p.waypoints.iter().filter_map(waypoint).collect(),
             };
             out.patrols.insert(path.id, Rc::new(path));
         }
@@ -495,90 +486,95 @@ impl LevelAi {
     }
 }
 
-fn waypoint(w: &Value) -> Option<Waypoint> {
-    let flag = || w["flag"].as_i64().map(|v| Target::Flag(v as i16));
-    let point = || {
-        w["point"]
-            .is_array()
-            .then(|| Target::Point(v3(&w["point"])))
-    };
-    let f = |k: &str| w[k].as_f64().unwrap_or(0.0) as f32;
-    let ticks = || w["ticks"].as_u64().unwrap_or(0) as u32;
-    Some(match w["type"].as_str()? {
-        "moveToFlag" => Waypoint::MoveTo {
-            at: flag()?,
+fn waypoint(w: &oni_schema::files::Waypoint) -> Option<Waypoint> {
+    use oni_schema::files::Waypoint as W;
+    let flag = |f: i16| Target::Flag(f);
+    let point = |p: &[f32; 3]| Target::Point(Vec3::from(*p));
+    // (Negative ticks read as none.)
+    let ticks = |t: i64| u32::try_from(t).unwrap_or(0);
+    Some(match w {
+        W::MoveToFlag { flag: f } => Waypoint::MoveTo {
+            at: flag(*f),
             stop: true,
             face: false,
             within: 0.0,
         },
-        "moveToPoint" => Waypoint::MoveTo {
-            at: point()?,
+        W::MoveToPoint { point: p } => Waypoint::MoveTo {
+            at: point(p),
             stop: true,
             face: false,
             within: 0.0,
         },
-        "moveAndFaceFlag" => Waypoint::MoveTo {
-            at: flag()?,
+        W::MoveAndFaceFlag { flag: f } => Waypoint::MoveTo {
+            at: flag(*f),
             stop: true,
             face: true,
             within: 0.0,
         },
-        "moveThroughFlag" => Waypoint::MoveTo {
-            at: flag()?,
+        W::MoveThroughFlag { flag: f, distance } => Waypoint::MoveTo {
+            at: flag(*f),
             stop: false,
             face: false,
-            within: f("distance"),
+            within: *distance,
         },
-        "moveThroughPoint" => Waypoint::MoveTo {
-            at: point()?,
+        W::MoveThroughPoint { point: p, distance } => Waypoint::MoveTo {
+            at: point(p),
             stop: false,
             face: false,
-            within: f("distance"),
+            within: *distance,
         },
-        "moveNearFlag" => Waypoint::MoveTo {
-            at: flag()?,
+        W::MoveNearFlag { flag: f, distance } => Waypoint::MoveTo {
+            at: flag((*f)?),
             stop: true,
             face: false,
-            within: f("distance"),
+            within: distance.unwrap_or(0.0),
         },
-        "stop" => Waypoint::Stop,
-        "pause" => Waypoint::Pause(ticks()),
-        "lookAtFlag" => Waypoint::LookAt(flag()?),
-        "lookAtPoint" => Waypoint::LookAt(point()?),
-        "stopLooking" => Waypoint::StopLooking,
-        "lookInDirection" => Waypoint::LookInDirection,
-        "freeFacing" => Waypoint::FreeFacing,
-        "loop" => Waypoint::Loop,
-        "loopToWaypoint" => Waypoint::LoopTo(w["waypoint"].as_u64().unwrap_or(0) as usize),
-        "movementMode" => Waypoint::Pace(w["mode"].as_str().unwrap_or("byAlertLevel").to_string()),
-        "glanceAtFlag" => Waypoint::Glance {
-            at: flag()?,
-            ticks: ticks(),
+        W::Stop => Waypoint::Stop,
+        W::Pause { ticks: t } => Waypoint::Pause(ticks(i64::from(*t))),
+        W::LookAtFlag { flag: f } => Waypoint::LookAt(flag(*f)),
+        W::LookAtPoint { point: p } => Waypoint::LookAt(point(p)),
+        W::StopLooking => Waypoint::StopLooking,
+        W::LookInDirection { .. } => Waypoint::LookInDirection,
+        W::FreeFacing => Waypoint::FreeFacing,
+        W::Loop => Waypoint::Loop,
+        W::LoopToWaypoint { waypoint } => Waypoint::LoopTo(*waypoint as usize),
+        W::MovementMode { mode } => Waypoint::Pace(mode.clone()),
+        W::GlanceAtFlag { flag: f, ticks: t } => Waypoint::Glance {
+            at: flag(*f),
+            ticks: *t,
         },
-        "scan" => Waypoint::Scan {
-            ticks: ticks(),
-            angle: f("angle"),
+        W::Scan { ticks: t, angle } => Waypoint::Scan {
+            ticks: ticks(i64::from(*t)),
+            angle: *angle,
         },
-        "stopScanning" => Waypoint::StopScanning,
-        "guard" => Waypoint::Guard {
-            flag: w["flag"].as_i64()? as i16,
-            ticks: w["ticks"].as_u64().map(|t| t as u32),
-            angle: f("maxAngle"),
+        W::StopScanning => Waypoint::StopScanning,
+        W::Guard {
+            ticks: t,
+            flag,
+            max_angle,
+        } => Waypoint::Guard {
+            flag: *flag,
+            ticks: t.and_then(|t| u32::try_from(t).ok()),
+            angle: *max_angle,
         },
-        "triggerScript" => Waypoint::Script {
-            name: w["script"].as_str()?.to_string(),
+        W::TriggerScript { script } => Waypoint::Script {
+            name: script.clone(),
             wait: false,
         },
-        "playScript" => Waypoint::Script {
-            name: w["script"].as_str()?.to_string(),
+        W::PlayScript { script } => Waypoint::Script {
+            name: script.clone(),
             wait: true,
         },
-        "lockIntoPatrol" => Waypoint::Lock(w["lock"].as_bool().unwrap_or(false)),
-        "shootAtFlag" => Waypoint::ShootAt {
-            at: flag()?,
-            ticks: ticks(),
-            inaccuracy: w["inaccuracy"].as_f64().unwrap_or(0.0) as f32,
+        W::LockIntoPatrol { lock } => Waypoint::Lock(*lock),
+        W::ShootAtFlag {
+            flag: f,
+            ticks: t,
+            inaccuracy,
+        } => Waypoint::ShootAt {
+            at: flag(*f),
+            ticks: ticks(i64::from(*t)),
+            inaccuracy: *inaccuracy,
         },
-        _ => return None,
+        W::Unknown => return None,
     })
 }

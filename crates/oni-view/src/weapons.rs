@@ -329,37 +329,33 @@ pub struct AiGun {
 }
 
 impl AiGun {
+    /// From its JSON form (`AiGunParams`; none: the defaults).
     pub fn from_json(j: &Json) -> AiGun {
-        let f = |k: &str| j[k].as_f64().unwrap_or(0.0) as f32;
-        let m: Vec<f32> = j["shooterInverse"]
-            .as_array()
-            .map(|a| a.iter().map(|v| v.as_f64().unwrap_or(0.0) as f32).collect())
-            .unwrap_or_default();
-        let inverse = if m.len() >= 9 {
-            glam::Mat3::from_cols(
-                Vec3::new(m[0], m[1], m[2]),
-                Vec3::new(m[3], m[4], m[5]),
-                Vec3::new(m[6], m[7], m[8]),
-            )
-        } else {
-            glam::Mat3::IDENTITY
-        };
+        AiGun::from_file(&serde_json::from_value(j.clone()).unwrap_or_default())
+    }
+
+    pub fn from_file(p: &oni_schema::files::AiGunParams) -> AiGun {
+        let m = &p.shooter_inverse;
         AiGun {
             aim: crate::ai::ranged::Gun {
-                aim_radius: f("aimRadius").max(0.1),
-                burst_radius: f("burstRadius"),
-                prediction_speed: f("predictionSpeed"),
-                no_wild_shots: j["noWildShots"].as_bool().unwrap_or(false),
-                shooter_offset: vec3(&j["shooterOffset"]),
-                shooter_inverse: inverse,
-                ballistic: (f("ballisticSpeed") > 0.0)
-                    .then(|| (f("ballisticSpeed"), f("ballisticGravity"))),
+                aim_radius: p.aim_radius.max(0.1),
+                burst_radius: p.burst_radius,
+                prediction_speed: p.prediction_speed,
+                no_wild_shots: p.no_wild_shots,
+                shooter_offset: Vec3::from(p.shooter_offset),
+                shooter_inverse: glam::Mat3::from_cols(
+                    Vec3::new(m[0], m[1], m[2]),
+                    Vec3::new(m[3], m[4], m[5]),
+                    Vec3::new(m[6], m[7], m[8]),
+                ),
+                ballistic: (p.ballistic_speed > 0.0)
+                    .then_some((p.ballistic_speed, p.ballistic_gravity)),
                 barrel_z: false,
             },
-            min_safe_distance: f("minSafeDistance"),
-            max_range: f("maxRange"),
-            skill_index: j["shootSkillIndex"].as_u64().unwrap_or(0) as usize,
-            melee_assist: j["meleeAssistTimer"].as_u64().unwrap_or(0) as u32,
+            min_safe_distance: p.min_safe_distance,
+            max_range: p.max_range,
+            skill_index: usize::from(p.shoot_skill_index),
+            melee_assist: p.melee_assist_timer,
         }
     }
 }

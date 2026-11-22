@@ -913,14 +913,14 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
             "timeScale": float("ai2_behavior.dodge_time_scale"),
             "weightScale": float("ai2_behavior.dodge_weight_scale"),
         },
-        "targeting": {
-            "startleMissRatio": float("ai2_behavior.combat_parameters.targeting_params.startle_miss_angle"),
-            "startleMissDistance": float("ai2_behavior.combat_parameters.targeting_params.startle_miss_distance"),
-            "predictAmount": float("ai2_behavior.combat_parameters.targeting_params.predict_amount"),
-            "predictPositionDelay": int("ai2_behavior.combat_parameters.targeting_params.predict_positiondelayframes"),
-            "predictDelay": int("ai2_behavior.combat_parameters.targeting_params.predict_delayframes"),
-            "predictVelocity": int("ai2_behavior.combat_parameters.targeting_params.predict_velocityframes"),
-            "predictTrend": int("ai2_behavior.combat_parameters.targeting_params.predict_trendframes"),
+        "targeting": oni_schema::files::Targeting {
+            startle_miss_ratio: float("ai2_behavior.combat_parameters.targeting_params.startle_miss_angle"),
+            startle_miss_distance: float("ai2_behavior.combat_parameters.targeting_params.startle_miss_distance"),
+            predict_amount: float("ai2_behavior.combat_parameters.targeting_params.predict_amount"),
+            predict_position_delay: int("ai2_behavior.combat_parameters.targeting_params.predict_positiondelayframes") as u32,
+            predict_delay: int("ai2_behavior.combat_parameters.targeting_params.predict_delayframes") as u32,
+            predict_velocity: int("ai2_behavior.combat_parameters.targeting_params.predict_velocityframes") as u32,
+            predict_trend: int("ai2_behavior.combat_parameters.targeting_params.predict_trendframes") as u32,
         },
         "shootingSkill": shooting_skill(rec),
     })
@@ -928,7 +928,7 @@ fn perception_json(rec: &oni_template::Record) -> serde_json::Value {
 
 /// A class's shooting skill per weapon slot (`AI2tShootingSkill` ×13; a
 /// gun picks its slot by `shootSkillIndex`).
-fn shooting_skill(rec: &oni_template::Record) -> Vec<serde_json::Value> {
+fn shooting_skill(rec: &oni_template::Record) -> Vec<oni_schema::files::ShootSkill> {
     let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value)
     else {
         return Vec::new();
@@ -940,15 +940,15 @@ fn shooting_skill(rec: &oni_template::Record) -> Vec<serde_json::Value> {
                 Some(oni_template::Value::Float(f)) => *f,
                 _ => 0.0,
             };
-            serde_json::json!({
-                "recoilCompensation": float("recoil_compensation"),
-                "bestAimingSine": float("best_aiming_angle"),
-                "shotErrorPercent": float("shot_error"),
-                "shotDecay": float("shot_decay"),
-                "gunInaccuracy": float("gun_inaccuracy"),
-                "delayMin": s.int("delay_min").unwrap_or(0),
-                "delayMax": s.int("delay_max").unwrap_or(0),
-            })
+            oni_schema::files::ShootSkill {
+                recoil_compensation: float("recoil_compensation"),
+                best_aiming_sine: float("best_aiming_angle"),
+                shot_error_percent: float("shot_error"),
+                shot_decay: float("shot_decay"),
+                gun_inaccuracy: float("gun_inaccuracy"),
+                delay_min: s.int("delay_min").unwrap_or(0) as u16,
+                delay_max: s.int("delay_max").unwrap_or(0) as u16,
+            }
         })
         .collect()
 }
