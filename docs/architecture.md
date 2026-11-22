@@ -23,7 +23,7 @@ stays the reference for *how* anything works; this page is the map of
   to `render.rs` (wgpu). `hud/` is the HUD, text consoles, pause screen and
   menus; `audio/` the sound engine (mixer, ambients, impulses, occlusion).
 - **Front-ends** — `app.rs` (the window: play, the main menu, movies) and
-  `script.rs` (the headless scenario host). Both open a level with
+  `script/` (the headless scenario host). Both open a level with
   `opening.rs`, build frames with `frame.rs` and tick with
   `mission::game_tick`, so a scenario runs what the game runs.
 - **Level scripts** — `mission/`: the original BSL scripts, translated to
