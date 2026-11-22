@@ -105,6 +105,8 @@ fn route_length(nav: &crate::nav::Navigation, from: Vec3, to: Vec3) -> Option<f3
 /// instance needs. Clone-cheap (two `Rc`s + an index).
 #[derive(Clone)]
 pub struct CharKind {
+    /// The character class's name (`ONCC`).
+    pub class: Rc<str>,
     pub model: usize,
     /// Its super particles: class and body part (`ONtCharacterParticle`).
     pub super_particles: Rc<Vec<(String, usize)>>,
@@ -411,6 +413,7 @@ impl World {
         if !self.quads.quads.is_empty() {
             f.snap_to_floor(&self.quads);
         }
+        f.class = kind.class.clone();
         f.magic_model = kind.magic_model;
         f.super_particles = kind.super_particles.clone();
         f.class_particles = kind.class_particles.clone();

@@ -79,7 +79,6 @@ struct ScriptHost {
     /// The class `spawn` uses unless told otherwise.
     opponent: String,
     /// Each fighter's class name, by fighter index.
-    class_names: Vec<String>,
     /// Whether frames draw the decals (`show_decals`).
     show_decals: bool,
     /// How many magic effects the last screenshot drew.
@@ -108,9 +107,7 @@ impl crate::mission::Host for ScriptHost {
         &mut self.world
     }
     fn kind(&mut self, class: &str) -> Result<CharKind, String> {
-        let k = ScriptHost::kind(self, class)?;
-        self.class_names.push(class.to_string());
-        Ok(k)
+        ScriptHost::kind(self, class)
     }
     fn melee(&mut self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
         self.classes.melee_by_id(id)
@@ -162,7 +159,6 @@ impl ScriptHost {
             world,
             classes,
             opponent: cast.opponent.unwrap_or_else(|| cast.player.clone()),
-            class_names: vec![cast.player],
             show_decals: true,
             magic_drawn: 0,
             held: 0,
@@ -544,11 +540,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                     let p = p?;
                     pts.push(Vec3::new(p.get(1)?, 0.0, p.get(2)?));
                 }
-                let pace = match pace.as_deref() {
-                    Some("walk") => crate::ai::Pace::Walk,
-                    Some("creep") => crate::ai::Pace::Creep,
-                    _ => crate::ai::Pace::Run,
-                };
+                let pace = crate::ai::Pace::from_name(pace.as_deref());
                 if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
                     let route = crate::ai::Route::new(pts, pace, looping.unwrap_or(false));
                     f.brain = Some(crate::ai::Brain::Route(route));
@@ -573,11 +565,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                     "right" => Direction::SidestepRight,
                     _ => Direction::Stopped,
                 };
-                let pace = match pace.as_deref() {
-                    Some("walk") => Pace::Walk,
-                    Some("creep") => Pace::Creep,
-                    _ => Pace::Run,
-                };
+                let pace = Pace::from_name(pace.as_deref());
                 let face = face.map(f32::to_radians);
                 if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
                     f.brain = Some(Brain::Hold(Orders {
@@ -1248,15 +1236,15 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 let kind = host.kind(&class).map_err(mlua::Error::runtime)?;
                 let yaw = facing_deg.unwrap_or(180.0).to_radians();
                 let id = host.world.spawn(&kind, Vec3::new(x, y, z), yaw, true);
-                host.class_names.push(class);
                 Ok(id as u32)
             },
         )?,
     )?;
 
-    // Goals: places one of the level's characters by name
-    // (its class, position, job, alerts, profiles) → its fighter id; errors
-    // if the level places no such character.
+    // Goals: places one of the level's characters by name, as the level's
+    // scripts spawn it (`ai2_spawn`: its costume, melee profile, goals and
+    // alerts) → its fighter id; errors if the level places no such
+    // character. (Its spawn script isn't run.)
     let h = host.clone();
     g.set(
         "place",
@@ -1270,15 +1258,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .find(|c| c.name.eq_ignore_ascii_case(&name))
                 .cloned()
                 .ok_or_else(|| mlua::Error::runtime(format!("no placed character {name:?}")))?;
-            let kind = host.kind(&placed.class).map_err(mlua::Error::runtime)?;
-            // (A placed position is the feet; spawning takes the pelvis:
-            // start it a little above and let it settle.)
-            let id = host
-                .world
-                .spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
-            let melee = placed.melee_id.and_then(|m| host.classes.melee_by_id(m));
-            host.world.give_goals(id, Some(&placed), melee);
-            host.class_names.push(placed.class.clone());
+            let id =
+                crate::mission::spawn_placed(&mut *host, &placed).map_err(mlua::Error::runtime)?;
             Ok(id as u32)
         })?,
     )?;
@@ -3485,7 +3466,13 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
     let h = host.clone();
     g.set(
         "class_of",
-        lua.create_function(move |_, id: usize| Ok(h.borrow().class_names.get(id).cloned()))?,
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .map(|f| f.class.to_string()))
+        })?,
     )?;
 
     // How many fighters there are (the player included, removed ones too).

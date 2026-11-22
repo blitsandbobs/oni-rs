@@ -103,6 +103,7 @@ impl Classes {
         let low = self.dir.join(model).with_file_name("low.glb");
         let magic_model = skel::load_character(&low).ok().map(|c| upload(&c));
         let kind = CharKind {
+            class: name.into(),
             model: upload(&character),
             magic_model,
             character: Rc::new(character),

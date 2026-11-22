@@ -82,6 +82,17 @@ pub enum Pace {
     Creep,
 }
 
+impl Pace {
+    /// A pace as scenarios name it: "walk", "creep", else running.
+    pub fn from_name(n: Option<&str>) -> Pace {
+        match n {
+            Some("walk") => Pace::Walk,
+            Some("creep") => Pace::Creep,
+            _ => Pace::Run,
+        }
+    }
+}
+
 /// What the AI wants this tick.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Orders {

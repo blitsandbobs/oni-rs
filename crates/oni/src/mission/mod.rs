@@ -6,6 +6,7 @@
 //! with each engine command carried out against the [`World`].
 
 mod commands;
+pub use commands::spawn_placed;
 mod fixes;
 
 use std::collections::{HashMap, HashSet};

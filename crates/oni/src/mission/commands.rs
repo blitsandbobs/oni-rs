@@ -93,14 +93,6 @@ fn ai(host: &mut dyn Host, v: Option<&Value>) -> Option<usize> {
     fighter(host, v).filter(|&i| i != 0)
 }
 
-fn name_of(host: &mut dyn Host, i: usize) -> String {
-    match host.world().fighters.get(i).and_then(|f| f.brain.as_ref()) {
-        Some(crate::ai::Brain::Agent(a)) => a.name.clone(),
-        _ if i == 0 => host.world().player_name.clone(),
-        _ => format!("fighter{i}"),
-    }
-}
-
 // --- trigger volumes -------------------------------------------------------------
 
 pub mod tv {
@@ -305,7 +297,7 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
             )
         })
         .collect();
-    let names: Vec<String> = (0..n).map(|i| name_of(host, i)).collect();
+    let names: Vec<String> = (0..n).map(|i| host.world().name_of(i)).collect();
     let tr = &mut state.triggers;
     for vi in 0..tr.volumes.len() {
         let v = &tr.volumes[vi];
@@ -358,10 +350,11 @@ pub fn dispatch(
     let a = |k: usize| args.get(k);
     let done = |v: Value| Ok((v, Value::Boolean(false), None, None));
     let nil = || done(Value::Nil);
-    let _ = lua;
     // (`ONI_TRACE_COMMANDS=1`: each engine command a script calls, with the
     // tick — a stalled one shows again every tick it waits.)
-    if !name.starts_with('@') && std::env::var_os("ONI_TRACE_COMMANDS").is_some() {
+    static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    let trace = *TRACE.get_or_init(|| std::env::var_os("ONI_TRACE_COMMANDS").is_some());
+    if trace && !name.starts_with('@') {
         let shown: Vec<String> = args
             .iter()
             .map(|v| match v {
@@ -1762,7 +1755,10 @@ pub fn dispatch(
                 return nil();
             };
             if host.world().fighters[id].passive {
-                eprintln!("script: ai2_dopath: {} is passive", name_of(host, id));
+                eprintln!(
+                    "script: ai2_dopath: {} is passive",
+                    host.world().name_of(id)
+                );
                 return nil();
             }
             host.world().order_path(id, &path);
@@ -2068,7 +2064,7 @@ pub fn dispatch(
                 Some(v) => fighter(host, Some(v)).unwrap_or(0),
                 None => 0,
             };
-            let who = name_of(host, who);
+            let who = host.world().name_of(who);
             let mut out = Vec::new();
             for i in state.triggers.by_name(a(0)) {
                 state.triggers.fire(i, kind, &who, &mut out);
@@ -2261,9 +2257,31 @@ pub fn spawn(
         })?;
     let placed = world.level_ai.characters[index].clone();
     state.spawned.insert(index);
-    // Its class: a random costume, or upgraded on hard (`ONrGameState_
-    // NewCharacter`); its melee profile the new class's default if it had
-    // its old class's.
+    let id = match spawn_placed(host, &placed) {
+        Ok(id) => id,
+        Err(e) => {
+            state.warn(format!("ai2_spawn {name}: {e}"));
+            return None;
+        }
+    };
+    state.scripts.insert(id, placed.scripts.clone());
+    state.fired.remove(&id);
+    eprintln!("script: spawned {} (fighter {id})", placed.name);
+    placed
+        .scripts
+        .get("spawn")
+        .map(|s| (s.clone(), placed.name.clone()))
+}
+
+/// Spawns placement `placed` as the game does (`ONrGameState_NewCharacter`):
+/// its class a random costume, or upgraded on hard; its melee profile the
+/// new class's default if it had its old class's; its goals; passive if
+/// every AI is. Returns its fighter id.
+pub fn spawn_placed(
+    host: &mut dyn Host,
+    placed: &crate::ai::level::Placed,
+) -> Result<usize, String> {
+    let world = host.world();
     let roll = world.roll();
     let hard = world.difficulty.level >= 2;
     let (class, default_melee) = match host.classes() {
@@ -2280,15 +2298,12 @@ pub fn spawn(
         None => (placed.class.clone(), false),
     };
     if class != placed.class {
-        eprintln!("script: {name} wears {class} (placed as {})", placed.class);
+        eprintln!(
+            "script: {} wears {class} (placed as {})",
+            placed.name, placed.class
+        );
     }
-    let kind = match host.kind(&class) {
-        Ok(k) => k,
-        Err(e) => {
-            state.warn(format!("ai2_spawn {name}: {e}"));
-            return None;
-        }
-    };
+    let kind = host.kind(&class)?;
     let melee = if default_melee {
         kind.melee.clone()
     } else {
@@ -2298,17 +2313,11 @@ pub fn spawn(
     // (A placement is the feet; spawning takes the pelvis: start a little
     // above and let it settle.)
     let id = world.spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
-    world.give_goals(id, Some(&placed), melee);
+    world.give_goals(id, Some(placed), melee);
     if world.all_passive {
         world.set_passive(id, true);
     }
-    state.scripts.insert(id, placed.scripts.clone());
-    state.fired.remove(&id);
-    eprintln!("script: spawned {} (fighter {id})", placed.name);
-    placed
-        .scripts
-        .get("spawn")
-        .map(|s| (s.clone(), placed.name.clone()))
+    Ok(id)
 }
 
 #[cfg(test)]

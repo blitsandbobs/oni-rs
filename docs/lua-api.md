@@ -75,7 +75,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `aim_deg()` | The aim direction: where the player points, without the body lean a diagonal run or turned sidestep adds. |
 | `desired_deg()` | The player's facing target yaw (degrees), which the body slews toward. |
 | `spawn(x: number, y: number, z: number, facing_deg: number?, class: string?)` | Spawn a training dummy; returns its fighter id. |
-| `place(name: string)` | Goals: places one of the level's characters by name (its class, position, job, alerts, profiles) → its fighter id; errors if the level places no such character. |
+| `place(name: string)` | Goals: places one of the level's characters by name, as the level's scripts spawn it (`ai2_spawn`: its costume, melee profile, goals and alerts) → its fighter id; errors if the level places no such character. (Its spawn script isn't run.) |
 | `mission_begin(run: bool?, save_point: int?)` | The level's own scripts (`docs/lua.md`): begins the level (the player at its placement, the characters present from the start, `main`). `run` false: the scripts loaded but the level's start not run; `save_point` n: begun from the level's save point n. |
 | `world_stats()` | what the world holds, for finding a runaway: live particles (and the busiest classes), weapons, fighters, corpses. |
 | `laser_eyes()` | {{x, y, z}, …}: where the laser triggers' emitter eyes are drawn (#78). |

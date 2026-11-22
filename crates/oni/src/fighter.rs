@@ -222,6 +222,8 @@ pub struct Fighter {
     /// Its class's particles (`ONCP`), the current clip's made from them,
     /// and whether its death's "killed" flash has played (`FinalFlash`).
     pub class_particles: std::rc::Rc<Vec<crate::world::anim_particles::ClassParticle>>,
+    /// Its character class's name (empty for a test fighter).
+    pub class: Rc<str>,
     pub anim_particles: crate::world::anim_particles::AnimParticles,
     pub final_flash: bool,
     /// Where its teleport-out puts it, facing which way
@@ -502,6 +504,7 @@ impl Fighter {
             super_amount: 0.0,
             super_particles: Default::default(),
             class_particles: Default::default(),
+            class: Rc::from(""),
             anim_particles: Default::default(),
             final_flash: false,
             teleport_dest: None,
