@@ -50,7 +50,6 @@ struct ScriptHost {
     classes: Classes,
     /// The class `spawn` uses unless told otherwise.
     opponent: String,
-    /// Each fighter's class name, by fighter index.
     /// Whether frames draw the decals (`show_decals`).
     show_decals: bool,
     /// How many magic effects the last screenshot drew.

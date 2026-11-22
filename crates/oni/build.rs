@@ -68,7 +68,8 @@ fn areas(dir: &Path) -> Vec<(String, String)> {
 
 /// The engine-command modules of `dir` in the order a command falls
 /// through them: the one `mod.rs`'s `dispatch` calls, then each one's next
-/// (`super::name::dispatch(`).
+/// (`super::name::dispatch(`). Fails the build unless the chain reaches
+/// every module `mod.rs` declares, once each.
 fn command_areas(dir: &Path) -> Vec<(String, String)> {
     let next = |src: &str| {
         src.lines()
@@ -81,15 +82,26 @@ fn command_areas(dir: &Path) -> Vec<(String, String)> {
             })
             .next()
     };
-    let mut out = Vec::new();
-    let mut m = next(&std::fs::read_to_string(dir.join("mod.rs")).unwrap_or_default());
-    while let Some(name) = m {
-        let Some((title, src)) = area(dir, &name) else {
-            break;
-        };
+    let main = std::fs::read_to_string(dir.join("mod.rs")).unwrap_or_default();
+    let declared: Vec<&str> = main
+        .lines()
+        .filter_map(|l| l.strip_prefix("mod ")?.strip_suffix(';'))
+        .collect();
+    let (mut out, mut seen) = (Vec::new(), Vec::new());
+    let mut m = next(&main);
+    while let Some(name) = m.filter(|n| !seen.contains(n)) {
+        let (title, src) =
+            area(dir, &name).unwrap_or_else(|| panic!("commands chain: no module {name:?}"));
         m = next(&src);
+        seen.push(name);
         out.push((title, src));
     }
+    let mut missed: Vec<&&str> = declared
+        .iter()
+        .filter(|d| !seen.iter().any(|s| s == *d))
+        .collect();
+    missed.sort();
+    assert!(missed.is_empty(), "commands chain misses {missed:?} (each area's `_ =>` must call the next: super::name::dispatch(state, …))");
     out
 }
 

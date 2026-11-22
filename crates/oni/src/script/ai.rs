@@ -9,12 +9,8 @@ pub(super) fn register(r: &Reg) -> mlua::Result<()> {
         "patrol",
         |_,
          host,
-         (id, points, pace, looping): (usize, mlua::Table, Option<String>, Option<bool>)| {
-            let mut pts = Vec::new();
-            for p in points.sequence_values::<mlua::Table>() {
-                let p = p?;
-                pts.push(Vec3::new(p.get(1)?, 0.0, p.get(2)?));
-            }
+         (id, points, pace, looping): (usize, Vec<[f32; 2]>, Option<String>, Option<bool>)| {
+            let pts = points.iter().map(|p| Vec3::new(p[0], 0.0, p[1])).collect();
             let pace = crate::ai::Pace::from_name(pace.as_deref());
             if let Some(f) = host.world.fighters.get_mut(id) {
                 let route = crate::ai::Route::new(pts, pace, looping.unwrap_or(false));
