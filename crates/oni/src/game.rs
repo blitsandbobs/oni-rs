@@ -410,7 +410,7 @@ pub fn save_points(level: u16, level_dir: &Path) -> Vec<i64> {
     out
 }
 
-/// For testing (`oni-view --unlock-all`): every level unlocked, and each
+/// For testing (`oni --unlock-all`): every level unlocked, and each
 /// of its save points offered in the load game list — those not kept yet as
 /// bare continues (begun there with nothing restored: the player as the
 /// scripts set her up). Continues already kept stay. Returns what it

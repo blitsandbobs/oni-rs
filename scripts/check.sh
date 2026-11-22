@@ -17,7 +17,7 @@ if ! cargo fmt --all --check > $log/fmt.txt 2>&1; then
 fi
 echo "ok   fmt"
 
-if ! cargo build --release -p oni-view > $log/build.txt 2>&1; then
+if ! cargo build --release -p oni > $log/build.txt 2>&1; then
   echo "FAIL build"; grep -E "^error" -A9 $log/build.txt | head -40
   rm -rf $log; exit 1
 fi

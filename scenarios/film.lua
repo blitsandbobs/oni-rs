@@ -2,7 +2,7 @@
 -- it is put at the film's start, its controls come from the recording, and
 -- it stops when the film ends.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

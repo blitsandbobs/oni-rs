@@ -11,7 +11,7 @@ A scenario is a `.lua` file in `scenarios/` run against a level without a
 window:
 
 ```sh
-cargo run --release -p oni-view -- \
+cargo run --release -p oni -- \
   ../generated/oni/levels/01/environment.glb \
   --character ../generated/oni/common/characters/konoko_body_high/model.glb \
   --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \
@@ -46,7 +46,7 @@ Conventions:
 
 The converter translates each level's BSL scripts (the Anniversary Edition's
 vanilla package) once, into `levels/NN/scripts.lua`. The engine runs them as
-coroutines, a tick at a time (`crates/oni-view/src/mission/`).
+coroutines, a tick at a time (`crates/oni/src/mission/`).
 
 **The translated chunk** receives `V, F, C, G, W, T, EQ, NE, LT, GT, LE, GE,
 ADD, SUB, SLEEP, FORK, ERR` (from `mission/prelude.lua`):

@@ -4,7 +4,7 @@
 -- about close in he teleports away to a retreat flag; and falling off the
 -- roof he hangs below it, then teleports back up to its edge.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/12/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

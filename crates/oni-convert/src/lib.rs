@@ -1556,7 +1556,7 @@ fn env_texture_flags(
 }
 
 /// Writes `levels/NN/quads.bin`: every quad of the level as collision and
-/// decals see it, drawn or not (read by `oni-view`'s `quads::Quads::parse`).
+/// decals see it, drawn or not (read by `oni`'s `quads::Quads::parse`).
 /// Little-endian:
 ///
 /// - `ONIQ`; the counts of points, planes, textures and quads (u32 each);

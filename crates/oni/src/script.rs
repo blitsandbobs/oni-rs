@@ -7,7 +7,7 @@
 //! offscreen render); the binding surface grows as the engine does, and later
 //! becomes the substrate for the gameplay-script layer (E4).
 //!
-//! Lua is confined to `oni-view` (the app/harness crate); the portable
+//! Lua is confined to `oni` (the app/harness crate); the portable
 //! preservation crates (`oni-geom`, `oni-convert`) stay dependency-light.
 //!
 //! ## Lua API (all headless)

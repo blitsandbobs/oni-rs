@@ -2,7 +2,7 @@
 -- set and hit points, stands in its own idle, takes hits, and can be thrown —
 -- a victim plays the thrower's side of the throw even from another set.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

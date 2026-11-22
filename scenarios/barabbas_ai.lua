@@ -4,7 +4,7 @@
 -- enough off he stands and regenerates (the powerup clip, 8% of his health
 -- a second) until past 80%, and enough hurt while at it stops him.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

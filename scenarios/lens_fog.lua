@@ -4,7 +4,7 @@
 -- end are gone (fixed); as shipped (Q28, --faithful) the fog's factor reads
 -- 1 past its end and they shine on whole.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

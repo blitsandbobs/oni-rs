@@ -5,7 +5,7 @@
 -- then stepped on), keeping her on the seat; a frame ahead, at the bike's
 -- top speed (6–8 a frame) she sat over the front wheel.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -2,7 +2,7 @@
 -- its music starts (an unplaced script ambient), and Shinatama's lines play
 -- one at a time, each blocking script waiting for the line before.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -18,14 +18,14 @@ if [ "$1" = "--one" ]; then
   tour=; if [ "$5" = tour ]; then
     tour=$3/tour_$l.lua; uv run -q python -I scripting/tour_stops.py $G/levels/$l $tour
   fi
-  SHAKE_TOUR=$tour SHAKE_TICKS=$4 SHAKE_SAVE=${s:#0} ./target/checked/oni-view $G/levels/$l/environment.glb \
+  SHAKE_TOUR=$tour SHAKE_TICKS=$4 SHAKE_SAVE=${s:#0} ./target/checked/oni $G/levels/$l/environment.glb \
     --character $G/common/characters/konoko_body_high/model.glb \
     --anim $G/common/animations/KONOKOrun_lt.glb --char-pos 0,0,0 ${=6} \
     --script scripting/shakedown.lua > $out 2>&1
   echo "exit $?" >> $out
   exit 0
 fi
-cargo build -q --profile checked -p oni-view || exit 1
+cargo build -q --profile checked -p oni || exit 1
 mode=idle; saves="0 1 2 3 4"; extra=
 while [ $# -gt 0 ]; do
   case $1 in

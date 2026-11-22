@@ -3,7 +3,7 @@
 -- body and goes back to its patrol; a noise sends it to investigate; a
 -- character too calm for its job stands idle; a non-combatant panics.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

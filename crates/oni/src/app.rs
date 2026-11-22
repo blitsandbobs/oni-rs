@@ -314,9 +314,9 @@ pub struct PlaySetup {
     /// How volumes become loudness: the PC build's (default) or the Mac's.
     pub sound_law: crate::audio::mixer::Law,
     /// Start at the main menu (the converted assets' root): the player's
-    /// default, `oni-view` with no arguments.
+    /// default, `oni` with no arguments.
     pub front_end: Option<std::path::PathBuf>,
-    /// With the menu: play the ending movie first (`oni-view --outro`).
+    /// With the menu: play the ending movie first (`oni --outro`).
     pub outro: bool,
 }
 
@@ -374,7 +374,7 @@ impl ApplicationHandler for App {
         let scene = self.scene.take().expect("scene");
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("oni-view — level"))
+                .create_window(Window::default_attributes().with_title("oni — level"))
                 .expect("window"),
         );
 

@@ -2,7 +2,7 @@
 -- steps drawn but not collided with, over a ramp characters walk — Konoko
 -- runs straight up a flight in the warehouse, and an AI's path climbs it.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

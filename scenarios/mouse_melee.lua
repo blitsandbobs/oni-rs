@@ -2,7 +2,7 @@
 -- fire 1 into a punch, fire 2 into a kick and fire 3 into crouch — so an
 -- unarmed Konoko punches with the left mouse button and kicks with the right.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

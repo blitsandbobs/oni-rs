@@ -6,7 +6,7 @@ Behaviour is ported from the original C source (`../original/source`), which
 stays the reference for *how* anything works; this page is the map of
 *where* it lives here. The crates are listed in `CLAUDE.md`.
 
-## The engine (`crates/oni-view/src`)
+## The engine (`crates/oni/src`)
 
 - **Simulation** — `world.rs` and `world/` hold `World`: the fighters, the
   level's objects and its subsystems (`doors.rs`, `glass.rs`, `lasers.rs`,

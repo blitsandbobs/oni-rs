@@ -5,7 +5,7 @@
 -- air and is gone without a corpse. (Found by the shakedown tour: it fell
 -- forever, its fatal fall a stub and a falling corpse's air time frozen.)
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/12/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

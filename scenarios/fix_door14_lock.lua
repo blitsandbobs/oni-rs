@@ -2,7 +2,7 @@
 -- door behind Konoko, open or not: still open, she can walk back out and be
 -- locked out (--faithful). Fixed: it closes, then locks.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/18/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

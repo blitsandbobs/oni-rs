@@ -2,7 +2,7 @@
 -- Brain) counts one console off the brain's next round: 3 of its 4 consoles
 -- end it (--faithful). Fixed: all 4.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

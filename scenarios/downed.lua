@@ -2,7 +2,7 @@
 -- down, a Striker fighting Konoko lies as it fell while she walks round it,
 -- whatever its AI wants to face.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

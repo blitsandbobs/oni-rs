@@ -3,7 +3,7 @@
 -- a run of its frames — Konoko's running kick draws a trail from her foot
 -- (frames 15–28), and it goes when the clip ends.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

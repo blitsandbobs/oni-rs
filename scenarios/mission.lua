@@ -3,7 +3,7 @@
 -- the training waits for the player to do what it asks (turn, run), and a
 -- trigger volume fires its script when the player walks in.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

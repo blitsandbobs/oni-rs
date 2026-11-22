@@ -1513,6 +1513,26 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
+name = "oni"
+version = "0.0.1"
+dependencies = [
+ "bytemuck",
+ "cpal",
+ "glam",
+ "mlua",
+ "oni-bink",
+ "oni-config",
+ "oni-geom",
+ "oni-schema",
+ "png",
+ "pollster",
+ "serde",
+ "serde_json",
+ "wgpu",
+ "winit",
+]
+
+[[package]]
 name = "oni-bink"
 version = "0.0.1"
 
@@ -1595,26 +1615,6 @@ version = "0.0.1"
 dependencies = [
  "oni-dat",
  "png",
-]
-
-[[package]]
-name = "oni-view"
-version = "0.0.1"
-dependencies = [
- "bytemuck",
- "cpal",
- "glam",
- "mlua",
- "oni-bink",
- "oni-config",
- "oni-geom",
- "oni-schema",
- "png",
- "pollster",
- "serde",
- "serde_json",
- "wgpu",
- "winit",
 ]
 
 [[package]]

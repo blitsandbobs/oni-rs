@@ -1,17 +1,19 @@
-//! Oni level/character viewer (engine milestones **E1**–**E2**).
-//!
-//! Loads a converted level `environment.glb` (textures + baked lighting) and,
-//! optionally, a character `model.glb` posed by a `TRAM` animation clip. Runs
-//! windowed with a free-fly camera, or headless to a screenshot PNG.
-//!
-//! Placed environment particles (`particles.json`, from the converter) render as
-//! additive glowing billboards; they auto-load next to the scene `.glb`, or via
-//! `--particles`.
+//! Oni: the engine and game, playing the converted asset tree.
 //!
 //! ```text
-//! oni-view <scene.glb> [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z]
-//!     [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time seconds]
+//! oni                                    the main menu (assets from $ONI_ROOT
+//!                                        or a generated/oni nearby)
+//! oni <level>/environment.glb --play [--mission] [--save-point N] [--faithful]
+//!                                        a level, played (with its scripts)
+//! oni <level>/environment.glb --script scenarios/<name>.lua
+//!                                        a headless scenario (docs/lua.md)
+//! oni <scene.glb> --screenshot out.png [--eye x,y,z] [--target x,y,z]
+//!                                        one frame, headless
 //! ```
+//!
+//! The rest of the options (`--character`, `--anim`, `--char-pos`, `--class`,
+//! `--opponent`, `--difficulty`, `--spar`, `--subtitles`, `--sound-law`,
+//! `--outro`, `--unlock-all`, …) are read in `main` below.
 
 mod ai;
 mod angle;
@@ -129,7 +131,9 @@ fn main() {
     // For testing: every level and its save points in the load game list.
     if first.as_deref() == Some("--unlock-all") {
         let Some(root) = find_assets() else {
-            eprintln!("oni-view: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
+            eprintln!(
+                "oni: no converted assets found (set ONI_ROOT to the converter's output, …/oni)"
+            );
             std::process::exit(2);
         };
         for (level, points) in game::unlock_all(&root) {
@@ -146,8 +150,8 @@ fn main() {
         match find_assets() {
             Some(root) => run_game(root, outro),
             None => {
-                eprintln!("oni-view: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
-                eprintln!("usage: oni-view [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
+                eprintln!("oni: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
+                eprintln!("usage: oni [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
                 std::process::exit(2);
             }
         }
@@ -400,7 +404,7 @@ fn find_assets() -> Option<PathBuf> {
 /// The game as the player has it: the main menu, then the levels it
 /// starts (`app::run` with no level, the menus' assets at `root`).
 fn run_game(root: PathBuf, outro: bool) {
-    eprintln!("oni-view: assets at {}", root.display());
+    eprintln!("oni: assets at {}", root.display());
     let scene = gltf::Scene {
         prims: Vec::new(),
         textures: Vec::new(),

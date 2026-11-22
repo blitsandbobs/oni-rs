@@ -2,7 +2,7 @@
 -- level 1's door 18 opening plays its class's sound; picking up ammo plays
 -- the receive sound; low health starts the heartbeat loop, healing ends it.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

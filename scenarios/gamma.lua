@@ -3,7 +3,7 @@
 -- — at 0.5 unchanged, brighter up to 1, darker down to 0. Checked on the
 -- main menu's picture (a still frame).
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

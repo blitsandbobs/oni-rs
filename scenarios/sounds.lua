@@ -3,7 +3,7 @@
 -- law; past three copies of the medium break the big one plays instead; out
 -- of earshot nothing plays; six stereo channels, then the quietest is taken.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

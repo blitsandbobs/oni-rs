@@ -5,7 +5,7 @@
 -- original's aiming screen takes the auto-aim's turn too). Either way the gun
 -- doesn't turn in her hand.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -1,10 +1,10 @@
 [package]
-name = "oni-view"
+name = "oni"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 rust-version = "1.87"
-description = "Oni level viewer — renders the converted glTF/PNG tree with wgpu (E1)"
+description = "The Oni engine and game: plays the converted asset tree (simulation, AI, rendering, audio, UI, level scripts, scenario host)"
 
 [dependencies]
 oni-config = { path = "../oni-config" }

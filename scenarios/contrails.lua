@@ -2,7 +2,7 @@
 -- crackle with electric arcs, contrail particles joined link by link into
 -- bands. Each live link draws one band.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/09/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

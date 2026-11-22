@@ -5,7 +5,7 @@
 -- ray's vector is read as its far end, so the objects it meets are those
 -- toward the world's origin — not the van's door here (Q17; `--faithful`).
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

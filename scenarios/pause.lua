@@ -4,7 +4,7 @@
 -- its first page) and the help, with the help overlay naming the rings'
 -- parts; the game stands still while it is up, its sound on at half volume.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

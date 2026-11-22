@@ -3,7 +3,7 @@
 -- saves the game back at save point 2 (--faithful). Fixed: they are off, as
 -- the save point 2 restore has them.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/04/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

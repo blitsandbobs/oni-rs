@@ -32,7 +32,7 @@ no arguments it opens Oni's main menu:
 
 ```sh
 cargo run --release -p oni-convert -- ../original/gamedata ../generated/oni
-cargo run --release -p oni-view
+cargo run --release -p oni
 ```
 
 Controls are the shipped defaults (W/S/A/D, mouse, Space, Shift, Ctrl, Q,
@@ -42,7 +42,7 @@ known bugs (`docs/deviations.md`).
 ### Starting any level
 
 ```sh
-cargo run --release -p oni-view -- --unlock-all
+cargo run --release -p oni -- --unlock-all
 ```
 
 unlocks every level and puts each one's save points in the main menu's Load
@@ -59,7 +59,7 @@ work once the game has been won; to have them from the start, run with
 `ONI_CHEATS=1`:
 
 ```sh
-ONI_CHEATS=1 cargo run --release -p oni-view
+ONI_CHEATS=1 cargo run --release -p oni
 ```
 
 | Code | Does |

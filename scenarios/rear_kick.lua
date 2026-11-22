@@ -3,7 +3,7 @@
 -- other body. So a rear kick hits someone standing behind the attacker, and a
 -- jab at a target out of reach misses.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

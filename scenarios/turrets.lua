@@ -4,7 +4,7 @@
 -- "deactivate every turret" (−1) switches none, as shipped; after its time
 -- (900 ticks) it goes back to rest and off, and its hum plays out.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

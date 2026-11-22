@@ -4,7 +4,7 @@
 -- by a gun prompts to pick it up; a cutscene letterboxes the screen and hides
 -- the rings; fades go out and back; subtitles show while a line plays.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

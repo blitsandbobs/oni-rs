@@ -3,7 +3,7 @@
 -- an open one; locked, it stops her; unlocked again, it opens as she comes.
 -- An AI plans no way through a door it may not open.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -5,7 +5,7 @@
 -- after the laser room (23) is out of reach of a jump but not of a flip
 -- (with the training's barrier lowered, as the flip lesson does).
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

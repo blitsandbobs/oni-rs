@@ -8,7 +8,7 @@
 -- the Strikers reach her as the original's advance does: walking straight
 -- at her, or the clearest way, when there is no route.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -1,7 +1,7 @@
 -- Melee combos: punch chains P → PP → PPP, kick chains K → KK → KKK. Attacks
 -- play from the KONCOM (combat) set, gated by the Fight variant.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     generated/oni/levels/01/environment.glb \
 --     --character generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -2,7 +2,7 @@
 -- and blows are noises AIs hear — a run carries 80, a sprint 100 (and is
 -- "interesting"), a crouched walk nothing, a landed blow 150+ ("melee").
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

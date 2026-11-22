@@ -5,7 +5,7 @@
 -- rocket scene, after which he is gone and objective 2 follows. (His die
 -- script isn't his defeat: he never dies.)
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/03/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

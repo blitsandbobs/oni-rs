@@ -3,7 +3,7 @@
 -- no control, and is hurt when it hits the floor. Facing each other gives a
 -- front throw; coming from behind, a throw from behind.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

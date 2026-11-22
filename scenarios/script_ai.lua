@@ -6,7 +6,7 @@
 -- facing, and ai2_lookatchar turns toward someone; ai2_makeblind keeps an AI
 -- from seeing, ai2_forget wipes what it knew.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

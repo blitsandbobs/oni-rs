@@ -5,7 +5,7 @@
 -- a Daodan power (`chr_super`) with its super particles, a boss shield, an
 -- AI coming to the player (`ai2_followme`) and Barabbas taking his gun back.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -4,7 +4,7 @@
 -- back and opens for them. On a double door the original counts only the
 -- first leaf as blocking (Q14): in the way of the second, it stays half-shut.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

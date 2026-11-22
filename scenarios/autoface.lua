@@ -1,7 +1,7 @@
 -- Starting a ground attack turns the attacker toward the nearest opponent in
 -- front (within 90° and 40 units), so a slightly mis-aimed punch connects.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -2,7 +2,7 @@
 -- training room's barriers (reference 2010) stop Konoko while shown and let
 -- her through once a script hides them.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -4,7 +4,7 @@
 -- enemy in, and his shield drops while he throws it; close in he fights
 -- hand to hand, and hurt there with his shield down he turtles.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/19/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

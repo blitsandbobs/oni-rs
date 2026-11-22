@@ -9,7 +9,7 @@ differs, plus the data findings a reader can't get from the code.
 By default the engine does what the designers evidently intended; with
 `--faithful` (play and script mode), the New Game dialog's **Faithful** box
 or Lua `faithful(true)` it reproduces the shipped behaviour. Each is one
-method on `Quirks` (`crates/oni-view/src/quirks.rs`).
+method on `Quirks` (`crates/oni/src/quirks.rs`).
 
 | Id | Area | Shipped behaviour | Fixed behaviour | Visible for Konoko? |
 |----|------|-------------------|-----------------|---------------------|
@@ -112,7 +112,7 @@ quirks (#26):
 ## 2. Level-script fixes (`--faithful` skips them)
 
 **How it works.** Each patched level has a file
-`crates/oni-view/src/mission/fixes/NN.lua`. It runs after the level's
+`crates/oni/src/mission/fixes/NN.lua`. It runs after the level's
 translated scripts (`levels/NN/scripts.lua`) and replaces script functions by
 name with `FIX(id, name, make)` (`mission/prelude.lua`). `make` gets the
 original function and returns its replacement, which usually adds a step
@@ -287,7 +287,7 @@ our own additions. Not affected by `--faithful`.
   tick; with no device, play is silent.
 
 **Front-end**
-- `oni-view` with no arguments opens the menu; assets come from
+- `oni` with no arguments opens the menu; assets come from
   `$ONI_ROOT`, else a `generated/oni` here or above. Command-line level
   launches stay as the developers' way in (Esc opens the menu there too).
 - The New Game dialog has our **Faithful** box. Subtitles are off by

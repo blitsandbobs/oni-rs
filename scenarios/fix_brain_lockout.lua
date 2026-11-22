@@ -4,7 +4,7 @@
 -- her outside (--faithful). Fixed: the save waits until she is back in the
 -- antechamber, then closes the door and locks it.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -3,7 +3,7 @@
 -- seen from the camera, fading in and out; the lock lights take their colour
 -- from their class's blend (red until a script unlocks them).
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -3,7 +3,7 @@
 -- what it perceived (fading with time), raises its alert accordingly — and a
 -- definite sighting of an enemy starts a fight.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

@@ -4,7 +4,7 @@
 -- teleports either: the fight, the level's end, stalls (--faithful). Fixed:
 -- stranded for 3 seconds, he teleports back to the roof's centre.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/12/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

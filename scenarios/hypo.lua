@@ -4,7 +4,7 @@
 -- a point every 10 ticks; a hurt eats two and a half times its damage from
 -- what is still to come; none left, or already boosting, nothing happens.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

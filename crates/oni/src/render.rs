@@ -38,7 +38,7 @@ impl Gpu {
         };
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor {
-                label: Some("oni-view"),
+                label: Some("oni"),
                 required_features: wgpu::Features::PUSH_CONSTANTS,
                 required_limits: limits,
                 memory_hints: wgpu::MemoryHints::Performance,

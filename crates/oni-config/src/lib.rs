@@ -4,7 +4,7 @@
 //!
 //! This crate is portable and GUI-agnostic — it defines its own [`Key`] /
 //! [`MouseButton`] identifiers rather than depending on a windowing library, so
-//! the engine (`oni-view`) maps `winit` key codes onto these at the input
+//! the engine (`oni`) maps `winit` key codes onto these at the input
 //! boundary. The defaults ([`Bindings::oni_defaults`]) reproduce Oni's stock
 //! keyboard/mouse layout (`LIrInitialize`, `BFW_LocalInput.c:1007-1035`); a
 //! later settings screen can rebind freely.
@@ -154,7 +154,7 @@ impl Bindings {
     /// Oni's stock bindings as the game shipped them: the `key_config.txt`
     /// installed with it, which clears the engine's built-in table and binds
     /// WASD (forward/back + strafe), mouse buttons = fire 1/2/3 (unarmed: punch
-    /// / kick / crouch, see `oni-view`'s input), F/C = punch/kick, Shift =
+    /// / kick / crouch, see `oni`'s input), F/C = punch/kick, Shift =
     /// crouch, Caps Lock / Enter = walk, Ctrl = action, plus a second movement
     /// cluster (P / L / ; / ' with K, comma, O, [). `turnleft`/`turnright`/
     /// `block` are unbound, as in the original (turning is the mouse). Escape is

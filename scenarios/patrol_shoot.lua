@@ -2,7 +2,7 @@
 -- creeps to its spot and shoots at a flag for the waypoint's time — rounds
 -- spent, the extra spread the waypoint asks for — then goes on (to a scan).
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/04/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

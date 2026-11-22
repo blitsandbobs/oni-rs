@@ -2,7 +2,7 @@
 -- a capped rate (Oni's HandleTurning), and a large pending turn plays a
 -- turn-in-place clip (feet re-plant) past the 70-deg dead-zone.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     generated/oni/levels/01/environment.glb \
 --     --character generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim generated/oni/common/animations/KONOKOrun_lt.glb \

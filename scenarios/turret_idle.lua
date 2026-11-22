@@ -2,7 +2,7 @@
 -- on while it is drawn, off once it has been out of view for 2 s, on again
 -- when seen. Level 2's wall turret 3, west of Konoko.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/02/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

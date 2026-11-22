@@ -5,7 +5,7 @@
 -- opens the warehouse). An attack breaks a conversation off; on a giving
 -- line the civilian walks up and hands over its gun.
 --
---   cargo run --release -p oni-view -- \
+--   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
 --     --character ../generated/oni/common/characters/konoko_body_high/model.glb \
 --     --anim ../generated/oni/common/animations/KONOKOrun_lt.glb \

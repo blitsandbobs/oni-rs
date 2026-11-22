@@ -13,7 +13,7 @@ members = [
     "crates/oni-config",
     "crates/oni-schema",
     "crates/oni-convert",
-    "crates/oni-view",
+    "crates/oni",
 ]
 
 # Tests are optimised (the mission tests simulate every level, minutes in a
