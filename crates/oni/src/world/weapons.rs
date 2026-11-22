@@ -2578,14 +2578,18 @@ impl World {
                 continue;
             }
             let bones = f.bones();
-            // Aiming (the player always; an AI with a target) in a clip with
-            // a gun's aiming screen: the gun swings to the aim, clipped to
-            // the screen's reach; else it rides the hand.
-            let aim = if f.player {
+            // Aiming (the player always; an AI with a target; a film's actor
+            // always, by the film's aim as the player by its own —
+            // `ONrCharacter_DoAiming` takes the vector way for both) in a
+            // clip with a gun's aiming screen: the gun swings to the aim,
+            // clipped to the screen's reach; else it rides the hand.
+            let aim = if f.player && f.film.is_none() {
                 let (lr, ud) = self.auto_aim(who, w);
                 self.fighters[who].aim.auto = (lr, ud);
                 let f = &self.fighters[who];
                 Some((f.facing.aim() + f.aim.lr + lr, f.aim.ud + f.aim.recoil + ud))
+            } else if f.film.is_some() {
+                Some((f.facing.aim() + f.aim.lr, f.aim.ud + f.aim.recoil))
             } else {
                 f.aim.ai.map(|(y, p)| (y, p + f.aim.recoil))
             };

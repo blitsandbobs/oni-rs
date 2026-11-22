@@ -16,7 +16,7 @@
 mission_begin(false)
 mission_call("intro")
 local function yaw(x, z) return math.deg(math.atan(x, z)) % 360 end
-local b, t0, firing, aim0, aim_moved, second
+local b, t0, firing, aim0, aim_moved, second, plo, phi
 for t = 1, 1000 do
     step(1)
     if not b then
@@ -34,6 +34,12 @@ for t = 1, 1000 do
             if t - t0 >= 340 and t - t0 <= 360 and g then
                 second = second or yaw(g.x[1], g.x[3])
             end
+            -- While the wave goes out the gun holds still: it aims as the
+            -- player's does (exactly), not riding the hand's sway.
+            if t - t0 >= 350 and t - t0 <= 390 and g then
+                local p = math.deg(math.asin(g.x[2]))
+                plo, phi = math.min(plo or p, p), math.max(phi or p, p)
+            end
         end
     end
 end
@@ -41,4 +47,6 @@ print("Barabas fires for", firing, "ticks; his second shot heads", second)
 assert(firing and firing > 50, "his recorded trigger fires his gun")
 assert(aim_moved, "his recorded turns aim it")
 assert(second and second > 60 and second < 110, "turned to +x, where Konoko landed")
+print(string.format("barrel pitch while the second wave goes: %.2f..%.2f", plo, phi))
+assert(phi - plo < 1, "the gun holds still while it fires")
 print("film fire ok")
