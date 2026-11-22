@@ -40,8 +40,6 @@ pub enum Item {
     Powerup(usize),
 }
 
-/// Animation types of the gun clips.
-
 /// Finishing a pickup at the clip's action frame: the wider reach.
 const PICKUP_FINISH_RADIUS: f32 = 16.0;
 const PICKUP_FINISH_BELOW: f32 = 6.0;
