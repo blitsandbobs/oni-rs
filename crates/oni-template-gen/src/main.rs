@@ -459,8 +459,15 @@ fn parse_brace_fields(b: &[char], brace: usize) -> Option<(Vec<RawField>, usize)
 }
 
 fn parse_field(s: &str) -> Option<RawField> {
-    // tokenize on whitespace, but keep tm_raw(TYPE) together-ish
-    let s = s.replace('\t', " ");
+    // `tm_raw(TYPE *)name` → `tm_raw name`: the referenced type doesn't
+    // matter (a 4-byte offset), and with no space before the name it would
+    // glue onto it.
+    let mut s = s.replace('\t', " ");
+    if let Some(open) = s.find("tm_raw(") {
+        if let Some(close) = s[open..].find(')') {
+            s.replace_range(open..open + close + 1, "tm_raw ");
+        }
+    }
     let mut toks: Vec<String> = Vec::new();
     for w in s.split_whitespace() {
         toks.push(w.to_string());
@@ -471,28 +478,18 @@ fn parse_field(s: &str) -> Option<RawField> {
 
     let mut qual = Qual::None;
     let mut idx = 0;
-    let mut raw_inner: Option<String> = None;
     match toks[0].as_str() {
         "tm_pad" => qual = Qual::Pad,
         "tm_separate" => qual = Qual::Separate,
         "tm_templateref" => qual = Qual::TemplateRef,
         "tm_varindex" => qual = Qual::VarIndex,
         "tm_vararray" => qual = Qual::VarArray,
-        t if t.starts_with("tm_raw") => {
-            qual = Qual::Raw;
-            // tm_raw(TYPE) possibly split; inner type irrelevant (4-byte ref)
-            raw_inner = Some("void*".into());
-        }
+        "tm_raw" => qual = Qual::Raw,
         _ => {}
     }
     if qual != Qual::None {
         idx = 1;
-        // tm_raw may be "tm_raw(type" "name" or "tm_raw(type)name"
-        if qual == Qual::Raw {
-            // skip any tokens until we reach the declarator name (last token)
-        }
     }
-    let _ = raw_inner;
 
     // Remaining tokens: TYPE ... NAME[dims]
     let rest = &toks[idx..];
@@ -1036,6 +1033,26 @@ fn emit_field(s: &mut String, f: &OutField, indent: usize) {
                 emit_field(s, e, indent + 1);
             }
             writeln!(s, "{pad}] }}),").unwrap();
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A `tm_raw(TYPE *)name` field keeps its name whether or not a space
+    /// comes before it (`ONI_Character.h` has both).
+    #[test]
+    fn raw_fields_keep_their_names() {
+        for decl in [
+            "tm_raw(P3tParticleClass*)death_particleclass;",
+            "tm_raw(SStImpulse *)death_particleclass;",
+            "tm_raw(SStImpulse *) death_particleclass;",
+        ] {
+            let f = parse_field(decl).unwrap_or_else(|| panic!("{decl} dropped"));
+            assert!(f.qual == Qual::Raw, "{decl}");
+            assert_eq!(f.name, "death_particleclass", "{decl}");
         }
     }
 }
