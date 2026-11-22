@@ -604,15 +604,14 @@ impl Fighter {
         }
     }
 
-    /// Playing a film: this tick's recorded controls (and its position
-    /// eased toward the recording's), as a move. None: no film, or it has
-    /// just ended (it is dropped).
-    /// One tick of the film it plays, as the original reads a film's frame
-    /// for its input (`ONrFilm_GetFrame` into `ONrCharacter_UpdateInput`):
-    /// its turns (scaled by a held gun's aiming speed, `HandleTurnInput`;
-    /// up/down aims, left/right turns — or, in look mode, aims), its
-    /// buttons (fire strikes only while `armed` is false, as for the
-    /// player), kept for its gun in [`Fighter::film_keys`].
+    /// One tick of the film it plays, as a move (its position eased toward
+    /// the recording's), as the original reads a film's frame for its input
+    /// (`ONrFilm_GetFrame` into `ONrCharacter_UpdateInput`): its turns
+    /// (scaled by a held gun's aiming speed, `HandleTurnInput`; up/down
+    /// aims, left/right turns — or, in look mode, aims; the aim pinned to
+    /// ±π/2), its buttons (fire strikes only while `armed` is false, as for
+    /// the player), kept for its gun in [`Fighter::film_keys`]. None: no
+    /// film, or it has just ended (it is dropped).
     pub fn film_move(
         &mut self,
         armed: bool,
@@ -640,6 +639,9 @@ impl Fighter {
                     self.facing.adjust_desired(-x);
                 }
                 self.aim.ud += y;
+                use std::f32::consts::FRAC_PI_2;
+                self.aim.lr = self.aim.lr.clamp(-FRAC_PI_2, FRAC_PI_2);
+                self.aim.ud = self.aim.ud.clamp(-FRAC_PI_2, FRAC_PI_2);
                 self.film_keys = Some(keys);
                 let held = crate::anim::input::fire_as_melee(keys, armed, alternate);
                 Some(self.plan(held, 0, opponents))
@@ -933,8 +935,7 @@ impl Fighter {
         if let Some(t) = self.motion.throw_started.as_mut() {
             let turn = std::mem::take(&mut t.turn);
             if turn != 0.0 {
-                self.facing.rotate(turn);
-                self.facing.adjust_desired(turn);
+                self.facing.adjust(turn);
             }
         }
     }
@@ -1326,8 +1327,7 @@ impl Fighter {
             .filter(|(a, _)| a.abs() <= AUTO_FACE_ARC)
             .min_by(|a, b| a.0.abs().total_cmp(&b.0.abs()));
         if let Some((delta, true)) = best {
-            self.facing.rotate(delta);
-            self.facing.adjust_desired(delta);
+            self.facing.adjust(delta);
         }
     }
 
@@ -2191,6 +2191,18 @@ pub struct FilmPlay {
 }
 
 impl FilmPlay {
+    /// The buttons this tick's frame holds, without moving on (none once the
+    /// film is over).
+    pub fn peek(&self) -> Option<u32> {
+        if self.frame >= self.film.length {
+            return None;
+        }
+        let k = self.film.keys.iter().rposition(|k| k.0 <= self.frame)?;
+        Some(crate::anim::input::from_original_buttons(
+            self.film.keys[k].1,
+        ))
+    }
+
     /// This tick's controls and turns (left/right, up/down; the original's
     /// `ONrFilm_GetFrame`): the buttons of the last key at or before this
     /// tick; its turns only on the key's own tick. None once the film is

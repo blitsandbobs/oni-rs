@@ -415,7 +415,8 @@ impl World {
         }
         f.class = kind.class.clone();
         // Its size, drawn from its class's range (`ONrGameState_NewCharacter`;
-        // a class of one size draws nothing).
+        // a port choice: a class of one size draws no roll, where the
+        // original's `UUmRandomRangeFloat` always takes one).
         let (lo, hi) = kind.tuning.scale;
         if lo != hi {
             let r = self.roll();
@@ -538,7 +539,8 @@ impl World {
         self.with_shots(|a, host| a.particles.kill_temporary(host));
     }
 
-    /// The tick now (the clock the traces print).
+    /// The tick now (the clock the traces print: `ONI_TRACE_SHOTS`,
+    /// `ONI_TRACE_COMMANDS`).
     pub fn tick(&self) -> u64 {
         self.now as u64
     }
@@ -2294,17 +2296,19 @@ impl World {
             p.motion.throw_sense = sense;
         }
         use crate::ai::perception::Relation;
-        // With a gun, the fire buttons shoot instead of striking.
-        self.check_empty(0, controls);
-        let armed = self.armed(0);
-        let alternate = self.fighters.first().and_then(|f| f.hand).is_some_and(|w| {
-            self.armory.weapons[w]
-                .class
-                .has(crate::weapons::flag::HAS_ALTERNATE)
-        });
+        // With a gun, the fire buttons shoot instead of striking: an empty
+        // one's fire 1 press marks it so (each by its own input — a film's
+        // by this tick's frame, `ONrCharacter_HandleHeartbeatInput`).
+        for i in 0..self.fighters.len() {
+            match self.fighters[i].film.as_ref().map(|p| p.peek()) {
+                Some(keys) => self.check_empty(i, keys.unwrap_or(0)),
+                None if i == 0 => self.check_empty(0, controls),
+                None => {}
+            }
+        }
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
-        // (A film's actor's guns, as the player's: its fire buttons strike
-        // only unarmed; a gun scales its turns.)
+        // (Each one's gun, as the player's: its fire buttons strike only
+        // unarmed; a gun scales a film's turns.)
         let film_guns: Vec<(bool, bool, Option<f32>)> = (0..self.fighters.len())
             .map(|i| {
                 let alternate = self.fighters[i].hand.is_some_and(|w| {
@@ -2315,6 +2319,7 @@ impl World {
                 (self.armed(i), alternate, self.aiming_speed(i))
             })
             .collect();
+        let (armed, alternate, _) = film_guns.first().copied().unwrap_or_default();
         let ai_control = self.input.ai_control;
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -2336,6 +2341,7 @@ impl World {
                 .map(|(_, p)| *p);
             // The player's fire buttons become melee while unarmed. A film
             // plays its recorded controls.
+            f.film_keys = None;
             if f.console.is_some() {
                 // Using a console: the console's walk and animation only.
                 moves.push(f.plan(0, 0, &others));

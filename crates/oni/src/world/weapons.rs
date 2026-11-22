@@ -2403,7 +2403,8 @@ impl World {
         }
     }
 
-    /// Fighter `who`'s fire controls this tick → its gun (/// *Firing*). Fire 1 shoots (and wins over fire 2, the alternate).
+    /// Fighter `who`'s fire controls this tick → its gun. Fire 1 shoots (and
+    /// wins over fire 2, the alternate).
     fn fire_controls(&mut self, who: usize, held: u32) {
         if self.armory.last_fire.len() < self.fighters.len() {
             self.armory.last_fire.resize(self.fighters.len(), 0);
@@ -2583,7 +2584,7 @@ impl World {
             // `ONrCharacter_DoAiming` takes the vector way for both) in a
             // clip with a gun's aiming screen: the gun swings to the aim,
             // clipped to the screen's reach; else it rides the hand.
-            let aim = if f.player && f.film.is_none() {
+            let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
                 self.fighters[who].aim.auto = (lr, ud);
                 let f = &self.fighters[who];

@@ -605,8 +605,9 @@ impl Weapon {
         if self.owner.is_none() {
             return;
         }
-        // (`ONI_TRACE_SHOTS=1`: each shot's new particles — where they start
-        // and which way they go.)
+        // (`ONI_TRACE_SHOTS=1`: each shot — the gun's barrel and the new
+        // particles, where they start and which way they go — at the world's
+        // tick: the particles' clock moves on later in the tick.)
         static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
         let trace = *TRACE.get_or_init(|| std::env::var_os("ONI_TRACE_SHOTS").is_some());
         let before: std::collections::HashSet<p3::Handle> = if trace {
@@ -620,7 +621,7 @@ impl Weapon {
             let (at, x) = (m.w_axis.truncate(), m.x_axis.truncate().normalize_or_zero());
             eprintln!(
                 "pulse {} {:?} gun {} attachment {i} at {:.1} {:.1} {:.1} barrel {:.3} {:.3} {:.3} yaw {:.0} pitch {:.0} new particles {}",
-                sys.tick,
+                sys.tick + 1,
                 self.owner,
                 self.class.name,
                 at.x, at.y, at.z,
@@ -634,7 +635,7 @@ impl Weapon {
                 let d = v.normalize_or_zero();
                 eprintln!(
                     "shot {} {:?} gun {} class {} at {:.1} {:.1} {:.1} dir {:.3} {:.3} {:.3} speed {:.0} yaw {:.0} pitch {:.0}",
-                    sys.tick,
+                    sys.tick + 1,
                     self.owner,
                     self.class.name,
                     sys.classes.list[p.class].name,
