@@ -8,6 +8,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
+use oni_schema::files;
 use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
@@ -131,7 +132,7 @@ pub fn class_sounds(dat: &Dat<'_>) -> serde_json::Map<String, Value> {
 }
 
 /// A level's laser triggers.
-pub fn lasers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn lasers(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::Laser> {
     let (_, objects) = crate::objects::read(dat, raw, "Trigger");
     objects
         .iter()
@@ -142,60 +143,65 @@ pub fn lasers(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
             let argb = le_u32(d, NAME + 4);
             let byte = |s: u32| ((argb >> s) & 0xFF) as f32 / 255.0;
             let (events, _) = crate::consoles::events(d, NAME + 22);
-            let mut l = json!({
-                "id": le_u16(d, NAME),
-                "class": cstr(d, 0, NAME),
-                "position": o.position,
-                "axes": crate::patrols::euler_axes(o.rotation),
-                "color": [byte(16), byte(8), byte(0)],
-                "startOffset": le_f32(d, NAME + 8).clamp(0.0, 1.0),
-                "speed": le_f32(d, NAME + 12).clamp(0.0, 100.0),
-                "emitters": le_u16(d, NAME + 16).clamp(1, 32),
-                "timeOn": le_u16(d, NAME + 18),
-                "timeOff": le_u16(d, NAME + 20),
-                "events": events,
-            });
-            let f = oni_schema::bit_names(&oni_schema::LASER_FLAGS, flags as u32);
-            if !f.is_empty() {
-                l["flags"] = json!(f);
+            files::Laser {
+                id: le_u16(d, NAME),
+                class: cstr(d, 0, NAME),
+                position: o.position,
+                axes: crate::patrols::euler_axes(o.rotation),
+                color: [byte(16), byte(8), byte(0)],
+                start_offset: le_f32(d, NAME + 8).clamp(0.0, 1.0),
+                speed: le_f32(d, NAME + 12).clamp(0.0, 100.0),
+                emitters: le_u16(d, NAME + 16).clamp(1, 32),
+                time_on: le_u16(d, NAME + 18),
+                time_off: le_u16(d, NAME + 20),
+                events,
+                flags: oni_schema::bit_names(&oni_schema::LASER_FLAGS, flags as u32)
+                    .into_iter()
+                    .map(String::from)
+                    .collect(),
             }
-            l
         })
         .collect()
 }
 
-/// Writes `lasers.json` into a level folder: its lasers, and the tracks of
-/// the classes they use.
+/// Writes `lasers.json` into a level folder: its lasers, and the tracks and
+/// eyes of the classes they use.
 pub fn write(
     dat: &Dat<'_>,
     raw: &[u8],
     root: &Path,
     classes: &BTreeMap<String, Class>,
 ) -> std::io::Result<()> {
-    let l = lasers(dat, raw);
-    if l.is_empty() {
+    let lasers = lasers(dat, raw);
+    if lasers.is_empty() {
         return Ok(());
     }
     let used: Vec<(&String, &Class)> = classes
         .iter()
-        .filter(|(n, _)| l.iter().any(|x| x["class"].as_str() == Some(n.as_str())))
+        .filter(|(n, _)| lasers.iter().any(|x| &x.class == *n))
         .collect();
-    let tracks: serde_json::Map<String, Value> = used
-        .iter()
-        .map(|(n, c)| ((*n).clone(), json!(c.track)))
-        .collect();
-    let eyes: serde_json::Map<String, Value> = used
-        .iter()
-        .filter_map(|(n, c)| {
-            Some((
-                (*n).clone(),
-                json!({ "model": c.eye.as_ref()?, "frames": c.frames }),
-            ))
-        })
-        .collect();
+    let file = files::LasersFile {
+        classes: used
+            .iter()
+            .map(|(n, c)| ((*n).clone(), c.track.clone()))
+            .collect(),
+        eyes: used
+            .iter()
+            .filter_map(|(n, c)| {
+                Some((
+                    (*n).clone(),
+                    files::LaserEye {
+                        model: c.eye.clone()?,
+                        frames: c.frames.clone(),
+                    },
+                ))
+            })
+            .collect(),
+        lasers,
+    };
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("lasers.json"),
-        serde_json::to_string_pretty(&json!({ "lasers": l, "classes": tracks, "eyes": eyes }))?,
+        serde_json::to_string_pretty(&file)?,
     )
 }

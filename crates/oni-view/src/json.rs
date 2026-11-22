@@ -16,6 +16,20 @@ pub fn load(path: impl AsRef<Path>) -> Value {
     read(path).unwrap_or_default()
 }
 
+/// A converted file in its shared format (`oni_schema::files`): its
+/// default when the file is missing (a level without lasers, say); a file
+/// there that doesn't read as its format is said so, and taken as missing.
+pub fn read_file<T: serde::de::DeserializeOwned + Default>(path: impl AsRef<Path>) -> T {
+    let path = path.as_ref();
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return T::default();
+    };
+    serde_json::from_str(&text).unwrap_or_else(|e| {
+        eprintln!("{}: {e}", path.display());
+        T::default()
+    })
+}
+
 /// A number as `f32` (0 when absent).
 pub fn f32(v: &Value) -> f32 {
     v.as_f64().unwrap_or(0.0) as f32

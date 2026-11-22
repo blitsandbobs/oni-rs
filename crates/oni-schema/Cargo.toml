@@ -7,3 +7,9 @@ description = "The named vocabulary of the converted Oni assets (animation types
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

@@ -27,6 +27,26 @@ pub enum Event {
 }
 
 /// An event from its JSON form.
+impl From<&oni_schema::files::Event> for Event {
+    fn from(e: &oni_schema::files::Event) -> Event {
+        use oni_schema::files::Event as F;
+        match e {
+            F::Script { script } => Event::Script(script.clone()),
+            F::ActivateConsole { id } => Event::ActivateConsole(*id),
+            F::DeactivateConsole { id } => Event::DeactivateConsole(*id),
+            F::ActivateAlarm { id } => Event::ActivateAlarm(*id),
+            F::LockDoor { id } => Event::LockDoor(*id),
+            F::UnlockDoor { id } => Event::UnlockDoor(*id),
+            F::ActivateTrigger { id } => Event::ActivateLaser(*id),
+            F::DeactivateTrigger { id } => Event::DeactivateLaser(*id),
+            F::ActivateTurret { id } => Event::ActivateTurret(*id),
+            F::DeactivateTurret { id } => Event::DeactivateTurret(*id),
+            F::DeactivateAlarm { id } => Event::Other("deactivateAlarm".into(), *id),
+            F::None => Event::Other("none".into(), 0),
+        }
+    }
+}
+
 pub fn event(e: &serde_json::Value) -> Event {
     let id = e["id"].as_u64().unwrap_or(0) as u16;
     match e["type"].as_str().unwrap_or("") {

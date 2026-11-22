@@ -6,6 +6,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
+use oni_schema::files::Event;
 use serde_json::{json, Value};
 
 use crate::{cstr, le_u16};
@@ -72,7 +73,7 @@ pub fn classes(dat: &Dat<'_>, registry: &oni_template::Registry) -> HashMap<Stri
 
 /// An event list (`Oni_Event`): a count, then each event's type and
 /// parameter. Returns the events and the bytes read.
-pub fn events(d: &[u8], at: usize) -> (Vec<Value>, usize) {
+pub fn events(d: &[u8], at: usize) -> (Vec<Event>, usize) {
     let mut out = Vec::new();
     let n = le_u16(d, at) as usize;
     let mut p = at + 2;
@@ -82,18 +83,31 @@ pub fn events(d: &[u8], at: usize) -> (Vec<Value>, usize) {
         }
         let kind = le_u16(d, p);
         p += 2;
-        let name = oni_schema::name(&oni_schema::EVENT_TYPES, kind).unwrap_or("none");
-        match kind {
-            1 => {
-                out.push(json!({ "type": name, "script": cstr(d, p, 32) }));
-                p += 32;
-            }
-            2..=11 => {
-                out.push(json!({ "type": name, "id": le_u16(d, p) }));
-                p += 2;
-            }
-            _ => out.push(json!({ "type": name })),
+        if kind == 1 {
+            out.push(Event::Script {
+                script: cstr(d, p, 32),
+            });
+            p += 32;
+            continue;
         }
+        if !(2..=11).contains(&kind) {
+            out.push(Event::None);
+            continue;
+        }
+        let id = le_u16(d, p);
+        p += 2;
+        out.push(match kind {
+            2 => Event::ActivateTurret { id },
+            3 => Event::DeactivateTurret { id },
+            4 => Event::ActivateConsole { id },
+            5 => Event::DeactivateConsole { id },
+            6 => Event::ActivateAlarm { id },
+            7 => Event::DeactivateAlarm { id },
+            8 => Event::ActivateTrigger { id },
+            9 => Event::DeactivateTrigger { id },
+            10 => Event::LockDoor { id },
+            _ => Event::UnlockDoor { id },
+        });
     }
     (out, p - at)
 }

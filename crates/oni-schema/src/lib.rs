@@ -11,6 +11,7 @@
 //! Single values use a table indexed by value ([`name`] / [`value`]); bit
 //! sets use a table indexed by bit ([`bit_names`] / [`bits`]).
 
+pub mod files;
 mod tables;
 
 pub use tables::{ANIM_STATES, ANIM_TYPES};

@@ -1561,6 +1561,10 @@ dependencies = [
 [[package]]
 name = "oni-schema"
 version = "0.0.1"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "oni-sound"
@@ -1606,6 +1610,7 @@ dependencies = [
  "oni-schema",
  "png",
  "pollster",
+ "serde",
  "serde_json",
  "wgpu",
  "winit",

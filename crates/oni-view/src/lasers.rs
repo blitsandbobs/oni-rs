@@ -213,59 +213,36 @@ pub fn ray_sphere(from: Vec3, dir: Vec3, max: f32, centre: Vec3, radius: f32) ->
 }
 
 pub fn load(level_dir: &Path) -> Vec<Laser> {
-    let doc: serde_json::Value = crate::json::load(level_dir.join("lasers.json"));
-    use crate::json::vec3 as v3;
+    let doc: oni_schema::files::LasersFile = crate::json::read_file(level_dir.join("lasers.json"));
     let common = level_dir.join("../../common");
-    let mut eyes: std::collections::HashMap<String, Rc<(std::path::PathBuf, Vec<glam::Mat4>)>> =
-        Default::default();
-    if let Some(e) = doc["eyes"].as_object() {
-        for (name, v) in e {
-            let Some(model) = v["model"].as_str() else {
-                continue;
-            };
-            let frames = v["frames"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(crate::geom::mat4_json)
-                .collect();
-            eyes.insert(name.clone(), Rc::new((common.join(model), frames)));
-        }
-    }
-    let mut tracks: std::collections::HashMap<String, Rc<Vec<[f32; 6]>>> = Default::default();
-    if let Some(cl) = doc["classes"].as_object() {
-        for (name, t) in cl {
-            let track = t
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|r| std::array::from_fn(|i| r[i].as_f64().unwrap_or(0.0) as f32))
-                .collect();
-            tracks.insert(name.clone(), Rc::new(track));
-        }
-    }
-    doc["lasers"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    type Eye = Rc<(std::path::PathBuf, Vec<glam::Mat4>)>;
+    let eyes: std::collections::HashMap<&str, Eye> = doc
+        .eyes
+        .iter()
+        .map(|(name, e)| {
+            let frames = e.frames.iter().map(|m| crate::geom::mat4_4x3(m)).collect();
+            (name.as_str(), Rc::new((common.join(&e.model), frames)))
+        })
+        .collect();
+    let tracks: std::collections::HashMap<&str, Rc<Vec<[f32; 6]>>> = doc
+        .classes
+        .iter()
+        .map(|(name, t)| (name.as_str(), Rc::new(t.clone())))
+        .collect();
+    doc.lasers
+        .iter()
         .map(|l| {
-            let has = |f: &str| {
-                l["flags"]
-                    .as_array()
-                    .is_some_and(|a| a.iter().any(|x| x == f))
-            };
-            let speed = l["speed"].as_f64().unwrap_or(1.0) as f32;
-            let n = l["emitters"].as_u64().unwrap_or(1).clamp(1, 32) as usize;
+            let has = |f: &str| l.flags.iter().any(|x| x == f);
             let mut laser = Laser {
-                id: l["id"].as_u64().unwrap_or(0) as u16,
-                position: v3(&l["position"]),
-                axes: [v3(&l["axes"][0]), v3(&l["axes"][1]), v3(&l["axes"][2])],
-                color: std::array::from_fn(|i| l["color"][i].as_f64().unwrap_or(1.0) as f32),
-                start_offset: l["startOffset"].as_f64().unwrap_or(0.0) as f32,
-                speed,
-                current_speed: speed,
-                time_on: l["timeOn"].as_u64().unwrap_or(0) as u32,
-                time_off: l["timeOff"].as_u64().unwrap_or(0) as u32,
+                id: l.id,
+                position: Vec3::from(l.position),
+                axes: l.axes.map(Vec3::from),
+                color: l.color,
+                start_offset: l.start_offset,
+                speed: l.speed,
+                current_speed: l.speed,
+                time_on: u32::from(l.time_on),
+                time_off: u32::from(l.time_off),
                 change_time: 0,
                 laser_on: true,
                 active: false,
@@ -279,21 +256,13 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
                         frame: 0.0,
                         step: 1.0
                     };
-                    n
+                    usize::from(l.emitters.clamp(1, 32))
                 ],
-                events: l["events"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(crate::consoles::event)
-                    .collect(),
-                track: tracks
-                    .get(l["class"].as_str().unwrap_or(""))
-                    .cloned()
-                    .unwrap_or_default(),
+                events: l.events.iter().map(Into::into).collect(),
+                track: tracks.get(l.class.as_str()).cloned().unwrap_or_default(),
                 reach: Vec::new(),
-                eye: eyes.get(l["class"].as_str().unwrap_or("")).cloned(),
-                class: l["class"].as_str().unwrap_or("").to_string(),
+                eye: eyes.get(l.class.as_str()).cloned(),
+                class: l.class.clone(),
             };
             laser.reset();
             laser
