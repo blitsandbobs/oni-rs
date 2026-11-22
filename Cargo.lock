@@ -1661,6 +1661,7 @@ dependencies = [
  "mlua",
  "oni-bink",
  "oni-config",
+ "oni-convert",
  "oni-geom",
  "oni-schema",
  "png",

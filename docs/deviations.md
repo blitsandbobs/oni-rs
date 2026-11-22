@@ -305,10 +305,10 @@ our own additions. Not affected by `--faithful`.
   options' Resolution lists the usual window sizes that fit the display,
   and its own; our Fullscreen box sits under Hide Lens Flares
   (the Difficulty / Subtitles / Invert Mouse panel moved to the right to
-  make room). Settings live in `$ONI_SAVE_DIR/settings.json` (or
-  `~/.oni-rs/`), apart from the save; continues in `continues.json` there
-  (in memory for scripted runs). `--unlock-all`, `--save-point N`,
-  `--outro` are ours.
+  make room). Settings live in the platform's config folder, the
+  save (`continues.json`) and the install in its data folder (#103; both
+  in `$ONI_SAVE_DIR` if set; in memory for scripted runs). `--install`,
+  `--unlock-all`, `--save-point N`, `--outro` are ours.
 - The mouse is grabbed only while focused; the focusing click doesn't
   punch. A popup's title is cut on one line (the original wraps it).
 - The movie's sound has its own mixer; a game begun from the command line

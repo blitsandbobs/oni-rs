@@ -98,10 +98,17 @@ impl Audio {
     /// The definitions in `common/sounds.json`; sounds from `common/audio`
     /// then the level's `audio`.
     pub fn load(common: &Path, level_dir: &Path) -> Audio {
-        let mut a = Audio::empty();
-        a.dirs = vec![common.join("audio"), level_dir.join("audio")];
-        a.defs = defs::Defs::load(common);
+        let mut a = Audio::menus(common);
+        a.dirs.push(level_dir.join("audio"));
         a.objects = objects::load(level_dir);
+        a
+    }
+
+    /// The menus' sound: the shared definitions and sounds, no level's.
+    pub fn menus(common: &Path) -> Audio {
+        let mut a = Audio::empty();
+        a.dirs = vec![common.join("audio")];
+        a.defs = defs::Defs::load(common);
         a
     }
 

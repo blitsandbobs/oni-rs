@@ -184,12 +184,12 @@ impl Continue {
 }
 
 /// Where the saved game is kept between runs (`ONrPersist`'s persistent
-/// file, less the options — `settings.rs`): `$ONI_SAVE_DIR/continues.json`,
-/// else `~/.oni-rs/continues.json`. Its continues by level and save point,
+/// file, less the options — `settings.rs`): `continues.json` in
+/// `$ONI_SAVE_DIR`, else the platform's data folder (`install::data_dir`). Its continues by level and save point,
 /// what the player has met and the levels unlocked (`unlocked`), the place
 /// last played (`place`) and the game's mode (`faithful`).
 fn continues_file() -> Option<PathBuf> {
-    Some(crate::settings::save_dir()?.join("continues.json"))
+    Some(crate::install::data_dir()?.join("continues.json"))
 }
 
 fn write_continues(path: &std::path::Path, doc: &serde_json::Value) {

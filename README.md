@@ -27,12 +27,24 @@ Reference data lives **outside** the workspace in `../original/` and
 
 ## Playing the game
 
-Convert the original game data once (a few seconds), then run the game; with
-no arguments it opens Oni's main menu:
+Bring your own Oni: the Anniversary Edition's `.7z` (or its extracted
+folder). Install it once (a few seconds), then run the game; with no
+arguments it opens Oni's main menu:
+
+```sh
+cargo run --release -p oni -- --install "path/to/Oni - Anniversary Edition.7z"
+cargo run --release -p oni
+```
+
+The install goes to the platform's data folder — `~/Library/Application
+Support/Oni` (macOS), `$XDG_DATA_HOME/oni` (Linux), `%LOCALAPPDATA%\Oni`
+(Windows) — with the game data it was made from, so a new version converts
+it again by itself. `ONI_ROOT` points the game at another converted tree;
+developers convert straight into `../generated/oni`, which the game finds
+too:
 
 ```sh
 cargo run --release -p oni-convert -- ../original/gamedata ../generated/oni
-cargo run --release -p oni
 ```
 
 Controls are the shipped defaults (W/S/A/D, mouse, Space, Shift, Ctrl, Q,
@@ -59,7 +71,8 @@ unlocks every level and puts each one's save points in the main menu's Load
 Game list (from the save points its scripts keep; one begun this way starts
 there with nothing carried over, the player as the level's scripts set her
 up). Saved games already kept stay as they are. The saved game lives in
-`~/.oni-rs/continues.json` (or `$ONI_SAVE_DIR`).
+the platform's data folder (below), the options in its config folder (or
+both in `$ONI_SAVE_DIR`).
 
 ### Cheat codes
 

@@ -232,6 +232,17 @@ pub fn convert_with(
     convert_reporting(input_dir, output_dir, scripts_dir, &mut |_| true)
 }
 
+/// Which converter this is: a hash of the sources that shape its output
+/// (`build.rs`), kept in a converted tree's `oni.json` as `build`.
+pub const BUILD: &str = env!("ONI_CONVERT_BUILD");
+
+/// The `build` a converted tree was made by (none: unknown, an older tree).
+pub fn tree_build(root: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(root.join("oni.json")).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&text).ok()?;
+    v["build"].as_str().map(str::to_string)
+}
+
 /// How far a conversion has come: what it is doing, and the fraction of the
 /// whole done (0–1).
 #[derive(Clone, Debug, PartialEq)]
@@ -3029,6 +3040,7 @@ fn write_manifest(
         "format": "oni-modern-assets",
         "formatVersion": 1,
         "converter": env!("CARGO_PKG_VERSION"),
+        "build": BUILD,
         "formats": { "models": "glTF 2.0 (.glb)", "textures": "PNG", "audio": "WAV", "data": "JSON" },
         "references": { "resolved": report.refs_resolved, "dangling": report.refs_dangling },
         "source": { "files": source_files },

@@ -112,7 +112,7 @@ impl State {
         front.menu = Some(menu);
         if !in_game && front.audio.is_none() {
             let common = front.oni_root.join("common");
-            let mut audio = crate::audio::Audio::load(&common, &common);
+            let mut audio = crate::audio::Audio::menus(&common);
             let output = crate::audio::output::Output::open(audio.mixer.clone());
             audio.realtime = output.is_some();
             audio.set_volume(front.user.overall_volume);

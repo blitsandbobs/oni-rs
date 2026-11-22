@@ -39,6 +39,7 @@ mod glass;
 mod gltf;
 mod hud;
 mod impacts;
+mod install;
 mod json;
 mod lasers;
 mod mission;
@@ -125,6 +126,9 @@ impl CharView {
     }
 }
 
+/// No game found: how to install one.
+const NO_GAME: &str = "oni: the game isn't installed: run `oni --install <the Anniversary Edition's .7z or folder>` (or set ONI_ROOT to a converted tree)";
+
 fn main() {
     let mut argv: Vec<String> = std::env::args().skip(1).collect();
     // (The window's say, wherever on the line: `display::Overrides`.)
@@ -134,15 +138,28 @@ fn main() {
     // For testing: every level and its save points in the load game list.
     if first.as_deref() == Some("--unlock-all") {
         let Some(root) = find_assets() else {
-            eprintln!(
-                "oni: no converted assets found (set ONI_ROOT to the converter's output, …/oni)"
-            );
+            eprintln!("{NO_GAME}");
             std::process::exit(2);
         };
         for (level, points) in game::unlock_all(&root) {
             println!("level {level:2}: start, save points {points:?}");
         }
         println!("unlocked: open Load Game in the main menu");
+        return;
+    }
+    // Installs the game from the player's Anniversary Edition (#103).
+    if first.as_deref() == Some("--install") {
+        let Some(from) = args.next() else {
+            eprintln!("usage: oni --install <the Anniversary Edition's .7z or folder>");
+            std::process::exit(2);
+        };
+        match install::install_from(std::path::Path::new(&from), &mut console_progress()) {
+            Ok(root) => println!("installed: {}", root.display()),
+            Err(e) => {
+                eprintln!("oni: {e}");
+                std::process::exit(1);
+            }
+        }
         return;
     }
     // For testing: the ending movie, then the main menu.
@@ -153,7 +170,7 @@ fn main() {
         match find_assets() {
             Some(root) => run_game(root, outro, display),
             None => {
-                eprintln!("oni: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
+                eprintln!("{NO_GAME}");
                 eprintln!("usage: oni [--fullscreen | --windowed] [--window WxH] [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
                 std::process::exit(2);
             }
@@ -380,29 +397,37 @@ fn glass_parts(scene: &gltf::Scene) -> Vec<(u32, Option<u32>, Mesh)> {
     out
 }
 
-/// The converted assets (`…/oni`, holding `common/menus.json`): `$ONI_ROOT`,
-/// else `generated/oni` here or above, by the working directory or the
-/// program.
+/// The converted tree to play (`install::find`), brought up to date first
+/// when the converter has changed and its source is kept.
 fn find_assets() -> Option<PathBuf> {
-    let ok = |p: &std::path::Path| p.join("common/menus.json").is_file();
-    if let Some(r) = std::env::var_os("ONI_ROOT").map(PathBuf::from) {
-        return ok(&r).then_some(r);
+    install::migrate_old_files();
+    let found = install::find()?;
+    if install::can_update(&found) {
+        eprintln!("oni: the converter has changed: converting the game again");
+        if let Err(e) = install::update(&mut console_progress()) {
+            eprintln!("oni: {e}");
+        }
+    } else if !found.current {
+        eprintln!(
+            "oni: {} was converted by another version of the converter",
+            found.root.display()
+        );
     }
-    let mut starts = vec![std::env::current_dir().ok()?];
-    if let Some(exe) = std::env::current_exe()
-        .ok()
-        .and_then(|e| e.parent().map(PathBuf::from))
-    {
-        starts.push(exe);
+    Some(found.root)
+}
+
+/// Install progress on the terminal: each step once, the percentage as it
+/// rises.
+fn console_progress() -> impl FnMut(install::Step) -> bool {
+    let mut last = (String::new(), -1i32);
+    move |s: install::Step| {
+        let pct = (s.done * 100.0) as i32;
+        if s.what != last.0 || pct / 10 != last.1 / 10 {
+            eprintln!("  {:3}%  {}", pct, s.what);
+            last = (s.what, pct);
+        }
+        true
     }
-    starts
-        .iter()
-        .flat_map(|s| {
-            s.ancestors()
-                .map(|a| a.join("generated/oni"))
-                .collect::<Vec<_>>()
-        })
-        .find(|p| ok(p))
 }
 
 /// The game as the player has it: the main menu, then the levels it

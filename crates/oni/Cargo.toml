@@ -21,6 +21,7 @@ oni-schema = { version = "0.0.1", path = "../oni-schema" }
 cpal = "0.18.2"
 oni-geom = { version = "0.0.1", path = "../oni-geom" }
 oni-bink.workspace = true
+oni-convert = { version = "0.0.1", path = "../oni-convert" }
 
 [lints.rust]
 unsafe_code = "forbid"

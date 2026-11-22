@@ -1,6 +1,6 @@
 //! The player's options (`Oni_Persistance.c`'s game options;,
-//! *Options*), kept apart from the saved games: `$ONI_SAVE_DIR/settings.json`,
-//! else `~/.oni-rs/settings.json`. A missing or unreadable file gives the
+//! *Options*), kept apart from the saved games: `settings.json` in
+//! `$ONI_SAVE_DIR`, else the platform's config folder (`install.rs`). A missing or unreadable file gives the
 //! original's defaults (`ONrPersistance_Initialize`).
 
 use std::path::PathBuf;
@@ -54,11 +54,10 @@ impl Default for Settings {
     }
 }
 
-/// Where the player's files live: `$ONI_SAVE_DIR`, else `~/.oni-rs`.
+/// Where the options live: `$ONI_SAVE_DIR`, else the platform's config
+/// folder (`install::config_dir`).
 pub fn save_dir() -> Option<PathBuf> {
-    std::env::var_os("ONI_SAVE_DIR")
-        .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".oni-rs")))
+    crate::install::config_dir()
 }
 
 impl Settings {
