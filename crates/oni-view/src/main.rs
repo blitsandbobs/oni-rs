@@ -26,6 +26,7 @@ mod control;
 mod decal;
 mod doors;
 mod fighter;
+mod frame;
 mod game;
 mod gamma;
 mod gltf;

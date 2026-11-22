@@ -56,13 +56,13 @@ use std::cell::RefCell;
 use std::path::Path;
 use std::rc::Rc;
 
-use glam::{Mat4, Vec3};
+use glam::Vec3;
 use mlua::Lua;
 
 use crate::anim::input::key;
 use crate::classes::Classes;
 use crate::quirks::Quirks;
-use crate::render::{CharDraw, Gpu, Renderer};
+use crate::render::{Gpu, Renderer};
 use crate::world::{CharKind, World};
 use crate::CharView;
 
@@ -243,109 +243,26 @@ impl ScriptHost {
             (Some(e), None) => cam.look_at(e, self.scene.center()),
             _ => {}
         }
-        self.renderer.door_motion = self.world.door_motions();
-        self.renderer.beams = self.world.beams.clone();
-        self.renderer.sprites = self.world.sprites();
-        self.renderer.decals = if self.show_decals {
-            self.world.decal_draws(cam.eye)
-        } else {
-            Vec::new()
-        };
-        self.renderer.hidden_refs = self.world.env_hidden.clone();
-        self.renderer.env_shades = self.world.env_shades.clone();
-        self.renderer.door_shades = self.world.door_shades.clone();
-        self.renderer.broken_glass = self.world.broken_glass.clone();
-        self.renderer.jello = self.world.jello.clone();
-        self.renderer.jello_doors = self.world.jello_doors.iter().copied().collect();
-        self.renderer.anim_time = self.world.game_tick();
-        self.renderer.eye = cam.eye;
-        self.renderer.fog = self.world.fog.fog;
         self.renderer.overlay = match (&self.loading, &self.menu) {
             (Some((data, d)), _) => {
                 let (w, h) = (w as f32, h as f32);
-                let black = crate::render::OverlayDraw {
-                    texture: None,
-                    tris: vec![
-                        [0.0, 0.0, 0.0, 0.0],
-                        [w, 0.0, 1.0, 0.0],
-                        [w, h, 1.0, 1.0],
-                        [0.0, 0.0, 0.0, 0.0],
-                        [w, h, 1.0, 1.0],
-                        [0.0, h, 0.0, 1.0],
-                    ],
-                    color: [0.0, 0.0, 0.0, 1.0],
-                    additive: false,
-                };
-                std::iter::once(black)
+                std::iter::once(crate::frame::black(w, h, 1.0))
                     .chain(d.draw(&data.look, w, h))
                     .collect()
             }
             (None, Some((data, m))) => m.draw(data, w as f32, h as f32),
-            (None, None) => self.world.hud_draw(w as f32, h as f32),
+            (None, None) => crate::frame::world_overlay(&mut self.world, w as f32, h as f32),
         };
         self.renderer.overlay_size = [w as f32, h as f32];
-        let bones: Vec<Vec<Mat4>> = self.world.fighters.iter().map(|f| f.bones()).collect();
-        self.renderer.magic = self.world.magic_draws(&bones);
+        let frame = crate::frame::WorldFrame::build(
+            &self.world,
+            &mut self.renderer,
+            &self.gpu,
+            cam.eye,
+            self.show_decals,
+        );
         self.magic_drawn = self.renderer.magic.len();
-        let mut guns: Vec<crate::render::ModelDraw> = self
-            .world
-            .gun_draws()
-            .into_iter()
-            .chain(self.world.particle_models())
-            .chain(self.world.turret_draws())
-            .chain(self.world.powerup_draws())
-            .filter_map(|(path, m)| {
-                Some((
-                    self.renderer.model_from(&self.gpu, &path)?,
-                    vec![m],
-                    false,
-                    1.0,
-                    None,
-                ))
-            })
-            .collect();
-        // (Placed objects, some lit flat.)
-        for (path, m, shade) in self.world.object_draws() {
-            if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                guns.push((k, vec![m], false, 1.0, shade));
-            }
-        }
-        // (Objects in the camera's way, see-through.)
-        for (path, m) in self.world.object_jello_draws() {
-            if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                guns.push((k, vec![m], true, 1.0, None));
-            }
-        }
-        // (Guns held by bodies fading out.)
-        for (path, m, a) in self.world.faded_gun_draws() {
-            if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                guns.push((k, vec![m], false, a, None));
-            }
-        }
-        // (Consoles' screens, textured by their state.)
-        for (path, tex, m) in self.world.console_draws() {
-            if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                guns.push((k, vec![m], false, 1.0, None));
-            }
-        }
-        let draws: Vec<CharDraw> = self
-            .world
-            .fighters
-            .iter()
-            .zip(&bones)
-            .map(|(f, b)| f.draw(b))
-            .chain(self.world.corpse_draws())
-            .chain(
-                guns.iter()
-                    .map(|(m, b, see_through, alpha, shade)| CharDraw {
-                        model: *m,
-                        bones: b,
-                        see_through: *see_through,
-                        alpha: *alpha,
-                        shade: *shade,
-                    }),
-            )
-            .collect();
+        let draws = frame.draws(&self.world);
         let basis = cam.billboard_basis();
         crate::render_to_rgba(
             &self.gpu,

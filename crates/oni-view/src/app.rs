@@ -1314,8 +1314,8 @@ impl State {
         let view = frame
             .texture
             .create_view(&wgpu::TextureViewDescriptor::default());
-        // Pose the characters. In play mode: every fighter in the world. In the
-        // static viewer: the single character, looping over elapsed time.
+        // The world's part (in play mode), shared with the scenario host.
+        let mut world_frame = None;
         if let Some(pw) = &mut self.play {
             // The HUD, in the window's logical pixels (its size on a 640 × 480
             // screen of the time on a high-density display).
@@ -1324,32 +1324,13 @@ impl State {
                 self.config.width as f32 / scale,
                 self.config.height as f32 / scale,
             );
-            self.renderer.overlay = if pw.world.skipping() {
-                Vec::new()
-            } else {
-                pw.world.hud_draw(w, h)
-            };
+            self.renderer.overlay = crate::frame::world_overlay(&mut pw.world, w, h);
             self.renderer.overlay_size = [w, h];
-            // A cutscene skip's fade (black while it skips).
-            if let Some(a) = pw.world.skip_blanket() {
-                self.renderer.overlay.push(crate::render::OverlayDraw {
-                    texture: None,
-                    tris: quad([0.0, 0.0, w, h]),
-                    color: [0.0, 0.0, 0.0, a],
-                    additive: false,
-                });
-            }
             pw.world.skip_drawn();
             // A splash screen over everything: black, its picture in the
             // middle (640 × 480), the fade's black over it.
             if let Some(sp) = pw.flow.as_ref().and_then(|f| f.splash.as_ref()) {
-                let black = |a: f32| crate::render::OverlayDraw {
-                    texture: None,
-                    tris: quad([0.0, 0.0, w, h]),
-                    color: [0.0, 0.0, 0.0, a],
-                    additive: false,
-                };
-                self.renderer.overlay.push(black(1.0));
+                self.renderer.overlay.push(crate::frame::black(w, h, 1.0));
                 let (x, y) = ((w - 640.0) * 0.5, (h - 480.0) * 0.5);
                 self.renderer.overlay.push(crate::render::OverlayDraw {
                     texture: Some(sp.texture.clone()),
@@ -1357,21 +1338,19 @@ impl State {
                     color: [1.0; 4],
                     additive: false,
                 });
-                self.renderer.overlay.push(black(sp.blanket()));
+                self.renderer
+                    .overlay
+                    .push(crate::frame::black(w, h, sp.blanket()));
             }
-            self.renderer.door_motion = pw.world.door_motions();
-            self.renderer.beams = pw.world.beams.clone();
-            self.renderer.sprites = pw.world.sprites();
-            self.renderer.decals = pw.world.decal_draws(self.cam.eye);
-            self.renderer.hidden_refs = pw.world.env_hidden.clone();
-            self.renderer.env_shades = pw.world.env_shades.clone();
-            self.renderer.door_shades = pw.world.door_shades.clone();
-            self.renderer.broken_glass = pw.world.broken_glass.clone();
-            self.renderer.jello = pw.world.jello.clone();
-            self.renderer.jello_doors = pw.world.jello_doors.iter().copied().collect();
-            self.renderer.anim_time = pw.world.game_tick();
-            self.renderer.eye = self.cam.eye;
-            self.renderer.fog = pw.world.fog.fog;
+            world_frame = Some(crate::frame::WorldFrame::build(
+                &pw.world,
+                &mut self.renderer,
+                &self.gpu,
+                self.cam.eye,
+                true,
+            ));
+        } else {
+            self.renderer.magic.clear();
         }
         self.renderer.gamma = self.gamma;
         // The movie over everything: on black, as big as fits, centred
@@ -1418,101 +1397,26 @@ impl State {
         // The pointer over the game's own screens: the original's arrow.
         self.sync_mouse();
         self.draw_arrow();
-        let bones: Vec<Vec<Mat4>> = match (&self.play, &self.charview) {
-            (Some(pw), _) => pw.world.fighters.iter().map(|f| f.bones()).collect(),
+        // The static viewer: the single character, looping over elapsed time.
+        let posed: Vec<Mat4> = match (&self.play, &self.charview) {
             (None, Some(cv)) => {
                 let dur = cv.clip.as_ref().map(|c| c.duration).unwrap_or(1.0);
                 let t = self.start.elapsed().as_secs_f32() % dur.max(0.001);
-                vec![cv.bones(t)]
+                cv.bones(t)
             }
-            (None, None) => Vec::new(),
+            _ => Vec::new(),
         };
-        // The magic effects over the bodies (shields, invisibility).
-        self.renderer.magic = self
-            .play
-            .as_ref()
-            .map(|pw| pw.world.magic_draws(&bones))
-            .unwrap_or_default();
-        // Guns: one-bone models placed by their matrices.
-        let guns: Vec<crate::render::ModelDraw> = match &self.play {
-            Some(pw) => {
-                let mut v: Vec<_> = pw
-                    .world
-                    .gun_draws()
-                    .into_iter()
-                    .chain(pw.world.particle_models())
-                    .chain(pw.world.turret_draws())
-                    .chain(pw.world.powerup_draws())
-                    .filter_map(|(path, m)| {
-                        Some((
-                            self.renderer.model_from(&self.gpu, &path)?,
-                            vec![m],
-                            false,
-                            1.0,
-                            None,
-                        ))
-                    })
-                    .collect();
-                // (Placed objects, some lit flat.)
-                for (path, m, shade) in pw.world.object_draws() {
-                    if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], false, 1.0, shade));
-                    }
-                }
-                // (Objects in the camera's way, see-through.)
-                for (path, m) in pw.world.object_jello_draws() {
-                    if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], true, 1.0, None));
-                    }
-                }
-                // (Guns held by bodies fading out.)
-                for (path, m, a) in pw.world.faded_gun_draws() {
-                    if let Some(k) = self.renderer.model_from(&self.gpu, &path) {
-                        v.push((k, vec![m], false, a, None));
-                    }
-                }
-                // (Consoles' screens, textured by their state.)
-                for (path, tex, m) in pw.world.console_draws() {
-                    if let Some(k) = self.renderer.model_textured(&self.gpu, &path, &tex) {
-                        v.push((k, vec![m], false, 1.0, None));
-                    }
-                }
-                v
-            }
-            None => Vec::new(),
-        };
-        let draws: Vec<crate::render::CharDraw> = match (&self.play, self.char_model) {
-            (Some(pw), _) => pw
-                .world
-                .fighters
-                .iter()
-                .zip(&bones)
-                .map(|(f, b)| f.draw(b))
-                .chain(pw.world.corpse_draws())
-                .chain(guns.iter().map(|(m, b, see_through, alpha, shade)| {
-                    crate::render::CharDraw {
-                        model: *m,
-                        bones: b,
-                        see_through: *see_through,
-                        alpha: *alpha,
-                        shade: *shade,
-                    }
-                }))
-                .collect(),
-            (None, Some(m)) => bones
-                .first()
-                .filter(|b| !b.is_empty())
-                .map(|b| {
-                    vec![crate::render::CharDraw {
-                        model: m,
-                        bones: b,
-                        see_through: false,
-                        alpha: 1.0,
-                        shade: None,
-                    }]
-                })
-                .unwrap_or_default(),
-            (None, None) => Vec::new(),
+        let draws: Vec<crate::render::CharDraw> = match (&self.play, &world_frame, self.char_model)
+        {
+            (Some(pw), Some(f), _) => f.draws(&pw.world),
+            (None, _, Some(m)) if !posed.is_empty() => vec![crate::render::CharDraw {
+                model: m,
+                bones: &posed,
+                see_through: false,
+                alpha: 1.0,
+                shade: None,
+            }],
+            _ => Vec::new(),
         };
         let (cam_right, cam_up) = self.cam.billboard_basis();
         self.renderer.render(
@@ -1529,18 +1433,7 @@ impl State {
     }
 }
 
-/// A screen rectangle's two triangles (x, y, u, v).
-fn quad(r: [f32; 4]) -> Vec<[f32; 4]> {
-    let [l, t, rr, b] = r;
-    vec![
-        [l, t, 0.0, 0.0],
-        [rr, t, 1.0, 0.0],
-        [rr, b, 1.0, 1.0],
-        [l, t, 0.0, 0.0],
-        [rr, b, 1.0, 1.0],
-        [l, b, 0.0, 1.0],
-    ]
-}
+use crate::frame::quad;
 
 /// The win or fail splash's music (`ONrGameState_SplashScreen`): every
 /// other sound stopped, `music` started silent and faded in over a second.
