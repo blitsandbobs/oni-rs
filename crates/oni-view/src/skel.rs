@@ -562,244 +562,143 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             rotations,
         });
     }
-    // Root motion from the animation's extras.
-    let root_motion: Vec<[f32; 2]> = anim["extras"]["rootMotion"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .map(|p| {
-                    let x = p.get(0).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                    let z = p.get(1).and_then(|v| v.as_f64()).unwrap_or(0.0) as f32;
-                    [x, z]
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-
-    // Per-frame pelvis height (Oni's `heights` track).
-    let heights: Vec<f32> = anim["extras"]["rootHeight"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .map(|v| v.as_f64().unwrap_or(0.0) as f32)
-                .collect()
-        })
-        .unwrap_or_default();
-
-    let ex = &anim["extras"];
-    let u16_field = |k: &str| ex[k].as_u64().unwrap_or(0) as u16;
-    // Enumerations are names (`docs/ASSET_FORMAT.md`, `oni-schema`).
-    let named = |v: &serde_json::Value, table: &[&str]| {
-        v.as_str().and_then(|n| sc::value(table, n)).unwrap_or(0)
-    };
-    let named_bits = |v: &serde_json::Value, table: &[&str]| {
-        v.as_array()
-            .map(|a| sc::bits(table, a.iter().filter_map(|n| n.as_str())))
-            .unwrap_or(0)
-    };
+    // The clip's metadata (`docs/ASSET_FORMAT.md`; none: every default).
+    let ex: oni_schema::files::ClipExtras =
+        serde_json::from_value(anim["extras"].clone()).unwrap_or_default();
+    // Enumerations are names (`oni-schema`).
+    let named = |v: &str, table: &[&str]| sc::value(table, v).unwrap_or(0);
+    let named_bits = |v: &[String], table: &[&str]| sc::bits(table, v.iter().map(String::as_str));
+    let opt_named =
+        |v: &Option<String>, table: &[&str]| v.as_deref().map_or(0, |v| named(v, table));
 
     // Attack hit windows.
-    let attacks: Vec<Attack> = ex["attacks"]
-        .as_array()
-        .map(|arr| {
-            arr.iter()
-                .map(|a| {
-                    let u16k = |k: &str| a[k].as_u64().unwrap_or(0) as u16;
-                    let window = |k: &str| a["damageWindow"][k].as_u64().unwrap_or(0) as u16;
-                    Attack {
-                        damage: u16k("damage"),
-                        knockback: a["knockback"].as_f64().unwrap_or(0.0) as f32,
-                        first_damage_frame: window("start"),
-                        last_damage_frame: window("end"),
-                        damage_animation: named(&a["reaction"], &sc::ANIM_TYPES),
-                        hit_stun: u16k("hitStun"),
-                        block_stun: u16k("blockStun"),
-                        stagger: u16k("stagger"),
-                        precedence: u16k("precedence"),
-                        damage_bits: named_bits(&a["strikingParts"], &sc::BODY_PARTS),
-                        flags: named_bits(&a["flags"], &sc::ATTACK_FLAGS),
-                    }
-                })
-                .collect()
+    let attacks: Vec<Attack> = ex
+        .attacks
+        .iter()
+        .map(|a| Attack {
+            damage: a.damage,
+            knockback: a.knockback,
+            first_damage_frame: a.damage_window.start,
+            last_damage_frame: a.damage_window.end,
+            damage_animation: opt_named(&a.reaction, &sc::ANIM_TYPES),
+            hit_stun: a.hit_stun.unwrap_or(0),
+            block_stun: a.block_stun.unwrap_or(0),
+            stagger: a.stagger.unwrap_or(0),
+            precedence: a.precedence,
+            damage_bits: named_bits(&a.striking_parts, &sc::BODY_PARTS),
+            flags: named_bits(&a.flags, &sc::ATTACK_FLAGS),
         })
-        .unwrap_or_default();
+        .collect();
 
     // Absent: never atomic (start > end). Present without an end: to the end.
-    let (atomic_start, atomic_end) = match ex["atomic"].as_object() {
-        Some(r) => (
-            r.get("start").and_then(|v| v.as_u64()).unwrap_or(0) as u16,
-            r.get("end")
-                .and_then(|v| v.as_u64())
-                .map_or(u16::MAX, |v| v as u16),
-        ),
+    let (atomic_start, atomic_end) = match &ex.atomic {
+        Some(r) => (r.start, r.end.unwrap_or(u16::MAX)),
         None => (1, 0),
     };
 
     Ok(Clip {
         duration: duration.max(0.001),
         channels,
-        root_motion,
-        heights,
-        anim_type: named(&ex["animType"], &sc::ANIM_TYPES),
-        from_state: named(&ex["fromState"], &sc::ANIM_STATES),
-        to_state: named(&ex["toState"], &sc::ANIM_STATES),
-        varient: named_bits(&ex["variant"], &sc::VARIANTS) as u16,
-        used_parts: ex["usedParts"].as_u64().unwrap_or(0) as u32,
-        replace_parts: ex["replaceParts"].as_u64().unwrap_or(0) as u32,
-        aiming_type: named(&ex["aimingType"], &sc::ANIM_TYPES),
-        final_rotation: ex["finalRotation"].as_f64().unwrap_or(0.0) as f32,
-        move_direction: named(&ex["moveDirection"], &sc::DIRECTIONS),
-        end_interpolation: u16_field("endBlend"),
-        max_interpolation: ex["maxBlendIn"].as_u64().map_or(u16::MAX, |v| v as u16),
+        root_motion: ex.root_motion.clone(),
+        heights: ex.root_height.clone(),
+        anim_type: named(&ex.anim_type, &sc::ANIM_TYPES),
+        from_state: named(&ex.from_state, &sc::ANIM_STATES),
+        to_state: named(&ex.to_state, &sc::ANIM_STATES),
+        varient: named_bits(&ex.variant, &sc::VARIANTS) as u16,
+        used_parts: ex.used_parts.unwrap_or(0),
+        replace_parts: ex.replace_parts.unwrap_or(0),
+        aiming_type: opt_named(&ex.aiming_type, &sc::ANIM_TYPES),
+        final_rotation: ex.final_rotation.unwrap_or(0.0),
+        move_direction: opt_named(&ex.move_direction, &sc::DIRECTIONS),
+        end_interpolation: ex.end_blend.unwrap_or(0),
+        max_interpolation: ex.max_blend_in.unwrap_or(u16::MAX),
         attacks,
-        particles: ex["particles"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        particles: ex
+            .particles
+            .iter()
             .map(|p| ClipParticle {
-                start: p["start"].as_u64().unwrap_or(0) as u16,
-                stop: p["stop"].as_u64().unwrap_or(0) as u16,
-                part: p["part"].as_u64().unwrap_or(0) as u16,
-                name: p["name"].as_str().unwrap_or("").to_string(),
+                start: p.start,
+                stop: p.stop,
+                part: p.part,
+                name: p.name.clone(),
             })
             .collect(),
-        flags: named_bits(&ex["flags"], &sc::ANIM_FLAGS),
-        shortcuts: ex["shortcuts"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|s| Shortcut {
-                        state: named(&s["fromState"], &sc::ANIM_STATES),
-                        length: s["blendLength"].as_u64().unwrap_or(0) as u16,
-                        flags: u32::from(s["interruptsAtomic"].as_bool().unwrap_or(false)),
-                    })
-                    .collect()
+        flags: named_bits(&ex.flags, &sc::ANIM_FLAGS),
+        shortcuts: ex
+            .shortcuts
+            .iter()
+            .map(|s| Shortcut {
+                state: named(&s.from_state, &sc::ANIM_STATES),
+                length: s.blend_length,
+                flags: u32::from(s.interrupts_atomic),
             })
-            .unwrap_or_default(),
-        direct: ex["direct"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .filter_map(|v| v.as_str().map(String::from))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        action_frame: ex["actionFrame"]
-            .as_i64()
-            .filter(|&v| v >= 0)
-            .map(|v| v as u16),
+            .collect(),
+        direct: ex.direct.clone(),
+        action_frame: ex.action_frame.filter(|&v| v >= 0).map(|v| v as u16),
         atomic_start,
         atomic_end,
-        varient_end: named_bits(&ex["variantEnd"], &sc::VARIANTS) as u16,
-        first_level: u16_field("firstLevel"),
-        hard_pause: u16_field("hardPause"),
-        soft_pause: u16_field("softPause"),
-        invulnerable_start: ex["invulnerable"]["start"].as_u64().unwrap_or(0) as u8,
-        invulnerable_length: ex["invulnerable"]["length"].as_u64().unwrap_or(0) as u8,
-        throw: ex["throw"].is_object().then(|| {
-            let t = &ex["throw"];
-            let o = |i: usize| t["targetOffset"][i].as_f64().unwrap_or(0.0) as f32;
-            Throw {
-                target_offset: Vec3::new(o(0), o(1), o(2)),
-                target_facing: t["targetFacing"].as_f64().unwrap_or(0.0) as f32,
-                range: t["range"].as_f64().unwrap_or(0.0) as f32,
-                target_anim_type: named(&t["targetAnimType"], &sc::ANIM_TYPES),
-            }
+        varient_end: named_bits(&ex.variant_end, &sc::VARIANTS) as u16,
+        first_level: ex.first_level.unwrap_or(0),
+        hard_pause: ex.hard_pause.unwrap_or(0),
+        soft_pause: ex.soft_pause.unwrap_or(0),
+        invulnerable_start: ex.invulnerable.as_ref().map_or(0, |i| i.start),
+        invulnerable_length: ex.invulnerable.as_ref().map_or(0, |i| i.length),
+        throw: ex.throw.as_ref().map(|t| Throw {
+            target_offset: Vec3::from(t.target_offset),
+            target_facing: t.target_facing,
+            range: t.range,
+            target_anim_type: named(&t.target_anim_type, &sc::ANIM_TYPES),
         }),
-        reach: ex["reach"].is_object().then(|| {
-            let r = &ex["reach"];
-            let g = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
-            let bound = |b: &serde_json::Value| StrikeBound {
-                tick: b["tick"].as_u64().unwrap_or(0) as u16,
-                offset: [g(&b["offset"][0]), g(&b["offset"][1])],
-                height: g(&b["height"]),
-                distance: g(&b["distance"]),
-                min_height: g(&b["minHeight"]),
-                max_height: g(&b["maxHeight"]),
-                angle: g(&b["angle"]),
+        reach: ex.reach.as_ref().map(|r| {
+            let bound = |b: &oni_schema::files::StrikeBound| StrikeBound {
+                tick: b.tick,
+                offset: b.offset,
+                height: b.height,
+                distance: b.distance,
+                min_height: b.min_height,
+                max_height: b.max_height,
+                angle: b.angle,
             };
             let mut spokes = [0.0; 36];
-            for (i, s) in spokes.iter_mut().enumerate() {
-                *s = g(&r["spokes"][i]);
+            for (s, v) in spokes.iter_mut().zip(&r.spokes) {
+                *s = *v;
             }
             Reach {
-                max_distance: g(&r["maxDistance"]),
-                min_height: g(&r["minHeight"]),
-                max_height: g(&r["maxHeight"]),
+                max_distance: r.max_distance,
+                min_height: r.min_height,
+                max_height: r.max_height,
                 spokes,
-                first: bound(&r["first"]),
-                farthest: bound(&r["farthest"]),
-                direction: named(&r["direction"], &sc::DIRECTIONS),
-                strikes: r["strikes"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
+                first: bound(&r.first),
+                farthest: bound(&r.farthest),
+                direction: named(&r.direction, &sc::DIRECTIONS),
+                strikes: r
+                    .strikes
+                    .iter()
                     .map(|s| Strike {
-                        tick: s["tick"].as_u64().unwrap_or(0) as u16,
-                        angle: g(&s["angle"]),
-                        distance: g(&s["distance"]),
-                        min_height: g(&s["minHeight"]),
-                        max_height: g(&s["maxHeight"]),
+                        tick: s.tick,
+                        angle: s.angle,
+                        distance: s.distance,
+                        min_height: s.min_height,
+                        max_height: s.max_height,
                     })
                     .collect(),
             }
         }),
-        body: ex["bodyTrack"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|p| {
-                        let c = |i: usize| p[i].as_f64().unwrap_or(0.0) as f32;
-                        [c(0), c(1), c(2), c(3)]
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        footsteps: ex["footsteps"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_u64().map(|v| v as u16))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        footstep_kinds: ex["footstepKinds"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|v| v.as_u64().map(|v| v as u16))
-                    .collect()
-            })
-            .unwrap_or_default(),
-        attack_name: ex["attackName"].as_str().unwrap_or("").to_string(),
-        sound_frame: ex["soundFrame"].as_u64().unwrap_or(0) as u16,
-        vocalization: ex["vocalization"]
-            .as_str()
+        body: ex.body_track.clone(),
+        footsteps: ex.footsteps.clone(),
+        footstep_kinds: ex.footstep_kinds.clone().unwrap_or_default(),
+        attack_name: ex.attack_name.clone().unwrap_or_default(),
+        sound_frame: ex.sound_frame.unwrap_or(0),
+        vocalization: ex
+            .vocalization
+            .as_deref()
             .and_then(|v| oni_schema::VOCALIZATIONS.iter().position(|n| *n == v)),
-        sounds: ex["sounds"]
-            .as_array()
-            .map(|a| {
-                a.iter()
-                    .filter_map(|s| {
-                        Some((
-                            s["impulse"].as_str()?.to_string(),
-                            s["frame"].as_u64()? as u16,
-                        ))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
-        self_damage: ex["selfDamage"]
-            .as_array()
-            .map(|arr| {
-                arr.iter()
-                    .map(|d| {
-                        let k = |n: &str| d[n].as_u64().unwrap_or(0) as u16;
-                        (k("tick"), k("damage"))
-                    })
-                    .collect()
-            })
-            .unwrap_or_default(),
+        sounds: ex
+            .sounds
+            .iter()
+            .map(|s| (s.impulse.clone(), s.frame))
+            .collect(),
+        self_damage: ex.self_damage.iter().map(|d| (d.tick, d.damage)).collect(),
     })
 }
 

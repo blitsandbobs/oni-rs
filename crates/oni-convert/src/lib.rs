@@ -2135,234 +2135,155 @@ fn anim_set_prefix(name: &str) -> &str {
 /// ranges as objects, defaults omitted.
 fn animation_extras(clip: &oni_geom::character::Clip) -> String {
     use oni_schema as sc;
-    use serde_json::json;
-    let type_name = |t: u16| sc::name(&sc::ANIM_TYPES, t).unwrap_or("none");
-    let state_name = |t: u16| sc::name(&sc::ANIM_STATES, t).unwrap_or("none");
-
-    let mut obj = serde_json::Map::new();
-    let mut put = |k: &str, v: serde_json::Value| {
-        obj.insert(k.into(), v);
+    use oni_schema::files as f;
+    let type_name = |t: u16| sc::name(&sc::ANIM_TYPES, t).unwrap_or("none").to_string();
+    let state_name = |t: u16| sc::name(&sc::ANIM_STATES, t).unwrap_or("none").to_string();
+    let names = |table: &[&'static str], bits: u32| -> Vec<String> {
+        sc::bit_names(table, bits)
+            .into_iter()
+            .map(String::from)
+            .collect()
     };
-    put("animType", json!(type_name(clip.anim_type)));
-    put("fromState", json!(state_name(clip.from_state)));
-    put("toState", json!(state_name(clip.to_state)));
-    if clip.varient != 0 {
-        put(
-            "variant",
-            json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient))),
-        );
-    }
-    if clip.varient_end != 0 {
-        put(
-            "variantEnd",
-            json!(sc::bit_names(&sc::VARIANTS, u32::from(clip.varient_end))),
-        );
-    }
-    if clip.flags != 0 {
-        put("flags", json!(sc::bit_names(&sc::ANIM_FLAGS, clip.flags)));
-    }
-    if !clip.root_motion.is_empty() {
-        put("rootMotion", json!(clip.root_motion));
-    }
-    if !clip.heights.is_empty() {
-        put("rootHeight", json!(clip.heights));
-    }
-    if clip.final_rotation != 0.0 {
-        put("finalRotation", json!(clip.final_rotation));
-    }
-    if clip.move_direction != 0 {
-        put(
-            "moveDirection",
-            json!(sc::name(&sc::DIRECTIONS, clip.move_direction).unwrap_or("none")),
-        );
-    }
-    if clip.aiming_type != 0 {
-        put("aimingType", json!(type_name(clip.aiming_type)));
-    }
-    if clip.used_parts != 0 {
-        put("usedParts", json!(clip.used_parts));
-    }
-    if clip.replace_parts != 0 {
-        put("replaceParts", json!(clip.replace_parts));
-    }
-    if !clip.shortcuts.is_empty() {
-        let list: Vec<_> = clip
+    let some = |v: u16| (v != 0).then_some(v);
+    let bound = |b: &oni_geom::character::StrikeBound| f::StrikeBound {
+        tick: b.tick,
+        attack: b.attack,
+        strike: b.strike,
+        offset: b.offset,
+        height: b.height,
+        distance: b.distance,
+        min_height: b.min_height,
+        max_height: b.max_height,
+        angle: b.angle,
+    };
+    let extras = f::ClipExtras {
+        anim_type: type_name(clip.anim_type),
+        from_state: state_name(clip.from_state),
+        to_state: state_name(clip.to_state),
+        variant: names(&sc::VARIANTS, u32::from(clip.varient)),
+        variant_end: names(&sc::VARIANTS, u32::from(clip.varient_end)),
+        flags: names(&sc::ANIM_FLAGS, clip.flags),
+        root_motion: clip.root_motion.clone(),
+        root_height: clip.heights.clone(),
+        final_rotation: (clip.final_rotation != 0.0).then_some(clip.final_rotation),
+        move_direction: (clip.move_direction != 0).then(|| {
+            sc::name(&sc::DIRECTIONS, clip.move_direction)
+                .unwrap_or("none")
+                .to_string()
+        }),
+        aiming_type: (clip.aiming_type != 0).then(|| type_name(clip.aiming_type)),
+        used_parts: (clip.used_parts != 0).then_some(clip.used_parts),
+        replace_parts: (clip.replace_parts != 0).then_some(clip.replace_parts),
+        shortcuts: clip
             .shortcuts
             .iter()
-            .map(|s| {
-                let mut o = json!({ "fromState": state_name(s.state), "blendLength": s.length });
-                if s.flags & 1 != 0 {
-                    o["interruptsAtomic"] = json!(true);
-                }
-                o
+            .map(|s| f::ClipShortcut {
+                from_state: state_name(s.state),
+                blend_length: s.length,
+                interrupts_atomic: s.flags & 1 != 0,
             })
-            .collect();
-        put("shortcuts", json!(list));
-    }
-    if !clip.direct.is_empty() {
-        put("direct", json!(clip.direct));
-    }
-    if clip.atomic_start <= clip.atomic_end {
+            .collect(),
+        direct: clip.direct.clone(),
         // An end past the last tick (the importer writes 0xFFFF) means "to
-        // the end of the clip": omitted.
-        let mut range = json!({ "start": clip.atomic_start });
-        if u32::from(clip.atomic_end) + 1 < clip.num_frames {
-            range["end"] = json!(clip.atomic_end);
-        }
-        put("atomic", range);
-    }
-    if clip.invulnerable_length != 0 {
-        put(
-            "invulnerable",
-            json!({ "start": clip.invulnerable_start, "length": clip.invulnerable_length }),
-        );
-    }
-    if clip.first_level != 0 {
-        put("firstLevel", json!(clip.first_level));
-    }
-    if clip.end_interpolation != 0 {
-        put("endBlend", json!(clip.end_interpolation));
-    }
-    if clip.max_interpolation != u16::MAX {
-        put("maxBlendIn", json!(clip.max_interpolation)); // absent = no cap
-    }
-    if clip.hard_pause != 0 {
-        put("hardPause", json!(clip.hard_pause));
-    }
-    if clip.soft_pause != 0 {
-        put("softPause", json!(clip.soft_pause));
-    }
-    // The importer's "none" sentinels are -1 / 0xFFFF: omit those.
-    if clip.action_frame >= 0 {
-        put("actionFrame", json!(clip.action_frame));
-    }
-    if let Some(v) = sc::name(&sc::VOCALIZATIONS, clip.vocalization_type) {
-        put("vocalization", json!(v));
-    }
-    if !clip.attacks.is_empty() {
-        let attacks: Vec<_> = clip
+        // the end of the clip": left out.
+        atomic: (clip.atomic_start <= clip.atomic_end).then(|| f::AtomicRange {
+            start: clip.atomic_start,
+            end: (u32::from(clip.atomic_end) + 1 < clip.num_frames).then_some(clip.atomic_end),
+        }),
+        invulnerable: (clip.invulnerable_length != 0).then_some(f::Invulnerable {
+            start: clip.invulnerable_start,
+            length: clip.invulnerable_length,
+        }),
+        first_level: some(clip.first_level),
+        end_blend: some(clip.end_interpolation),
+        // (Absent: no cap.)
+        max_blend_in: (clip.max_interpolation != u16::MAX).then_some(clip.max_interpolation),
+        hard_pause: some(clip.hard_pause),
+        soft_pause: some(clip.soft_pause),
+        // The importer's "none" sentinels are -1 / 0xFFFF: left out.
+        action_frame: (clip.action_frame >= 0).then_some(clip.action_frame),
+        vocalization: sc::name(&sc::VOCALIZATIONS, clip.vocalization_type).map(String::from),
+        attacks: clip
             .attacks
             .iter()
-            .map(|a| {
-                let mut o = json!({
-                    "damageWindow": { "start": a.first_damage_frame, "end": a.last_damage_frame },
-                    "damage": a.damage,
-                    "knockback": a.knockback,
-                    "strikingParts": sc::bit_names(&sc::BODY_PARTS, a.damage_bits),
-                    "precedence": a.precedence,
-                });
-                if a.damage_animation != 0 {
-                    o["reaction"] = json!(type_name(a.damage_animation));
-                }
-                if a.flags != 0 {
-                    o["flags"] = json!(sc::bit_names(&sc::ATTACK_FLAGS, a.flags));
-                }
-                for (k, v) in [
-                    ("hitStun", a.hit_stun),
-                    ("blockStun", a.block_stun),
-                    ("stagger", a.stagger),
-                ] {
-                    if v != 0 {
-                        o[k] = json!(v);
-                    }
-                }
-                o
+            .map(|a| f::ClipAttack {
+                damage_window: f::FrameRange {
+                    start: a.first_damage_frame,
+                    end: a.last_damage_frame,
+                },
+                damage: a.damage,
+                knockback: a.knockback,
+                striking_parts: names(&sc::BODY_PARTS, a.damage_bits),
+                precedence: a.precedence,
+                reaction: (a.damage_animation != 0).then(|| type_name(a.damage_animation)),
+                flags: names(&sc::ATTACK_FLAGS, a.flags),
+                hit_stun: some(a.hit_stun),
+                block_stun: some(a.block_stun),
+                stagger: some(a.stagger),
             })
-            .collect();
-        put("attacks", json!(attacks));
-    }
-    if let Some(t) = &clip.throw {
-        put(
-            "throw",
-            json!({
-                "targetOffset": t.target_offset,
-                "targetFacing": t.target_facing,
-                "range": t.range,
-                "targetAnimType": type_name(t.target_anim_type),
-            }),
-        );
-    }
-    if let Some(r) = &clip.reach {
-        let bound = |b: &oni_geom::character::StrikeBound| {
-            json!({
-                "tick": b.tick, "attack": b.attack, "strike": b.strike,
-                "offset": b.offset, "height": b.height, "distance": b.distance,
-                "minHeight": b.min_height, "maxHeight": b.max_height, "angle": b.angle,
-            })
-        };
-        let strikes: Vec<_> = r
-            .strikes
-            .iter()
-            .map(|s| {
-                json!({
-                    "tick": s.tick, "angle": s.angle, "distance": s.distance,
-                    "minHeight": s.min_height, "maxHeight": s.max_height,
+            .collect(),
+        throw: clip.throw.as_ref().map(|t| f::ClipThrow {
+            target_offset: t.target_offset,
+            target_facing: t.target_facing,
+            range: t.range,
+            target_anim_type: type_name(t.target_anim_type),
+        }),
+        reach: clip.reach.as_ref().map(|r| f::ClipReach {
+            max_distance: r.max_distance,
+            min_height: r.min_height,
+            max_height: r.max_height,
+            spokes: r.spokes.to_vec(),
+            first: bound(&r.first),
+            farthest: bound(&r.farthest),
+            direction: sc::name(&sc::DIRECTIONS, r.direction)
+                .unwrap_or("none")
+                .to_string(),
+            strikes: r
+                .strikes
+                .iter()
+                .map(|s| f::StrikeReach {
+                    tick: s.tick,
+                    angle: s.angle,
+                    distance: s.distance,
+                    min_height: s.min_height,
+                    max_height: s.max_height,
                 })
-            })
-            .collect();
-        put(
-            "reach",
-            json!({
-                "maxDistance": r.max_distance,
-                "minHeight": r.min_height,
-                "maxHeight": r.max_height,
-                "spokes": r.spokes.to_vec(),
-                "first": bound(&r.first),
-                "farthest": bound(&r.farthest),
-                "direction": sc::name(&sc::DIRECTIONS, r.direction).unwrap_or("none"),
-                "strikes": strikes,
-            }),
-        );
-    }
-    if !clip.body.is_empty() {
-        let track: Vec<_> = clip
+                .collect(),
+        }),
+        body_track: clip
             .body
             .iter()
             .map(|b| [b.offset[0], b.offset[1], b.floor, b.height])
-            .collect();
-        put("bodyTrack", json!(track));
-    }
-    if !clip.self_damage.is_empty() {
-        let list: Vec<_> = clip
+            .collect(),
+        self_damage: clip
             .self_damage
             .iter()
-            .map(|&(tick, damage)| json!({ "tick": tick, "damage": damage }))
-            .collect();
-        put("selfDamage", json!(list));
-    }
-    if !clip.footsteps.is_empty() {
-        put("footsteps", json!(clip.footsteps));
-        put("footstepKinds", json!(clip.footstep_kinds));
-    }
-    if !clip.particles.is_empty() {
-        put(
-            "particles",
-            json!(clip
-                .particles
-                .iter()
-                .map(
-                    |p| json!({ "start": p.start, "stop": p.stop, "part": p.part, "name": p.name })
-                )
-                .collect::<Vec<_>>()),
-        );
-    }
-    if !clip.attack_name.is_empty() {
-        put("attackName", json!(clip.attack_name));
-    }
-    if clip.sound_frame != 0 {
-        put("soundFrame", json!(clip.sound_frame));
-    }
-    if !clip.sounds.is_empty() {
-        put(
-            "sounds",
-            json!(clip
-                .sounds
-                .iter()
-                .map(|(n, f)| json!({ "impulse": n, "frame": f }))
-                .collect::<Vec<_>>()),
-        );
-    }
-    serde_json::to_string(&serde_json::Value::Object(obj)).unwrap_or_default()
+            .map(|&(tick, damage)| f::SelfDamage { tick, damage })
+            .collect(),
+        footsteps: clip.footsteps.clone(),
+        footstep_kinds: (!clip.footsteps.is_empty()).then(|| clip.footstep_kinds.clone()),
+        particles: clip
+            .particles
+            .iter()
+            .map(|p| f::ClipParticle {
+                start: p.start,
+                stop: p.stop,
+                part: p.part,
+                name: p.name.clone(),
+            })
+            .collect(),
+        attack_name: (!clip.attack_name.is_empty()).then(|| clip.attack_name.clone()),
+        sound_frame: some(clip.sound_frame),
+        sounds: clip
+            .sounds
+            .iter()
+            .map(|(n, f)| f::ClipSound {
+                impulse: n.clone(),
+                frame: *f,
+            })
+            .collect(),
+    };
+    serde_json::to_string(&extras).unwrap_or_default()
 }
 
 /// Emits shared animation clips as `common/animations/<name>.glb` — a named-bone

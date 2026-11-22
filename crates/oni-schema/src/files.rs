@@ -2300,6 +2300,211 @@ pub struct EmitterSpec {
     pub values: Vec<Option<ParticleValue>>,
 }
 
+/// An animation clip's metadata (`TRAM`), in its glTF file's animation
+/// `extras`: enumerations by name, defaults left out.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct ClipExtras {
+    pub anim_type: String,
+    pub from_state: String,
+    pub to_state: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub variant_end: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    /// Per frame, the root's motion (x, z) and the pelvis height.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub root_motion: Vec<[f32; 2]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub root_height: Vec<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub final_rotation: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub move_direction: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub aiming_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub used_parts: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub replace_parts: Option<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub shortcuts: Vec<ClipShortcut>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub direct: Vec<String>,
+    /// The ticks it can't be broken off (absent: never; no end: to the end).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atomic: Option<AtomicRange>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub invulnerable: Option<Invulnerable>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub first_level: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_blend: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_blend_in: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hard_pause: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub soft_pause: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub action_frame: Option<i16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vocalization: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attacks: Vec<ClipAttack>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub throw: Option<ClipThrow>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reach: Option<ClipReach>,
+    /// Per frame: the body's offset (x, z), the floor's and its height.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub body_track: Vec<[f32; 4]>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub self_damage: Vec<SelfDamage>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub footsteps: Vec<u16>,
+    /// (Written whenever `footsteps` is.)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub footstep_kinds: Option<Vec<u16>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub particles: Vec<ClipParticle>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound_frame: Option<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sounds: Vec<ClipSound>,
+}
+
+/// A shortcut into a clip: from a state, over a blend.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipShortcut {
+    pub from_state: String,
+    pub blend_length: u16,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub interrupts_atomic: bool,
+}
+
+/// A clip's atomic ticks.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AtomicRange {
+    pub start: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end: Option<u16>,
+}
+
+/// A clip's invulnerable ticks.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Invulnerable {
+    pub start: u8,
+    pub length: u8,
+}
+
+/// A clip's attack: when it hurts, how much, with which parts.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipAttack {
+    pub damage_window: FrameRange,
+    pub damage: u16,
+    pub knockback: f32,
+    pub striking_parts: Vec<String>,
+    pub precedence: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reaction: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_stun: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub block_stun: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stagger: Option<u16>,
+}
+
+/// A span of frames.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FrameRange {
+    pub start: u16,
+    pub end: u16,
+}
+
+/// A throw clip's victim: where it goes and faces, the range, its clip type.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipThrow {
+    pub target_offset: V3,
+    pub target_facing: f32,
+    pub range: f32,
+    pub target_anim_type: String,
+}
+
+/// An attack clip's reach (`TRAM`'s extents): how far and high it strikes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClipReach {
+    pub max_distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    /// 36 spokes, 10° apart.
+    pub spokes: Vec<f32>,
+    pub first: StrikeBound,
+    pub farthest: StrikeBound,
+    pub direction: String,
+    pub strikes: Vec<StrikeReach>,
+}
+
+/// One end of an attack clip's reach.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrikeBound {
+    pub tick: u16,
+    pub attack: u8,
+    pub strike: u8,
+    pub offset: [f32; 2],
+    pub height: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+    pub angle: f32,
+}
+
+/// A strike's reach at a tick.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StrikeReach {
+    pub tick: u16,
+    pub angle: f32,
+    pub distance: f32,
+    pub min_height: f32,
+    pub max_height: f32,
+}
+
+/// Damage a clip does its own character, at a tick.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SelfDamage {
+    pub tick: u16,
+    pub damage: u16,
+}
+
+/// A clip's particle: from tick `start` to `stop`, on a body part.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClipParticle {
+    pub start: u16,
+    pub stop: u16,
+    pub part: u16,
+    pub name: String,
+}
+
+/// A clip's impulse sound at a frame.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ClipSound {
+    pub impulse: String,
+    pub frame: u16,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
