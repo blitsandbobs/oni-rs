@@ -5,14 +5,15 @@
 
 use std::collections::HashSet;
 
-use crate::nav::dynamic::{Blocking, Mode, Obstruction, Sources};
+use crate::nav::dynamic::{Blocking, DoorSource, Mode, Obstruction, Sources};
 
 use super::objects::oflag;
 use super::World;
 
 impl World {
     /// What there is to stamp now.
-    pub(super) fn obstruction_sources(&self) -> Sources {
+    pub(super) fn obstruction_sources(&mut self) -> Sources {
+        let doors = self.door_sources();
         let nav = self.nav.as_deref();
         let characters = self
             .fighters
@@ -37,9 +38,35 @@ impl World {
         Sources {
             characters,
             objects,
-            doors: Vec::new(),
+            doors,
             object_row_only: self.quirks.object_stamp_one_row(),
         }
+    }
+
+    /// The doors' leaves, each with the rooms at the ends of the portals
+    /// it gates (`PHiAddDoorConnectionToGrid`: stamped by each connection
+    /// into or out of a room).
+    fn door_sources(&mut self) -> Vec<DoorSource> {
+        let Some(nav) = self.nav.clone() else {
+            return Vec::new();
+        };
+        let links = self.doors.portals(&nav).clone();
+        links
+            .iter()
+            .enumerate()
+            .filter(|(_, ps)| !ps.is_empty())
+            .filter_map(|(d, ps)| {
+                let lines = self.doors.list[d].obstruction();
+                (!lines.is_empty()).then(|| DoorSource {
+                    door: d,
+                    rooms: ps
+                        .iter()
+                        .flat_map(|&(r, k)| [r, nav.rooms[r].portals[k].to])
+                        .collect(),
+                    lines,
+                })
+            })
+            .collect()
     }
 
     /// Whether obstruction `o` blocks fighter `asker` in `mode`
@@ -130,7 +157,10 @@ impl World {
                 continue;
             }
             let (careful, goal) = (n.careful, n.goal);
-            let sources = &*sources.get_or_insert_with(|| self.obstruction_sources());
+            if sources.is_none() {
+                sources = Some(self.obstruction_sources());
+            }
+            let sources = sources.as_ref().expect("just made");
             // Doors it may not open shut their portals to it.
             let links = self.doors.portals(&nav).clone();
             let shut: HashSet<(usize, usize)> = links

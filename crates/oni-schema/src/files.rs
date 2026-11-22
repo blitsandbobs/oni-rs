@@ -316,6 +316,12 @@ pub struct DoorClass {
     /// The noise the AI hears it make (none shipped).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ai: Option<AiNoise>,
+    /// Its first leaf geometry's bounding box (Max space, z up: min then
+    /// max; `geometry_array[0]->furn_geom[0]`): where its leaves stand on
+    /// their door's frame and how wide they are (`center_offset`,
+    /// `OBJiDoor_GetGeometryWidth`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<[[f32; 3]; 2]>,
 }
 
 /// A noise the AI hears: its kind (`ignore`, `interesting`, `danger`,

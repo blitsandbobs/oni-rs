@@ -2,7 +2,8 @@
 -- leaves are stamped into the rooms' grids (`PHrPrepareRoomForPath`), and
 -- whether a stamp blocks depends on who asks (`PHrIgnoreObstruction`): never
 -- one's own body; for an AI, not its combat target; objects always (Q29:
--- as shipped, an object stamps only its last row).
+-- as shipped, an object stamps only its last row); a door if it is open or
+-- can't be opened.
 --
 --   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -82,4 +83,26 @@ if faithful() then
 else
     assert(centre == #o, "an object's whole square is stamped")
 end
+-- A door: its leaf's base edge is stamped; it blocks only one that can't
+-- open it (here: locked), or once open (its leaves stand where they slid to).
+-- Door 2 (unlocked) is closed across z = -589.5, x -579.5 to -549.5.
+step(25)
+local dx, dy, dz = -564.5, 51, -589.5
+kind, who, blocks = nav_obstruction(dx, dy, dz, a)
+print("closed door 2:", kind, who, blocks)
+assert(kind == "door" and not blocks, "a closed door one may open doesn't block")
+door(2, "lock")
+step(25)
+kind, who, blocks = nav_obstruction(dx, dy, dz, a)
+assert(kind == "door" and blocks, "a locked one does")
+door(2, "unlock")
+door(2, "open")
+step(80)
+assert(door_state(2) == "open", "it opened")
+assert(nav_obstruction(dx, dy, dz, a) == nil, "open, the doorway is clear")
+local e = door_obstruction(2)[1]
+local ox, oz = (e[1] + e[4]) / 2, (e[3] + e[6]) / 2
+kind, who, blocks = nav_obstruction(ox, dy, oz, a)
+print(string.format("open door 2, where its leaf went (%.1f %.1f):", ox, oz), kind, who, blocks)
+assert(kind == "door" and blocks, "and its leaf blocks where it slid to")
 print("pathfinding obstructions ok")

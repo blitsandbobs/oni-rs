@@ -1471,6 +1471,29 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
+    // door_obstruction(id) → {{x1, y1, z1, x2, y2, z2}, …}: where door id's
+    // leaves stand in the way of a path (each one's base edge at the end of
+    // its move; none for a leaf opening upward).
+    let h = host.clone();
+    g.set(
+        "door_obstruction",
+        lua.create_function(move |_, id: u16| {
+            let host = h.borrow();
+            Ok(host
+                .world
+                .doors
+                .list
+                .iter()
+                .find(|d| d.id == id)
+                .map(|d| {
+                    d.obstruction()
+                        .iter()
+                        .map(|(a, b)| vec![a.x, a.y, a.z, b.x, b.y, b.z])
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default())
+        })?,
+    )?;
     // door_leaves(id) → {{at={x,y,z}, half={x,y,z}, solid, paused}, …}: door
     // id's leaf boxes this tick.
     let h = host.clone();

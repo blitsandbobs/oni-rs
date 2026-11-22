@@ -86,6 +86,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `console_reset(id: int)` | Resets a console (unused; active as authored). |
 | `collisions(id: int)` | walls, objects, characters, records, serious: what fighter id's movement met last tick, and its AI's collision records. |
 | `objects()` | {{name, at={x,y,z}, frame, animating}, …}: the live placed objects. |
+| `door_obstruction(id: int)` | {{x1, y1, z1, x2, y2, z2}, …}: where door id's leaves stand in the way of a path (each one's base edge at the end of its move; none for a leaf opening upward). |
 | `door_leaves(id: int)` | {{at={x,y,z}, half={x,y,z}, solid, paused}, …}: door id's leaf boxes this tick. |
 | `door(id: int, what: string)` | Orders door `id`: "open", "close", "lock", "unlock", "jam", "unjam". |
 | `give_weapon(id: int, class: string)` | Weapons: puts a new gun of `class` in fighter `id`'s hand (the one it held is deleted, as `chr_giveweapon`) → whether it did (false: no such fighter or class). |

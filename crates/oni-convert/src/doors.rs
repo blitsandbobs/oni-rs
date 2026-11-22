@@ -55,10 +55,34 @@ pub fn class_sounds(dat: &Dat<'_>) -> BTreeMap<String, files::DoorClass> {
                         kind: crate::impacts::AI_SOUNDS[kind as usize].to_string(),
                         radius: le_f32(d, 24),
                     }),
+                    bounds: leaf_bounds(dat, d),
                 },
             ))
         })
         .collect()
+}
+
+/// A door class's first leaf geometry's bounding box: `geometry_array[0]`
+/// (ref @0) → `OFGA` (`num_furn_geoms` @20, `furn_geom[0].geometry` @28) →
+/// `M3GM` (`pointArray` @4) → `PNTA` (`minmax_boundingBox` @12: min, max).
+fn leaf_bounds(dat: &Dat<'_>, door: &[u8]) -> Option<[[f32; 3]; 2]> {
+    let at = |d: &[u8], o: usize| {
+        let r = crate::le_u32(d, o);
+        (r & 1 != 0)
+            .then(|| dat.instances.get((r >> 8) as usize))
+            .flatten()
+            .and_then(|i| dat.instance_data(i))
+    };
+    let furn = at(door, 0).filter(|f| f.len() >= 32 && crate::le_u32(f, 20) > 0)?;
+    let points = at(at(furn, 28).filter(|g| g.len() >= 8)?, 4).filter(|p| p.len() >= 36)?;
+    let v = |o: usize| {
+        [
+            le_f32(points, o),
+            le_f32(points, o + 4),
+            le_f32(points, o + 8),
+        ]
+    };
+    Some([v(12), v(24)])
 }
 
 /// A level's doors.

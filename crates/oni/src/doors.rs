@@ -82,6 +82,11 @@ pub struct Door {
     /// that (`sound_allow`, `sound_muffle_fraction`).
     pub sound_allow: SoundAllow,
     pub sound_muffle: f32,
+    /// Two leaves, and mirrored (`OBJcDoorFlag_DoubleDoors`, `_Mirror`).
+    pub double: bool,
+    pub mirror: bool,
+    /// Its class's leaf geometry bounds (Max space: min, max).
+    pub bounds: Option<[[f32; 3]; 2]>,
 }
 
 /// The sounds a door lets through while it isn't open (`AI2tSoundAllowType`).
@@ -241,6 +246,63 @@ impl Door {
     /// and unlocked or one-way.
     pub fn may_open_either_side(&self) -> bool {
         !self.jammed && (!self.locked || self.one_way)
+    }
+
+    /// Where its leaves stand in the way of a path (`OBJrDoor_ComputeObstruction`):
+    /// each leaf's base edge, at the end of its move (open while opening or
+    /// open, else closed). A leaf whose base is 15 or more up opens upward
+    /// and isn't in the way.
+    pub fn obstruction(&self) -> Vec<(Vec3, Vec3)> {
+        const OPENS_UPWARD: f32 = 15.0; // OBcDoorOpenUpwardsHeight
+        let (Some(b), Some(a)) = (self.bounds, self.anim.as_deref()) else {
+            return Vec::new();
+        };
+        let open = matches!(self.state, State::Opening(_) | State::Open(_));
+        let frame = if open {
+            i32::from(a.door_open_frames)
+        } else {
+            i32::from(a.num_frames) - 1
+        };
+        let anim = crate::geom::clip_matrix(a, frame);
+        // (`center_offset`, `OBJiDoor_GetGeometryWidth`: the class's first
+        // geometry, Max space with z up.)
+        let width = (b[1][0] - b[0][0]).max(0.0);
+        let lift = -b[0][2];
+        let across = if self.double {
+            width / 2.0
+        } else {
+            (b[1][0] + b[0][0]) / 2.0
+        };
+        let centre = Vec3::new(across, lift, (b[1][1] + b[0][1]) / 2.0);
+        let max_to_oni = |v: Vec3| Vec3::new(v.x, v.z, -v.y);
+        let turn_x = |v: Vec3| Vec3::new(v.x, -v.y, -v.z); // 180° about x
+        let turn_y = |v: Vec3| Vec3::new(-v.x, v.y, -v.z); // 180° about y
+        let rotation = glam::Mat3::from_cols(self.axes[0], self.axes[1], self.axes[2]);
+        let ends = [Vec3::X * (-width / 2.0), Vec3::X * (width / 2.0)];
+        let leaves: &[bool] = if self.double {
+            &[false, true]
+        } else {
+            &[false]
+        };
+        leaves
+            .iter()
+            .filter_map(|&second| {
+                // (`door_matrix[k]`: its offset, turned for a mirrored leaf.)
+                let turned = if second { !self.mirror } else { self.mirror };
+                let [p, q] = ends.map(|e| {
+                    let moved = if second {
+                        turn_x(anim.transform_point3(turn_x(e)))
+                    } else {
+                        anim.transform_point3(e)
+                    };
+                    let on_door = centre + max_to_oni(moved);
+                    let on_door = if turned { turn_y(on_door) } else { on_door };
+                    rotation * (on_door - Vec3::Y * lift)
+                });
+                (p.y < OPENS_UPWARD || q.y < OPENS_UPWARD)
+                    .then(|| (p + self.position, q + self.position))
+            })
+            .collect()
     }
 
     /// Its state by name, for scripts and tests.
@@ -414,6 +476,9 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
                 blocker: None,
                 sound_allow,
                 sound_muffle: class.map_or(0.5, |c| c.sound_muffle),
+                double: has("doubleDoors"),
+                mirror: has("mirror"),
+                bounds: class.and_then(|c| c.bounds),
             }
         })
         .collect()
@@ -511,6 +576,9 @@ mod tests {
             blocker: None,
             sound_allow: SoundAllow::Gunfire,
             sound_muffle: 0.5,
+            double: false,
+            mirror: false,
+            bounds: None,
         }
     }
 
