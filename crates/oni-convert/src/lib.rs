@@ -29,6 +29,7 @@ mod characters;
 mod consoles;
 mod corpses;
 mod doors;
+mod fields;
 mod fonts;
 mod impacts;
 mod lasers;
@@ -420,8 +421,8 @@ pub fn convert_with(
             } else {
                 console_classes = consoles::classes(&dat, &registry);
                 laser_classes = lasers::classes(&dat, &registry);
-                weapons::write_classes(&dat, &root)?;
-                turrets::write_classes(&dat, &root)?;
+                weapons::write_classes(&dat, &registry, &root)?;
+                turrets::write_classes(&dat, &registry, &root)?;
                 sounds::write(&dat, raw, &root)?;
                 impacts::write(&dat, raw, &root)?;
                 anim_sounds::write(&dat, raw, &root)?;
@@ -1898,10 +1899,6 @@ fn le_u64(d: &[u8], o: usize) -> u64 {
 }
 pub(crate) fn le_f32(d: &[u8], o: usize) -> f32 {
     at::f32(d, o).unwrap_or(0.0)
-}
-/// Three `f32`s (each 0 past the end).
-pub(crate) fn le_vec3(d: &[u8], o: usize) -> [f32; 3] {
-    [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
 }
 pub(crate) fn cstr(d: &[u8], o: usize, n: usize) -> String {
     at::cstr(d, o, n).unwrap_or_default()

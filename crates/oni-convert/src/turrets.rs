@@ -2,20 +2,12 @@
 //! templates) → `common/turrets.json`, and each level's placed turrets
 //! (`OT_Turret` objects) → `levels/NN/turrets.json`.
 //!
-//! ## `OBJtTurretClass` (1600 bytes, offsets after the pre-data)
-//!
-//! | off | field |
-//! |---|---|
-//! | 0 | name `char[32]` |
-//! | 78 | u16 attachment count; 80 shooter count |
-//! | 100 / 108 | head and barrel geometry (`M3GM` refs; the base is baked into the level) |
-//! | 116 / 128 | head pivot (base space), barrel pivot (head space) |
-//! | 140 | 16 attachments × 76 bytes: particle class `char[16]`, u16 chamber time @20, u16 shooter index @22 (0xFFFF = follows all), 4×3 matrix @24 (barrel space) |
-//! | 1356 | the AI's weapon parameters (as a gun's) |
-//! | 1484 | targeting parameters; 1512 the shooting skill |
-//! | 1536 | timeout (ticks an activation lasts; 0 = forever) |
-//! | 1540 | pitch limits (min, max), yaw limits (min, max) — radians |
-//! | 1556 | pitch and yaw speed (radians a tick) |
+//! A class is decoded by its template layout (`OBJtTurretClass`; `cargo
+//! run -p oni-template --example layout -- TURR` prints it): its head and
+//! barrel geometry (the base is baked into the level), their pivots (base
+//! space, head space), attachments in barrel space (shooter index 0xFFFF
+//! follows every shooter), a timeout in ticks (0 = forever), angle limits
+//! in radians and speeds in radians a tick.
 //!
 //! A placed turret: the class name `char[63]`, then u16 script id @63 (not
 //! unique), u16 flags @65 (0x2 initially active — never honoured), and the
@@ -26,83 +18,91 @@ use std::path::Path;
 use oni_dat::{Dat, FourCc};
 use oni_schema::files;
 
-use crate::{cstr, le_f32, le_u16, le_u32, le_vec3};
+use crate::fields::Fields;
+use crate::{cstr, le_u16, le_u32};
 
 const TAG_TURR: FourCc = FourCc(u32::from_be_bytes(*b"TURR"));
 const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
+// (A hand-built class for the test: its size and attachments' place.)
+#[cfg(test)]
 const SIZE: usize = 1600;
+#[cfg(test)]
 const ATTACHMENTS: usize = 140;
+#[cfg(test)]
 const ATTACHMENT: usize = 76;
 const NAME: usize = 63;
 
 /// One turret class (`model` resolves a geometry reference).
-pub fn class(d: &[u8], model: &dyn Fn(u32) -> Option<String>) -> Option<files::TurretClass> {
-    if d.len() < SIZE {
-        return None;
-    }
-    let n = (le_u16(d, 78) as usize).min(16);
-    let attachments = (0..n)
-        .map(|i| {
-            let o = ATTACHMENTS + i * ATTACHMENT;
-            let shooter = le_u16(d, o + 22);
+pub fn class(f: Fields, model: &dyn Fn(u32) -> Option<String>) -> files::TurretClass {
+    let n = (f.u16("attachment_count") as usize).min(16);
+    let attachments = f
+        .list("attachment")
+        .into_iter()
+        .take(n)
+        .map(|a| {
+            let shooter = a.u16("shooter_index");
             files::TurretAttachment {
-                class: cstr(d, o, 16),
+                class: a.text("particle_class_name"),
                 shooter: if shooter == 0xFFFF {
                     -1
                 } else {
                     i32::from(shooter)
                 },
                 // (Only shooters' chamber times mean anything.)
-                chamber: (shooter != 0xFFFF).then(|| le_u16(d, o + 20)),
-                matrix: std::array::from_fn(|k| le_f32(d, o + 24 + k * 4)),
+                chamber: (shooter != 0xFFFF).then(|| a.u16("chamber_time")),
+                matrix: crate::weapons::matrix(a, "matrix.m"),
             }
         })
         .collect();
-    let t = 1484;
-    let s = 1512;
-    Some(files::TurretClass {
-        name: cstr(d, 0, 32),
-        head: model(le_u32(d, 100)),
-        barrel: model(le_u32(d, 108)),
-        head_pivot: le_vec3(d, 116),
-        barrel_pivot: le_vec3(d, 128),
-        timeout: le_u32(d, 1536),
+    let t = |n: &str| format!("targeting_params.{n}");
+    let s = |n: &str| format!("shooting_skill.{n}");
+    files::TurretClass {
+        name: f.text("name"),
+        head: model(f.u32("turret_geometry")),
+        barrel: model(f.u32("barrel_geometry")),
+        head_pivot: f.vec3("turret_position"),
+        barrel_pivot: f.vec3("barrel_position"),
+        timeout: f.u32("timeout"),
         pitch: files::Limits {
-            min: le_f32(d, 1540),
-            max: le_f32(d, 1544),
-            speed: le_f32(d, 1556),
+            min: f.f32("min_vert_angle"),
+            max: f.f32("max_vert_angle"),
+            speed: f.f32("max_vert_speed"),
         },
         yaw: files::Limits {
-            min: le_f32(d, 1548),
-            max: le_f32(d, 1552),
-            speed: le_f32(d, 1560),
+            min: f.f32("min_horiz_angle"),
+            max: f.f32("max_horiz_angle"),
+            speed: f.f32("max_horiz_speed"),
         },
-        active_sound: cstr(d, 1564, 32),
-        ai: crate::weapons::ai_params(d, 1356),
+        active_sound: f.text("active_soundname"),
+        ai: crate::weapons::ai_params(f, "ai_params"),
         targeting: files::Targeting {
-            startle_miss_ratio: le_f32(d, t),
-            startle_miss_distance: le_f32(d, t + 4),
-            predict_amount: le_f32(d, t + 8),
-            predict_position_delay: le_u32(d, t + 12),
-            predict_delay: le_u32(d, t + 16),
-            predict_velocity: le_u32(d, t + 20),
-            predict_trend: le_u32(d, t + 24),
+            startle_miss_ratio: f.f32(&t("startle_miss_angle")),
+            startle_miss_distance: f.f32(&t("startle_miss_distance")),
+            predict_amount: f.f32(&t("predict_amount")),
+            predict_position_delay: f.u32(&t("predict_positiondelayframes")),
+            predict_delay: f.u32(&t("predict_delayframes")),
+            predict_velocity: f.u32(&t("predict_velocityframes")),
+            predict_trend: f.u32(&t("predict_trendframes")),
         },
         skill: files::ShootSkill {
-            recoil_compensation: le_f32(d, s),
-            best_aiming_sine: le_f32(d, s + 4),
-            shot_error_percent: le_f32(d, s + 8),
-            shot_decay: le_f32(d, s + 12),
-            gun_inaccuracy: le_f32(d, s + 16),
-            delay_min: le_u16(d, s + 20),
-            delay_max: le_u16(d, s + 22),
+            recoil_compensation: f.f32(&s("recoil_compensation")),
+            best_aiming_sine: f.f32(&s("best_aiming_angle")),
+            shot_error_percent: f.f32(&s("shot_error")),
+            shot_decay: f.f32(&s("shot_decay")),
+            gun_inaccuracy: f.f32(&s("gun_inaccuracy")),
+            delay_min: f.u16(&s("delay_min")),
+            delay_max: f.u16(&s("delay_max")),
         },
         attachments,
-    })
+    }
 }
 
 /// Writes `turrets.json` (every `TURR` in `dat`, level 0) into `common`.
-pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
+pub fn write_classes(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    common: &Path,
+) -> std::io::Result<usize> {
     let model = |r: u32| {
         (r & 1 != 0)
             .then(|| dat.instances.get((r >> 8) as usize))
@@ -111,10 +111,8 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
             .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)))
     };
     let mut file = files::TurretClassesFile::default();
-    for inst in dat.instances.iter().filter(|i| i.tag == TAG_TURR) {
-        let Some(c) = dat.instance_data(inst).and_then(|d| class(d, &model)) else {
-            continue;
-        };
+    for (_, rec) in crate::fields::all(registry, dat, TAG_TURR) {
+        let c = class(Fields(&rec), &model);
         file.classes.insert(c.name.clone(), c);
     }
     let count = file.classes.len();
@@ -182,7 +180,14 @@ mod tests {
         d[a1 + 22..a1 + 24].copy_from_slice(&0xFFFFu16.to_le_bytes());
         d[a1 + 20..a1 + 22].copy_from_slice(&0xDEADu16.to_le_bytes());
         d[1536..1540].copy_from_slice(&900u32.to_le_bytes());
-        let c = class(&d, &|_| None).unwrap();
+        let registry = oni_template::Registry::load();
+        let rec = oni_template::decode(
+            registry.get(TAG_TURR).unwrap(),
+            &d,
+            oni_dat::ByteOrder::Little,
+        )
+        .unwrap();
+        let c = class(Fields(&rec), &|_| None);
         assert_eq!(c.name, "x_turret_w");
         assert_eq!(c.timeout, 900);
         assert_eq!(c.attachments[0].chamber, Some(5));

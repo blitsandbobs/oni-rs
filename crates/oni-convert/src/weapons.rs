@@ -2,27 +2,11 @@
 //! templates) → `common/weapons.json`, and each level's placed weapons and
 //! powerups (`OT_Weapon` / `OT_PowerUps` objects) → `levels/NN/items.json`.
 //!
-//! ## `WPtWeaponClass` (1812 bytes, offsets after the instance pre-data)
-//!
-//! | off | field |
-//! |---|---|
-//! | 0 | sight marker: position, vector (gun space) |
-//! | 24 | maximum sight distance; 28 laser colour (ARGB) |
-//! | 88 | geometry (`M3GM` ref) |
-//! | 92 | name `char[32]` |
-//! | 124 | aiming speed |
-//! | 128 | recoil: base (already in internal units), max, factor, return speed, firing return speed |
-//! | 184 | u16 free time (unused), recoil anim type, reload anim type, reload time, max ammo, attachment count, shooter count, reload delay time, stop-chamber threshold, pad |
-//! | 204 | flags |
-//! | 208 | AI parameters (128 bytes) for shooter 0; 336 for the alternate shooter |
-//! | 464 | 16 particle attachments × 80 bytes |
-//! | 1744 | empty sound name `char[32]` |
-//! | 1788 | glow scale; 1796 pickup offset; 1808 display y offset |
-//!
-//! An attachment: a 4×3 matrix (gun space; columns X, Y, Z, translation),
-//! the particle class name `char[16]` @48, then u16 ammo used @68 (non-zero
-//! = a *shooter*), chamber time, cheat chamber time, minimum fire time,
-//! shooter index (0xFFFF = follows every shooter) and start delay.
+//! A class is decoded by its template layout (`WPtWeaponClass`; `cargo run
+//! -p oni-template --example layout -- ONWC` prints it). Of note: the recoil
+//! base is already in internal units; an attachment with ammo used is a
+//! *shooter*, and shooter index 0xFFFF follows every shooter; its matrix is
+//! gun space (columns X, Y, Z, translation).
 
 use std::path::Path;
 
@@ -33,10 +17,12 @@ use oni_schema::files;
 #[cfg(test)]
 use serde_json::json;
 
-use crate::{cstr, le_f32, le_u16, le_u32, le_vec3};
+use crate::cstr;
+use crate::fields::Fields;
 
 const TAG_ONWC: FourCc = FourCc(u32::from_be_bytes(*b"ONWC"));
 const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
+#[cfg(test)]
 const SIZE: usize = 1812;
 
 /// Class flag bits (`WPcWeaponClassFlag_*`), bit index → name.
@@ -83,60 +69,78 @@ fn anim_type(t: u16) -> oni_schema::files::AnimRef {
         })
 }
 
-/// The AI's aiming and shooting parameters for one shooter.
-pub(crate) fn ai_params(d: &[u8], o: usize) -> oni_schema::files::AiGunParams {
+/// The AI's aiming and shooting parameters for one shooter (the
+/// `WPtAIParameters` at `p`: `ai_parameters`, …).
+pub(crate) fn ai_params(f: Fields, p: &str) -> oni_schema::files::AiGunParams {
+    let k = |n: &str| format!("{p}.{n}");
     oni_schema::files::AiGunParams {
-        no_wild_shots: le_u32(d, o) & 1 != 0,
-        prediction_speed: le_f32(d, o + 76),
-        burst_radius: le_f32(d, o + 80),
-        aim_radius: le_f32(d, o + 84),
-        detection_volume: le_f32(d, o + 88),
-        min_safe_distance: le_f32(d, o + 92),
-        max_range: le_f32(d, o + 96),
-        max_startle_misses: le_u16(d, o + 100),
-        shoot_skill_index: le_u16(d, o + 102),
-        melee_assist_timer: le_u32(d, o + 104),
-        ballistic_speed: le_f32(d, o + 108),
-        ballistic_gravity: le_f32(d, o + 112),
-        dodge_pattern: [le_f32(d, o + 116), le_f32(d, o + 120), le_f32(d, o + 124)],
+        no_wild_shots: f.u32(&k("targeting_flags")) & 1 != 0,
+        prediction_speed: f.f32(&k("prediction_speed")),
+        burst_radius: f.f32(&k("burst_radius")),
+        aim_radius: f.f32(&k("aim_radius")),
+        detection_volume: f.f32(&k("detection_volume")),
+        min_safe_distance: f.f32(&k("min_safe_distance")),
+        max_range: f.f32(&k("max_range")),
+        max_startle_misses: f.u16(&k("max_startle_misses")),
+        shoot_skill_index: f.u16(&k("shootskill_index")),
+        melee_assist_timer: f.u32(&k("melee_assist_timer")),
+        ballistic_speed: f.f32(&k("ballistic_speed")),
+        ballistic_gravity: f.f32(&k("ballistic_gravity")),
+        dodge_pattern: [
+            f.f32(&k("dodge_pattern_length")),
+            f.f32(&k("dodge_pattern_base")),
+            f.f32(&k("dodge_pattern_angle")),
+        ],
         // Where the shot leaves the gun (gun space): its direction, its
         // offset off that line, and the turn from it onto the barrel.
-        shooter_direction: le_vec3(d, o + 52),
-        shooter_offset: le_vec3(d, o + 64),
-        shooter_inverse: std::array::from_fn(|k| le_f32(d, o + 4 + k * 4)),
+        shooter_direction: f.vec3(&k("shooterdir_gunspace")),
+        shooter_offset: f.vec3(&k("shooter_perpoffset_gunspace")),
+        shooter_inverse: matrix(f, &k("shooter_inversematrix.m")),
     }
 }
 
+/// A 4×3 matrix field (`M3tMatrix4x3`'s `m`).
+pub(crate) fn matrix(f: Fields, name: &str) -> [f32; 12] {
+    let m = f.floats(name);
+    std::array::from_fn(|k| m[k])
+}
+
+/// A template reference's instance, if it is one.
+fn instance<'d>(dat: &'d Dat<'_>, r: u32) -> Option<&'d oni_dat::Instance> {
+    (r & 1 != 0)
+        .then(|| dat.instances.get((r >> 8) as usize))
+        .flatten()
+}
+
 /// One weapon class as JSON. `model` is its geometry's path under `common/`.
-pub fn class(d: &[u8], model: Option<String>) -> Option<files::WeaponClass> {
-    if d.len() < SIZE {
-        return None;
-    }
-    let flags = le_u32(d, 204);
-    let count = (le_u16(d, 194) as usize).min(16);
-    let attachments = (0..count)
-        .map(|i| {
-            let o = 464 + i * 80;
-            let shooter = le_u16(d, o + 76);
+pub fn class(f: Fields, model: Option<String>) -> files::WeaponClass {
+    let flags = f.u32("flags");
+    let count = (f.u16("attachment_count") as usize).min(16);
+    let attachments = f
+        .list("attachment")
+        .into_iter()
+        .take(count)
+        .map(|a| {
+            let shooter = a.u16("shooter_index");
             files::WeaponAttachment {
-                class: cstr(d, o + 48, 16),
-                matrix: std::array::from_fn(|k| le_f32(d, o + k * 4)),
-                ammo_used: le_u16(d, o + 68),
-                chamber_time: le_u16(d, o + 70),
-                cheat_chamber_time: le_u16(d, o + 72),
-                min_fire_time: le_u16(d, o + 74),
+                class: a.text("classname"),
+                matrix: matrix(a, "matrix.m"),
+                ammo_used: a.u16("ammo_used"),
+                chamber_time: a.u16("chamber_time"),
+                cheat_chamber_time: a.u16("cheat_chamber_time"),
+                min_fire_time: a.u16("minfire_time"),
                 shooter_index: if shooter == 0xFFFF {
                     -1
                 } else {
                     i32::from(shooter)
                 },
-                start_delay: le_u16(d, o + 78),
+                start_delay: a.u16("start_delay"),
             }
         })
         .collect();
-    let empty = cstr(d, 1744, 32);
-    Some(files::WeaponClass {
-        name: cstr(d, 92, 32),
+    let empty = f.text("empty_soundname");
+    files::WeaponClass {
+        name: f.text("name"),
         model,
         flags: FLAGS
             .iter()
@@ -144,37 +148,37 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<files::WeaponClass> {
             .filter(|(b, n)| !n.is_empty() && flags & (1 << b) != 0)
             .map(|(_, n)| n.to_string())
             .collect(),
-        max_ammo: le_u16(d, 192),
-        shooter_count: le_u16(d, 196),
-        reload_time: le_u16(d, 190),
-        reload_delay_time: le_u16(d, 198),
-        stop_chamber_threshold: le_u16(d, 200),
-        recoil_anim_type: anim_type(le_u16(d, 186)),
-        reload_anim_type: anim_type(le_u16(d, 188)),
-        aiming_speed: le_f32(d, 124),
+        max_ammo: f.u16("max_ammo"),
+        shooter_count: f.u16("shooter_count"),
+        reload_time: f.u16("reloadTime"),
+        reload_delay_time: f.u16("reload_delay_time"),
+        stop_chamber_threshold: f.u16("stopChamberThreshold"),
+        recoil_anim_type: anim_type(f.u16("recoilAnimType")),
+        reload_anim_type: anim_type(f.u16("reloadAnimType")),
+        aiming_speed: f.f32("aimingSpeed"),
         recoil: files::WeaponRecoil {
-            base: le_f32(d, 128),
-            max: le_f32(d, 132),
-            factor: le_f32(d, 136),
-            return_speed: le_f32(d, 140),
-            firing_return_speed: le_f32(d, 144),
+            base: f.f32("private_recoil_info.base"),
+            max: f.f32("private_recoil_info.max"),
+            factor: f.f32("private_recoil_info.factor"),
+            return_speed: f.f32("private_recoil_info.returnSpeed"),
+            firing_return_speed: f.f32("private_recoil_info.firingReturnSpeed"),
         },
         sight: files::WeaponSight {
-            position: le_vec3(d, 0),
-            vector: le_vec3(d, 12),
+            position: f.vec3("sight.position"),
+            vector: f.vec3("sight.vector"),
         },
-        max_sight_distance: le_f32(d, 24),
-        laser_color: format!("#{:08x}", le_u32(d, 28)),
+        max_sight_distance: f.f32("maximum_sight_distance"),
+        laser_color: format!("#{:08x}", f.u32("laser_color")),
         second_hand: files::SecondHand {
-            position: le_vec3(d, 172),
-            vector: le_vec3(d, 148),
-            up: le_vec3(d, 160),
+            position: f.vec3("secondHandPosition"),
+            vector: f.vec3("secondHandVector"),
+            up: f.vec3("secondHandUpVector"),
         },
-        pickup_offset: le_vec3(d, 1796),
-        display_y_offset: le_f32(d, 1808),
+        pickup_offset: f.vec3("pickup_offset"),
+        display_y_offset: f.f32("display_yoffset"),
         empty_sound: (!empty.is_empty()).then_some(empty),
-        ai: ai_params(d, 208),
-        ai_alternate: (le_u16(d, 196) > 1).then(|| ai_params(d, 336)),
+        ai: ai_params(f, "ai_parameters"),
+        ai_alternate: (f.u16("shooter_count") > 1).then(|| ai_params(f, "ai_parameters_alt")),
         attachments,
         sphere_radius: None,
         cursor: None,
@@ -184,29 +188,27 @@ pub fn class(d: &[u8], model: Option<String>) -> Option<files::WeaponClass> {
         hud_empty: None,
         hud_fill: None,
         instance: None,
-    })
+    }
 }
 
 /// Writes `weapons.json` (every `ONWC` in `dat`, level 0) into `common`.
-pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
+pub fn write_classes(
+    dat: &Dat<'_>,
+    registry: &oni_template::Registry,
+    common: &Path,
+) -> std::io::Result<usize> {
     let mut out = BTreeMap::new();
-    for inst in dat.instances.iter().filter(|i| i.tag == TAG_ONWC) {
-        let Some(d) = dat.instance_data(inst) else {
-            continue;
-        };
+    for (inst, rec) in crate::fields::all(registry, dat, TAG_ONWC) {
+        let f = Fields(&rec);
         // The geometry: a named model lives in common/models under its name,
         // an unnamed one under its tag and index (`asset_name`).
-        let r = le_u32(d, 88);
-        let model = (r & 1 != 0)
-            .then(|| dat.instances.get((r >> 8) as usize))
-            .flatten()
+        let geometry = instance(dat, f.u32("geometry"));
+        let model = geometry
             .filter(|g| g.tag == TAG_M3GM)
             .map(|g| format!("models/{}.glb", crate::asset_name(dat, g)));
         // Its physics sphere (`WPiMakeSphereTree`): a quarter of the largest
         // coordinate of its geometry's points.
-        let radius = (r & 1 != 0)
-            .then(|| dat.instances.get((r >> 8) as usize))
-            .flatten()
+        let radius = geometry
             .and_then(|g| oni_geom::extract_mesh(dat, g))
             .map(|m| {
                 m.positions
@@ -215,47 +217,35 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
                     .fold(0.0f32, f32::max)
                     / 4.0
             });
-        if let Some(mut c) = class(d, model) {
-            c.sphere_radius = radius;
-            // Its sprites (`WPtSprite`: texture, shade, scale): the
-            // reticle, the reticle on a target, the sight's tunnel (with
-            // how many and how far apart).
-            let sprite = |at: usize| {
-                let r = le_u32(d, at);
-                let texture = (r & 1 != 0)
-                    .then(|| dat.instances.get((r >> 8) as usize))
-                    .flatten()
-                    .map(|t| crate::asset_name(dat, t));
-                texture.map(|t| files::WeaponSprite {
-                    texture: t,
-                    shade: format!("#{:08x}", le_u32(d, at + 4)),
-                    scale: crate::le_f32(d, at + 8),
-                })
-            };
-            c.cursor = sprite(32);
-            c.cursor_targeted = sprite(44);
-            c.tunnel = sprite(56).map(|v| files::WeaponTunnel {
-                texture: v.texture,
-                shade: v.shade,
-                scale: v.scale,
-                count: le_u32(d, 68),
-                spacing: crate::le_f32(d, 72),
-            });
-            // Its HUD textures: the icon, the empty and the full ammo ring.
-            let texture = |at: usize| {
-                let r = le_u32(d, at);
-                (r & 1 != 0)
-                    .then(|| dat.instances.get((r >> 8) as usize))
-                    .flatten()
-                    .map(|t| crate::asset_name(dat, t))
-            };
-            c.icon = texture(76);
-            c.hud_empty = texture(80);
-            c.hud_fill = texture(84);
-            // (Its instance name: the key of its new-weapon message.)
-            c.instance = inst.name.clone();
-            out.insert(c.name.clone(), c);
-        }
+        let mut c = class(f, model);
+        c.sphere_radius = radius;
+        let texture = |name: &str| instance(dat, f.u32(name)).map(|t| crate::asset_name(dat, t));
+        // Its sprites (`WPtSprite`: texture, shade, scale): the reticle, the
+        // reticle on a target, the sight's tunnel (with how many and how far
+        // apart).
+        let sprite = |name: &str| {
+            texture(&format!("{name}.texture")).map(|t| files::WeaponSprite {
+                texture: t,
+                shade: format!("#{:08x}", f.u32(&format!("{name}.shade"))),
+                scale: f.f32(&format!("{name}.scale")),
+            })
+        };
+        c.cursor = sprite("cursor");
+        c.cursor_targeted = sprite("cursor_targeted");
+        c.tunnel = sprite("tunnel").map(|v| files::WeaponTunnel {
+            texture: v.texture,
+            shade: v.shade,
+            scale: v.scale,
+            count: f.u32("tunnel_count"),
+            spacing: f.f32("tunnel_spacing"),
+        });
+        // Its HUD textures: the icon, the empty and the full ammo ring.
+        c.icon = texture("icon");
+        c.hud_empty = texture("hud_empty");
+        c.hud_fill = texture("hud_fill");
+        // (Its instance name: the key of its new-weapon message.)
+        c.instance = inst.name.clone();
+        out.insert(c.name.clone(), c);
     }
     let count = out.len();
     std::fs::create_dir_all(common)?;
@@ -322,7 +312,14 @@ mod tests {
         d[a + 68..a + 70].copy_from_slice(&1u16.to_le_bytes());
         d[a + 70..a + 72].copy_from_slice(&12u16.to_le_bytes());
         d[a + 76..a + 78].copy_from_slice(&0u16.to_le_bytes());
-        let c = serde_json::to_value(class(&d, Some("models/x.glb".into())).unwrap()).unwrap();
+        let registry = oni_template::Registry::load();
+        let rec = oni_template::decode(
+            registry.get(TAG_ONWC).unwrap(),
+            &d,
+            oni_dat::ByteOrder::Little,
+        )
+        .unwrap();
+        let c = serde_json::to_value(class(Fields(&rec), Some("models/x.glb".into()))).unwrap();
         assert_eq!(c["name"], json!("w0_tst"));
         assert_eq!(c["flags"], json!(["twoHanded", "autofire"]));
         assert_eq!(c["maxAmmo"], json!(12));
