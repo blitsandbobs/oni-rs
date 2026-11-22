@@ -46,7 +46,7 @@ jobs:
           $d = "target/package/Oni"
           New-Item -ItemType Directory -Force "$d/licenses" | Out-Null
           Copy-Item target/release/oni.exe "$d/Oni.exe"
-          Copy-Item packaging/NOTICE.md "$d/licenses/"
+          Copy-Item packaging/NOTICE.md, LICENSE "$d/licenses/"
           Copy-Item crates/oni/assets/launcher/OFL.txt "$d/licenses/Rajdhani-OFL.txt"
           Compress-Archive -Path $d -DestinationPath target/package/Oni-windows.zip -Force
       - uses: actions/upload-artifact@v4

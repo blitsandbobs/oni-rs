@@ -127,8 +127,14 @@ original game; the launcher installs the player's own:
 - Windows: a zip of `Oni.exe` (no console window in release builds).
 
 The `package` workflow (`.github/workflows/package.yml`, run by hand or by a
-`v*` tag) builds all three. A build includes `oni-bink` (GPL-3.0-or-later),
-so it is distributed under the GPL-3.0 — `packaging/NOTICE.md` goes with it.
+`v*` tag) builds all three, each with `LICENSE` and `packaging/NOTICE.md`.
+
+## License
+
+GPL-3.0-or-later (`LICENSE`): Oni preserved, not taken — anyone may use,
+change and share the port, and what they share stays open. The game itself
+(its data, art, sound and name) belongs to its owners and isn't here; the
+player brings their own.
 
 ## Build & test
 

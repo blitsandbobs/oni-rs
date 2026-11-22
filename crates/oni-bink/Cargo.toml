@@ -5,7 +5,7 @@ version.workspace = true
 edition.workspace = true
 # Vendored from ra2-engine (crates/ra2-formats/src/bink, 14640554), whose
 # licence it keeps.
-license = "GPL-3.0-or-later"
+license.workspace = true
 rust-version = "1.82"
 
 [dependencies]

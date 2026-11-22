@@ -42,7 +42,7 @@ rm -rf "$iconset"
 
 # The licences that come with it.
 mkdir -p "$app/Contents/Resources/licenses"
-cp packaging/NOTICE.md "$app/Contents/Resources/licenses/"
+cp packaging/NOTICE.md LICENSE "$app/Contents/Resources/licenses/"
 cp crates/oni/assets/launcher/OFL.txt "$app/Contents/Resources/licenses/Rajdhani-OFL.txt"
 
 codesign --force --deep --sign - "$app"
