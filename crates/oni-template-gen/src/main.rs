@@ -908,11 +908,21 @@ fn inline(elem: Vec<OutField>, name: String, out: &mut Vec<OutField>, offset: &m
             OutField::Array { len, elem, .. } => *offset += len * elem_fixed_size(elem),
             OutField::VarArray { .. } => {}
         }
-        // prefix nested field names for readability
+        // prefix nested field names (arrays' too: two nested structs'
+        // arrays of one name would otherwise collide)
         let renamed = match sub {
             OutField::Scalar { name: n, kind } => OutField::Scalar {
                 name: format!("{name}.{n}"),
                 kind,
+            },
+            OutField::Array { name: n, len, elem } => OutField::Array {
+                name: format!("{name}.{n}"),
+                len,
+                elem,
+            },
+            OutField::VarArray { name: n, elem } => OutField::VarArray {
+                name: format!("{name}.{n}"),
+                elem,
             },
             other => other,
         };

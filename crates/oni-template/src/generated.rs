@@ -96,21 +96,21 @@ pub fn layouts() -> Vec<Layout> {
                     Kind::VarArray {
                         elem: vec![
                             Field::new(
-                                "indices",
+                                "m3Quad.vertexIndices.indices",
                                 Kind::Array {
                                     len: 4,
                                     elem: vec![Field::new("", Kind::U32)],
                                 },
                             ),
                             Field::new(
-                                "indices",
+                                "m3Quad.baseUVIndices.indices",
                                 Kind::Array {
                                     len: 4,
                                     elem: vec![Field::new("", Kind::U32)],
                                 },
                             ),
                             Field::new(
-                                "shades",
+                                "m3Quad.shades",
                                 Kind::Array {
                                     len: 4,
                                     elem: vec![Field::new("", Kind::U32)],
@@ -181,56 +181,56 @@ pub fn layouts() -> Vec<Layout> {
                             ),
                             Field::new("scripts.flags", Kind::U32),
                             Field::new(
-                                "spawn_name",
+                                "scripts.spawn_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "combat_name",
+                                "scripts.combat_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "die_name",
+                                "scripts.die_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "alarm_name",
+                                "scripts.alarm_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "hurt_name",
+                                "scripts.hurt_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "defeated_name",
+                                "scripts.defeated_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "outofammo_name",
+                                "scripts.outofammo_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
                                 },
                             ),
                             Field::new(
-                                "nopath_name",
+                                "scripts.nopath_name",
                                 Kind::Array {
                                     len: 32,
                                     elem: vec![Field::new("", Kind::I8)],
@@ -566,7 +566,7 @@ pub fn layouts() -> Vec<Layout> {
                             ),
                             Field::new("corpse_data.characterClass", Kind::TemplateRef),
                             Field::new(
-                                "matricies",
+                                "corpse_data.matricies",
                                 Kind::Array {
                                     len: 19,
                                     elem: vec![Field::new(
@@ -746,7 +746,7 @@ pub fn layouts() -> Vec<Layout> {
                                 },
                             ),
                             Field::new(
-                                "m",
+                                "matrix.m",
                                 Kind::Array {
                                     len: 12,
                                     elem: vec![Field::new("", Kind::F32)],
@@ -1062,14 +1062,14 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("_pad", Kind::Pad(12)),
                 Field::new("animFlags", Kind::U32),
                 Field::new(
-                    "m",
+                    "startMatrix.m",
                     Kind::Array {
                         len: 12,
                         elem: vec![Field::new("", Kind::F32)],
                     },
                 ),
                 Field::new(
-                    "m",
+                    "scale.m",
                     Kind::Array {
                         len: 12,
                         elem: vec![Field::new("", Kind::F32)],
@@ -1165,7 +1165,7 @@ pub fn layouts() -> Vec<Layout> {
                             Field::new("orientation.w", Kind::F32),
                             Field::new("scale", Kind::F32),
                             Field::new(
-                                "m",
+                                "debugOrigMatrix.m",
                                 Kind::Array {
                                     len: 12,
                                     elem: vec![Field::new("", Kind::F32)],
@@ -1243,7 +1243,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("inventoryConstants.hypoTime", Kind::U16),
                 Field::new("_pad", Kind::Pad(2)),
                 Field::new(
-                    "distance_squared",
+                    "lodConstants.distance_squared",
                     Kind::Array {
                         len: 5,
                         elem: vec![Field::new("", Kind::F32)],
@@ -1264,28 +1264,28 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("_pad", Kind::Pad(1)),
                 Field::new("painConstants.hurt_min_volume", Kind::F32),
                 Field::new(
-                    "hurt_light_name",
+                    "painConstants.hurt_light_name",
                     Kind::Array {
                         len: 32,
                         elem: vec![Field::new("", Kind::I8)],
                     },
                 ),
                 Field::new(
-                    "hurt_medium_name",
+                    "painConstants.hurt_medium_name",
                     Kind::Array {
                         len: 32,
                         elem: vec![Field::new("", Kind::I8)],
                     },
                 ),
                 Field::new(
-                    "hurt_heavy_name",
+                    "painConstants.hurt_heavy_name",
                     Kind::Array {
                         len: 32,
                         elem: vec![Field::new("", Kind::I8)],
                     },
                 ),
                 Field::new(
-                    "death_sound_name",
+                    "painConstants.death_sound_name",
                     Kind::Array {
                         len: 32,
                         elem: vec![Field::new("", Kind::I8)],
@@ -1331,7 +1331,7 @@ pub fn layouts() -> Vec<Layout> {
                     Kind::U32,
                 ),
                 Field::new(
-                    "shooting_skill",
+                    "ai2_behavior.combat_parameters.shooting_skill",
                     Kind::Array {
                         len: 13,
                         elem: vec![
@@ -1372,7 +1372,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("ai2_behavior.default_combat_id", Kind::U16),
                 Field::new("ai2_behavior.default_melee_id", Kind::U16),
                 Field::new(
-                    "sound_chance",
+                    "ai2_behavior.vocalizations.sound_chance",
                     Kind::Array {
                         len: 10,
                         elem: vec![Field::new("", Kind::U8)],
@@ -1380,7 +1380,7 @@ pub fn layouts() -> Vec<Layout> {
                 ),
                 Field::new("_pad", Kind::Pad(2)),
                 Field::new(
-                    "sound_name",
+                    "ai2_behavior.vocalizations.sound_name",
                     Kind::Array {
                         len: 320,
                         elem: vec![Field::new("", Kind::I8)],
@@ -1407,14 +1407,14 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("anim_impacts.pad", Kind::U8),
                 Field::new("anim_impacts.modifier_type", Kind::U16),
                 Field::new(
-                    "modifier_name",
+                    "anim_impacts.modifier_name",
                     Kind::Array {
                         len: 16,
                         elem: vec![Field::new("", Kind::I8)],
                     },
                 ),
                 Field::new(
-                    "impact",
+                    "anim_impacts.impact",
                     Kind::Array {
                         len: 15,
                         elem: vec![
@@ -1533,7 +1533,7 @@ pub fn layouts() -> Vec<Layout> {
                     Kind::VarArray {
                         elem: vec![
                             Field::new(
-                                "m",
+                                "matrix.m",
                                 Kind::Array {
                                     len: 12,
                                     elem: vec![Field::new("", Kind::F32)],
@@ -1760,7 +1760,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("envParticleArray", Kind::TemplateRef),
                 Field::new("actionMarkerArray.num_markers", Kind::U32),
                 Field::new(
-                    "markers",
+                    "actionMarkerArray.markers",
                     Kind::Array {
                         len: 32,
                         elem: vec![
@@ -1891,7 +1891,7 @@ pub fn layouts() -> Vec<Layout> {
                     Kind::VarArray {
                         elem: vec![
                             Field::new(
-                                "worldPoints",
+                                "volume.worldPoints",
                                 Kind::Array {
                                     len: 8,
                                     elem: vec![
@@ -1902,7 +1902,7 @@ pub fn layouts() -> Vec<Layout> {
                                 },
                             ),
                             Field::new(
-                                "faces",
+                                "volume.faces",
                                 Kind::Array {
                                     len: 6,
                                     elem: vec![Field::new(
@@ -1915,7 +1915,7 @@ pub fn layouts() -> Vec<Layout> {
                                 },
                             ),
                             Field::new(
-                                "normals",
+                                "volume.normals",
                                 Kind::Array {
                                     len: 6,
                                     elem: vec![
@@ -1926,7 +1926,7 @@ pub fn layouts() -> Vec<Layout> {
                                 },
                             ),
                             Field::new(
-                                "curPlanes",
+                                "volume.curPlanes",
                                 Kind::Array {
                                     len: 6,
                                     elem: vec![
@@ -1938,7 +1938,7 @@ pub fn layouts() -> Vec<Layout> {
                                 },
                             ),
                             Field::new(
-                                "curProjections",
+                                "volume.curProjections",
                                 Kind::Array {
                                     len: 6,
                                     elem: vec![Field::new("", Kind::U16)],
@@ -2036,7 +2036,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("flags", Kind::U32),
                 Field::new("ai_parameters.targeting_flags", Kind::U32),
                 Field::new(
-                    "m",
+                    "ai_parameters.shooter_inversematrix.m",
                     Kind::Array {
                         len: 12,
                         elem: vec![Field::new("", Kind::F32)],
@@ -2064,7 +2064,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("ai_parameters.dodge_pattern_angle", Kind::F32),
                 Field::new("ai_parameters_alt.targeting_flags", Kind::U32),
                 Field::new(
-                    "m",
+                    "ai_parameters_alt.shooter_inversematrix.m",
                     Kind::Array {
                         len: 12,
                         elem: vec![Field::new("", Kind::F32)],
@@ -2096,7 +2096,7 @@ pub fn layouts() -> Vec<Layout> {
                         len: 16,
                         elem: vec![
                             Field::new(
-                                "m",
+                                "matrix.m",
                                 Kind::Array {
                                     len: 12,
                                     elem: vec![Field::new("", Kind::F32)],
@@ -2496,7 +2496,7 @@ pub fn layouts() -> Vec<Layout> {
                 Field::new("extentInfo.attack_ring.min_height", Kind::F32),
                 Field::new("extentInfo.attack_ring.max_height", Kind::F32),
                 Field::new(
-                    "distance",
+                    "extentInfo.attack_ring.distance",
                     Kind::Array {
                         len: 36,
                         elem: vec![Field::new("", Kind::F32)],
@@ -2911,7 +2911,7 @@ pub fn layouts() -> Vec<Layout> {
                             Field::new("chamber_time", Kind::U16),
                             Field::new("shooter_index", Kind::U16),
                             Field::new(
-                                "m",
+                                "matrix.m",
                                 Kind::Array {
                                     len: 12,
                                     elem: vec![Field::new("", Kind::F32)],
@@ -2923,7 +2923,7 @@ pub fn layouts() -> Vec<Layout> {
                 ),
                 Field::new("ai_params.targeting_flags", Kind::U32),
                 Field::new(
-                    "m",
+                    "ai_params.shooter_inversematrix.m",
                     Kind::Array {
                         len: 12,
                         elem: vec![Field::new("", Kind::F32)],

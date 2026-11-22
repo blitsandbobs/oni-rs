@@ -948,7 +948,9 @@ fn perception_json(rec: &oni_template::Record) -> oni_schema::files::ClassPercep
 }
 
 fn shooting_skill(rec: &oni_template::Record) -> Vec<oni_schema::files::ShootSkill> {
-    let Some(oni_template::Value::Array(slots)) = rec.get("shooting_skill").map(|e| &e.value)
+    let Some(oni_template::Value::Array(slots)) = rec
+        .get("ai2_behavior.combat_parameters.shooting_skill")
+        .map(|e| &e.value)
     else {
         return Vec::new();
     };

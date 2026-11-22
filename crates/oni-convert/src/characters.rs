@@ -191,7 +191,7 @@ pub fn setups(dat: &Dat<'_>, registry: &oni_template::Registry) -> Vec<files::Ch
                 ("outOfAmmo", "outofammo_name"),
                 ("noPath", "nopath_name"),
             ] {
-                let name = text(&s[field]);
+                let name = text(&s["scripts"][field]);
                 if !name.is_empty() {
                     scripts.insert(key.to_string(), name);
                 }
