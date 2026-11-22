@@ -101,20 +101,11 @@ pub fn execute(orders: Orders, facing: &mut Facing) -> u32 {
     keys
 }
 
-/// Folds an angle into `(-π, π]`.
-pub(crate) fn relative(a: f32) -> f32 {
-    let r = (a + PI).rem_euclid(TAU) - PI;
-    if r <= -PI {
-        r + TAU
-    } else {
-        r
-    }
-}
+pub(crate) use crate::angle::relative;
 
 /// The body yaw that faces from `from` toward `to` (on the ground plane).
 pub fn yaw_toward(from: Vec3, to: Vec3) -> f32 {
-    let d = to - from;
-    d.x.atan2(d.z)
+    crate::angle::yaw_of(to - from)
 }
 
 /// Follows a list of points on the ground: turns toward the next one, runs

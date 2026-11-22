@@ -351,9 +351,7 @@ impl<'a> ShotHost<'a> {
         // Facing the shot, or turned away from it: the reaction's side.
         let from = (-dir).x.atan2(-dir.z);
         let behind = {
-            let d = (from - f.facing.facing + std::f32::consts::PI)
-                .rem_euclid(std::f32::consts::TAU)
-                - std::f32::consts::PI;
+            let d = crate::angle::wrap_pi(from - f.facing.facing);
             d.abs() > std::f32::consts::FRAC_PI_2
         };
         let side = |t: u16| if behind { reaction::from_behind(t) } else { t };
@@ -1752,7 +1750,7 @@ impl World {
         use std::f32::consts::{PI, TAU};
         const SHOULDER: f32 = 15.0;
         const MAX_OFF: f32 = 130.0 * PI / 180.0;
-        let wrap = |a: f32| (a + PI).rem_euclid(TAU) - PI;
+        let wrap = |a: f32| crate::angle::wrap_pi(a);
         let mut out = vec![0u32; self.fighters.len()];
         let mut varients = Vec::new();
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -1778,7 +1776,7 @@ impl World {
             let (mut yaw, mut pitch, speed) = match want {
                 Some((dir, speed)) if dir.length_squared() > 1e-6 => {
                     let d = dir.normalize();
-                    (d.x.atan2(d.z), d.y.clamp(-1.0, 1.0).asin(), speed)
+                    (crate::angle::yaw_of(d), d.y.clamp(-1.0, 1.0).asin(), speed)
                 }
                 // (Stopping: back to the middle at the usual speed.)
                 _ => (facing, 0.0, 1.0),
@@ -3168,7 +3166,7 @@ impl World {
                 continue;
             }
             let d = to / dist;
-            let want_yaw = d.x.atan2(d.z) - off_yaw;
+            let want_yaw = crate::angle::yaw_of(d) - off_yaw;
             let want_pitch = d.y.asin() - off_pitch;
             let (dy, dp) = (wrap(want_yaw - aim_yaw), want_pitch - aim_pitch);
             let worst = dy.abs().max(dp.abs());
@@ -3223,10 +3221,7 @@ impl World {
             let exact = aim.and_then(|a| f.gun_screen().map(|s| (a, s)));
             let m = match exact {
                 Some(((yaw, pitch), s)) => {
-                    let wrap = |a: f32| {
-                        (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU)
-                            - std::f32::consts::PI
-                    };
+                    let wrap = |a: f32| crate::angle::wrap_pi(a);
                     let rel = wrap(yaw - f.facing.facing).clamp(
                         -s.yaw.0[0] * f32::from(s.yaw.1[0]),
                         s.yaw.0[1] * f32::from(s.yaw.1[1]),

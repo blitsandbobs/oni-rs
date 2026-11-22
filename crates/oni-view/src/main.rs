@@ -14,6 +14,7 @@
 //! ```
 
 mod ai;
+mod angle;
 mod anim;
 mod anim_sounds;
 mod app;

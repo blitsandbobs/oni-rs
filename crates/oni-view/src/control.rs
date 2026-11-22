@@ -17,15 +17,7 @@ pub const SLOW_TURN: f32 = PI * 1.5 / 120.0;
 /// Pending-turn threshold past which a turn-in-place clip plays
 /// (Oni `ONgAimingWidth` = 70°); smaller turns just slew.
 pub const TURN_DEADZONE: f32 = PI * 70.0 / 180.0;
-/// Wraps an angle into `[0, 2π)` (Oni's `UUmTrig_Clip`).
-fn wrap_2pi(a: f32) -> f32 {
-    let m = a % TAU;
-    if m < 0.0 {
-        m + TAU
-    } else {
-        m
-    }
-}
+use crate::angle::wrap_2pi;
 
 /// Folds an angle difference into `[-π, π]` (Oni's `angle_to_relative_angle`;
 /// one correction, assuming the input is already within `[-2π, 2π]`).

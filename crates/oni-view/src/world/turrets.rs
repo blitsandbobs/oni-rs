@@ -88,13 +88,11 @@ pub struct Turret {
     humming: bool,
 }
 
-fn wrap(a: f32) -> f32 {
-    a.rem_euclid(TAU)
-}
+use crate::angle::wrap_2pi as wrap;
 
 /// The shortest signed turn from `a` to `b`.
 fn delta(a: f32, b: f32) -> f32 {
-    (b - a + PI).rem_euclid(TAU) - PI
+    crate::angle::wrap_pi(b - a)
 }
 
 impl Turret {
@@ -138,7 +136,7 @@ impl Turret {
         let local = self.rotation.transpose() * (p - self.position)
             - (self.class.head_pivot + self.class.barrel_pivot);
         let flat = (local.x * local.x + local.z * local.z).sqrt();
-        (wrap(local.x.atan2(local.z)), wrap(local.y.atan2(flat)))
+        (wrap(crate::angle::yaw_of(local)), wrap(local.y.atan2(flat)))
     }
 
     /// Clips an angle to `(min, max)` (taken in (−π, π]).

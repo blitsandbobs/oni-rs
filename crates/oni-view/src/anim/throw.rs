@@ -19,7 +19,7 @@
 //! Without a throw the strike plays as normal.
 
 use glam::Vec3;
-use std::f32::consts::{FRAC_PI_2, FRAC_PI_4, PI, TAU};
+use std::f32::consts::{FRAC_PI_2, FRAC_PI_4};
 
 use crate::anim::collection::AnimCollection;
 use crate::anim::types::{ty, var};
@@ -73,9 +73,7 @@ pub struct Started {
     pub turn: f32,
 }
 
-fn wrap(x: f32) -> f32 {
-    (x + PI).rem_euclid(TAU) - PI
-}
+use crate::angle::wrap_pi as wrap;
 
 /// The front / behind throw types a strike can become, if any.
 pub fn throw_types(strike: u16) -> Option<(u16, u16)> {
@@ -167,6 +165,7 @@ mod tests {
     use super::*;
     use crate::anim::collection::tests::konoko;
     use crate::anim::types::st;
+    use std::f32::consts::PI;
 
     fn facing_me(at: f32, facing: f32) -> Sense {
         Sense {

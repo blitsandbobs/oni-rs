@@ -973,15 +973,13 @@ fn yaw(a: Vec3, b: Vec3) -> f32 {
     wrap((b.x - a.x).atan2(b.z - a.z))
 }
 
-fn wrap(a: f32) -> f32 {
-    a.rem_euclid(std::f32::consts::TAU)
-}
+use crate::angle::wrap_2pi as wrap;
 
 /// Whether `delta` (from the target to the character) lies within the
 /// manual trigger's angle of the target's facing.
 fn in_front(facing: f32, delta: Vec3) -> bool {
-    let a = delta.x.atan2(delta.z) - facing;
-    let a = (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+    let a = crate::angle::yaw_of(delta) - facing;
+    let a = crate::angle::wrap_pi(a);
     a.abs() <= MANUAL_TRIGGER_ANGLE
 }
 

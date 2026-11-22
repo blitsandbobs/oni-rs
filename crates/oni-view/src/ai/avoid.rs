@@ -84,10 +84,7 @@ pub struct Avoid {
     pub stuck: bool,
 }
 
-/// An angle into [0, 2π).
-fn wrap(a: f32) -> f32 {
-    a.rem_euclid(TAU)
-}
+use crate::angle::wrap_2pi as wrap;
 
 /// The yaw of a horizontal direction (x, z).
 fn yaw(x: f32, z: f32) -> f32 {
@@ -388,7 +385,7 @@ impl Ring {
             if v.next == 0 {
                 break;
             }
-            let delta = (v.angle - direction + PI).rem_euclid(TAU) - PI;
+            let delta = crate::angle::wrap_pi(v.angle - direction);
             let this = v.value + HEURISTIC_THETA * delta.abs();
             if this < best {
                 best = this;
@@ -433,7 +430,7 @@ mod tests {
                 assert!(last.abs() < 1e-4, "still straight on");
             }
         }
-        let off = (last + PI).rem_euclid(TAU) - PI;
+        let off = crate::angle::wrap_pi(last);
         assert!(off.abs() > 0.5, "turned aside by {off}");
         assert!(!a.stuck);
         for _ in 0..30 {

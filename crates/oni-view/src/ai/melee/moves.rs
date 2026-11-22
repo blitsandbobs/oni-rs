@@ -74,7 +74,7 @@ fn busy(me: &View) -> bool {
 fn facing_delta(me: &View, target: &View, dir: Dir) -> f32 {
     let off = dir.offset().unwrap_or(0.0);
     let d = bearing(me, target) - (me.facing + off);
-    ((d + PI).rem_euclid(std::f32::consts::TAU) - PI).abs()
+    (crate::angle::wrap_pi(d)).abs()
 }
 
 /// May the current move be cut short by an evasion?
@@ -487,7 +487,7 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
         let dir = info.dir.and_then(Dir::offset).unwrap_or(0.0);
         let turn = {
             let d = bearing(me, target) - (me.facing + dir);
-            (d + PI).rem_euclid(std::f32::consts::TAU) - PI
+            crate::angle::wrap_pi(d)
         };
         let (rel, vel) = relative_turned(me, target, turn);
         let attacker = Attacker {
@@ -653,7 +653,7 @@ fn throw(m: &mut Melee, me: &View, target: &View, out: &mut Output, index: usize
     }
     let rel = {
         let d = target.facing - me.facing;
-        ((d + PI).rem_euclid(std::f32::consts::TAU) - PI).abs()
+        (crate::angle::wrap_pi(d)).abs()
     };
     if (th.from_behind && rel >= THROW_FACING) || (!th.from_behind && rel <= PI - THROW_FACING) {
         return Step::Abort;

@@ -1503,9 +1503,9 @@ impl Hud {
                     - std::f32::consts::FRAC_PI_2 * (d2 / t.max_d2.max(1e-6))
             }
             .clamp(20.0 * DEG, std::f32::consts::PI);
-            let toward = to.x.atan2(to.z);
+            let toward = crate::angle::yaw_of(to);
             let mut a = p.facing - toward;
-            a = (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI;
+            a = crate::angle::wrap_pi(a);
             Some((
                 a - len + std::f32::consts::FRAC_PI_2 * 3.0,
                 a + len + std::f32::consts::FRAC_PI_2 * 3.0,

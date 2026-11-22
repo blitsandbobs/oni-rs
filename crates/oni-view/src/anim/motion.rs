@@ -263,10 +263,7 @@ fn continues(cur: u16, next: u16) -> bool {
         )
 }
 
-/// Wraps an angle into `[0, 2π)`.
-fn wrap(a: f32) -> f32 {
-    a.rem_euclid(std::f32::consts::TAU)
-}
+use crate::angle::wrap_2pi as wrap;
 
 impl Motion {
     /// A character standing at rest.

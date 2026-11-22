@@ -562,7 +562,7 @@ fn retreat_flag(
     let mut id = base;
     while let Some(f) = cx.level.flags.get(&id) {
         let d = f.at - enemy;
-        let angle = (d.x.atan2(d.z) - facing + PI).rem_euclid(2.0 * PI) - PI;
+        let angle = (crate::angle::yaw_of(d) - facing + PI).rem_euclid(2.0 * PI) - PI;
         let rd = (d.length() - range).abs();
         let mut score = if rd > range_delta {
             0.2

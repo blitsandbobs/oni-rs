@@ -3,7 +3,7 @@
 //! (evading or blocking), and — when free to — weighs its profile's
 //! techniques and picks one. Moves are carried out in [`super::moves`].
 
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::PI;
 use std::rc::Rc;
 
 use glam::{Quat, Vec3};
@@ -158,9 +158,7 @@ const THROW_RAMP: f32 = 30.0 * PI / 180.0;
 const THROW_DIST_SAFETY: f32 = 0.9;
 const MIN_TOLERANCE: f32 = 5.0;
 
-fn wrap(a: f32) -> f32 {
-    (a + PI).rem_euclid(TAU) - PI
-}
+use crate::angle::wrap_pi as wrap;
 
 /// A fighter's melee AI.
 #[derive(Clone, Debug)]
@@ -1086,7 +1084,7 @@ pub fn view<'a>(
     let could_block = {
         let o = &fighters[observer];
         let d = o.feet() - feet;
-        let toward = d.x.atan2(d.z);
+        let toward = crate::angle::yaw_of(d);
         let facing_it = wrap(toward - f.facing.aim()).abs() <= 20.0f32.to_radians();
         match (f.motion.defensive() && facing_it, f.motion.block_clip()) {
             (true, Some(c)) => {
@@ -1202,7 +1200,7 @@ pub(super) fn attack_id(target: &View) -> Option<u32> {
 /// World yaw from `a` to `b`.
 pub(super) fn bearing(a: &View, b: &View) -> f32 {
     let d = b.feet - a.feet;
-    d.x.atan2(d.z)
+    crate::angle::yaw_of(d)
 }
 
 pub(super) fn distance(a: &View, b: &View) -> f32 {
@@ -1470,7 +1468,7 @@ fn crowd(
     let urgent = 30.0f32.to_radians();
     let from = |p: Vec3| {
         let d = p - target.feet;
-        (d.x.atan2(d.z), (d.x * d.x + d.z * d.z).sqrt())
+        (crate::angle::yaw_of(d), (d.x * d.x + d.z * d.z).sqrt())
     };
     let (mine, my_dist) = from(me.feet);
     // Circling left (sidestepping left while facing the target) lowers the

@@ -740,9 +740,7 @@ impl Fighter {
     pub fn startle(&mut self, at: Vec3) {
         use crate::ai::melee::tables::ty;
         let d = at - self.feet();
-        let off = (d.x.atan2(d.z) - self.facing.facing + std::f32::consts::PI)
-            .rem_euclid(std::f32::consts::TAU)
-            - std::f32::consts::PI;
+        let off = crate::angle::wrap_pi(crate::angle::yaw_of(d) - self.facing.facing);
         let q = std::f32::consts::FRAC_PI_4;
         let kind = if off.abs() <= q {
             "startleForward"
@@ -762,10 +760,8 @@ impl Fighter {
         {
             // Over the clip the body turns to face the contact.
             let rotation = self.motion.clip_of(clip).final_rotation;
-            let want = d.x.atan2(d.z);
-            let delta = (want - self.facing.facing - rotation + std::f32::consts::PI)
-                .rem_euclid(std::f32::consts::TAU)
-                - std::f32::consts::PI;
+            let want = crate::angle::yaw_of(d);
+            let delta = crate::angle::wrap_pi(want - self.facing.facing - rotation);
             self.startling = Some((self.facing.facing, delta));
             eprintln!("perception: startled ({kind})");
         }
@@ -798,9 +794,7 @@ impl Fighter {
         let locked = crate::anim::decide::cannot_turn(&self.motion, false);
         if let (Some(yaw), false) = (d.face, locked) {
             let cap = crate::ai::MAX_TURN;
-            let delta = (yaw - self.facing.facing + std::f32::consts::PI)
-                .rem_euclid(std::f32::consts::TAU)
-                - std::f32::consts::PI;
+            let delta = crate::angle::wrap_pi(yaw - self.facing.facing);
             self.facing.rotate(delta.clamp(-cap, cap));
             self.facing.desired_facing = self.facing.facing;
         }
@@ -1178,7 +1172,7 @@ impl Fighter {
     /// the nearest-in-angle non-friend in range and in front — if that one
     /// is an enemy (a better-centred neutral stops it).
     fn face_opponent(&mut self, opponents: &[Opponent]) {
-        use std::f32::consts::{FRAC_PI_2, PI, TAU};
+        use std::f32::consts::{FRAC_PI_2, PI};
         let offset = match self.motion.current().move_direction {
             2 => PI,         // backwards attack
             3 => FRAC_PI_2,  // to the left
@@ -1192,8 +1186,8 @@ impl Fighter {
             .filter(|o| o.feet.distance(me) <= AUTO_FACE_RANGE)
             .map(|o| {
                 let d = o.feet - me;
-                let toward = d.x.atan2(d.z);
-                ((toward - aim + PI).rem_euclid(TAU) - PI, o.hostile)
+                let toward = crate::angle::yaw_of(d);
+                (crate::angle::wrap_pi(toward - aim), o.hostile)
             })
             .filter(|(a, _)| a.abs() <= AUTO_FACE_ARC)
             .min_by(|a, b| a.0.abs().total_cmp(&b.0.abs()));
@@ -1437,11 +1431,9 @@ impl Fighter {
                         self.glance = None;
                     } else {
                         let d = at - self.feet();
-                        let want = d.x.atan2(d.z);
+                        let want = crate::angle::yaw_of(d);
                         let cap = crate::ai::MAX_TURN;
-                        let delta = (want - self.facing.facing + std::f32::consts::PI)
-                            .rem_euclid(std::f32::consts::TAU)
-                            - std::f32::consts::PI;
+                        let delta = crate::angle::wrap_pi(want - self.facing.facing);
                         self.facing.rotate(delta.clamp(-cap, cap));
                         self.facing.desired_facing = self.facing.facing;
                     }
@@ -1887,9 +1879,7 @@ impl Fighter {
             return None;
         }
         let s = self.screen(dont_aim);
-        let wrap = |a: f32| {
-            (a + std::f32::consts::PI).rem_euclid(std::f32::consts::TAU) - std::f32::consts::PI
-        };
+        let wrap = |a: f32| crate::angle::wrap_pi(a);
         // (With the auto-aim's turn, as the gun has it: the original's aiming
         // screen adds `autoAimAdjustmentLR` / `UD` too.)
         let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing)

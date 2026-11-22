@@ -1342,7 +1342,7 @@ impl Agent {
             (dist - min) / (max - min).max(1e-3)
         };
         let to = (target - cx.feet).with_y_zero();
-        let heading = to.x.atan2(to.z);
+        let heading = crate::angle::yaw_of(to);
         let from = cx.feet + Vec3::Y * 2.0;
         // The line from the pelvis to the target's middle
         // (`AI2rManeuver_CheckBlockage`: the level, characters skipped).
@@ -1434,7 +1434,8 @@ impl Agent {
         self.combat().advance_goal = None;
         let to = (target - cx.feet).with_y_zero();
         let pace = self.mode.pace(cx.alert(), true);
-        self.steer = fan(to.x.atan2(to.z), cx.feet + Vec3::Y * 2.0, cx).map(|(h, _)| (h, pace));
+        self.steer =
+            fan(crate::angle::yaw_of(to), cx.feet + Vec3::Y * 2.0, cx).map(|(h, _)| (h, pace));
     }
 
     fn halt(&mut self) {
@@ -3671,7 +3672,7 @@ impl Agent {
         if d.y.abs() > VERTICAL || !(MIN..=MAX).contains(&dist) {
             return false;
         }
-        let angle = d.x.atan2(d.z);
+        let angle = crate::angle::yaw_of(d);
         let rel = (angle - cx.facing + PI).rem_euclid(2.0 * PI) - PI;
         let way = if rel.abs() < DELTA {
             0

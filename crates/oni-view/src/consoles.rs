@@ -4,7 +4,7 @@
 //! animation, and on its action frame the console fires its event list
 //! (scripts, other consoles, alarms, doors, …).
 
-use std::f32::consts::{PI, TAU};
+use std::f32::consts::PI;
 use std::path::Path;
 
 use glam::Vec3;
@@ -131,9 +131,7 @@ pub fn load(level_dir: &Path) -> Vec<Console> {
         .collect()
 }
 
-fn wrap(a: f32) -> f32 {
-    (a + PI).rem_euclid(TAU) - PI
-}
+use crate::angle::wrap_pi as wrap;
 
 impl Console {
     /// Whether a character with its pelvis at `pelvis`, facing `facing`, is

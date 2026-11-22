@@ -489,7 +489,8 @@ impl Weapon {
         let m = self.matrix.get();
         self.position = m.w_axis.truncate();
         let x = m.x_axis;
-        self.yaw = (x.x.atan2(x.z) - std::f32::consts::FRAC_PI_2).rem_euclid(std::f32::consts::TAU);
+        self.yaw = (crate::angle::yaw_of(x.truncate()) - std::f32::consts::FRAC_PI_2)
+            .rem_euclid(std::f32::consts::TAU);
         self.velocity = kick.map_or(Vec3::ZERO, |k| Vec3::Y * 1.5 + k);
         self.resting = false;
         self.hit_ground = false;

@@ -1845,7 +1845,7 @@ impl World {
             d.manual
                 && d.state == crate::doors::State::Closed
                 && feet.distance(d.position) < d.radius
-                && crate::ai::relative(to.x.atan2(to.z) - facing).abs()
+                && crate::ai::relative(crate::angle::yaw_of(to) - facing).abs()
                     <= crate::doors::MANUAL_FACING
                 && d.may_open(feet, false)
         })
@@ -1869,7 +1869,7 @@ impl World {
             })
             .filter_map(|(k, d)| {
                 let to = d.position - pelvis;
-                let off = crate::ai::relative(to.x.atan2(to.z) - facing).abs();
+                let off = crate::ai::relative(crate::angle::yaw_of(to) - facing).abs();
                 (off <= crate::doors::MANUAL_FACING).then_some((k, off, d.may_open(feet, false)))
             })
             .min_by(|a, b| b.2.cmp(&a.2).then(a.1.total_cmp(&b.1)));
@@ -3269,7 +3269,7 @@ impl World {
         use crate::anim::types::{strike, ty};
         use std::f32::consts::{FRAC_PI_2, PI, TAU};
 
-        let wrap = |x: f32| (x + PI).rem_euclid(TAU) - PI;
+        let wrap = |x: f32| crate::angle::wrap_pi(x);
         // A blow shows them both for a moment, if invisible
         // (`ONiCharacter_BecomeTemporarilyVisible`).
         self.reveal(a, b);
@@ -3280,7 +3280,7 @@ impl World {
         let fb = &mut self.fighters[b];
         let to_attacker = {
             let d = attacker_feet - fb.feet();
-            d.x.atan2(d.z)
+            crate::angle::yaw_of(d)
         };
         let mut damage = (attack.damage as f32 * potency).round() as i32;
         let mut shove = attack.knockback * KNOCKBACK_SCALE * potency;
