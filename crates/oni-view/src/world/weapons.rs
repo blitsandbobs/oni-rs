@@ -1266,7 +1266,7 @@ impl World {
     pub(super) fn character_obstacles(&self) -> Vec<crate::objphys::Obstacle> {
         self.fighters
             .iter()
-            .filter(|f| !f.gone && !f.settled)
+            .filter(|f| !f.gone && !f.death.settled)
             .map(|f| {
                 let t = f.tree();
                 crate::objphys::Obstacle {
@@ -1691,7 +1691,7 @@ impl World {
         let mut varients = Vec::new();
         for (i, f) in self.fighters.iter_mut().enumerate() {
             let Some(crate::ai::Brain::Agent(a)) = f.brain.as_ref() else {
-                f.ai_aim = None;
+                f.aim.ai = None;
                 continue;
             };
             // Aiming with its gun or just looking: its gun's poses with it.
@@ -1702,7 +1702,7 @@ impl World {
             let aiming_weapon = a.aiming_weapon;
             // (A film carries its own aim.)
             if f.film.is_some() || !f.alive() {
-                f.ai_aim = None;
+                f.aim.ai = None;
                 continue;
             }
             let facing = f.facing.facing;
@@ -1722,8 +1722,8 @@ impl World {
                 pitch = 0.0;
             }
             // Where it aims now: as last tick, turned with the body since.
-            let (cy, cp) = match f.ai_aim {
-                Some((y, p)) => (y + (facing - f.ai_aim_facing), p),
+            let (cy, cp) = match f.aim.ai {
+                Some((y, p)) => (y + (facing - f.aim.ai_facing), p),
                 None => (facing, 0.0),
             };
             let (dy, dp) = (wrap(yaw - cy), pitch - cp);
@@ -1740,14 +1740,13 @@ impl World {
                 (cy + dy * step / dist, cp + dp * step / dist)
             };
             // (Back in the middle with nothing wanted, it stops aiming.)
-            f.ai_aim = if want.is_none() && dist <= step {
+            f.aim.ai = if want.is_none() && dist <= step {
                 None
             } else {
                 Some((wrap(now.0), now.1))
             };
-            f.ai_aim_facing = facing;
-            (f.aiming_lr, f.aiming_ud) =
-                f.ai_aim.map_or((0.0, 0.0), |(y, p)| (wrap(y - facing), p));
+            f.aim.ai_facing = facing;
+            (f.aim.lr, f.aim.ud) = f.aim.ai.map_or((0.0, 0.0), |(y, p)| (wrap(y - facing), p));
             let Some(w) = f.hand else { continue };
             // (A gun that fires one shot a press waits for its chamber.)
             let gun = &self.armory.weapons[w];
@@ -1938,7 +1937,7 @@ impl World {
     pub fn shadow(&self, k: usize) -> Option<(crate::decal::Mesh, u16, String)> {
         let f = self.fighters.get(k)?;
         let s = f.shadow.as_ref()?;
-        if f.gone || f.no_shadow || f.settled {
+        if f.gone || f.no_shadow || f.death.settled {
             return None;
         }
         let pelvis = f.bones().first()?.w_axis.truncate();
@@ -2419,8 +2418,8 @@ impl World {
         // In the hand from this frame on (the original rebuilds the
         // weapon's matrix before drawing); the swing to the aim starts over.
         let f = &mut self.fighters[who];
-        f.exact_aim_since = self.now as u64;
-        f.exact_aim_done = false;
+        f.aim.exact_since = self.now as u64;
+        f.aim.exact_done = false;
         let m = hand_matrix(f, &f.bones());
         self.armory.weapons[w].matrix.set(m);
     }
@@ -3075,7 +3074,7 @@ impl World {
         // left, +Z up).
         let s = shooter.matrix.y_axis.truncate().normalize_or(Vec3::X);
         let (off_yaw, off_pitch) = (s.y.atan2(s.x), s.z.clamp(-1.0, 1.0).asin());
-        let (aim_yaw, aim_pitch) = (f.facing.aim() + f.aiming_lr, f.aiming_ud);
+        let (aim_yaw, aim_pitch) = (f.facing.aim() + f.aim.lr, f.aim.ud);
         let me = f.team();
         let pelvis = f.feet() + Vec3::Y * f.motion.height();
         use crate::angle::wrap_pi as wrap;
@@ -3142,14 +3141,11 @@ impl World {
             // the screen's reach; else it rides the hand.
             let aim = if f.player {
                 let (lr, ud) = self.auto_aim(who, w);
-                self.fighters[who].auto_aim = (lr, ud);
+                self.fighters[who].aim.auto = (lr, ud);
                 let f = &self.fighters[who];
-                Some((
-                    f.facing.aim() + f.aiming_lr + lr,
-                    f.aiming_ud + f.recoil + ud,
-                ))
+                Some((f.facing.aim() + f.aim.lr + lr, f.aim.ud + f.aim.recoil + ud))
             } else {
-                f.ai_aim.map(|(y, p)| (y, p + f.recoil))
+                f.aim.ai.map(|(y, p)| (y, p + f.aim.recoil))
             };
             let f = &self.fighters[who];
             let hand = hand_matrix(f, &bones);
@@ -3167,11 +3163,11 @@ impl World {
                     );
                     let goal = aim_matrix(hand.w_axis.truncate(), f.facing.facing + rel, pitch);
                     let f = &mut self.fighters[who];
-                    let since = now.saturating_sub(f.exact_aim_since);
-                    if !f.exact_aim_done && since > EXACT_AIM_TICKS {
-                        f.exact_aim_done = true;
+                    let since = now.saturating_sub(f.aim.exact_since);
+                    if !f.aim.exact_done && since > EXACT_AIM_TICKS {
+                        f.aim.exact_done = true;
                     }
-                    if f.exact_aim_done {
+                    if f.aim.exact_done {
                         goal
                     } else {
                         matrix_lerp(hand, goal, since as f32 / EXACT_AIM_TICKS as f32)
@@ -3179,8 +3175,8 @@ impl World {
                 }
                 None => {
                     let f = &mut self.fighters[who];
-                    f.exact_aim_since = now;
-                    f.exact_aim_done = false;
+                    f.aim.exact_since = now;
+                    f.aim.exact_done = false;
                     hand
                 }
             };
@@ -3219,7 +3215,7 @@ impl World {
                             .get(self.armory.weapons[w].class.ai.skill_index)
                             .filter(|_| !f.player)
                             .map_or(0.0, |s| s.recoil_compensation);
-                        f.recoil_speed += recoil * (1.0 - compensation);
+                        f.aim.recoil_speed += recoil * (1.0 - compensation);
                         if let Some(crate::ai::Brain::Agent(a)) = f.brain.as_mut() {
                             a.fired();
                         }
@@ -3311,20 +3307,20 @@ impl World {
         // Recoil settling (`docs/WEAPONS.md`, *Recoil*).
         for f in &mut self.fighters {
             let Some(w) = f.hand else {
-                f.recoil = 0.0;
-                f.recoil_speed = 0.0;
+                f.aim.recoil = 0.0;
+                f.aim.recoil_speed = 0.0;
                 continue;
             };
             let gun = &self.armory.weapons[w];
             let r = gun.class.recoil;
-            if f.recoil_speed != 0.0 {
-                f.recoil += f.recoil_speed;
-                f.recoil_speed /= r.factor;
-                if f.recoil_speed < 0.001 {
-                    f.recoil_speed = 0.0;
+            if f.aim.recoil_speed != 0.0 {
+                f.aim.recoil += f.aim.recoil_speed;
+                f.aim.recoil_speed /= r.factor;
+                if f.aim.recoil_speed < 0.001 {
+                    f.aim.recoil_speed = 0.0;
                 }
-            } else if f.recoil != 0.0 {
-                f.recoil -= if gun.chamber == 0 {
+            } else if f.aim.recoil != 0.0 {
+                f.aim.recoil -= if gun.chamber == 0 {
                     r.return_speed
                 } else {
                     r.firing_return_speed
@@ -3332,13 +3328,14 @@ impl World {
             }
             if f.player && gun.class.has(flag::RECOIL_DIRECT) {
                 // The player's kick stays in the aim: pull it back down.
-                f.aiming_ud += f.recoil;
-                f.recoil = 0.0;
+                f.aim.ud += f.aim.recoil;
+                f.aim.recoil = 0.0;
             } else {
-                f.recoil = f.recoil.clamp(0.0, r.max);
+                f.aim.recoil = f.aim.recoil.clamp(0.0, r.max);
             }
-            f.aiming_ud = f
-                .aiming_ud
+            f.aim.ud = f
+                .aim
+                .ud
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
         // A throw's action frame takes the victim's gun

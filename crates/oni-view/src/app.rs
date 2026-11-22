@@ -1052,12 +1052,12 @@ impl State {
             let turn = (-dx * sens).clamp(-std::f32::consts::PI, std::f32::consts::PI);
             if look {
                 // Look mode: the mouse turns the aim off the facing.
-                player.aiming_lr = (player.aiming_lr + turn)
+                player.aim.lr = (player.aim.lr + turn)
                     .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
             } else {
                 player.facing.adjust_desired(turn);
             }
-            player.aiming_ud = (player.aiming_ud + dy * sens)
+            player.aim.ud = (player.aim.ud + dy * sens)
                 .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         }
 

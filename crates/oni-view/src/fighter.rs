@@ -70,6 +70,78 @@ fn is_landing(t: u16) -> bool {
 /// A pose kept, and the key it was worked out under.
 type PoseCache = (Vec<u32>, Vec<Mat4>);
 
+/// A fighter's death and its body's settling.
+#[derive(Clone, Debug, Default)]
+pub struct Death {
+    /// Its class removes its body this long after death (0: never), and the
+    /// countdown once dead.
+    pub delete: u32,
+    pub timer: Option<u32>,
+    /// Death-locked (a script's order): it can die, but its body is never
+    /// removed.
+    pub lock: bool,
+    /// Dead and settled (`ONcCharacterFlag_Dead_3_Cosmetic`): its body has
+    /// lain on the ground for over 120 ticks (or died for 15 s); it casts
+    /// no shadow. With the ticks it has lain still and been dying.
+    pub settled: bool,
+    pub still: u32,
+    pub moving: u32,
+    /// Its body makes no corpse (`ONcCharacterFlag_NoCorpse`): it fell or
+    /// died too long.
+    pub no_corpse: bool,
+    /// A corpse's drift, and whether it has begun.
+    pub(crate) corpse_velocity: Vec3,
+    pub(crate) corpse_started: bool,
+}
+
+/// A fighter's neutral interactions.
+#[derive(Clone, Debug, Default)]
+pub struct Talk {
+    /// Its neutral behaviour and how far it got (`world/neutral.rs`).
+    pub settings: crate::world::neutral::Settings,
+    /// The one it is in a neutral interaction with
+    /// (`neutral_interaction_char`), and whether that can't be broken off.
+    pub with: Option<usize>,
+    pub uninterruptable: bool,
+    /// How long the player has held keys that would end one
+    /// (`neutral_keyabort_frames`).
+    pub keyabort: u32,
+}
+
+/// Where a fighter aims.
+#[derive(Clone, Debug, Default)]
+pub struct Aim {
+    /// Aim pitch (radians, up positive) and the recoil kick on top of it.
+    pub ud: f32,
+    /// The look-mode turn (radians, left positive) of the aim off its
+    /// facing (`aimingLR`): the mouse turns it instead of the body while
+    /// the look key is held; it drifts back when released.
+    pub lr: f32,
+    /// The auto-aim's turn of the aim this tick (yaw, pitch;
+    /// `autoAimAdjustmentLR` / `UD`): the gun and the arm's aim pose both
+    /// take it.
+    pub auto: (f32, f32),
+    pub recoil: f32,
+    pub recoil_speed: f32,
+    /// The aiming screen now and the one before (indices in the class's
+    /// `aiming`), and when it changed — the fighter's own tick count
+    /// (`ONtActiveCharacter`'s `aimingScreen`, `oldAimingScreen`,
+    /// `oldAimingScreenTime`): for 8 ticks after a change the pose blends
+    /// from the old to the new.
+    pub(crate) screen: Option<usize>,
+    pub(crate) screen_old: Option<usize>,
+    pub(crate) screen_since: u64,
+    /// Where its AI's aim points now (absolute yaw, pitch) while it aims a
+    /// gun, and the body's facing when that was set (the aim turns with it).
+    pub ai: Option<(f32, f32)>,
+    pub ai_facing: f32,
+    /// Aiming its gun exactly (`ONrCharacter_DoExactAiming`): since when it
+    /// last wasn't (the gun swings from the hand to the aim over 8 ticks),
+    /// and whether the swing is done.
+    pub exact_since: u64,
+    pub exact_done: bool,
+}
+
 /// One character instance in the world.
 pub struct Fighter {
     /// Uploaded render-model index (see [`crate::render::Renderer::add_character`]).
@@ -133,46 +205,21 @@ pub struct Fighter {
     pub film: Option<FilmPlay>,
     /// Using a console (its controls are the console's meanwhile).
     pub console: Option<crate::consoles::Use>,
-    /// Its neutral behaviour and how far it got (`world/neutral.rs`).
-    pub neutral: crate::world::neutral::Settings,
-    /// The one it is in a neutral interaction with
-    /// (`neutral_interaction_char`), and whether that can't be broken off.
-    pub neutral_with: Option<usize>,
-    pub neutral_uninterruptable: bool,
-    /// How long the player has held keys that would end one
-    /// (`neutral_keyabort_frames`).
-    pub neutral_keyabort: u32,
     /// An alarm it answers went off (its alarm script is due).
     pub alarmed: bool,
     /// The alarm groups it answers (bits).
     pub alarm_groups: u32,
-    /// Its class removes its body this long after death (0: never), and the
-    /// countdown once dead.
-    pub death_delete: u32,
-    pub death_timer: Option<u32>,
     /// Unstoppable (a script's order): blows don't stun it, knock it about
     /// or make it react, and it blocks without block stun.
     pub unstoppable: bool,
     /// The player made unstoppable by the cheat (`ONgPlayerUnstoppable`).
     pub cheat_unstoppable: bool,
-    /// Death-locked (a script's order): it can die, but its body is never
-    /// removed.
-    pub death_lock: bool,
     /// Its class's shadow, and whether a script took it away (`chr_shadow`).
     pub shadow: Option<Rc<crate::decal::Shadow>>,
     pub no_shadow: bool,
     /// Its body parts' matrices, shared with what rides them (effects
     /// attached where a shot struck), kept up to date while any is ridden.
     pub part_cells: Vec<Rc<std::cell::Cell<Mat4>>>,
-    /// Dead and settled (`ONcCharacterFlag_Dead_3_Cosmetic`): its body has
-    /// lain on the ground for over 120 ticks (or died for 15 s); it casts
-    /// no shadow. With the ticks it has lain still and been dying.
-    pub settled: bool,
-    pub death_still: u32,
-    pub death_moving: u32,
-    /// Its body makes no corpse (`ONcCharacterFlag_NoCorpse`): it fell or
-    /// died too long.
-    pub no_corpse: bool,
     /// The last pose worked out, and what it was worked out from
     /// ([`Fighter::bones`]): asked for again unchanged, it is reused.
     pose_cache: std::cell::RefCell<Option<PoseCache>>,
@@ -194,13 +241,15 @@ pub struct Fighter {
     pub pending_reaction: u16,
     /// A hit was blocked this tick: force the block clip.
     pub please_block: bool,
-    /// A corpse's drift, and how long it has rested on the ground.
-    corpse_velocity: Vec3,
     /// This tick is grounded: the pull to the floor is still to add (and
     /// whether it is the plain one — not reeling, not attacking).
     ground_pull: Option<bool>,
-    /// Its drift as a dying body has begun.
-    corpse_started: bool,
+    /// Its death and its body's settling (`Die_3_Cosmetic`).
+    pub death: Death,
+    /// Its neutral interactions (`world/neutral.rs`).
+    pub talk: Talk,
+    /// Where it aims (`docs/WEAPONS.md`, *Aiming*).
+    pub aim: Aim,
     /// The floor's height last tick (`deferred_maximum_height`): a floor up to
     /// 6 above it may still be stepped onto.
     pub deferred_max: f32,
@@ -277,16 +326,6 @@ pub struct Fighter {
     pub inventory: Inventory,
     /// Its shield's glow and invisibility's fade, as drawn.
     pub effects: crate::world::magic::Magic,
-    /// Aim pitch (radians, up positive) and the recoil kick on top of it.
-    pub aiming_ud: f32,
-    /// The look-mode turn (radians, left positive) of the aim off its
-    /// facing (`aimingLR`): the mouse turns it instead of the body while
-    /// the look key is held; it drifts back when released.
-    pub aiming_lr: f32,
-    /// The auto-aim's turn of the aim this tick (yaw, pitch;
-    /// `autoAimAdjustmentLR` / `UD`): the gun and the arm's aim pose both
-    /// take it.
-    pub auto_aim: (f32, f32),
     /// The id the scripts know it by (`scriptID`): the player 0, a character
     /// `chr_create` made its setup's; placed characters have none (they go
     /// by name).
@@ -294,8 +333,6 @@ pub struct Fighter {
     /// The hit ring's quarters (`hits[4]`): lit (255) by a blow from that
     /// way, fading 3 a tick (the player's, on the HUD).
     pub hits: [u8; 4],
-    pub recoil: f32,
-    pub recoil_speed: f32,
     /// The last particle that damaged it (a shot hits once).
     pub last_particle: Option<u64>,
     /// Its last hit's direction × strength (knocks a dropped gun away).
@@ -308,29 +345,13 @@ pub struct Fighter {
     pub weapon_empty: bool,
     /// Its class's aiming screens.
     pub aiming: Rc<Vec<crate::anim::aim::Screen>>,
-    /// The aiming screen now and the one before (indices in `aiming`), and
-    /// when it changed — its own tick count (`ONtActiveCharacter`'s
-    /// `aimingScreen`, `oldAimingScreen`, `oldAimingScreenTime`): for 8 ticks
-    /// after a change the pose blends from the old to the new.
-    aim_screen: Option<usize>,
-    aim_screen_old: Option<usize>,
-    aim_screen_since: u64,
     ticks: u64,
-    /// Its AI's shooting skills and targeting settings, and where its aim
-    /// points now (absolute yaw, pitch) while it aims a gun.
+    /// Its AI's shooting skills and targeting settings.
     pub shooting: Rc<Vec<crate::ai::ranged::Skill>>,
     pub targeting: crate::ai::ranged::Params,
-    pub ai_aim: Option<(f32, f32)>,
     /// Its gun's poses off (`ONcCharacterFlag_DontUseGunVarient`): an AI
     /// in a no-aim movement mode holds its gun but moves as if unarmed.
     pub no_gun_varient: bool,
-    /// The body's facing when `ai_aim` was last set (the aim turns with it).
-    pub ai_aim_facing: f32,
-    /// Aiming its gun exactly (`ONrCharacter_DoExactAiming`): since when it
-    /// last wasn't (the gun swings from the hand to the aim over 8 ticks),
-    /// and whether the swing is done.
-    pub exact_aim_since: u64,
-    pub exact_aim_done: bool,
     /// Partial-body clips playing over the body: the recoil, the inventory
     /// one (holster, draw, reload), and a hit reaction (a flinch).
     pub overlays: [Option<Overlay>; 3],
@@ -452,23 +473,12 @@ impl Fighter {
             gone: false,
             film: None,
             console: None,
-            neutral: Default::default(),
-            neutral_with: None,
-            neutral_uninterruptable: false,
-            neutral_keyabort: 0,
             alarmed: false,
             alarm_groups: 0,
-            death_delete: 0,
-            death_timer: None,
             unstoppable: false,
-            death_lock: false,
             shadow: None,
             no_shadow: false,
             part_cells: Vec::new(),
-            settled: false,
-            death_still: 0,
-            death_moving: 0,
-            no_corpse: false,
             pose_cache: std::cell::RefCell::new(None),
             poison_last: 0,
             poison_count: 0,
@@ -479,11 +489,10 @@ impl Fighter {
             sprinting: false,
             pending_reaction: ty::NONE,
             please_block: false,
-            corpse_velocity: Vec3::ZERO,
             ground_pull: None,
-            exact_aim_since: 0,
-            exact_aim_done: false,
-            corpse_started: false,
+            death: Default::default(),
+            talk: Default::default(),
+            aim: Default::default(),
             deferred_max: feet.y,
             down_ticks: 0,
             brain: None,
@@ -517,13 +526,8 @@ impl Fighter {
             magic: None,
             inventory: Inventory::default(),
             effects: Default::default(),
-            aiming_ud: 0.0,
-            aiming_lr: 0.0,
-            auto_aim: (0.0, 0.0),
             script_id: None,
             hits: [0; 4],
-            recoil: 0.0,
-            recoil_speed: 0.0,
             last_particle: None,
             last_impact: Vec3::ZERO,
             infinite_ammo: false,
@@ -534,15 +538,10 @@ impl Fighter {
             overlays: [None; 3],
             pickup: None,
             aiming: Rc::new(Vec::new()),
-            aim_screen: None,
-            aim_screen_old: None,
-            aim_screen_since: 0,
             ticks: 0,
             shooting: Rc::new(Vec::new()),
             targeting: Default::default(),
-            ai_aim: None,
             no_gun_varient: false,
-            ai_aim_facing: 0.0,
         }
     }
 
@@ -1348,12 +1347,12 @@ impl Fighter {
     /// allowed — and falling; once it has settled, it moves no more. Returns
     /// the tick's move.
     fn drift_as_corpse(&mut self) -> Option<Vec3> {
-        if self.settled {
+        if self.death.settled {
             return None;
         }
-        if !std::mem::replace(&mut self.corpse_started, true) {
+        if !std::mem::replace(&mut self.death.corpse_started, true) {
             // Start from the leftover motion: flight, or the last shove.
-            self.corpse_velocity = if self.motion.air.frames > 0 {
+            self.death.corpse_velocity = if self.motion.air.frames > 0 {
                 if self.quirks.corpse_flight_unturned() {
                     self.motion.air.velocity
                 } else {
@@ -1368,7 +1367,7 @@ impl Fighter {
         if self.motion.air.frames > 0 {
             self.motion.air.frames = self.motion.air.frames.saturating_add(1);
         }
-        let mut v = self.corpse_velocity;
+        let mut v = self.death.corpse_velocity;
         let speed = Vec3::new(self.velocity.x, 0.0, self.velocity.z).length();
         if speed > CORPSE_MAX_SLIDE {
             v.x *= CORPSE_MAX_SLIDE / speed;
@@ -1383,7 +1382,7 @@ impl Fighter {
             v.z *= 0.8;
             v.y = (v.y - 0.5).clamp(-10.0, 2.0);
         }
-        self.corpse_velocity = v;
+        self.death.corpse_velocity = v;
         Some(v)
     }
 
@@ -1805,10 +1804,10 @@ impl Fighter {
                 s.map_or(0, |s| s as *const crate::anim::aim::Screen as usize as u64)
             };
             let s = screen(self.screen(self.overlay_dont_aim()));
-            let old = screen(self.aim_screen_old.and_then(|i| self.aiming.get(i)));
+            let old = screen(self.aim.screen_old.and_then(|i| self.aiming.get(i)));
             let since = self
                 .ticks
-                .saturating_sub(self.aim_screen_since)
+                .saturating_sub(self.aim.screen_since)
                 .min(AIM_SCREEN_BLEND + 1);
             key.extend([
                 s as u32,
@@ -1821,11 +1820,11 @@ impl Fighter {
                 [
                     self.facing.aim(),
                     self.facing.facing,
-                    self.aiming_lr,
-                    self.aiming_ud,
-                    self.recoil,
-                    self.auto_aim.0,
-                    self.auto_aim.1,
+                    self.aim.lr,
+                    self.aim.ud,
+                    self.aim.recoil,
+                    self.aim.auto.0,
+                    self.aim.auto.1,
                 ]
                 .map(f32::to_bits),
             );
@@ -1882,9 +1881,9 @@ impl Fighter {
         use crate::angle::wrap_pi as wrap;
         // (With the auto-aim's turn, as the gun has it: the original's aiming
         // screen adds `autoAimAdjustmentLR` / `UD` too.)
-        let yaw = wrap(self.facing.aim() + self.aiming_lr + self.auto_aim.0 - self.facing.facing)
+        let yaw = wrap(self.facing.aim() + self.aim.lr + self.aim.auto.0 - self.facing.facing)
             .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
-        let pitch = (self.aiming_ud + self.recoil + self.auto_aim.1)
+        let pitch = (self.aim.ud + self.aim.recoil + self.aim.auto.1)
             .clamp(-std::f32::consts::FRAC_PI_2, std::f32::consts::FRAC_PI_2);
         if yaw == 0.0 && pitch == 0.0 {
             return None;
@@ -1893,8 +1892,8 @@ impl Fighter {
         // to the new one's (`TRrAimingScreen_Apply_Lerp`).
         let layer =
             |s: &crate::anim::aim::Screen| crate::anim::aim::layer(&self.character, s, yaw, pitch);
-        let since = self.ticks.saturating_sub(self.aim_screen_since);
-        let old = self.aim_screen_old.and_then(|i| self.aiming.get(i));
+        let since = self.ticks.saturating_sub(self.aim.screen_since);
+        let old = self.aim.screen_old.and_then(|i| self.aiming.get(i));
         let blending = since <= AIM_SCREEN_BLEND
             && !std::ptr::eq(
                 old.map_or(std::ptr::null(), |o| o as *const _),
@@ -1916,10 +1915,10 @@ impl Fighter {
         let now = self
             .screen(self.overlay_dont_aim())
             .and_then(|s| self.aiming.iter().position(|x| std::ptr::eq(x, s)));
-        if now != self.aim_screen {
-            self.aim_screen_old = self.aim_screen;
-            self.aim_screen_since = self.ticks;
-            self.aim_screen = now;
+        if now != self.aim.screen {
+            self.aim.screen_old = self.aim.screen;
+            self.aim.screen_since = self.ticks;
+            self.aim.screen = now;
         }
     }
 
@@ -2003,14 +2002,14 @@ impl Fighter {
             / f32::from(self.motion.tuning.fight_mode_duration.max(1));
         if 0.5 >= 1.0 - fight && !self.still() && self.hand.is_none() && !look {
             let back = std::f32::consts::FRAC_PI_2 * 0.2;
-            if self.aiming_ud > back {
-                self.aiming_ud = (self.aiming_ud - STEP).max(back);
-            } else if self.aiming_ud < -back {
-                self.aiming_ud = (self.aiming_ud + STEP).min(-back);
+            if self.aim.ud > back {
+                self.aim.ud = (self.aim.ud - STEP).max(back);
+            } else if self.aim.ud < -back {
+                self.aim.ud = (self.aim.ud + STEP).min(-back);
             }
         }
         if !look {
-            self.aiming_lr = toward_zero(self.aiming_lr);
+            self.aim.lr = toward_zero(self.aim.lr);
         }
     }
 

@@ -342,7 +342,7 @@ impl World {
         f.melee_profile = kind.melee.clone();
         f.daze = kind.daze;
         f.class_combat = kind.class_combat;
-        f.death_delete = kind.death_delete;
+        f.death.delete = kind.death_delete;
         f.aiming = kind.aiming.clone();
         f.shooting = kind.shooting.clone();
         f.targeting = kind.targeting;
@@ -631,7 +631,7 @@ impl World {
             let eye = points[i][1];
             // Along its aim while it aims (`aimingVector`: the head's turn,
             // pitched — "up" is square to it), else its body's facing.
-            let (look, up) = match self.fighters[i].ai_aim {
+            let (look, up) = match self.fighters[i].aim.ai {
                 Some((yaw, pitch)) => {
                     let dir = Vec3::new(
                         yaw.sin() * pitch.cos(),
@@ -1689,7 +1689,7 @@ impl World {
         f.facing.facing = film.facing;
         f.facing.desired_facing = film.desired_facing;
         f.facing.facing_modifier = 0.0;
-        (f.aiming_lr, f.aiming_ud) = film.aim;
+        (f.aim.lr, f.aim.ud) = film.aim;
         match mode {
             "fromhere" => {}
             "interp" => {
@@ -2259,35 +2259,35 @@ impl World {
             // off the ground counts the same.)
             let air_time = f.motion.air.frames.max(f.motion.air.off_ground);
             if (f.motion.dying || f.motion.corpse)
-                && !f.settled
+                && !f.death.settled
                 && air_time >= crate::fighter::MAX_AIR_FRAMES + 30
             {
-                f.no_corpse = true;
-                f.settled = true;
+                f.death.no_corpse = true;
+                f.death.settled = true;
                 continue;
             }
-            if f.motion.corpse && !f.settled {
+            if f.motion.corpse && !f.death.settled {
                 if !f.airborne() && f.motion.air.off_ground == 0 {
-                    f.death_still += 1;
+                    f.death.still += 1;
                 } else {
-                    f.death_still = 0;
+                    f.death.still = 0;
                 }
-                f.death_moving += 1;
-                f.settled = f.death_still > 120 || f.death_moving > 60 * 15;
-                f.no_corpse = f.death_moving > 60 * 15;
+                f.death.moving += 1;
+                f.death.settled = f.death.still > 120 || f.death.moving > 60 * 15;
+                f.death.no_corpse = f.death.moving > 60 * 15;
             }
         }
         // Bodies of classes that delete their dead go after the delay.
         for i in 1..self.fighters.len() {
             let f = &mut self.fighters[i];
             // (Death-locked: it dies, but its body stays — `chr_death_lock`.)
-            if f.gone || f.death_lock || f.death_delete == 0 || !(f.motion.dying || f.hp <= 0) {
+            if f.gone || f.death.lock || f.death.delete == 0 || !(f.motion.dying || f.hp <= 0) {
                 continue;
             }
-            match f.death_timer {
-                None => f.death_timer = Some(f.death_delete),
+            match f.death.timer {
+                None => f.death.timer = Some(f.death.delete),
                 Some(t) if t <= 1 => self.remove(i),
-                Some(t) => f.death_timer = Some(t - 1),
+                Some(t) => f.death.timer = Some(t - 1),
             }
         }
         self.corpses_tick();

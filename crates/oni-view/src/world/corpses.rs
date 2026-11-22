@@ -156,9 +156,9 @@ impl World {
         for i in 1..self.fighters.len() {
             let f = &self.fighters[i];
             if f.gone
-                || !f.settled
-                || f.death_lock
-                || f.death_delete > 0
+                || !f.death.settled
+                || f.death.lock
+                || f.death.delete > 0
                 || f.effects.shield_active
                 || f.effects.invis_active
                 || f.effects.teleporting
@@ -172,7 +172,7 @@ impl World {
             if drawn {
                 continue;
             }
-            if !f.no_corpse {
+            if !f.death.no_corpse {
                 let bones = f.bones();
                 let spheres = f.body_spheres();
                 let (mut lo, mut hi) = (Vec3::splat(f32::MAX), Vec3::splat(f32::MIN));

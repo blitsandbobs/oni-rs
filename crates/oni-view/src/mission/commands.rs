@@ -1126,7 +1126,7 @@ pub fn dispatch(
         }
         "chr_death_lock" => {
             if let Some(f) = fighter(host, a(0)).and_then(|id| host.world().fighters.get_mut(id)) {
-                f.death_lock = int(a(1)).unwrap_or(0) != 0;
+                f.death.lock = int(a(1)).unwrap_or(0) != 0;
             }
             nil()
         }

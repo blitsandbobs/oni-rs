@@ -166,8 +166,8 @@ impl World {
     fn camera_vector(&self) -> Option<Vec3> {
         let p = self.fighters.first()?;
         let quarter = std::f32::consts::FRAC_PI_2;
-        let lr = p.aiming_lr.clamp(-quarter, quarter);
-        let ud = p.aiming_ud.clamp(-quarter, quarter);
+        let lr = p.aim.lr.clamp(-quarter, quarter);
+        let ud = p.aim.ud.clamp(-quarter, quarter);
         let clip = p.motion.current();
         let mut turn = clip.final_rotation;
         if turn > std::f32::consts::PI {
@@ -189,7 +189,7 @@ impl World {
         };
         let at = p.feet();
         let mut v = self.camera_vector().unwrap_or(Vec3::Z);
-        let ud = p.aiming_ud;
+        let ud = p.aim.ud;
         if ud > 0.9 {
             // (As shipped: multiplied where it means divided.)
             let up = ((ud - 0.9) * (std::f32::consts::FRAC_PI_2 - 0.9)).clamp(0.0, 1.0);
@@ -379,7 +379,7 @@ impl World {
                 }
                 angle = angle.rem_euclid(tau);
                 if let Some(p) = self.fighters.first() {
-                    let yaw = angle + p.aiming_lr + p.facing.aim();
+                    let yaw = angle + p.aim.lr + p.facing.aim();
                     let mut back = Vec3::new(yaw.sin(), 0.0, yaw.cos()) * self.camera.distance;
                     back.y -= self.camera.canter_unarmed;
                     let mut location = p.feet() - back;
@@ -409,7 +409,7 @@ impl World {
                 self.camera.canter_unarmed
             };
             let (full, zero) = (0.5, 1.2);
-            let ud = p.aiming_ud.min(zero);
+            let ud = p.aim.ud.min(zero);
             if ud > full {
                 // (As shipped: scaled by 1.2 − share, not 1 − share.)
                 want *= zero - (ud - full) / (zero - full);
@@ -421,8 +421,8 @@ impl World {
             } else {
                 want.max(canter - 0.12)
             };
-            distance = if armed && p.aiming_ud <= -0.5 {
-                self.camera.distance * (0.5 + (1.0 + p.aiming_ud).max(0.0))
+            distance = if armed && p.aim.ud <= -0.5 {
+                self.camera.distance * (0.5 + (1.0 + p.aim.ud).max(0.0))
             } else {
                 self.camera.distance
             };

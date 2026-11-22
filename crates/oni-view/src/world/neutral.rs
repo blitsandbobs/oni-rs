@@ -152,12 +152,12 @@ impl World {
         if !self.is_agent(who) {
             return false;
         }
-        let s = &self.fighters[who].neutral;
+        let s = &self.fighters[who].talk.settings;
         if !initialize && s.behavior == id {
             return id.is_some();
         }
         let found = id.and_then(|id| self.neutrals.get(&id).cloned());
-        let s = &mut self.fighters[who].neutral;
+        let s = &mut self.fighters[who].talk.settings;
         *s = Settings {
             disable_timer: s.disable_timer,
             ..Settings::default()
@@ -198,7 +198,7 @@ impl World {
         let Some(p) = f.perception.as_ref() else {
             return false;
         };
-        let (feet, range) = (f.feet(), f.neutral.enemy_range);
+        let (feet, range) = (f.feet(), f.talk.settings.enemy_range);
         p.contacts.iter().any(|c| {
             if c.strength <= Strength::Forgotten {
                 return false;
@@ -225,7 +225,7 @@ impl World {
     /// Whether an AI fighting fighter `i` or `target` is within `i`'s enemy
     /// range of either (`AI2iNeutral_CheckEnemies`).
     fn neutral_enemies(&self, i: usize, target: usize) -> bool {
-        let range = self.fighters[i].neutral.enemy_range;
+        let range = self.fighters[i].talk.settings.enemy_range;
         let (me, them) = (self.fighters[i].feet(), self.fighters[target].feet());
         self.fighters.iter().filter(|f| f.alive()).any(|f| {
             let Some(Brain::Agent(a)) = &f.brain else {
@@ -262,7 +262,7 @@ impl World {
         }
         if automatic {
             let now = self.now as u64;
-            let s = &mut self.fighters[i].neutral;
+            let s = &mut self.fighters[i].talk.settings;
             if now < s.last_check + CHECK_FRAMES {
                 return false;
             }
@@ -275,10 +275,10 @@ impl World {
             if !seen {
                 return false;
             }
-            if self.fighters[i].neutral.enemy_range > 0.0
+            if self.fighters[i].talk.settings.enemy_range > 0.0
                 && (self.neutral_in_danger(i, Some(target)) || self.neutral_enemies(i, target))
             {
-                self.fighters[i].neutral.last_check = now + ENEMY_SCARE_FRAMES;
+                self.fighters[i].talk.settings.last_check = now + ENEMY_SCARE_FRAMES;
                 return false;
             }
         }
@@ -291,8 +291,8 @@ impl World {
         let (Some(f), Some(t)) = (self.fighters.get(i), self.fighters.get(target)) else {
             return false;
         };
-        let s = &f.neutral;
-        if !self.is_agent(i) || s.behavior.is_none() || f.neutral_with.is_some() || !f.alive() {
+        let s = &f.talk.settings;
+        if !self.is_agent(i) || s.behavior.is_none() || f.talk.with.is_some() || !f.alive() {
             return false;
         }
         if matches!(&f.brain, Some(Brain::Agent(a)) if a.panicking()) || s.disable_resume {
@@ -351,16 +351,14 @@ impl World {
 
     /// Whether the player could talk to someone now (the "nci" prompt).
     pub(super) fn neutral_prompt(&self) -> bool {
-        self.fighters
-            .first()
-            .is_some_and(|p| p.neutral_with.is_some())
+        self.fighters.first().is_some_and(|p| p.talk.with.is_some())
             || self.neutral_candidate(0).is_some()
     }
 
     /// Fighter `who` pressed Action: a neutral character by it starts (or
     /// goes on to) its conversation. True if one did.
     pub(super) fn neutral_action(&mut self, who: usize) -> bool {
-        if self.fighters[who].neutral_with.is_some() {
+        if self.fighters[who].talk.with.is_some() {
             return true;
         }
         let Some((i, already)) = self.neutral_candidate(who) else {
@@ -380,15 +378,16 @@ impl World {
     /// (`AI2rNeutral_Enter`): from where it stands, its trigger line said.
     fn neutral_start(&mut self, i: usize, target: usize) {
         let Some(b) = self.fighters[i]
-            .neutral
+            .talk
+            .settings
             .behavior
             .and_then(|id| self.neutrals.get(&id).cloned())
         else {
-            self.fighters[i].neutral.behavior = None;
+            self.fighters[i].talk.settings.behavior = None;
             return;
         };
         self.with_agent(i, |a, cx| a.neutral_enter(cx));
-        self.fighters[i].neutral.triggered = true;
+        self.fighters[i].talk.settings.triggered = true;
         let hail = HAIL_INITIAL + (self.random() * HAIL_RANDOM as f32) as u32;
         let run = Run {
             behavior: b,
@@ -442,7 +441,7 @@ impl World {
         hostile: bool,
         reset: bool,
     ) -> bool {
-        let Some(other) = self.fighters.get(who).and_then(|f| f.neutral_with) else {
+        let Some(other) = self.fighters.get(who).and_then(|f| f.talk.with) else {
             // (Not yet talking: nothing to stop beyond the run itself.)
             if let Some(r) = self.neutral_runs.get(&who) {
                 if !force && r.initiated_give && !r.completed_give {
@@ -467,7 +466,7 @@ impl World {
             }
         }
         if let Some(a) = ai.filter(|_| abort) {
-            self.fighters[a].neutral.disable_timer = DISABLE_TIMER;
+            self.fighters[a].talk.settings.disable_timer = DISABLE_TIMER;
         }
         if !abort {
             if let Some(script) = ai
@@ -485,8 +484,8 @@ impl World {
             }
         }
         for c in [who, other] {
-            self.fighters[c].neutral_with = None;
-            self.fighters[c].neutral_uninterruptable = false;
+            self.fighters[c].talk.with = None;
+            self.fighters[c].talk.uninterruptable = false;
         }
         eprintln!(
             "neutral: {} and {} part{}",
@@ -510,7 +509,7 @@ impl World {
         };
         let (sound, kind) = if hostile {
             (r.behavior.enemy_sound.clone(), speech::YELL)
-        } else if self.fighters[c].neutral.disable_resume {
+        } else if self.fighters[c].talk.settings.disable_resume {
             (String::new(), speech::NONE)
         } else {
             (r.behavior.abort_sound.clone(), speech::CALL)
@@ -633,7 +632,7 @@ impl World {
         }
         // (A death ends what either was in.)
         for c in 0..self.fighters.len() {
-            if let Some(o) = self.fighters[c].neutral_with {
+            if let Some(o) = self.fighters[c].talk.with {
                 if !self.fighters[c].alive() || !self.fighters.get(o).is_some_and(|f| f.alive()) {
                     self.neutral_stop(c, true, true, false, false);
                 }
@@ -651,8 +650,8 @@ impl World {
                 self.neutral_runs.remove(&i);
                 if self.neutral_trigger(i, player, true) {
                     self.neutral_start(i, player);
-                } else if self.fighters[i].neutral.disable_timer > 0 {
-                    self.fighters[i].neutral.disable_timer -= 1;
+                } else if self.fighters[i].talk.settings.disable_timer > 0 {
+                    self.fighters[i].talk.settings.disable_timer -= 1;
                 }
                 continue;
             }
@@ -687,24 +686,24 @@ impl World {
         let Some(p) = self.fighters.first() else {
             return controls;
         };
-        if p.neutral_with.is_none() {
+        if p.talk.with.is_none() {
             return controls;
         }
         if controls & ABORT_KEYS != 0 {
             self.neutral_stop(0, false, true, false, true);
         } else if controls & STOP_KEYS != 0 {
             let p = &mut self.fighters[0];
-            if !p.neutral_uninterruptable {
-                p.neutral_keyabort += 2;
+            if !p.talk.uninterruptable {
+                p.talk.keyabort += 2;
             }
-            if p.neutral_keyabort >= KEY_ABORT_FRAMES {
+            if p.talk.keyabort >= KEY_ABORT_FRAMES {
                 self.neutral_stop(0, false, true, false, true);
             }
         } else {
             let p = &mut self.fighters[0];
-            p.neutral_keyabort = p.neutral_keyabort.saturating_sub(2);
+            p.talk.keyabort = p.talk.keyabort.saturating_sub(2);
         }
-        if self.fighters[0].neutral_with.is_some() {
+        if self.fighters[0].talk.with.is_some() {
             controls & !LOCKOUT_KEYS
         } else {
             controls
@@ -718,7 +717,7 @@ impl World {
         };
         let t = r.target;
         let now = self.now as u64;
-        if !self.fighters[t].alive() || self.fighters[i].neutral.behavior.is_none() {
+        if !self.fighters[t].alive() || self.fighters[i].talk.settings.behavior.is_none() {
             self.with_agent(i, |a, cx| a.return_to_job(true, true, cx));
             return;
         }
@@ -744,7 +743,7 @@ impl World {
         let n = r.line.unwrap_or(0);
         if n >= r.behavior.lines.len() {
             // Done.
-            let s = &mut self.fighters[i].neutral;
+            let s = &mut self.fighters[i].talk.settings;
             s.completed = true;
             s.disable_resume = true;
             self.neutral_runs.insert(i, r);
@@ -773,27 +772,26 @@ impl World {
                 a.neutral_halt(our, Some(facing));
                 a.look_at(target);
             }
-            if self.fighters[t].neutral_with.is_some()
-                || self.fighters[i].motion.state != st::STANDING
+            if self.fighters[t].talk.with.is_some() || self.fighters[i].motion.state != st::STANDING
             {
                 return true; // wait for the last one to finish, or to stand
             }
             let b = r.behavior.clone();
-            let s = &mut self.fighters[i].neutral;
+            let s = &mut self.fighters[i].talk.settings;
             s.begun = true;
             if b.no_resume {
                 s.disable_resume = true;
             }
             let resume = s.resume_at;
-            self.fighters[i].neutral_with = Some(t);
-            self.fighters[t].neutral_with = Some(i);
+            self.fighters[i].talk.with = Some(t);
+            self.fighters[t].talk.with = Some(i);
             if b.uninterruptable {
-                self.fighters[i].neutral_uninterruptable = true;
-                self.fighters[t].neutral_uninterruptable = true;
+                self.fighters[i].talk.uninterruptable = true;
+                self.fighters[t].talk.uninterruptable = true;
             }
             // The player turns to face it.
             self.fighters[t].facing.desired_facing = wrap(facing + std::f32::consts::PI);
-            self.fighters[t].neutral_keyabort = 0;
+            self.fighters[t].talk.keyabort = 0;
             // (No fighting or gun stances while they talk.)
             for c in [i, t] {
                 self.fighters[c].motion.varient &= !(var::FIGHT
@@ -813,7 +811,7 @@ impl World {
         // Not too far from where it set off.
         if our.distance_squared(r.triggered_at) > r.behavior.follow_range * r.behavior.follow_range
         {
-            self.fighters[i].neutral.disable_timer = DISABLE_TIMER;
+            self.fighters[i].talk.settings.disable_timer = DISABLE_TIMER;
             self.with_agent(i, |a, cx| a.return_to_job(true, true, cx));
             return false;
         }
@@ -825,7 +823,7 @@ impl World {
             if r.give_up_timer > 0 {
                 r.give_up_timer -= 1;
             } else {
-                self.fighters[i].neutral.disable_timer = DISABLE_TIMER;
+                self.fighters[i].talk.settings.disable_timer = DISABLE_TIMER;
             }
             if r.hail_timer > 0 {
                 r.hail_timer -= 1;
@@ -919,14 +917,14 @@ impl World {
                         let m = &self.fighters[i].motion;
                         let fire = m.current().action_frame.unwrap_or(0);
                         if !r.completed_give && m.kind == give && m.frame >= fire {
-                            let s = &mut self.fighters[i].neutral;
+                            let s = &mut self.fighters[i].talk.settings;
                             s.items_given = true;
                             if r.behavior.no_resume_after_items {
                                 s.disable_resume = true;
                             }
                             let b = r.behavior.clone();
                             self.neutral_give(i, t, &b);
-                            self.fighters[i].neutral.resume_at = n + 1;
+                            self.fighters[i].talk.settings.resume_at = n + 1;
                             r.initiated_give = false;
                             r.completed_give = true;
                         }
@@ -963,7 +961,7 @@ impl World {
         if !block {
             r.line = Some(n + 1);
             r.played_line = false;
-            self.fighters[i].neutral.resume_at = n + 1;
+            self.fighters[i].talk.settings.resume_at = n + 1;
         }
     }
 }

@@ -1518,7 +1518,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         "aim",
         lua.create_function(move |_, (id, pitch): (usize, f32)| {
             if let Some(f) = h.borrow_mut().world.fighters.get_mut(id) {
-                f.aiming_ud = pitch;
+                f.aim.ud = pitch;
             }
             Ok(())
         })?,
@@ -1710,20 +1710,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 return Ok(0.0);
             };
             if let Some(v) = v {
-                p.aiming_lr = v;
+                p.aim.lr = v;
             }
-            Ok(p.aiming_lr)
+            Ok(p.aim.lr)
         })?,
     )?;
     let h = host.clone();
     g.set(
         "aim_of",
         lua.create_function(move |_, id: usize| {
-            Ok(h.borrow()
-                .world
-                .fighters
-                .get(id)
-                .map_or(0.0, |f| f.aiming_ud))
+            Ok(h.borrow().world.fighters.get(id).map_or(0.0, |f| f.aim.ud))
         })?,
     )?;
     let h = host.clone();
@@ -2914,8 +2910,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let host = h.borrow();
             let f = host.world.fighters.get(id);
             Ok((
-                f.map(|f| f.aiming_lr.to_degrees()),
-                f.map(|f| f.aiming_ud.to_degrees()),
+                f.map(|f| f.aim.lr.to_degrees()),
+                f.map(|f| f.aim.ud.to_degrees()),
             ))
         })?,
     )?;
@@ -3061,16 +3057,16 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             let Some(f) = w.fighters.get(id) else {
                 return Ok(None);
             };
-            if f.neutral.behavior.is_none() && f.neutral_with.is_none() {
+            if f.talk.settings.behavior.is_none() && f.talk.with.is_none() {
                 return Ok(None);
             }
             let t = lua.create_table()?;
-            t.set("behavior", f.neutral.behavior)?;
-            t.set("with", f.neutral_with)?;
-            t.set("begun", f.neutral.begun)?;
-            t.set("items_given", f.neutral.items_given)?;
-            t.set("completed", f.neutral.completed)?;
-            t.set("resume_at", f.neutral.resume_at)?;
+            t.set("behavior", f.talk.settings.behavior)?;
+            t.set("with", f.talk.with)?;
+            t.set("begun", f.talk.settings.begun)?;
+            t.set("items_given", f.talk.settings.items_given)?;
+            t.set("completed", f.talk.settings.completed)?;
+            t.set("resume_at", f.talk.settings.resume_at)?;
             if let Some(r) = w.neutral_runs.get(&id) {
                 t.set("line", r.line)?;
                 t.set("accepted", r.accepted)?;
