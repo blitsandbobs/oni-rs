@@ -47,3 +47,8 @@ oni-fourcc = { path = "crates/oni-fourcc" }
 oni-bink = { path = "crates/oni-bink" }
 oni-bytes = { path = "crates/oni-bytes" }
 oni-dat = { path = "crates/oni-dat" }
+
+[workspace.lints.clippy]
+too_many_lines = "warn"        # pedantic; threshold in clippy.toml
+too_many_arguments = "warn"    # also catches the "split into 12-param helpers" gaming
+cognitive_complexity = "warn"  # nursery; noisier, optional

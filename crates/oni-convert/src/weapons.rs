@@ -27,7 +27,11 @@
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Map, Value};
+use std::collections::BTreeMap;
+
+use oni_schema::files;
+#[cfg(test)]
+use serde_json::json;
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -75,10 +79,12 @@ fn vec3(d: &[u8], o: usize) -> [f32; 3] {
     [le_f32(d, o), le_f32(d, o + 4), le_f32(d, o + 8)]
 }
 
-fn anim_type(t: u16) -> Value {
+fn anim_type(t: u16) -> oni_schema::files::AnimRef {
     oni_schema::ANIM_TYPES
         .get(t as usize)
-        .map_or(json!(t), |s| json!(s))
+        .map_or(oni_schema::files::AnimRef::Number(t), |s| {
+            oni_schema::files::AnimRef::Name(s.to_string())
+        })
 }
 
 /// The AI's aiming and shooting parameters for one shooter.
@@ -106,89 +112,88 @@ pub(crate) fn ai_params(d: &[u8], o: usize) -> oni_schema::files::AiGunParams {
 }
 
 /// One weapon class as JSON. `model` is its geometry's path under `common/`.
-pub fn class(d: &[u8], model: Option<String>) -> Option<Value> {
+pub fn class(d: &[u8], model: Option<String>) -> Option<files::WeaponClass> {
     if d.len() < SIZE {
         return None;
     }
     let flags = le_u32(d, 204);
-    let names: Vec<&str> = FLAGS
-        .iter()
-        .enumerate()
-        .filter(|(b, n)| !n.is_empty() && flags & (1 << b) != 0)
-        .map(|(_, n)| *n)
-        .collect();
     let count = (le_u16(d, 194) as usize).min(16);
-    let attachments: Vec<Value> = (0..count)
+    let attachments = (0..count)
         .map(|i| {
             let o = 464 + i * 80;
-            let matrix: Vec<f32> = (0..12).map(|k| le_f32(d, o + k * 4)).collect();
             let shooter = le_u16(d, o + 76);
-            json!({
-                "class": cstr(d, o + 48, 16),
-                "matrix": matrix,
-                "ammoUsed": le_u16(d, o + 68),
-                "chamberTime": le_u16(d, o + 70),
-                "cheatChamberTime": le_u16(d, o + 72),
-                "minFireTime": le_u16(d, o + 74),
-                "shooterIndex": if shooter == 0xFFFF { -1 } else { i32::from(shooter) },
-                "startDelay": le_u16(d, o + 78),
-            })
+            files::WeaponAttachment {
+                class: cstr(d, o + 48, 16),
+                matrix: std::array::from_fn(|k| le_f32(d, o + k * 4)),
+                ammo_used: le_u16(d, o + 68),
+                chamber_time: le_u16(d, o + 70),
+                cheat_chamber_time: le_u16(d, o + 72),
+                min_fire_time: le_u16(d, o + 74),
+                shooter_index: if shooter == 0xFFFF {
+                    -1
+                } else {
+                    i32::from(shooter)
+                },
+                start_delay: le_u16(d, o + 78),
+            }
         })
         .collect();
-    let mut c = Map::new();
-    c.insert("name".into(), json!(cstr(d, 92, 32)));
-    if let Some(m) = model {
-        c.insert("model".into(), json!(m));
-    }
-    c.insert("flags".into(), json!(names));
-    c.insert("maxAmmo".into(), json!(le_u16(d, 192)));
-    c.insert("shooterCount".into(), json!(le_u16(d, 196)));
-    c.insert("reloadTime".into(), json!(le_u16(d, 190)));
-    c.insert("reloadDelayTime".into(), json!(le_u16(d, 198)));
-    c.insert("stopChamberThreshold".into(), json!(le_u16(d, 200)));
-    c.insert("recoilAnimType".into(), anim_type(le_u16(d, 186)));
-    c.insert("reloadAnimType".into(), anim_type(le_u16(d, 188)));
-    c.insert("aimingSpeed".into(), json!(le_f32(d, 124)));
-    c.insert(
-        "recoil".into(),
-        json!({
-            "base": le_f32(d, 128),
-            "max": le_f32(d, 132),
-            "factor": le_f32(d, 136),
-            "returnSpeed": le_f32(d, 140),
-            "firingReturnSpeed": le_f32(d, 144),
-        }),
-    );
-    c.insert(
-        "sight".into(),
-        json!({ "position": vec3(d, 0), "vector": vec3(d, 12) }),
-    );
-    c.insert("maxSightDistance".into(), json!(le_f32(d, 24)));
-    c.insert(
-        "laserColor".into(),
-        json!(format!("#{:08x}", le_u32(d, 28))),
-    );
-    c.insert(
-        "secondHand".into(),
-        json!({ "position": vec3(d, 172), "vector": vec3(d, 148), "up": vec3(d, 160) }),
-    );
-    c.insert("pickupOffset".into(), json!(vec3(d, 1796)));
-    c.insert("displayYOffset".into(), json!(le_f32(d, 1808)));
     let empty = cstr(d, 1744, 32);
-    if !empty.is_empty() {
-        c.insert("emptySound".into(), json!(empty));
-    }
-    c.insert("ai".into(), json!(ai_params(d, 208)));
-    if le_u16(d, 196) > 1 {
-        c.insert("aiAlternate".into(), json!(ai_params(d, 336)));
-    }
-    c.insert("attachments".into(), json!(attachments));
-    Some(Value::Object(c))
+    Some(files::WeaponClass {
+        name: cstr(d, 92, 32),
+        model,
+        flags: FLAGS
+            .iter()
+            .enumerate()
+            .filter(|(b, n)| !n.is_empty() && flags & (1 << b) != 0)
+            .map(|(_, n)| n.to_string())
+            .collect(),
+        max_ammo: le_u16(d, 192),
+        shooter_count: le_u16(d, 196),
+        reload_time: le_u16(d, 190),
+        reload_delay_time: le_u16(d, 198),
+        stop_chamber_threshold: le_u16(d, 200),
+        recoil_anim_type: anim_type(le_u16(d, 186)),
+        reload_anim_type: anim_type(le_u16(d, 188)),
+        aiming_speed: le_f32(d, 124),
+        recoil: files::WeaponRecoil {
+            base: le_f32(d, 128),
+            max: le_f32(d, 132),
+            factor: le_f32(d, 136),
+            return_speed: le_f32(d, 140),
+            firing_return_speed: le_f32(d, 144),
+        },
+        sight: files::WeaponSight {
+            position: vec3(d, 0),
+            vector: vec3(d, 12),
+        },
+        max_sight_distance: le_f32(d, 24),
+        laser_color: format!("#{:08x}", le_u32(d, 28)),
+        second_hand: files::SecondHand {
+            position: vec3(d, 172),
+            vector: vec3(d, 148),
+            up: vec3(d, 160),
+        },
+        pickup_offset: vec3(d, 1796),
+        display_y_offset: le_f32(d, 1808),
+        empty_sound: (!empty.is_empty()).then_some(empty),
+        ai: ai_params(d, 208),
+        ai_alternate: (le_u16(d, 196) > 1).then(|| ai_params(d, 336)),
+        attachments,
+        sphere_radius: None,
+        cursor: None,
+        cursor_targeted: None,
+        tunnel: None,
+        icon: None,
+        hud_empty: None,
+        hud_fill: None,
+        instance: None,
+    })
 }
 
 /// Writes `weapons.json` (every `ONWC` in `dat`, level 0) into `common`.
 pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
-    let mut out = Map::new();
+    let mut out = BTreeMap::new();
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_ONWC) {
         let Some(d) = dat.instance_data(inst) else {
             continue;
@@ -215,9 +220,7 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
                     / 4.0
             });
         if let Some(mut c) = class(d, model) {
-            if let Some(r) = radius {
-                c["sphereRadius"] = json!(r);
-            }
+            c.sphere_radius = radius;
             // Its sprites (`WPtSprite`: texture, shade, scale): the
             // reticle, the reticle on a target, the sight's tunnel (with
             // how many and how far apart).
@@ -227,42 +230,42 @@ pub fn write_classes(dat: &Dat<'_>, common: &Path) -> std::io::Result<usize> {
                     .then(|| dat.instances.get((r >> 8) as usize))
                     .flatten()
                     .map(|t| crate::asset_name(dat, t));
-                texture.map(|t| json!({ "texture": t, "shade": format!("#{:08x}", le_u32(d, at + 4)), "scale": crate::le_f32(d, at + 8) }))
+                texture.map(|t| files::WeaponSprite {
+                    texture: t,
+                    shade: format!("#{:08x}", le_u32(d, at + 4)),
+                    scale: crate::le_f32(d, at + 8),
+                })
             };
-            if let Some(v) = sprite(32) {
-                c["cursor"] = v;
-            }
-            if let Some(v) = sprite(44) {
-                c["cursorTargeted"] = v;
-            }
-            if let Some(mut v) = sprite(56) {
-                v["count"] = json!(le_u32(d, 68));
-                v["spacing"] = json!(crate::le_f32(d, 72));
-                c["tunnel"] = v;
-            }
+            c.cursor = sprite(32);
+            c.cursor_targeted = sprite(44);
+            c.tunnel = sprite(56).map(|v| files::WeaponTunnel {
+                texture: v.texture,
+                shade: v.shade,
+                scale: v.scale,
+                count: le_u32(d, 68),
+                spacing: crate::le_f32(d, 72),
+            });
             // Its HUD textures: the icon, the empty and the full ammo ring.
-            for (key, at) in [("icon", 76), ("hudEmpty", 80), ("hudFill", 84)] {
+            let texture = |at: usize| {
                 let r = le_u32(d, at);
-                if let Some(t) = (r & 1 != 0)
+                (r & 1 != 0)
                     .then(|| dat.instances.get((r >> 8) as usize))
                     .flatten()
-                {
-                    c[key] = json!(crate::asset_name(dat, t));
-                }
-            }
+                    .map(|t| crate::asset_name(dat, t))
+            };
+            c.icon = texture(76);
+            c.hud_empty = texture(80);
+            c.hud_fill = texture(84);
             // (Its instance name: the key of its new-weapon message.)
-            if let Some(n) = &inst.name {
-                c["instance"] = json!(n);
-            }
-            let name = c["name"].as_str().unwrap_or_default().to_string();
-            out.insert(name, c);
+            c.instance = inst.name.clone();
+            out.insert(c.name.clone(), c);
         }
     }
     let count = out.len();
     std::fs::create_dir_all(common)?;
     std::fs::write(
         common.join("weapons.json"),
-        serde_json::to_string_pretty(&json!({ "classes": out }))?,
+        serde_json::to_string_pretty(&files::WeaponsFile { classes: out })?,
     )?;
     Ok(count)
 }
@@ -323,7 +326,7 @@ mod tests {
         d[a + 68..a + 70].copy_from_slice(&1u16.to_le_bytes());
         d[a + 70..a + 72].copy_from_slice(&12u16.to_le_bytes());
         d[a + 76..a + 78].copy_from_slice(&0u16.to_le_bytes());
-        let c = class(&d, Some("models/x.glb".into())).unwrap();
+        let c = serde_json::to_value(class(&d, Some("models/x.glb".into())).unwrap()).unwrap();
         assert_eq!(c["name"], json!("w0_tst"));
         assert_eq!(c["flags"], json!(["twoHanded", "autofire"]));
         assert_eq!(c["maxAmmo"], json!(12));

@@ -22,17 +22,6 @@ pub fn mat4_4x3(m: &[f32]) -> Mat4 {
     Mat4::from_cols(col(0), col(1), col(2), col(3))
 }
 
-/// A 4×3 matrix from its JSON form (12 numbers, as `mat4_4x3`).
-pub fn mat4_json(v: &serde_json::Value) -> Mat4 {
-    let m: Vec<f32> = v
-        .as_array()
-        .into_iter()
-        .flatten()
-        .map(|x| x.as_f64().unwrap_or(0.0) as f32)
-        .collect();
-    mat4_4x3(&m)
-}
-
 /// An object clip's matrix at `frame`.
 pub fn clip_matrix(a: &ObjectAnimation, frame: i32) -> Mat4 {
     mat4_4x3(&a.matrix(frame))

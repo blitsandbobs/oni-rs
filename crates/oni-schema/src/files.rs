@@ -1569,6 +1569,126 @@ pub struct NavGrid {
     pub offset: usize,
 }
 
+/// `common/weapons.json`: the weapon classes (`ONWC`), by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct WeaponsFile {
+    pub classes: BTreeMap<String, WeaponClass>,
+}
+
+/// A weapon class.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeaponClass {
+    pub name: String,
+    /// Its model (a path under `common/`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    pub flags: Vec<String>,
+    pub max_ammo: u16,
+    pub shooter_count: u16,
+    pub reload_time: u16,
+    pub reload_delay_time: u16,
+    pub stop_chamber_threshold: u16,
+    pub recoil_anim_type: AnimRef,
+    pub reload_anim_type: AnimRef,
+    pub aiming_speed: f32,
+    pub recoil: WeaponRecoil,
+    pub sight: WeaponSight,
+    pub max_sight_distance: f32,
+    /// `#aarrggbb`.
+    pub laser_color: String,
+    pub second_hand: SecondHand,
+    pub pickup_offset: V3,
+    pub display_y_offset: f32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub empty_sound: Option<String>,
+    pub ai: AiGunParams,
+    /// Its second shooter's (with more than one).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai_alternate: Option<AiGunParams>,
+    pub attachments: Vec<WeaponAttachment>,
+    /// Its physics sphere's radius.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sphere_radius: Option<f32>,
+    /// The reticle, the reticle on a target, the sight's tunnel.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<WeaponSprite>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor_targeted: Option<WeaponSprite>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tunnel: Option<WeaponTunnel>,
+    /// The HUD's textures: its icon, the empty and the full ammo ring.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub icon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hud_empty: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hud_fill: Option<String>,
+    /// Its instance name (its new-weapon message's key).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance: Option<String>,
+}
+
+/// A weapon's recoil.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeaponRecoil {
+    pub base: f32,
+    pub max: f32,
+    pub factor: f32,
+    pub return_speed: f32,
+    pub firing_return_speed: f32,
+}
+
+/// Where a weapon's sight is and points.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeaponSight {
+    pub position: V3,
+    pub vector: V3,
+}
+
+/// Where a two-handed weapon's second hand goes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SecondHand {
+    pub position: V3,
+    pub vector: V3,
+    pub up: V3,
+}
+
+/// A weapon's particle attachment.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WeaponAttachment {
+    pub class: String,
+    pub matrix: [f32; 12],
+    pub ammo_used: u16,
+    pub chamber_time: u16,
+    pub cheat_chamber_time: u16,
+    pub min_fire_time: u16,
+    /// Which shooter it is (−1: none).
+    pub shooter_index: i32,
+    pub start_delay: u16,
+}
+
+/// A weapon sprite (`WPtSprite`): its texture, shade (`#aarrggbb`) and
+/// scale.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeaponSprite {
+    pub texture: String,
+    pub shade: String,
+    pub scale: f32,
+}
+
+/// A weapon sight's tunnel: its sprite, how many and how far apart.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct WeaponTunnel {
+    pub texture: String,
+    pub shade: String,
+    pub scale: f32,
+    pub count: u32,
+    pub spacing: f32,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

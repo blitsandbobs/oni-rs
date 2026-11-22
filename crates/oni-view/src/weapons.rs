@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 use glam::{Mat4, Vec3};
-use serde_json::Value as Json;
+use oni_schema::files;
 
 use crate::p3::{self, event, Handle, Host, System};
 
@@ -172,11 +172,8 @@ pub struct Tunnel {
 }
 
 /// An `#AARRGGBB` colour's RGB (0–1).
-fn rgb(j: &Json) -> [f32; 3] {
-    let v = j
-        .as_str()
-        .and_then(|s| u32::from_str_radix(s.trim_start_matches('#'), 16).ok())
-        .unwrap_or(0x00FF_FFFF);
+fn rgb(s: &str) -> [f32; 3] {
+    let v = u32::from_str_radix(s.trim_start_matches('#'), 16).unwrap_or(0x00FF_FFFF);
     [
         ((v >> 16) & 0xFF) as f32 / 255.0,
         ((v >> 8) & 0xFF) as f32 / 255.0,
@@ -199,21 +196,13 @@ pub struct WeaponClasses {
 impl WeaponClasses {
     /// Loads `weapons.json`, resolving attachment particle classes.
     pub fn load(path: &Path, particles: &p3::Classes) -> WeaponClasses {
-        let Ok(doc) = std::fs::read_to_string(path)
-            .map_err(|_| ())
-            .and_then(|t| serde_json::from_str::<Json>(&t).map_err(|_| ()))
-        else {
-            return WeaponClasses::default();
-        };
+        let doc: files::WeaponsFile = crate::json::read_file(path);
         let dir = path.parent().unwrap_or(Path::new("."));
-        let by_name = doc["classes"]
-            .as_object()
-            .map(|m| {
-                m.iter()
-                    .map(|(n, c)| (n.clone(), Rc::new(class(n, c, dir, particles))))
-                    .collect()
-            })
-            .unwrap_or_default();
+        let by_name = doc
+            .classes
+            .iter()
+            .map(|(n, c)| (n.clone(), Rc::new(class(n, c, dir, particles))))
+            .collect();
         WeaponClasses { by_name }
     }
 
@@ -222,95 +211,82 @@ impl WeaponClasses {
     }
 }
 
-fn vec3(j: &Json) -> Vec3 {
-    Vec3::new(
-        j[0].as_f64().unwrap_or(0.0) as f32,
-        j[1].as_f64().unwrap_or(0.0) as f32,
-        j[2].as_f64().unwrap_or(0.0) as f32,
-    )
-}
-
-fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponClass {
-    use crate::json::f32 as f;
-    let u = |j: &Json| j.as_u64().unwrap_or(0) as u16;
-    let flags = c["flags"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(|n| FLAG_NAMES.iter().find(|(k, _)| Some(*k) == n.as_str()))
-                .fold(0, |acc, (_, b)| acc | b)
+fn class(name: &str, c: &files::WeaponClass, dir: &Path, particles: &p3::Classes) -> WeaponClass {
+    let flags = c
+        .flags
+        .iter()
+        .filter_map(|n| FLAG_NAMES.iter().find(|(k, _)| k == n))
+        .fold(0, |acc, (_, b)| acc | b);
+    let attachments = c
+        .attachments
+        .iter()
+        .map(|x| Attachment {
+            class: particles.get(&x.class),
+            matrix: crate::geom::mat4_4x3(&x.matrix),
+            ammo_used: x.ammo_used,
+            chamber_time: x.chamber_time,
+            min_fire_time: x.min_fire_time,
+            shooter: x.shooter_index,
+            start_delay: x.start_delay,
         })
-        .unwrap_or(0);
-    let attachments = c["attachments"]
-        .as_array()
-        .map(|a| {
-            a.iter()
-                .map(|x| Attachment {
-                    class: x["class"].as_str().and_then(|n| particles.get(n)),
-                    matrix: crate::geom::mat4_json(&x["matrix"]),
-                    ammo_used: u(&x["ammoUsed"]),
-                    chamber_time: u(&x["chamberTime"]),
-                    min_fire_time: u(&x["minFireTime"]),
-                    shooter: x["shooterIndex"].as_i64().unwrap_or(-1) as i32,
-                    start_delay: u(&x["startDelay"]),
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    let r = &c["recoil"];
-    use crate::json::vec3 as v3;
-    let tunnel = c["tunnel"]["texture"].as_str().map(|t| Tunnel {
-        texture: t.to_string(),
-        color: rgb(&c["tunnel"]["shade"]),
-        scale: f(&c["tunnel"]["scale"]),
-        count: c["tunnel"]["count"].as_u64().unwrap_or(0) as u32,
-        spacing: f(&c["tunnel"]["spacing"]),
+        .collect();
+    let r = &c.recoil;
+    let tunnel = c.tunnel.as_ref().map(|t| Tunnel {
+        texture: t.texture.clone(),
+        color: rgb(&t.shade),
+        scale: t.scale,
+        count: t.count,
+        spacing: t.spacing,
     });
-    let sprite = |j: &Json| {
-        j["texture"].as_str().map(|t| SpriteDef {
-            texture: t.to_string(),
-            color: rgb(&j["shade"]),
-            scale: f(&j["scale"]),
+    let sprite = |s: &Option<files::WeaponSprite>| {
+        s.as_ref().map(|s| SpriteDef {
+            texture: s.texture.clone(),
+            color: rgb(&s.shade),
+            scale: s.scale,
         })
     };
-    let text = |j: &Json| j.as_str().map(str::to_string);
+    // (An animation type's name; one with none, none.)
+    let anim = |a: &files::AnimRef| match a {
+        files::AnimRef::Name(n) => n.clone(),
+        files::AnimRef::Number(_) => String::new(),
+    };
     WeaponClass {
-        cursor: sprite(&c["cursor"]),
-        cursor_targeted: sprite(&c["cursorTargeted"]),
-        icon: text(&c["icon"]),
-        hud_empty: text(&c["hudEmpty"]),
-        hud_fill: text(&c["hudFill"]),
-        instance: text(&c["instance"]).unwrap_or_else(|| name.to_string()),
-        sight: (v3(&c["sight"]["position"]), v3(&c["sight"]["vector"])),
-        sphere_radius: f(&c["sphereRadius"]).max(0.1),
-        max_sight_distance: f(&c["maxSightDistance"]),
-        laser_color: rgb(&c["laserColor"]),
+        cursor: sprite(&c.cursor),
+        cursor_targeted: sprite(&c.cursor_targeted),
+        icon: c.icon.clone(),
+        hud_empty: c.hud_empty.clone(),
+        hud_fill: c.hud_fill.clone(),
+        instance: c.instance.clone().unwrap_or_else(|| name.to_string()),
+        sight: (Vec3::from(c.sight.position), Vec3::from(c.sight.vector)),
+        sphere_radius: c.sphere_radius.unwrap_or(0.0).max(0.1),
+        max_sight_distance: c.max_sight_distance,
+        laser_color: rgb(&c.laser_color),
         tunnel,
         name: name.to_string(),
-        model: c["model"].as_str().map(|m| dir.join(m)),
+        model: c.model.as_ref().map(|m| dir.join(m)),
         flags,
-        max_ammo: u(&c["maxAmmo"]),
-        reload_time: u(&c["reloadTime"]),
-        reload_delay_time: u(&c["reloadDelayTime"]),
-        stop_chamber_threshold: u(&c["stopChamberThreshold"]),
+        max_ammo: c.max_ammo,
+        reload_time: c.reload_time,
+        reload_delay_time: c.reload_delay_time,
+        stop_chamber_threshold: c.stop_chamber_threshold,
         recoil: Recoil {
-            base: f(&r["base"]),
-            max: f(&r["max"]),
-            factor: f(&r["factor"]).max(1.05),
-            return_speed: f(&r["returnSpeed"]),
-            firing_return_speed: f(&r["firingReturnSpeed"]),
+            base: r.base,
+            max: r.max,
+            factor: r.factor.max(1.05),
+            return_speed: r.return_speed,
+            firing_return_speed: r.firing_return_speed,
         },
-        recoil_anim: c["recoilAnimType"].as_str().unwrap_or("").to_string(),
-        empty_sound: c["emptySound"].as_str().unwrap_or("").to_string(),
-        reload_anim: c["reloadAnimType"].as_str().unwrap_or("").to_string(),
-        aiming_speed: f(&c["aimingSpeed"]),
-        pickup_offset: vec3(&c["pickupOffset"]),
+        recoil_anim: anim(&c.recoil_anim_type),
+        empty_sound: c.empty_sound.clone().unwrap_or_default(),
+        reload_anim: anim(&c.reload_anim_type),
+        aiming_speed: c.aiming_speed,
+        pickup_offset: Vec3::from(c.pickup_offset),
         detection_volume: [
-            f(&c["ai"]["detectionVolume"]),
-            f(&c["aiAlternate"]["detectionVolume"]),
+            c.ai.detection_volume,
+            c.ai_alternate.as_ref().map_or(0.0, |a| a.detection_volume),
         ],
-        ai: AiGun::from_json(&c["ai"]),
-        dodge_pattern: [0, 1, 2].map(|k| c["ai"]["dodgePattern"][k].as_f64().unwrap_or(0.0) as f32),
+        ai: AiGun::from_file(&c.ai),
+        dodge_pattern: c.ai.dodge_pattern,
         attachments,
     }
 }
@@ -329,11 +305,6 @@ pub struct AiGun {
 }
 
 impl AiGun {
-    /// From its JSON form (`AiGunParams`; none: the defaults).
-    pub fn from_json(j: &Json) -> AiGun {
-        AiGun::from_file(&serde_json::from_value(j.clone()).unwrap_or_default())
-    }
-
     pub fn from_file(p: &oni_schema::files::AiGunParams) -> AiGun {
         let m = &p.shooter_inverse;
         AiGun {
