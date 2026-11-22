@@ -1488,7 +1488,7 @@ pub fn dispatch(
                     .as_ref()
                     .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
                 if let Some(crate::ai::Brain::Agent(ag)) = world.fighters[id].brain.as_mut() {
-                    ag.script_move(player, FOLLOW_DISTANCE, None, None, alert);
+                    ag.script_move(player, FOLLOW_DISTANCE, None, None, alert, Some(0));
                 }
             }
             nil()
@@ -2174,7 +2174,7 @@ fn script_move(
             });
             s.face = face;
         }
-        Some(crate::ai::Brain::Agent(ag)) => ag.script_move(at, WITHIN, face, look, alert),
+        Some(crate::ai::Brain::Agent(ag)) => ag.script_move(at, WITHIN, face, look, alert, None),
         _ if id == 0 => state.warn(format!(
             "{what}: cannot move the player without ai2_takecontrol 1"
         )),

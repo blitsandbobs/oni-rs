@@ -3,6 +3,7 @@
 //! a search over rooms ([`plan`]) and, inside each room, over its grid of
 //! 4-unit squares ([`grid`]).
 
+pub mod dynamic;
 pub mod grid;
 pub mod plan;
 

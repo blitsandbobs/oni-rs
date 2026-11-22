@@ -844,7 +844,7 @@ impl World {
                 .as_ref()
                 .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
             if let Some(Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
-                a.script_move(target, CLOSEST_RANGE, None, None, alert);
+                a.script_move(target, CLOSEST_RANGE, None, None, alert, Some(r.target));
             }
             r.last_run_to = now;
         }
@@ -875,7 +875,7 @@ impl World {
                 let to = self.fighters[t].feet();
                 if let Some(Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
                     a.neutral_walk();
-                    a.script_move(to, GIVE_ITEM_DIST, None, None, alert);
+                    a.script_move(to, GIVE_ITEM_DIST, None, None, alert, Some(t));
                 }
             } else {
                 r.line_anim_started = false;

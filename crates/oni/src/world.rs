@@ -43,6 +43,7 @@ pub mod timer;
 pub use hud::hit_quadrant;
 mod objects;
 mod objects_sound;
+mod obstructions;
 mod particle_sounds;
 mod turrets;
 mod voices;
@@ -150,6 +151,8 @@ pub struct World {
     pub difficulty: crate::ai::melee::brain::Difficulty,
     /// The level's navigation data (rooms, portals, grids), if it has any.
     pub nav: Option<Rc<crate::nav::Navigation>>,
+    /// The rooms' pathfinding obstructions (`world/obstructions.rs`).
+    pub obstructions: crate::nav::dynamic::Obstructions,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
@@ -266,6 +269,7 @@ impl World {
             fights: Default::default(),
             difficulty: Default::default(),
             nav: None,
+            obstructions: Default::default(),
             sounds: Vec::new(),
             level_ai: Default::default(),
             player_name: "player".into(),
@@ -356,6 +360,11 @@ impl World {
             ));
         }
         self.fighters.push(f);
+        // Its room's obstructions are made again before next used
+        // (`ONrGameState_NewActiveCharacter` → `PHrFlushDynamicGrid`).
+        if let Some(room) = self.nav.as_ref().and_then(|n| n.room_at(pos)) {
+            self.obstructions.flush(room);
+        }
         self.fighters.len() - 1
     }
 
@@ -1848,74 +1857,6 @@ impl World {
             });
         } else {
             self.fight(id, target);
-        }
-    }
-
-    /// Plans a path for every navigator that needs one. Other characters'
-    /// squares count as obstructions (a 5×5 block minus its corners).
-    fn plan_paths(&mut self) {
-        let Some(nav) = self.nav.clone() else { return };
-        let now = self.now as u64;
-        let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
-        for i in 0..self.fighters.len() {
-            let Some(n) = self.fighters[i]
-                .brain
-                .as_mut()
-                .and_then(|b| b.navigator_mut())
-            else {
-                continue;
-            };
-            if !n.wants_plan(now) {
-                continue;
-            }
-            let (from, careful, goal) = (feet[i], n.careful, n.goal);
-            let others: Vec<Vec3> = feet
-                .iter()
-                .enumerate()
-                .filter(|&(j, _)| j != i)
-                .map(|(_, p)| *p)
-                .collect();
-            let obstructed = |room: usize| {
-                let mut set = std::collections::HashSet::new();
-                let Some(g) = nav.rooms[room].grid.as_ref() else {
-                    return set;
-                };
-                for p in &others {
-                    if nav.room_at(*p) != Some(room) {
-                        continue;
-                    }
-                    if let Some((ci, cj)) = g.cell_of(p.x, p.z) {
-                        for dj in -2..=2i32 {
-                            for di in -2..=2i32 {
-                                if di.abs() == 2 && dj.abs() == 2 {
-                                    continue;
-                                }
-                                set.insert((ci + di, cj + dj));
-                            }
-                        }
-                    }
-                }
-                set
-            };
-            // Doors it may not open shut their portals to it.
-            let links = self.doors.portals(&nav).clone();
-            let shut: std::collections::HashSet<(usize, usize)> = links
-                .iter()
-                .enumerate()
-                .filter(|&(k, _)| !self.doors.list[k].may_open(from, false))
-                .flat_map(|(_, ps)| ps.iter().copied())
-                .collect();
-            let plan = crate::nav::plan::plan(&nav, from, goal, &obstructed, careful, &shut);
-            if let Err(e) = &plan {
-                eprintln!("nav: fighter {i}: no path {from:?} → {goal:?}: {e:?}");
-            }
-            if let Some(n) = self.fighters[i]
-                .brain
-                .as_mut()
-                .and_then(|b| b.navigator_mut())
-            {
-                n.take_plan(plan, now);
-            }
         }
     }
 

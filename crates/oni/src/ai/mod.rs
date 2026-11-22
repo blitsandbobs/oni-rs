@@ -362,6 +362,16 @@ impl Brain {
     }
 
     /// The navigator walking it somewhere, if any.
+    pub fn navigator(&self) -> Option<&navigate::Navigator> {
+        match self {
+            Brain::GoTo(n) => Some(n),
+            Brain::Steer(s) => s.nav.as_ref(),
+            Brain::Agent(a) => a.nav.as_ref(),
+            _ => None,
+        }
+    }
+
+    /// The navigator walking it somewhere, if any.
     pub fn navigator_mut(&mut self) -> Option<&mut navigate::Navigator> {
         match self {
             Brain::GoTo(n) => Some(n),

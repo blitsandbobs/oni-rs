@@ -259,14 +259,14 @@ fn crossing(nav: &Navigation, portals: &[(usize, usize)], i: usize, at: Vec3, to
     target
 }
 
-/// Plans a path from `from` to `to`. `obstructed(room)` gives the squares of
-/// a room's grid other bodies stand on. `careful`: don't smooth (after a
-/// failure).
+/// Plans a path from `from` to `to`. `obstructed(room)` gives what blocks
+/// the planner in a room's grid (`PHrPrepareRoomForPath`, as seen by it).
+/// `careful`: don't smooth (after a failure).
 pub fn plan(
     nav: &Navigation,
     from: Vec3,
     to: Vec3,
-    obstructed: &dyn Fn(usize) -> HashSet<(i32, i32)>,
+    obstructed: &mut dyn FnMut(usize) -> Option<super::dynamic::Blocking>,
     careful: bool,
     shut: &HashSet<(usize, usize)>,
 ) -> Result<Path, Error> {
@@ -306,12 +306,12 @@ pub fn plan(
                 let blocked = obstructed(room);
                 let rules = Rules {
                     stairs: next_stairs || r.is_stairs(),
-                    obstructed: Some(&blocked),
+                    obstructed: blocked.as_ref(),
                 };
                 let (a, b) = (Vec2::new(at.x, at.z), Vec2::new(end.x, end.z));
                 let cells = grid::search(g, a, b, rules).ok_or(Error::GridBlocked)?;
                 for Waypoint { at: w, arrive } in
-                    grid::waypoints(g, &cells, b, r.is_stairs(), careful)
+                    grid::waypoints(g, &cells, b, r.is_stairs(), careful, blocked.as_ref())
                 {
                     path.points
                         .push((Vec3::new(w.x, end.y.max(r.min.y), w.y), arrive));
@@ -355,7 +355,7 @@ mod tests {
                 continue;
             }
             tried += 1;
-            if let Ok(p) = plan(&nav, from, to, &|_| HashSet::new(), false, &HashSet::new()) {
+            if let Ok(p) = plan(&nav, from, to, &mut |_| None, false, &HashSet::new()) {
                 found += 1;
                 longest = longest.max(p.rooms.len());
                 for (w, _) in &p.points {

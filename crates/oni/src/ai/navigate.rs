@@ -51,6 +51,9 @@ pub struct Navigator {
     /// The last plan found no route (the original's path request tells its
     /// caller so at once; this navigator meanwhile waits to try again).
     pub plan_failed: bool,
+    /// A character it may path through (`curPathIgnoreChar`): whom it
+    /// follows or goes up to.
+    pub ignore: Option<usize>,
     stuck_from: (Vec3, u32),
 }
 
@@ -67,6 +70,7 @@ impl Navigator {
             retry_at: 0,
             plan_failed: false,
             careful: false,
+            ignore: None,
             stuck_from: (Vec3::ZERO, 0),
         }
     }

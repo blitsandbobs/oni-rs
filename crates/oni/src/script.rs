@@ -3262,6 +3262,26 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             })
         })?,
     )?;
+    // What the pathfinding grid has stamped at (`x`, `y`, `z`) → "character",
+    // "object" or "door", its index (fighter, object, door), and whether it
+    // blocks fighter `asker` (default 1) planning a path; nil if nothing.
+    let h = host.clone();
+    g.set(
+        "nav_obstruction",
+        lua.create_function(move |_, (x, y, z, asker): (f32, f32, f32, Option<usize>)| {
+            use crate::nav::dynamic::Obstruction as O;
+            let mut host = h.borrow_mut();
+            let at = host
+                .world
+                .obstruction_at(Vec3::new(x, y, z), asker.unwrap_or(1));
+            Ok(match at {
+                Some((O::Character(i), b)) => (Some("character"), Some(i), Some(b)),
+                Some((O::Object(i), b)) => (Some("object"), Some(i), Some(b)),
+                Some((O::Door(i), b)) => (Some("door"), Some(i), Some(b)),
+                None => (None, None, None),
+            })
+        })?,
+    )?;
 
     // Perception: makes fighter `id` an AI that watches and listens (not a
     // passive dummy).

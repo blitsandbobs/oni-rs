@@ -260,6 +260,10 @@ impl World {
             k += 1;
             !gone.contains(&(k - 1))
         });
+        // (The stamps name objects by index, which has just shifted.)
+        if !gone.is_empty() {
+            self.obstructions.clear();
+        }
     }
 
     /// `obj_show` / `obj_hide`: drawn and solid, or neither (`OBrShow`).

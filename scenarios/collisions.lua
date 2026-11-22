@@ -15,10 +15,13 @@ local x, y, z = pos()
 
 -- An AI walks to a spot with someone standing in its way: it bumps into
 -- them, notes it, and steers round them to get there.
+-- (The blocker steps in once the walker has planned: a path is planned
+-- round the bodies already there.)
 local walker = spawn(x + 30, y + 5, z, 0)
-local blocker = spawn(x + 33, y + 5, z + 40, 180)
 step(40)
 go_to(walker, x + 30, y, z + 90, "walk")
+step(2)
+local blocker = spawn(x + 33, y + 5, z + 40, 180)
 local met, records, got = 0, 0, nil
 for t = 1, 900 do
     step(1)

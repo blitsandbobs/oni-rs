@@ -1282,6 +1282,23 @@ impl Agent {
         self.turning_to = None;
     }
 
+    /// [`Self::go_to`], free to path through `ignore` (`AI2rPath_GoToPoint`'s
+    /// ignore character).
+    fn go_to_ignoring(&mut self, at: Vec3, within: f32, ignore: Option<usize>, cx: &Ctx) {
+        self.go_to(at, within, true, None, cx);
+        if let Some(n) = self.nav.as_mut() {
+            n.ignore = ignore;
+        }
+    }
+
+    /// Whether it may plan a path through character `j` (`AI2rTryToPathfindThrough`):
+    /// whom it goes to, its combat target, or the player while it talks to them.
+    pub fn paths_through(&self, j: usize, j_is_player: bool) -> bool {
+        self.nav.as_ref().is_some_and(|n| n.ignore == Some(j))
+            || matches!(&self.goal, Goal::Combat(c) if c.target == j)
+            || (matches!(self.goal, Goal::Neutral) && j_is_player)
+    }
+
     /// A script's movement order (`AI2rPath_GoToPoint` from `ai2_lookatchar`
     /// and the like): go to `at` (within `within`), then face `face`; it
     /// looks at `look` meanwhile. Carried out even while passive (the goals
@@ -1293,6 +1310,7 @@ impl Agent {
         face: Option<f32>,
         look: Option<Vec3>,
         alert: Alert,
+        ignore: Option<usize>,
     ) {
         self.dest = Some(Dest {
             at,
@@ -1300,7 +1318,9 @@ impl Agent {
             stop: true,
             face,
         });
-        self.nav = Some(Navigator::new(at, within, self.mode.pace(alert, false)));
+        let mut nav = Navigator::new(at, within, self.mode.pace(alert, false));
+        nav.ignore = ignore;
+        self.nav = Some(nav);
         self.turning_to = None;
         if let Some(p) = look {
             self.look = Look::At(p);
@@ -2381,7 +2401,7 @@ impl Agent {
                 p.los_seen = false;
                 p.running = p.danger;
                 p.scanning = false;
-                self.go_to(c.location, PURSUIT_CLOSE_DIST, true, None, cx);
+                self.go_to_ignoring(c.location, PURSUIT_CLOSE_DIST, c.who, cx);
             }
             PursuitMode::Look => {
                 let to = yaw_toward(cx.feet, c.location);

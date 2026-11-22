@@ -26,8 +26,10 @@ local function walk(id, x, y, z, ticks)
     return s, travelled
 end
 
--- Behind a pillar (straight ahead is blocked): it goes round.
+-- Behind a pillar (straight ahead is blocked): it goes round. (She steps
+-- aside: it starts where her body would be in its way.)
 local a = spawn(px + 5, py + 5, pz, 0)
+teleport(0, px - 30, py, pz + 30)
 step(10)
 local s, travelled = walk(a, px, py, pz - 40, 600)
 print(string.format("behind the pillar: %s, travelled %.0f for a straight line of 40", s, travelled))

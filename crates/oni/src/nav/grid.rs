@@ -3,10 +3,11 @@
 //! straight "local line" probe.
 
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::collections::{BinaryHeap, HashMap};
 
 use glam::Vec2;
 
+use super::dynamic::Blocking;
 use super::Grid;
 
 /// The side of a grid square (units).
@@ -78,8 +79,9 @@ impl Square {
 pub struct Rules<'a> {
     /// The next room is a stair room: stair squares are allowed.
     pub stairs: bool,
-    /// Squares held by other bodies (not crossable).
-    pub obstructed: Option<&'a HashSet<(i32, i32)>>,
+    /// The squares obstructions hold that block this search (not
+    /// crossable).
+    pub obstructed: Option<&'a Blocking>,
 }
 
 #[derive(PartialEq)]
@@ -100,7 +102,7 @@ impl PartialOrd for Open {
 }
 
 fn passable(g: &Grid, c: (i32, i32), rules: &Rules) -> bool {
-    g.square(c) != Square::Impassable && !rules.obstructed.is_some_and(|o| o.contains(&c))
+    g.square(c) != Square::Impassable && !rules.obstructed.is_some_and(|o| o.blocks(c))
 }
 
 /// A\* across the grid from world point `from` to `to` (x, z): the squares of
@@ -227,6 +229,7 @@ pub fn waypoints(
     end: Vec2,
     stairs_room: bool,
     careful: bool,
+    blocked: Option<&Blocking>,
 ) -> Vec<Waypoint> {
     let mut cells: Vec<(i32, i32)> = Vec::new();
     if !stairs_room {
@@ -248,7 +251,7 @@ pub fn waypoints(
                 .get(k + 1)
                 .copied()
                 .unwrap_or(*path.last().unwrap_or(&cells[k]));
-            let line = line(g, from, after, Square::Border2, 3);
+            let line = line(g, from, after, Square::Border2, 3, blocked);
             if !(line.reached && !line.escaping && line.worst < Square::Border2) {
                 kept.push(cells[k]);
                 from = cells[k];
@@ -287,8 +290,16 @@ pub struct Line {
 
 /// Walks a 4-connected line of squares from `a` to `b`. It may *leave* a bad
 /// area (squares at or above `stop`) for up to `escape` squares at its
-/// start, but never *enter* one.
-pub fn line(g: &Grid, a: (i32, i32), b: (i32, i32), stop: Square, escape: u32) -> Line {
+/// start, but never *enter* one. Squares `blocked` holds count as walls;
+/// leaving one straight into a real wall fails (`PHrLocalPathWeight`).
+pub fn line(
+    g: &Grid,
+    a: (i32, i32),
+    b: (i32, i32),
+    stop: Square,
+    escape: u32,
+    blocked: Option<&Blocking>,
+) -> Line {
     let mut out = Line {
         reached: false,
         escaping: false,
@@ -298,11 +309,18 @@ pub fn line(g: &Grid, a: (i32, i32), b: (i32, i32), stop: Square, escape: u32) -
     };
     let mut budget = escape;
     let mut was_good = false;
+    let mut was_obstructed = false;
     for c in squares_between(a, b) {
-        let sq = g.square(c);
+        let obstructed = blocked.is_some_and(|o| o.blocks(c));
+        let sq = if obstructed {
+            Square::Impassable
+        } else {
+            g.square(c)
+        };
         out.worst = out.worst.max(sq);
         if sq >= stop {
-            if was_good || budget == 0 || c == b {
+            let into_wall = was_obstructed && sq == Square::Impassable && !obstructed;
+            if was_good || budget == 0 || c == b || into_wall {
                 out.stop = c;
                 return out;
             }
@@ -312,6 +330,7 @@ pub fn line(g: &Grid, a: (i32, i32), b: (i32, i32), stop: Square, escape: u32) -
             was_good = true;
             out.last_good = c;
         }
+        was_obstructed = obstructed;
     }
     out.reached = true;
     out.stop = b;
@@ -373,16 +392,16 @@ mod tests {
         )
         .expect("a path");
         assert!(path.contains(&(5, 9)), "through the gap");
-        let w = waypoints(&g, &path, Vec2::new(38.0, 2.0), false, false);
+        let w = waypoints(&g, &path, Vec2::new(38.0, 2.0), false, false, None);
         assert!(w.len() >= 2 && w.last().unwrap().at == Vec2::new(38.0, 2.0));
     }
 
     #[test]
     fn a_line_stops_at_a_wall_and_can_leave_one() {
         let g = walled();
-        let l = line(&g, (0, 2), (9, 2), Square::Danger, 3);
+        let l = line(&g, (0, 2), (9, 2), Square::Danger, 3, None);
         assert!(!l.reached && l.stop == (5, 2) && l.last_good == (4, 2));
-        let out = line(&g, (5, 2), (9, 2), Square::Danger, 3);
+        let out = line(&g, (5, 2), (9, 2), Square::Danger, 3, None);
         assert!(out.reached && out.escaping);
     }
 }

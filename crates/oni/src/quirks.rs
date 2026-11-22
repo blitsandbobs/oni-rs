@@ -187,6 +187,13 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q29: a placed object is stamped into the pathfinding grids as its
+    /// square's last row only (`PHrAddObjectToGrid`'s row loop starts at
+    /// `+radius`), so paths cross it.
+    pub fn object_stamp_one_row(self) -> bool {
+        self.faithful
+    }
+
     /// Whether the level scripts run as shipped, without our fixes to their
     /// most glaring mistakes (`docs/deviations.md`).
     pub fn scripts_as_shipped(self) -> bool {

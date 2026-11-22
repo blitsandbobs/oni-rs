@@ -236,6 +236,13 @@ impl Door {
         false
     }
 
+    /// Whether someone may open it from one side or the other
+    /// (`OBJrDoor_CharacterCanOpen` with `OBJcDoor_EitherSide`): not jammed,
+    /// and unlocked or one-way.
+    pub fn may_open_either_side(&self) -> bool {
+        !self.jammed && (!self.locked || self.one_way)
+    }
+
     /// Its state by name, for scripts and tests.
     pub fn state_name(&self) -> &'static str {
         match self.state {
