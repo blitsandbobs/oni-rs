@@ -25,6 +25,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
+use oni_schema::files;
 use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
@@ -67,7 +68,7 @@ fn tree(dat: &Dat<'_>, tag: FourCc) -> BTreeMap<String, Option<String>> {
 }
 
 /// The impact-effect table's entries, by name.
-fn table(b: &[u8]) -> Option<Vec<Value>> {
+fn table(b: &[u8]) -> Option<Vec<files::ImpactEntry>> {
     if b.len() < 28 || le_u32(b, 0) != 2 {
         return None;
     }
@@ -103,47 +104,70 @@ fn table(b: &[u8]) -> Option<Vec<Value>> {
             .get(le_u32(b, o + 68) as usize)
             .copied()
             .unwrap_or("unchanged");
-        let mut p = json!({ "class": cstr(b, o, 64), "orientation": orientation });
-        match le_u32(b, o + 72) {
-            1 => p["location"] = json!({ "type": "collisionOffset", "offset": le_f32(b, o + 76) }),
-            3 => {
-                p["location"] = json!({ "type": "findWall", "radius": le_f32(b, o + 76), "lookAlong": b[o + 80] != 0 })
-            }
-            4 => {
-                p["location"] = json!({ "type": "decal", "static": b[o + 76] != 0, "randomRotation": b[o + 77] != 0 })
-            }
-            5 => p["location"] = json!({ "type": "attachedToObject" }),
-            _ => p["location"] = json!({ "type": "default" }),
+        use files::ImpactLocation as L;
+        files::ImpactParticle {
+            class: cstr(b, o, 64),
+            orientation: orientation.to_string(),
+            location: match le_u32(b, o + 72) {
+                1 => L::CollisionOffset {
+                    offset: le_f32(b, o + 76),
+                },
+                3 => L::FindWall {
+                    radius: le_f32(b, o + 76),
+                    look_along: b[o + 80] != 0,
+                },
+                4 => L::Decal {
+                    stays: b[o + 76] != 0,
+                    random_rotation: b[o + 77] != 0,
+                },
+                5 => L::AttachedToObject,
+                _ => L::Default,
+            },
         }
-        p
     };
     Some(
         (0..entries)
             .map(|k| {
                 let o = entry_at + k * 20;
-                let mut e = json!({
-                    "impact": impact_names.get(&le_u16(b, o)).cloned().unwrap_or_default(),
-                    "material": material_names.get(&le_u16(b, o + 2)).cloned().unwrap_or_default(),
-                    "component": COMPONENTS.get(le_u16(b, o + 4) as usize).copied().unwrap_or("impact"),
-                    "modifier": MODIFIERS.get(le_u16(b, o + 6) as usize).copied().unwrap_or("any"),
-                });
                 let s = le_u32(b, o + 12);
-                if (s as usize) < sounds {
+                let sound = ((s as usize) < sounds).then(|| {
                     let so = sound_at + s as usize * 48;
-                    let mut sound = json!({ "impulse": cstr(b, so, 32) });
-                    if le_u16(b, so + 40) & 1 != 0 {
-                        sound["ai"] = json!({
-                            "type": AI_SOUNDS.get(le_u16(b, so + 42) as usize).copied().unwrap_or("ignore"),
-                            "radius": le_f32(b, so + 44),
-                        });
+                    files::ImpactSound {
+                        impulse: cstr(b, so, 32),
+                        ai: (le_u16(b, so + 40) & 1 != 0).then(|| files::AiNoise {
+                            kind: AI_SOUNDS
+                                .get(le_u16(b, so + 42) as usize)
+                                .copied()
+                                .unwrap_or("ignore")
+                                .to_string(),
+                            radius: le_f32(b, so + 44),
+                        }),
                     }
-                    e["sound"] = sound;
-                }
+                });
                 let (first, count) = (le_u32(b, o + 16) as usize, le_u16(b, o + 8) as usize);
-                if count > 0 && first + count <= particles {
-                    e["particles"] = json!((first..first + count).map(particle).collect::<Vec<_>>());
+                files::ImpactEntry {
+                    impact: impact_names.get(&le_u16(b, o)).cloned().unwrap_or_default(),
+                    material: material_names
+                        .get(&le_u16(b, o + 2))
+                        .cloned()
+                        .unwrap_or_default(),
+                    component: COMPONENTS
+                        .get(le_u16(b, o + 4) as usize)
+                        .copied()
+                        .unwrap_or("impact")
+                        .to_string(),
+                    modifier: MODIFIERS
+                        .get(le_u16(b, o + 6) as usize)
+                        .copied()
+                        .unwrap_or("any")
+                        .to_string(),
+                    sound,
+                    particles: if count > 0 && first + count <= particles {
+                        (first..first + count).map(particle).collect()
+                    } else {
+                        Vec::new()
+                    },
                 }
-                e
             })
             .collect(),
     )
@@ -256,12 +280,12 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize>
     std::fs::create_dir_all(common)?;
     std::fs::write(
         common.join("impacts.json"),
-        serde_json::to_string_pretty(&json!({
-            "impacts": tree(dat, TAG_IMPT),
-            "materials": tree(dat, TAG_MTRL),
-            "textures": textures,
-            "entries": entries,
-        }))?,
+        serde_json::to_string_pretty(&files::ImpactsFile {
+            impacts: tree(dat, TAG_IMPT),
+            materials: tree(dat, TAG_MTRL),
+            textures,
+            entries,
+        })?,
     )?;
     Ok(n)
 }
@@ -287,7 +311,7 @@ mod tests {
         let e = s + 48;
         b[e + 4..e + 6].copy_from_slice(&2u16.to_le_bytes());
         b[e + 6..e + 8].copy_from_slice(&2u16.to_le_bytes());
-        let t = table(&b).unwrap();
+        let t = serde_json::to_value(table(&b).unwrap()).unwrap();
         assert_eq!(t[0]["impact"], json!("Kick"));
         assert_eq!(t[0]["material"], json!("Flesh"));
         assert_eq!(

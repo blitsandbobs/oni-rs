@@ -12,7 +12,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Value};
+use oni_schema::files;
 
 use crate::{cstr, le_u32};
 
@@ -20,24 +20,21 @@ const TAG_ONCV: FourCc = FourCc(u32::from_be_bytes(*b"ONCV"));
 const TAG_BINA: FourCc = FourCc(u32::from_be_bytes(*b"BINA"));
 
 /// One variant's rows.
-fn rows(b: &[u8]) -> Vec<Value> {
+fn rows(b: &[u8]) -> Vec<files::AnimSound> {
     let mut out = Vec::new();
     let mut at = 0;
     while at + 8 <= b.len() {
         let (tag, len) = (&b[at..at + 4], le_u32(b, at + 4) as usize);
         let body = &b[(at + 8).min(b.len())..(at + 8 + len).min(b.len())];
         if (tag == b"ASAS" || tag == b"SASA") && body.len() >= 132 {
-            let mut r = json!({
-                "type": cstr(body, 36, 32),
-                "modifier": cstr(body, 4, 32).to_lowercase(),
-                "impulse": cstr(body, 100, 32),
+            let clip = Some(cstr(body, 68, 32)).filter(|c| !c.is_empty());
+            out.push(files::AnimSound {
+                kind: cstr(body, 36, 32),
+                modifier: cstr(body, 4, 32).to_lowercase(),
+                impulse: cstr(body, 100, 32),
+                frame: clip.as_ref().map(|_| le_u32(body, 0)),
+                clip,
             });
-            let clip = cstr(body, 68, 32);
-            if !clip.is_empty() {
-                r["clip"] = json!(clip);
-                r["frame"] = json!(le_u32(body, 0));
-            }
-            out.push(r);
         }
         at += 8 + len;
     }
@@ -98,9 +95,11 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], common: &Path) -> std::io::Result<usize>
     std::fs::create_dir_all(common)?;
     std::fs::write(
         common.join("anim_sounds.json"),
-        serde_json::to_string_pretty(
-            &json!({ "variants": variants, "instances": instances, "sounds": sounds }),
-        )?,
+        serde_json::to_string_pretty(&files::AnimSoundsFile {
+            variants,
+            instances,
+            sounds,
+        })?,
     )?;
     Ok(n)
 }

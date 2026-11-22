@@ -74,36 +74,29 @@ impl SoundObject {
 
 /// Loads a level's sound objects (`levels/NN/sounds.json`).
 pub(super) fn load(level_dir: &Path) -> Vec<SoundObject> {
-    let Some(j) = crate::json::read(level_dir.join("sounds.json")) else {
-        return Vec::new();
-    };
-    use crate::json::f32 as f;
-    use crate::json::vec3 as v3;
-    j["objects"]
-        .as_array()
-        .into_iter()
-        .flatten()
+    let j: oni_schema::files::SoundObjectsFile =
+        crate::json::read_file(level_dir.join("sounds.json"));
+    j.objects
+        .iter()
         .enumerate()
         .filter_map(|(k, o)| {
-            let position = v3(&o["position"]);
-            let shape = if o["sphere"].is_object() {
-                Shape::Sphere {
-                    max: f(&o["sphere"]["max"]),
-                    min: f(&o["sphere"]["min"]),
-                }
-            } else if o["box"].is_object() {
-                Shape::Box {
-                    min: position + v3(&o["box"]["min"]),
-                    max: position + v3(&o["box"]["max"]),
-                }
-            } else {
-                return None;
+            let position = Vec3::from(o.position);
+            let shape = match (&o.sphere, &o.bounds) {
+                (Some(s), _) => Shape::Sphere {
+                    max: s.max,
+                    min: s.min,
+                },
+                (None, Some(b)) => Shape::Box {
+                    min: position + Vec3::from(b.min),
+                    max: position + Vec3::from(b.max),
+                },
+                (None, None) => return None,
             };
             Some(SoundObject {
-                ambient: o["ambient"].as_str()?.to_string(),
+                ambient: o.ambient.clone(),
                 position,
                 shape,
-                object_volume: f(&o["volume"]),
+                object_volume: o.volume,
                 play: None,
                 state: State::Off,
                 volume: 0.0,

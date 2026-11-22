@@ -546,7 +546,7 @@ mod tests {
         // Heard within 18 ft (54 units), full within 6.
         let mut a = with_objects(
             "sphere",
-            r#"{"objects":[{"ambient":"hum","position":[0,0,0],"volume":0.8,"sphere":{"max":6,"min":18}}]}"#,
+            r#"{"objects":[{"objectId":1,"ambient":"hum","position":[0,0,0],"volume":0.8,"sphere":{"max":6,"min":18}}]}"#,
         );
         a.listen(Vec3::new(0.0, 0.0, 100.0), Vec3::Z);
         a.tick(None);
@@ -570,8 +570,8 @@ mod tests {
         let mut a = with_objects(
             "boxes",
             r#"{"objects":[
-                {"ambient":"hum","position":[0,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}},
-                {"ambient":"hum","position":[20,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}}]}"#,
+                {"objectId":1,"ambient":"hum","position":[0,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}},
+                {"objectId":2,"ambient":"hum","position":[20,0,0],"volume":1,"box":{"min":[-10,-10,-10],"max":[10,10,10]}}]}"#,
         );
         let obj = |a: &Audio, k: usize| {
             let o = &a.sound_objects()[k];

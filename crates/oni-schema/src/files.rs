@@ -951,6 +951,203 @@ pub enum AnimRef {
     Number(u16),
 }
 
+/// `common/sounds.json`: the sound definitions (`OSBD`), by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SoundsFile {
+    pub ambients: BTreeMap<String, AmbientSound>,
+    pub groups: BTreeMap<String, SoundGroup>,
+    pub impulses: BTreeMap<String, ImpulseSound>,
+}
+
+/// An ambient sound (`SStAmbient`): its parts by group name and how it is
+/// heard.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AmbientSound {
+    pub priority: u32,
+    pub sphere_radius: f32,
+    /// Seconds between details, at least and at most.
+    pub detail_time: [f32; 2],
+    pub max_volume_distance: f32,
+    pub min_volume_distance: f32,
+    pub threshold: u32,
+    pub min_occlusion: f32,
+    /// `interruptOnStop`, `playOnce`, `pan`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base1: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base2: Option<String>,
+    #[serde(rename = "in", default, skip_serializing_if = "Option::is_none")]
+    pub in_sound: Option<String>,
+    #[serde(rename = "out", default, skip_serializing_if = "Option::is_none")]
+    pub out_sound: Option<String>,
+}
+
+/// An impulse sound (`SStImpulse`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImpulseSound {
+    pub group: String,
+    pub priority: u32,
+    pub max_volume_distance: f32,
+    pub min_volume_distance: f32,
+    /// Played this many at once, its `alt` plays instead.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt_threshold: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub impact_velocity: Option<f32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_occlusion: Option<f32>,
+}
+
+/// A sound group (`SStGroup`): its permutations, one picked each play.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundGroup {
+    pub volume: f32,
+    pub pitch: f32,
+    pub channels: u32,
+    pub permutations: Vec<Permutation>,
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub prevent_repeats: bool,
+}
+
+/// A sound group's permutation: its weight, volume and pitch ranges, and
+/// its sound (a file under `audio/`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Permutation {
+    pub weight: u32,
+    pub volume: [f32; 2],
+    pub pitch: [f32; 2],
+    pub sound: String,
+}
+
+/// `levels/NN/sounds.json`: the level's sound objects.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SoundObjectsFile {
+    pub objects: Vec<SoundObject>,
+}
+
+/// A sound object: its ambient, where, how loud, and its shape — a sphere
+/// (heard within, placed) or a box (heard inside).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SoundObject {
+    pub object_id: u32,
+    pub ambient: String,
+    pub position: V3,
+    pub volume: f32,
+    /// Its distances (feet).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sphere: Option<SoundSphere>,
+    /// Its corners, relative to the object, unrotated.
+    #[serde(rename = "box", default, skip_serializing_if = "Option::is_none")]
+    pub bounds: Option<Bounds>,
+}
+
+/// A sound sphere's distances.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SoundSphere {
+    pub max: f32,
+    pub min: f32,
+}
+
+/// `common/impacts.json`: the impact and material trees, the textures'
+/// materials, and the impact-effect table.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct ImpactsFile {
+    /// Each impact type's parent.
+    pub impacts: BTreeMap<String, Option<String>>,
+    /// Each material's parent.
+    pub materials: BTreeMap<String, Option<String>>,
+    /// Each texture's material.
+    pub textures: BTreeMap<String, String>,
+    pub entries: Vec<ImpactEntry>,
+}
+
+/// An impact effect: what it is for (impact, material, component,
+/// modifier), the sound it makes and the particles it sends.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImpactEntry {
+    pub impact: String,
+    pub material: String,
+    pub component: String,
+    pub modifier: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sound: Option<ImpactSound>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub particles: Vec<ImpactParticle>,
+}
+
+/// An impact effect's sound, and the noise the AI hears.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImpactSound {
+    pub impulse: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ai: Option<AiNoise>,
+}
+
+/// An impact effect's particle: its class, orientation and where it goes.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ImpactParticle {
+    pub class: String,
+    pub orientation: String,
+    pub location: ImpactLocation,
+}
+
+/// Where an impact effect's particle goes (`P3tEffectLocationType`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "camelCase")]
+pub enum ImpactLocation {
+    Default,
+    CollisionOffset {
+        offset: f32,
+    },
+    FindWall {
+        radius: f32,
+        #[serde(rename = "lookAlong")]
+        look_along: bool,
+    },
+    Decal {
+        #[serde(rename = "static")]
+        stays: bool,
+        #[serde(rename = "randomRotation")]
+        random_rotation: bool,
+    },
+    AttachedToObject,
+}
+
+/// `common/anim_sounds.json`: the variant tree, the variants by instance
+/// name, and each variant's animation sounds.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct AnimSoundsFile {
+    /// Each variant's parent.
+    pub variants: BTreeMap<String, Option<String>>,
+    /// Each variant's name, by its instance name (as classes name it).
+    pub instances: BTreeMap<String, String>,
+    pub sounds: BTreeMap<String, Vec<AnimSound>>,
+}
+
+/// An animation sound: for an animation type (and modifier), its impulse,
+/// at a frame of a clip when it names one.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AnimSound {
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub modifier: String,
+    pub impulse: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub clip: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub frame: Option<u32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

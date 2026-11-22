@@ -6,8 +6,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde_json::Value;
-
 /// Animation-sound weights ("mod types").
 const ANY: u8 = 0;
 const CROUCH: u8 = 1;
@@ -208,38 +206,27 @@ pub struct AnimSounds {
 
 impl AnimSounds {
     pub fn load(common: &Path) -> Option<AnimSounds> {
-        let j: Value = crate::json::read(common.join("anim_sounds.json"))?;
-        let s = |v: &Value| v.as_str().map(str::to_string);
+        let text = std::fs::read_to_string(common.join("anim_sounds.json")).ok()?;
+        let j: oni_schema::files::AnimSoundsFile = serde_json::from_str(&text)
+            .map_err(|e| eprintln!("anim_sounds.json: {e}"))
+            .ok()?;
         let mut a = AnimSounds {
-            parents: j["variants"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .map(|(k, v)| (k.clone(), s(v)))
-                .collect(),
-            instances: j["instances"]
-                .as_object()
-                .into_iter()
-                .flatten()
-                .filter_map(|(k, v)| Some((k.clone(), s(v)?)))
-                .collect(),
+            parents: j.variants.into_iter().collect(),
+            instances: j.instances.into_iter().collect(),
             rows: HashMap::new(),
             clips: HashMap::new(),
         };
-        for (variant, rows) in j["sounds"].as_object().into_iter().flatten() {
-            for r in rows.as_array().into_iter().flatten() {
-                let impulse = r["impulse"].as_str().unwrap_or("").to_string();
-                if let Some(clip) = r["clip"].as_str() {
+        for (variant, rows) in j.sounds {
+            for r in rows {
+                if let Some(clip) = r.clip {
                     // (Bound to the clip itself, for everyone.)
-                    a.clips.insert(
-                        clip.to_string(),
-                        (impulse, r["frame"].as_u64().unwrap_or(0) as u16),
-                    );
+                    a.clips
+                        .insert(clip, (r.impulse, r.frame.unwrap_or(0) as u16));
                 } else {
                     a.rows.entry(variant.clone()).or_default().push(Row {
-                        kind: r["type"].as_str().unwrap_or("").to_string(),
-                        weight: weight(r["modifier"].as_str().unwrap_or("")),
-                        impulse,
+                        kind: r.kind,
+                        weight: weight(&r.modifier),
+                        impulse: r.impulse,
                     });
                 }
             }

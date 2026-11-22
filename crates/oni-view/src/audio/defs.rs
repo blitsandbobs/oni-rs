@@ -4,8 +4,6 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use serde_json::Value;
-
 pub(super) struct Permutation {
     pub weight: u32,
     pub volume: (f32, f32),
@@ -100,90 +98,75 @@ fn original_hash(s: &str) -> u32 {
     v
 }
 
-fn f(j: &Value) -> f32 {
-    j.as_f64().unwrap_or(0.0) as f32
-}
-
-fn pair(j: &Value) -> (f32, f32) {
-    (f(&j[0]), f(&j[1]))
-}
-
-fn name(v: &Value) -> Option<String> {
-    v.as_str().filter(|s| !s.is_empty()).map(str::to_string)
-}
-
 impl Defs {
     pub fn load(common: &Path) -> Defs {
+        let j: oni_schema::files::SoundsFile = crate::json::read_file(common.join("sounds.json"));
         let mut d = Defs::default();
-        let Some(j) = crate::json::read(common.join("sounds.json")) else {
-            return d;
-        };
-        for (k, a) in j["ambients"].as_object().into_iter().flatten() {
-            let flags = a["flags"].as_array().into_iter().flatten().fold(0, |m, f| {
+        let name = |v: &Option<String>| v.clone().filter(|s| !s.is_empty());
+        for (k, a) in j.ambients {
+            let flags = a.flags.iter().fold(0, |m, f| {
                 m | match f.as_str() {
-                    Some("interruptOnStop") => INTERRUPT_ON_STOP,
-                    Some("playOnce") => PLAY_ONCE,
-                    Some("pan") => PAN,
+                    "interruptOnStop" => INTERRUPT_ON_STOP,
+                    "playOnce" => PLAY_ONCE,
+                    "pan" => PAN,
                     _ => 0,
                 }
             });
             d.ambients.insert(
-                k.clone(),
+                k,
                 AmbientDef {
-                    priority: a["priority"].as_u64().unwrap_or(1).min(3) as u8,
+                    priority: a.priority.min(3) as u8,
                     flags,
-                    sphere_radius: f(&a["sphereRadius"]),
-                    detail_time: pair(&a["detailTime"]),
-                    max_distance: f(&a["maxVolumeDistance"]),
-                    min_distance: f(&a["minVolumeDistance"]),
-                    detail: name(&a["detail"]),
-                    base: name(&a["base1"]),
-                    base2: name(&a["base2"]),
-                    in_sound: name(&a["in"]),
-                    out_sound: name(&a["out"]),
-                    threshold: a["threshold"].as_u64().unwrap_or(3) as usize,
-                    min_occlusion: f(&a["minOcclusion"]),
+                    sphere_radius: a.sphere_radius,
+                    detail_time: (a.detail_time[0], a.detail_time[1]),
+                    max_distance: a.max_volume_distance,
+                    min_distance: a.min_volume_distance,
+                    detail: name(&a.detail),
+                    base: name(&a.base1),
+                    base2: name(&a.base2),
+                    in_sound: name(&a.in_sound),
+                    out_sound: name(&a.out_sound),
+                    threshold: a.threshold as usize,
+                    min_occlusion: a.min_occlusion,
                 },
             );
         }
-        for (k, g) in j["groups"].as_object().into_iter().flatten() {
+        for (k, g) in j.groups {
             d.groups.insert(
-                k.clone(),
+                k,
                 Group {
-                    volume: f(&g["volume"]),
-                    pitch: f(&g["pitch"]),
-                    channels: g["channels"].as_u64().unwrap_or(1) as u32,
-                    prevent_repeats: g["preventRepeats"].as_bool().unwrap_or(false),
+                    volume: g.volume,
+                    pitch: g.pitch,
+                    channels: g.channels,
+                    prevent_repeats: g.prevent_repeats,
                     last: 0,
-                    permutations: g["permutations"]
-                        .as_array()
+                    permutations: g
+                        .permutations
                         .into_iter()
-                        .flatten()
                         .map(|p| Permutation {
-                            weight: p["weight"].as_u64().unwrap_or(0) as u32,
-                            volume: pair(&p["volume"]),
-                            pitch: pair(&p["pitch"]),
-                            sound: p["sound"].as_str().unwrap_or_default().to_string(),
+                            weight: p.weight,
+                            volume: (p.volume[0], p.volume[1]),
+                            pitch: (p.pitch[0], p.pitch[1]),
+                            sound: p.sound,
                         })
                         .collect(),
                 },
             );
         }
-        for (k, i) in j["impulses"].as_object().into_iter().flatten() {
-            let Some(group) = name(&i["group"]) else {
+        for (k, i) in j.impulses {
+            if i.group.is_empty() {
                 continue;
-            };
+            }
             d.impulses.insert(
-                k.clone(),
+                k,
                 ImpulseDef {
-                    group,
-                    priority: i["priority"].as_u64().unwrap_or(1).min(3) as u8,
-                    max_distance: f(&i["maxVolumeDistance"]),
-                    min_distance: f(&i["minVolumeDistance"]),
-                    alt: name(&i["alt"])
-                        .map(|a| (i["altThreshold"].as_u64().unwrap_or(0) as usize, a)),
-                    impact_velocity: f(&i["impactVelocity"]),
-                    min_occlusion: f(&i["minOcclusion"]),
+                    priority: i.priority.min(3) as u8,
+                    max_distance: i.max_volume_distance,
+                    min_distance: i.min_volume_distance,
+                    alt: name(&i.alt).map(|a| (i.alt_threshold.unwrap_or(0) as usize, a)),
+                    impact_velocity: i.impact_velocity.unwrap_or(0.0),
+                    min_occlusion: i.min_occlusion.unwrap_or(0.0),
+                    group: i.group,
                 },
             );
         }

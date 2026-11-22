@@ -3,6 +3,7 @@
 //! sounds like, the noise the AI hears from it, by impact type × material ×
 //! weight (`common/impacts.json`), and each character class's say in it.
 
+use oni_schema::files;
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -60,22 +61,25 @@ pub struct EffectParticle {
     pub location: crate::p3::effect::Location,
 }
 
-fn effect_particle(p: &Value) -> EffectParticle {
+fn effect_particle(p: &files::ImpactParticle) -> EffectParticle {
     use crate::p3::effect::{Location, Orientation};
-    let l = &p["location"];
-    let location = match l["type"].as_str().unwrap_or("") {
-        "collisionOffset" => Location::CollisionOffset(l["offset"].as_f64().unwrap_or(0.0) as f32),
-        "findWall" => Location::FindWall,
-        "decal" => Location::Decal {
-            is_static: l["static"].as_bool().unwrap_or(false),
-            random_rotation: l["randomRotation"].as_bool().unwrap_or(false),
+    use files::ImpactLocation as L;
+    let location = match &p.location {
+        L::CollisionOffset { offset } => Location::CollisionOffset(*offset),
+        L::FindWall { .. } => Location::FindWall,
+        L::Decal {
+            stays,
+            random_rotation,
+        } => Location::Decal {
+            is_static: *stays,
+            random_rotation: *random_rotation,
         },
-        "attachedToObject" => Location::AttachedToObject,
-        _ => Location::Default,
+        L::AttachedToObject => Location::AttachedToObject,
+        L::Default => Location::Default,
     };
     EffectParticle {
-        class: p["class"].as_str().unwrap_or("").to_string(),
-        orientation: Orientation::from_name(p["orientation"].as_str().unwrap_or("")),
+        class: p.class.clone(),
+        orientation: Orientation::from_name(&p.orientation),
         location,
     }
 }
@@ -88,19 +92,16 @@ struct Tree {
 }
 
 impl Tree {
-    fn load(j: &Value) -> Tree {
+    fn load(j: &std::collections::BTreeMap<String, Option<String>>) -> Tree {
         let mut t = Tree::default();
-        let names: Vec<&String> = j
-            .as_object()
-            .map(|o| o.keys().collect())
-            .unwrap_or_default();
-        for (k, n) in names.iter().enumerate() {
-            t.ids.insert((*n).clone(), k as u16);
+        for (k, n) in j.keys().enumerate() {
+            t.ids.insert(n.clone(), k as u16);
         }
-        t.parent = names
-            .iter()
-            .map(|n| j[n.as_str()].as_str().and_then(|p| t.ids.get(p).copied()))
+        t.parent = j
+            .values()
+            .map(|p| p.as_ref().and_then(|p| t.ids.get(p).copied()))
             .collect();
+        let names: Vec<&String> = j.keys().collect();
         t.depth = (0..names.len())
             .map(|k| t.chain(k as u16).count() as u16 - 1)
             .collect();
@@ -137,60 +138,51 @@ fn stimulus(name: &str) -> Stimulus {
 
 impl Impacts {
     pub fn load(common: &Path) -> Option<Impacts> {
-        let j: Value = crate::json::read(common.join("impacts.json"))?;
-        Some(Impacts::from_json(&j))
+        let text = std::fs::read_to_string(common.join("impacts.json")).ok()?;
+        let j: files::ImpactsFile = serde_json::from_str(&text)
+            .map_err(|e| eprintln!("impacts.json: {e}"))
+            .ok()?;
+        Some(Impacts::from_file(&j))
     }
 
-    pub fn from_json(j: &Value) -> Impacts {
-        let impacts = Tree::load(&j["impacts"]);
-        let materials = Tree::load(&j["materials"]);
+    pub fn from_file(j: &files::ImpactsFile) -> Impacts {
+        let impacts = Tree::load(&j.impacts);
+        let materials = Tree::load(&j.materials);
         let blunt = impacts.ids.get("Blunt").copied();
         let by_material = (0..impacts.parent.len())
             .map(|k| blunt.is_some_and(|b| impacts.chain(k as u16).any(|c| c == b)))
             .collect();
-        let textures = j["textures"]
-            .as_object()
-            .into_iter()
-            .flatten()
-            .filter_map(|(t, m)| Some((t.clone(), *materials.ids.get(m.as_str()?)?)))
+        let textures = j
+            .textures
+            .iter()
+            .filter_map(|(t, m)| Some((t.clone(), *materials.ids.get(m)?)))
             .collect();
         let mut entries = Vec::new();
         let mut pairs: HashMap<(u16, u16), Vec<usize>> = HashMap::new();
-        for e in j["entries"].as_array().into_iter().flatten() {
-            let (Some(&impact), Some(&material)) = (
-                impacts.ids.get(e["impact"].as_str().unwrap_or("")),
-                materials.ids.get(e["material"].as_str().unwrap_or("")),
-            ) else {
+        for e in &j.entries {
+            let (Some(&impact), Some(&material)) =
+                (impacts.ids.get(&e.impact), materials.ids.get(&e.material))
+            else {
                 continue;
             };
-            let sound = e["sound"].is_object().then(|| Sound {
-                impulse: e["sound"]["impulse"].as_str().unwrap_or("").to_string(),
-                ai: e["sound"]["ai"].is_object().then(|| {
-                    (
-                        stimulus(e["sound"]["ai"]["type"].as_str().unwrap_or("")),
-                        e["sound"]["ai"]["radius"].as_f64().unwrap_or(0.0) as f32,
-                    )
-                }),
+            let sound = e.sound.as_ref().map(|s| Sound {
+                impulse: s.impulse.clone(),
+                ai: s.ai.as_ref().map(|ai| (stimulus(&ai.kind), ai.radius)),
             });
-            let component = match e["component"].as_str() {
-                Some("damage") => 1,
-                Some("projectile") => 2,
+            let component = match e.component.as_str() {
+                "damage" => 1,
+                "projectile" => 2,
                 _ => 0,
             };
             pairs
                 .entry((impact, material))
                 .or_default()
                 .push(entries.len());
-            let particles = e["particles"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(effect_particle)
-                .collect();
+            let particles = e.particles.iter().map(effect_particle).collect();
             entries.push(Entry {
                 material,
                 component,
-                modifier: modifier(e["modifier"].as_str().unwrap_or("")),
+                modifier: modifier(&e.modifier),
                 sound,
                 particles,
             });
@@ -515,7 +507,7 @@ mod tests {
     use serde_json::json;
 
     fn table() -> Impacts {
-        Impacts::from_json(&json!({
+        Impacts::from_file(&serde_json::from_value(json!({
             "impacts": { "Default": null, "Blunt": "Default", "Footstep": "Blunt", "Footstep_Run": "Footstep", "Melee": "Default", "Punch": "Melee" },
             "materials": { "Base": null, "Stone": "Base", "Concrete": "Stone", "Character": "Base", "Flesh": "Character" },
             "textures": { "floor01": "Concrete" },
@@ -527,7 +519,7 @@ mod tests {
                 { "impact": "Punch", "material": "Flesh", "component": "projectile", "modifier": "heavy", "sound": { "impulse": "face_hvy" } },
                 { "impact": "Punch", "material": "Flesh", "component": "projectile", "modifier": "light", "sound": { "impulse": "face_lite" } }
             ]
-        }))
+        })).unwrap())
     }
 
     fn impulse(t: &Impacts, k: Option<usize>) -> &str {
