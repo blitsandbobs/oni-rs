@@ -212,8 +212,9 @@ pub fn extract_level_with(
     };
     let tc = |i: usize| -> Option<[f32; 2]> {
         let o = TXCA_DATA + i * 8;
-        // glTF's V axis points down vs Oni's up — flip V.
-        Some([at::f32(ta, o)?, 1.0 - at::f32(ta, o + 4)?])
+        // (As stored: V down the image, as glTF's and the bodies' — a
+        // flip here drew every level texture upside down, #99.)
+        Some([at::f32(ta, o)?, at::f32(ta, o + 4)?])
     };
     let tex_lookup = |ti: usize| -> (Option<usize>, Option<String>) {
         match at::u32(tm, ARR20_DATA + ti * 4) {
