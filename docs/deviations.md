@@ -270,6 +270,8 @@ our own additions. Not affected by `--faithful`.
 - The sky draws its box only (no planets, stars or sky flare; no visible data
   needs them), with clamp-to-edge seams.
 - The HUD is laid out in the window's logical pixels.
+- No debug manual fly camera (a developer tool); scenarios place the
+  camera with `cam()`.
 
 **Audio**
 - Volume follows the PC (DirectSound) law, −33.3·(1−v) dB, silent at 0.05
