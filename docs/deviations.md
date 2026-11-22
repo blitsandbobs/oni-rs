@@ -298,10 +298,12 @@ our own additions. Not affected by `--faithful`.
 - The New Game dialog has our **Faithful** box. Subtitles are off by
   default (`--subtitles`). No display modes (#97): a window (resizable,
   its size kept) or borderless fullscreen at the display's native
-  resolution (Alt+Enter); the 2D screens scale with the window's height
-  (a half step per 360 lines past 720; `uiScale` 1 draws them pixel for
-  pixel as shipped). The options' Resolution lists the display's own sizes
-  and sizes the window; our Fullscreen box sits under Hide Lens Flares
+  resolution (Alt+Enter); sizes in the desktop's units (points on macOS),
+  drawn at every physical pixel; the 2D screens scale with the window's
+  height (a half step per 360 units past 720, times the display's scaling;
+  `uiScale` 1 is pixel for pixel as shipped on an unscaled display). The
+  options' Resolution lists the usual window sizes that fit the display,
+  and its own; our Fullscreen box sits under Hide Lens Flares
   (the Sound panel a row shorter to make room). Settings live in `$ONI_SAVE_DIR/settings.json` (or
   `~/.oni-rs/`), apart from the save; continues in `continues.json` there
   (in memory for scripted runs). `--unlock-all`, `--save-point N`,

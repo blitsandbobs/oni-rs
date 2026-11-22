@@ -388,7 +388,7 @@ impl ApplicationHandler for App {
             event_loop
                 .create_window(crate::display::attributes(
                     &display,
-                    event_loop.primary_monitor(),
+                    crate::display::first_monitor(event_loop),
                 ))
                 .expect("window"),
         );
@@ -675,7 +675,9 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(new) => {
                 // (A window's size is kept; fullscreen's is the monitor's.)
                 if st.window.fullscreen().is_none() && !st.display.fullscreen {
-                    st.display.window = Some((new.width, new.height));
+                    let size: winit::dpi::LogicalSize<u32> =
+                        new.to_logical(st.window.scale_factor());
+                    st.display.window = Some((size.width, size.height));
                 }
                 st.config.width = new.width.max(1);
                 st.config.height = new.height.max(1);
@@ -853,7 +855,11 @@ impl ApplicationHandler for App {
                 // The pause screen up: a click is on its buttons.
                 if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
                     if pressed && button == MouseButton::Left {
-                        let scale = crate::display::ui_scale(st.display.ui_scale, st.config.height);
+                        let scale = crate::display::ui_scale(
+                            st.display.ui_scale,
+                            st.config.height,
+                            st.window.scale_factor(),
+                        );
                         let (w, h) = (
                             st.config.width as f32 / scale,
                             st.config.height as f32 / scale,
@@ -872,7 +878,11 @@ impl ApplicationHandler for App {
                     .filter(|p| p.world.hud.text_console.is_some())
                 {
                     if pressed && button == MouseButton::Left {
-                        let scale = crate::display::ui_scale(st.display.ui_scale, st.config.height);
+                        let scale = crate::display::ui_scale(
+                            st.display.ui_scale,
+                            st.config.height,
+                            st.window.scale_factor(),
+                        );
                         let (w, h) = (
                             st.config.width as f32 / scale,
                             st.config.height as f32 / scale,
@@ -958,7 +968,11 @@ impl State {
     /// The 2D screens' scale (#97): the setting's, else from the window's
     /// height (a Retina display's own doubling included).
     fn ui_scale(&self) -> f32 {
-        crate::display::ui_scale(self.display.ui_scale, self.config.height)
+        crate::display::ui_scale(
+            self.display.ui_scale,
+            self.config.height,
+            self.window.scale_factor(),
+        )
     }
 
     /// The window as `d` has it: fullscreen or not, its size (a window's).
@@ -970,7 +984,7 @@ impl State {
             if d.window != self.display.window {
                 let _ = self
                     .window
-                    .request_inner_size(winit::dpi::PhysicalSize::new(w, h));
+                    .request_inner_size(winit::dpi::LogicalSize::new(w, h));
             }
         }
         self.display = d;
@@ -1391,7 +1405,11 @@ impl State {
         if let Some(pw) = &mut self.play {
             // The HUD, in the window's logical pixels (its size on a 640 × 480
             // screen of the time on a high-density display).
-            let scale = crate::display::ui_scale(self.display.ui_scale, self.config.height);
+            let scale = crate::display::ui_scale(
+                self.display.ui_scale,
+                self.config.height,
+                self.window.scale_factor(),
+            );
             let (w, h) = (
                 self.config.width as f32 / scale,
                 self.config.height as f32 / scale,
@@ -1432,7 +1450,11 @@ impl State {
             if let Some(rgba) = m.movie.take_picture() {
                 self.renderer.movie_frame(&self.gpu, mw, mh, rgba);
             }
-            let scale = crate::display::ui_scale(self.display.ui_scale, self.config.height);
+            let scale = crate::display::ui_scale(
+                self.display.ui_scale,
+                self.config.height,
+                self.window.scale_factor(),
+            );
             let (w, h) = (
                 self.config.width as f32 / scale,
                 self.config.height as f32 / scale,

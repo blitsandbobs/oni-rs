@@ -42,8 +42,12 @@ known bugs (`docs/deviations.md`).
 The game opens in a window (its size kept between runs) or fullscreen at
 the display's native resolution; Alt+Enter switches between them, as do
 `--fullscreen`, `--windowed` and `--window 2560x1440` on the command line.
-The HUD and menus scale with the screen (1080p 1.5×, 1440p 2×, 4K 3×;
-`uiScale` in `settings.json` fixes it, 1 as shipped).
+Window sizes are the desktop's own (points on macOS, scaled pixels with
+display scaling on Windows and Linux); the picture uses every physical
+pixel. The HUD and menus scale with the window — 1.5× at 1080, 2× at
+1440, 3× at 2160 of those units, on top of the display's own scaling;
+`uiScale` in `settings.json` fixes it (1: as shipped on an unscaled
+display).
 
 ### Starting any level
 

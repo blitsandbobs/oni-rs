@@ -28,8 +28,9 @@ pub struct Settings {
     /// characters hide the lens flares behind them (default on; off draws
     /// them as shipped). The options' "Hide Lens Flares" box.
     pub flares_behind_characters: bool,
-    /// The window (#97): fullscreen, its size (physical pixels; none: from
-    /// the monitor), the 2D screens' scale (none: from the window).
+    /// The window (#97): fullscreen, its size (the desktop's units — points
+    /// on macOS; none: from the monitor), the 2D screens' scale (in those
+    /// units; none: from the window).
     pub fullscreen: bool,
     pub window_size: Option<(u32, u32)>,
     pub ui_scale: Option<f32>,

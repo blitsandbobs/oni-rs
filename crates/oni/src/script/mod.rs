@@ -209,7 +209,7 @@ impl ScriptHost {
             _ => {}
         }
         // (The 2D screens scaled as the game scales them, #97.)
-        let ui = crate::display::ui_scale(None, h);
+        let ui = crate::display::ui_scale(None, h, 1.0);
         let (uw, uh) = (w as f32 / ui, h as f32 / ui);
         self.renderer.overlay = match (&self.loading, &self.menu) {
             (Some((data, d)), _) => std::iter::once(crate::frame::black(uw, uh, 1.0))
