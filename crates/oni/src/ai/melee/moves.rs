@@ -573,6 +573,9 @@ fn maneuver(
     b: f32,
 ) -> Step {
     let man = &MANEUVERS[index];
+    if index == tables::maneuver::BARABBAS_WAVE {
+        return wave(m, me, out, man);
+    }
     if index == tables::maneuver::RANDOM_STOP {
         return if (m.random() % 100) as f32 >= a {
             Step::Done
@@ -619,6 +622,37 @@ fn maneuver(
         }
         None => out.held = man.keys,
     }
+    Step::Going
+}
+
+/// The Barabbas wave (`AI2iMelee_Maneuver_Update`'s special case): struck
+/// like an attack — its keys once the current clip lets it queue (holding
+/// the positioning's keys meanwhile), then until it plays; done when it has.
+fn wave(m: &mut Melee, me: &View, out: &mut Output, man: &tables::Maneuver) -> Step {
+    let anim = tables::ty(man.anim);
+    if m.mv.launched {
+        if !m.mv.realised {
+            if me.motion.kind == anim {
+                m.mv.realised = true;
+                m.mv.realised_at = m.now;
+                set_delay(m);
+            } else if m.mv.ticks > REQUEST_TIMEOUT {
+                return Step::Abort;
+            } else {
+                out.held = man.keys;
+                out.pressed = man.keys;
+                return Step::Going;
+            }
+        }
+        return if busy(me) { Step::Going } else { Step::Done };
+    }
+    if !in_queue_window(me, anim) {
+        out.held = m.mv.last_keys;
+        return Step::Going;
+    }
+    out.held = man.keys;
+    out.pressed = man.keys;
+    m.mv.launched = true;
     Step::Going
 }
 

@@ -146,6 +146,9 @@ pub(super) struct TechInfo {
     pub needs_slot: bool,
     /// The first attack drops a super shield (`ONcAnimFlag_DisableShield`).
     pub disables_shield: bool,
+    /// A Barabbas wave: its animation type and clip (a kick from the
+    /// crouch's start; the maneuver strikes like an attack).
+    pub wave: Option<(u16, usize)>,
 }
 
 /// Block stun longer than this makes an attack worth landing on a block.
@@ -893,7 +896,11 @@ impl Melee {
                             }
                         }
                         tables::maneuver::RANDOM_STOP => break,
-                        tables::maneuver::BARABBAS_WAVE => return 0.0,
+                        // Within its reach only (and not while the shield
+                        // it drops charges: above).
+                        tables::maneuver::BARABBAS_WAVE if info.wave.is_none() || dist > a => {
+                            return 0.0;
+                        }
                         _ => {}
                     }
                 }
@@ -1607,6 +1614,23 @@ fn tech_info(t: &Technique, coll: &crate::anim::collection::AnimCollection) -> T
                     info.allow_transition = true;
                     let from = MANEUVERS[index].from;
                     info.start = (from != MeleeState::None).then_some(from);
+                }
+                // (The wave needs no attack or throw to be a technique:
+                // `AI2cTechniqueComputedFlag_SpecialCaseMove`.)
+                if index == tables::maneuver::BARABBAS_WAVE && info.wave.is_none() {
+                    let man = &MANEUVERS[index];
+                    let anim = tables::ty(man.anim);
+                    match coll.lookup(anim, man.from.anim_state(), var::FIGHT) {
+                        Some(clip) => {
+                            info.wave = Some((anim, clip));
+                            info.damaging = true;
+                            info.needs_slot = true;
+                            info.disables_shield |= coll.entries[clip]
+                                .clip
+                                .has_flag(crate::anim::types::flag::DISABLE_SHIELD);
+                        }
+                        None => info.broken = true,
+                    }
                 }
             }
             Move::Evade(e) => {

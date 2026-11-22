@@ -427,11 +427,12 @@ pub(super) fn register(r: &Reg) -> mlua::Result<()> {
 
     // Test hook: make melee AI `id` use technique `name` next (once usable).
     r.def("technique", |_, host, (id, name): (usize, String)| {
-        if let Some(crate::ai::Brain::Melee(m)) = host
+        if let Some(m) = host
             .world
             .fighters
             .get_mut(id)
             .and_then(|f| f.brain.as_mut())
+            .and_then(|b| b.melee_mut())
         {
             m.force = Some(name);
         }
