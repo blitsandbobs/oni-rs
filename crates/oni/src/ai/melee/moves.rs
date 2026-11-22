@@ -314,7 +314,7 @@ fn position(
     // strike would land soon enough, then strike.
     // (Any jump counts: the original resolves a directionless jump from the
     // keys held.)
-    let jumping = cur.is_jumping() || me.airborne || me.motion.kind == tables::ty("jump");
+    let jumping = cur.is_jumping() || me.airborne || me.motion.kind == crate::anim::types::ty::JUMP;
     if p.jump != tables::JumpKind::None && goal.is_jumping() && jumping {
         if me.airborne && air_strike_ready(m, me, target, p) {
             m.mv.state_index = p.states.len();

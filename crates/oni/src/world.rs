@@ -20,7 +20,6 @@ use crate::fighter::Fighter;
 use crate::quirks::Quirks;
 use crate::skel::Character;
 
-/// The head's bone (the listener's ear height).
 pub mod anim_particles;
 pub mod camera;
 pub mod cheats;
@@ -839,6 +838,11 @@ impl World {
         use crate::anim::types::st;
         let me_team = self.fighters[i].team();
         // (In the goals' pass, the pass's view; else made now.)
+        // (Only an agent: nothing taken — its brain nor the pass's view — for
+        // any other.)
+        if !matches!(self.fighters[i].brain, Some(crate::ai::Brain::Agent(_))) {
+            return;
+        }
         let in_pass = self.agent_view.is_some();
         let mut view = self
             .agent_view

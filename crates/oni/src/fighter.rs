@@ -594,10 +594,6 @@ impl Fighter {
         }
     }
 
-    /// The first half of a tick: decide, animate, and work out this tick's
-    /// world-space move — without applying it, so the world can stop
-    /// characters walking into each other first. Returns None for a corpse
-    /// (which moves itself).
     /// Playing a film: this tick's recorded controls (and its position
     /// eased toward the recording's), as a move. None: no film, or it has
     /// just ended (it is dropped).
@@ -624,6 +620,10 @@ impl Fighter {
         }
     }
 
+    /// The first half of a tick: decide, animate, and work out this tick's
+    /// world-space move — without applying it, so the world can stop
+    /// characters walking into each other first. Returns None for a corpse
+    /// (which moves itself).
     pub fn plan(&mut self, held: u32, pressed: u32, opponents: &[Opponent]) -> Option<Vec3> {
         let ch = self.character.clone();
         self.motion.now += 1;

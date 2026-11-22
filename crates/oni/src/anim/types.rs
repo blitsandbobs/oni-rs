@@ -152,6 +152,8 @@ pub mod ty {
     pub const RUN_SIDESTEP_RIGHT_START: u16 = 218;
     pub const FALLING_FLAIL: u16 = 220;
     pub const PUNCH_RIFLE: u16 = 226;
+    pub const ACT_GIVE: u16 = 205;
+    pub const HAIL: u16 = 230;
     pub const CONSOLE: u16 = 196;
     pub const CONSOLE_WALK: u16 = 197;
     pub const CONSOLE_PUNCH: u16 = 221;

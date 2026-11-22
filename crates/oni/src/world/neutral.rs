@@ -129,10 +129,6 @@ impl World {
         }
     }
 
-    fn anim_type(name: &str) -> u16 {
-        oni_schema::value(&oni_schema::ANIM_TYPES, name).unwrap_or(0)
-    }
-
     fn is_agent(&self, i: usize) -> bool {
         matches!(
             self.fighters.get(i).and_then(|f| f.brain.as_ref()),
@@ -833,7 +829,7 @@ impl World {
                 let f = &mut self.fighters[i];
                 let ch = f.character.clone();
                 f.motion
-                    .request(&ch, Urge::Appropriate, false, Self::anim_type("hail"));
+                    .request(&ch, Urge::Appropriate, false, crate::anim::types::ty::HAIL);
             }
         } else if d2 > (1.5 * r.behavior.trigger_range).powi(2) {
             self.with_agent(i, |a, cx| a.return_to_job(true, true, cx));
@@ -900,7 +896,7 @@ impl World {
                 }
             }
             if r.initiated_give {
-                let give = Self::anim_type("actGive");
+                let give = crate::anim::types::ty::ACT_GIVE;
                 let mut started = r.give_anim_started;
                 block |= self.conversation_anim(i, give, true, !r.completed_give, &mut started);
                 r.give_anim_started = started;
