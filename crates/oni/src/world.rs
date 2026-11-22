@@ -139,6 +139,59 @@ pub struct CharKind {
     pub shadow: Option<Rc<crate::decal::Shadow>>,
 }
 
+/// What agents see of the fighters and the guns' danger (`Ctx::others`,
+/// `spreads`, `projectiles`): the fighters as each team sees them (made as
+/// a team first asks).
+pub(crate) struct AgentView {
+    by_team: Vec<(crate::ai::perception::Team, Vec<crate::ai::goals::Other>)>,
+    spreads: Vec<crate::ai::goals::Spread>,
+    projectiles: Vec<crate::ai::goals::Projectile>,
+}
+
+impl AgentView {
+    /// Fighter `f` as one of team `team` sees it.
+    fn other(f: &Fighter, team: crate::ai::perception::Team) -> crate::ai::goals::Other {
+        use crate::anim::types::st;
+        crate::ai::goals::Other {
+            feet: f.feet(),
+            alive: f.alive() && !f.motion.dying,
+            pelvis: f.feet() + Vec3::Y * f.motion.height(),
+            height: f.motion.height() * 2.0,
+            friend: f.team().regards(team) != crate::ai::perception::Relation::Hostile,
+            dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
+            fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
+            invisible: f.inventory.invisibility > 0,
+            facing: f.facing.facing,
+            gone: f.gone,
+        }
+    }
+
+    /// Makes team `team`'s list if it isn't there yet.
+    fn ensure(&mut self, fighters: &[Fighter], team: crate::ai::perception::Team) {
+        if !self.by_team.iter().any(|(t, _)| *t == team) {
+            let list = fighters.iter().map(|f| Self::other(f, team)).collect();
+            self.by_team.push((team, list));
+        }
+    }
+
+    fn others(&self, team: crate::ai::perception::Team) -> &[crate::ai::goals::Other] {
+        self.by_team
+            .iter()
+            .find(|(t, _)| *t == team)
+            .map_or(&[], |(_, l)| l.as_slice())
+    }
+
+    /// Fighter `i`'s entries again (its own update changed it).
+    fn refresh(&mut self, fighters: &[Fighter], i: usize) {
+        let Some(f) = fighters.get(i) else { return };
+        for (team, list) in &mut self.by_team {
+            if let Some(o) = list.get_mut(i) {
+                *o = Self::other(f, *team);
+            }
+        }
+    }
+}
+
 /// All fighters in the level + the static collision mesh new capsules resolve
 /// against. Fighter 0 is the player by convention.
 pub struct World {
@@ -155,6 +208,8 @@ pub struct World {
     /// this tick's snapshot of what decides whether they block.
     pub obstructions: crate::nav::dynamic::Obstructions,
     obstruction_tick: Option<(u64, Rc<obstructions::Snapshot>)>,
+    /// What agents see of each other during the goals' pass (`run_agents`).
+    agent_view: Option<AgentView>,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
@@ -273,6 +328,7 @@ impl World {
             nav: None,
             obstructions: Default::default(),
             obstruction_tick: None,
+            agent_view: None,
             sounds: Vec::new(),
             level_ai: Default::default(),
             player_name: "player".into(),
@@ -770,28 +826,18 @@ impl World {
         i: usize,
         run: impl FnOnce(&mut crate::ai::goals::Agent, &mut crate::ai::goals::Ctx),
     ) {
-        use crate::ai::goals::{Ctx, Other};
+        use crate::ai::goals::Ctx;
         use crate::anim::types::st;
         let me_team = self.fighters[i].team();
-        let others: Vec<Other> = self
-            .fighters
-            .iter()
-            .map(|f| Other {
-                feet: f.feet(),
-                alive: f.alive() && !f.motion.dying,
-                pelvis: f.feet() + Vec3::Y * f.motion.height(),
-                height: f.motion.height() * 2.0,
-                friend: f.team().regards(me_team) != crate::ai::perception::Relation::Hostile,
-                dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
-                fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
-                invisible: f.inventory.invisibility > 0,
-                facing: f.facing.facing,
-                gone: f.gone,
-            })
-            .collect();
+        // (In the goals' pass, the pass's view; else made now.)
+        let in_pass = self.agent_view.is_some();
+        let mut view = self
+            .agent_view
+            .take()
+            .unwrap_or_else(|| self.agent_view_now());
+        view.ensure(&self.fighters, me_team);
         let gun = self.gun_view(i);
         let guns = self.free_guns(i);
-        let (spreads, projectiles) = (self.spreads(), self.projectiles());
         let Some(crate::ai::Brain::Agent(mut agent)) = self.fighters[i].brain.take() else {
             return;
         };
@@ -941,152 +987,186 @@ impl World {
                 path_length: &path_fn,
                 probe: &probe_fn,
                 blockage: &blockage_fn,
-                others: &others,
+                others: view.others(me_team),
                 fights: &mut self.fights,
                 melee_profile,
                 daze,
                 quirks,
                 gun,
                 guns: &guns,
-                spreads: &spreads,
-                projectiles: &projectiles,
+                spreads: &view.spreads,
+                projectiles: &view.projectiles,
             };
             run(&mut agent, &mut cx);
         }
         self.fighters[i].brain = Some(crate::ai::Brain::Agent(agent));
+        if in_pass {
+            self.agent_view = Some(view);
+        }
+    }
+
+    /// What agents see of everyone now (`AgentView`).
+    fn agent_view_now(&self) -> AgentView {
+        AgentView {
+            by_team: Vec::new(),
+            spreads: self.spreads(),
+            projectiles: self.projectiles(),
+        }
     }
 
     /// Every agent's goals take a step — except while
     /// startled (only the turn plays) or dead.
     fn run_agents(&mut self) {
+        // (What each sees of the others is made once for the pass; each
+        // agent's own entry again after its update, which changes only its
+        // own body; the guns again after one drops or takes a gun.)
+        self.agent_view = Some(self.agent_view_now());
         for i in 0..self.fighters.len() {
-            let f = &self.fighters[i];
-            if !matches!(f.brain, Some(crate::ai::Brain::Agent(_)))
-                || !f.alive()
-                || f.motion.dying
-                || f.passive
-            {
-                continue;
-            }
-            if f.startling.is_some() || f.film.is_some() || f.console.is_some() {
-                continue;
-            }
-            self.with_agent(i, |a, cx| a.update(cx));
-            // What it asks of its body: an animation, health, the stance.
-            let asked = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => Some((
-                    a.anim_request.take(),
-                    std::mem::take(&mut a.heal),
-                    std::mem::take(&mut a.fight_mode),
-                )),
-                _ => None,
-            };
-            // A super ninja's powers: invisibility, teleports, hanging on.
-            let powers = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => Some((
-                    std::mem::take(&mut a.give_invisibility),
-                    a.teleport_to.take(),
-                    a.teleport_now.take(),
-                    a.hold_height.take(),
-                    a.set_super.take(),
-                    a.clear_stun,
-                )),
-                _ => None,
-            };
-            if let Some((invis, to, now, hold, set_super, clear_stun)) = powers {
-                let f = &mut self.fighters[i];
-                if let Some(v) = set_super {
-                    f.super_amount = v;
+            let guns_changed = self.run_agent(i);
+            if let Some(mut v) = self.agent_view.take() {
+                v.refresh(&self.fighters, i);
+                if guns_changed {
+                    v.spreads = self.spreads();
+                    v.projectiles = self.projectiles();
                 }
-                if clear_stun {
-                    let m = &mut f.motion;
-                    (
-                        m.hit_stun,
-                        m.block_stun,
-                        m.stagger_stun,
-                        m.soft_pause,
-                        m.hard_pause,
-                    ) = (0, 0, 0, 0, 0);
-                }
-                if invis > 0 {
-                    self.give_powerup(i, "invis", Some(invis), true);
-                }
-                if let Some(t) = to {
-                    self.fighters[i].teleport_dest = Some(t);
-                }
-                let f = &mut self.fighters[i];
-                if let Some(y) = hold {
-                    let mut at = f.feet();
-                    at.y = y;
-                    f.teleport(at);
-                }
-                if let Some(t) = now {
-                    // Straight into the teleport-out, seen.
-                    f.teleport_dest = Some(t);
-                    f.inventory.invisibility = 0;
-                    let ch = f.character.clone();
-                    f.motion.force_stand(&ch);
-                    f.motion.request(
-                        &ch,
-                        crate::anim::motion::Urge::Force,
-                        false,
-                        crate::anim::types::ty::TELEPORT_OUT,
-                    );
-                }
-            }
-            if let Some((anim, heal, fight)) = asked {
-                let f = &mut self.fighters[i];
-                // (The stance first: the special moves are its clips.)
-                if fight {
-                    f.motion.fight_mode();
-                }
-                if let Some((kind, force)) = anim {
-                    let ch = f.character.clone();
-                    let urge = if force {
-                        crate::anim::motion::Urge::Force
-                    } else {
-                        crate::anim::motion::Urge::Appropriate
-                    };
-                    f.motion.request(&ch, urge, false, kind);
-                }
-                if heal > 0 && f.alive() {
-                    f.hp = (f.hp + heal).min(f.max_hp);
-                }
-            }
-            // A gun it bends for: its own (useless) one goes to the floor.
-            let (want, drop) = match self.fighters[i].brain.as_mut() {
-                Some(crate::ai::Brain::Agent(a)) => {
-                    (a.want_pickup.take(), std::mem::take(&mut a.drop_gun))
-                }
-                _ => (None, false),
-            };
-            if drop {
-                self.drop_weapon(i, false);
-            }
-            if let Some(w) = want.filter(|_| self.fighters[i].pickup.is_none()) {
-                self.drop_weapon(i, false);
-                if self.start_pickup(i, Item::Weapon(w)) {
-                    eprintln!(
-                        "ai: fighter {i} bends for {}",
-                        self.armory.weapons[w].class.name
-                    );
-                }
-            }
-            // A console it wants to use.
-            if let Some(crate::ai::Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
-                if let Some(c) = a.use_console.take() {
-                    self.fighters[i].console = Some(crate::consoles::Use::Stopping(c));
-                }
-            }
-            // A panicking character cowers.
-            let f = &mut self.fighters[i];
-            if let Some(crate::ai::Brain::Agent(a)) = &f.brain {
-                let panic = a.panicking();
-                if panic != (f.motion.varient & crate::anim::types::var::PANIC != 0) {
-                    f.motion.set_panic(panic);
-                }
+                self.agent_view = Some(v);
             }
         }
+        self.agent_view = None;
+    }
+
+    /// Agent `i`'s step and what it asks of its body. Returns whether it
+    /// dropped or went for a gun.
+    fn run_agent(&mut self, i: usize) -> bool {
+        let f = &self.fighters[i];
+        if !matches!(f.brain, Some(crate::ai::Brain::Agent(_)))
+            || !f.alive()
+            || f.motion.dying
+            || f.passive
+        {
+            return false;
+        }
+        if f.startling.is_some() || f.film.is_some() || f.console.is_some() {
+            return false;
+        }
+        self.with_agent(i, |a, cx| a.update(cx));
+        // What it asks of its body: an animation, health, the stance.
+        let asked = match self.fighters[i].brain.as_mut() {
+            Some(crate::ai::Brain::Agent(a)) => Some((
+                a.anim_request.take(),
+                std::mem::take(&mut a.heal),
+                std::mem::take(&mut a.fight_mode),
+            )),
+            _ => None,
+        };
+        // A super ninja's powers: invisibility, teleports, hanging on.
+        let powers = match self.fighters[i].brain.as_mut() {
+            Some(crate::ai::Brain::Agent(a)) => Some((
+                std::mem::take(&mut a.give_invisibility),
+                a.teleport_to.take(),
+                a.teleport_now.take(),
+                a.hold_height.take(),
+                a.set_super.take(),
+                a.clear_stun,
+            )),
+            _ => None,
+        };
+        if let Some((invis, to, now, hold, set_super, clear_stun)) = powers {
+            let f = &mut self.fighters[i];
+            if let Some(v) = set_super {
+                f.super_amount = v;
+            }
+            if clear_stun {
+                let m = &mut f.motion;
+                (
+                    m.hit_stun,
+                    m.block_stun,
+                    m.stagger_stun,
+                    m.soft_pause,
+                    m.hard_pause,
+                ) = (0, 0, 0, 0, 0);
+            }
+            if invis > 0 {
+                self.give_powerup(i, "invis", Some(invis), true);
+            }
+            if let Some(t) = to {
+                self.fighters[i].teleport_dest = Some(t);
+            }
+            let f = &mut self.fighters[i];
+            if let Some(y) = hold {
+                let mut at = f.feet();
+                at.y = y;
+                f.teleport(at);
+            }
+            if let Some(t) = now {
+                // Straight into the teleport-out, seen.
+                f.teleport_dest = Some(t);
+                f.inventory.invisibility = 0;
+                let ch = f.character.clone();
+                f.motion.force_stand(&ch);
+                f.motion.request(
+                    &ch,
+                    crate::anim::motion::Urge::Force,
+                    false,
+                    crate::anim::types::ty::TELEPORT_OUT,
+                );
+            }
+        }
+        if let Some((anim, heal, fight)) = asked {
+            let f = &mut self.fighters[i];
+            // (The stance first: the special moves are its clips.)
+            if fight {
+                f.motion.fight_mode();
+            }
+            if let Some((kind, force)) = anim {
+                let ch = f.character.clone();
+                let urge = if force {
+                    crate::anim::motion::Urge::Force
+                } else {
+                    crate::anim::motion::Urge::Appropriate
+                };
+                f.motion.request(&ch, urge, false, kind);
+            }
+            if heal > 0 && f.alive() {
+                f.hp = (f.hp + heal).min(f.max_hp);
+            }
+        }
+        // A gun it bends for: its own (useless) one goes to the floor.
+        let (want, drop) = match self.fighters[i].brain.as_mut() {
+            Some(crate::ai::Brain::Agent(a)) => {
+                (a.want_pickup.take(), std::mem::take(&mut a.drop_gun))
+            }
+            _ => (None, false),
+        };
+        let mut guns_changed = drop;
+        if drop {
+            self.drop_weapon(i, false);
+        }
+        if let Some(w) = want.filter(|_| self.fighters[i].pickup.is_none()) {
+            guns_changed = true;
+            self.drop_weapon(i, false);
+            if self.start_pickup(i, Item::Weapon(w)) {
+                eprintln!(
+                    "ai: fighter {i} bends for {}",
+                    self.armory.weapons[w].class.name
+                );
+            }
+        }
+        // A console it wants to use.
+        if let Some(crate::ai::Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
+            if let Some(c) = a.use_console.take() {
+                self.fighters[i].console = Some(crate::consoles::Use::Stopping(c));
+            }
+        }
+        // A panicking character cowers.
+        let f = &mut self.fighters[i];
+        if let Some(crate::ai::Brain::Agent(a)) = &f.brain {
+            let panic = a.panicking();
+            if panic != (f.motion.varient & crate::anim::types::var::PANIC != 0) {
+                f.motion.set_panic(panic);
+            }
+        }
+        guns_changed
     }
 
     /// Gives fighter `id` goals: a placed character's job (idle, or its
