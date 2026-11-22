@@ -25,7 +25,6 @@ mod aflag {
     pub const LOOP: u32 = 0x1;
     pub const PINGPONG: u32 = 0x2;
     pub const AUTOSTART: u32 = 0x8;
-    pub const LOCALIZED: u32 = 0x10;
 }
 
 /// One placed object as the level authored it (`OBtObjectSetup`).
@@ -107,18 +106,6 @@ pub fn load(level_dir: &Path) -> Vec<Setup> {
                 })
                 .fold(0, |acc, b| acc | (1 << b));
             let q = &o["orientation"];
-            let m: Vec<f32> = o["origin"]
-                .as_array()
-                .map(|a| a.iter().map(f).collect())
-                .unwrap_or_default();
-            let col = |c: usize| {
-                glam::Vec4::new(
-                    m.get(c * 3).copied().unwrap_or(0.0),
-                    m.get(c * 3 + 1).copied().unwrap_or(0.0),
-                    m.get(c * 3 + 2).copied().unwrap_or(0.0),
-                    if c == 3 { 1.0 } else { 0.0 },
-                )
-            };
             Setup {
                 name: o["name"].as_str().unwrap_or("").to_string(),
                 script_id: o["scriptId"].as_u64().unwrap_or(0) as u32,
@@ -133,7 +120,7 @@ pub fn load(level_dir: &Path) -> Vec<Setup> {
                     .normalize()
                     .conjugate(),
                 scale: f(&o["scale"]),
-                origin: Mat4::from_cols(col(0), col(1), col(2), col(3)),
+                origin: crate::geom::mat4_json(&o["origin"]),
                 animation: o["animation"].as_str().map(str::to_string),
                 models: o["geometry"]
                     .as_array()
@@ -219,23 +206,7 @@ impl World {
         let o = &self.objects[k];
         let s = &self.object_setups[o.setup];
         match &o.anim {
-            Some(a) => {
-                let m = a.matrix(o.frame);
-                let col = |c: usize| {
-                    glam::Vec4::new(
-                        m[c * 3],
-                        m[c * 3 + 1],
-                        m[c * 3 + 2],
-                        if c == 3 { 1.0 } else { 0.0 },
-                    )
-                };
-                let m = Mat4::from_cols(col(0), col(1), col(2), col(3));
-                if a.flags & aflag::LOCALIZED != 0 {
-                    s.origin * m
-                } else {
-                    m
-                }
-            }
+            Some(a) => crate::geom::placed_clip_matrix(a, o.frame, s.origin),
             None => {
                 Mat4::from_scale_rotation_translation(Vec3::splat(s.scale), s.rotation, s.position)
             }

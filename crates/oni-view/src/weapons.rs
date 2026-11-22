@@ -245,28 +245,14 @@ fn class(name: &str, c: &Json, dir: &Path, particles: &p3::Classes) -> WeaponCla
         .as_array()
         .map(|a| {
             a.iter()
-                .map(|x| {
-                    let m: Vec<f32> = x["matrix"]
-                        .as_array()
-                        .map(|m| m.iter().map(f).collect())
-                        .unwrap_or_default();
-                    let col = |k: usize| {
-                        glam::Vec4::new(
-                            m.get(k * 3).copied().unwrap_or(0.0),
-                            m.get(k * 3 + 1).copied().unwrap_or(0.0),
-                            m.get(k * 3 + 2).copied().unwrap_or(0.0),
-                            if k == 3 { 1.0 } else { 0.0 },
-                        )
-                    };
-                    Attachment {
-                        class: x["class"].as_str().and_then(|n| particles.get(n)),
-                        matrix: Mat4::from_cols(col(0), col(1), col(2), col(3)),
-                        ammo_used: u(&x["ammoUsed"]),
-                        chamber_time: u(&x["chamberTime"]),
-                        min_fire_time: u(&x["minFireTime"]),
-                        shooter: x["shooterIndex"].as_i64().unwrap_or(-1) as i32,
-                        start_delay: u(&x["startDelay"]),
-                    }
+                .map(|x| Attachment {
+                    class: x["class"].as_str().and_then(|n| particles.get(n)),
+                    matrix: crate::geom::mat4_json(&x["matrix"]),
+                    ammo_used: u(&x["ammoUsed"]),
+                    chamber_time: u(&x["chamberTime"]),
+                    min_fire_time: u(&x["minFireTime"]),
+                    shooter: x["shooterIndex"].as_i64().unwrap_or(-1) as i32,
+                    start_delay: u(&x["startDelay"]),
                 })
                 .collect()
         })

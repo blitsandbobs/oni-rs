@@ -241,15 +241,7 @@ pub fn load(level_dir: &Path) -> Vec<Laser> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|m| {
-                    let f = |i: usize| m[i].as_f64().unwrap_or(0.0) as f32;
-                    glam::Mat4::from_cols(
-                        glam::Vec4::new(f(0), f(1), f(2), 0.0),
-                        glam::Vec4::new(f(3), f(4), f(5), 0.0),
-                        glam::Vec4::new(f(6), f(7), f(8), 0.0),
-                        glam::Vec4::new(f(9), f(10), f(11), 1.0),
-                    )
-                })
+                .map(crate::geom::mat4_json)
                 .collect();
             eyes.insert(name.clone(), Rc::new((common.join(model), frames)));
         }

@@ -151,21 +151,7 @@ impl Door {
     pub fn leaf_matrix(&self, k: usize, frame: i32) -> Mat4 {
         let origin = self.leaves.get(k).copied().unwrap_or(Mat4::IDENTITY);
         let Some(a) = &self.anim else { return origin };
-        let m = a.matrix(frame);
-        let col = |c: usize| {
-            glam::Vec4::new(
-                m[c * 3],
-                m[c * 3 + 1],
-                m[c * 3 + 2],
-                if c == 3 { 1.0 } else { 0.0 },
-            )
-        };
-        let m = Mat4::from_cols(col(0), col(1), col(2), col(3));
-        if a.flags & 0x10 != 0 {
-            origin * m
-        } else {
-            m
-        }
+        crate::geom::placed_clip_matrix(a, frame, origin)
     }
 
     /// How leaf `k` has moved from where it stands closed (frame 0) to
@@ -409,7 +395,7 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
                 .as_array()
                 .into_iter()
                 .flatten()
-                .map(|l| matrix(&l["origin"]))
+                .map(|l| crate::geom::mat4_json(&l["origin"]))
                 .collect();
             let c = &classes["classes"][&class];
             let sound_allow = match c["soundAllow"].as_str() {
@@ -446,20 +432,6 @@ pub fn load(level_dir: &Path) -> Vec<Door> {
             }
         })
         .collect()
-}
-
-/// A 4×3 column-major matrix (`[f32; 12]` in JSON).
-fn matrix(v: &serde_json::Value) -> Mat4 {
-    let f = |i: usize| v[i].as_f64().unwrap_or(0.0) as f32;
-    let col = |c: usize| {
-        glam::Vec4::new(
-            f(c * 3),
-            f(c * 3 + 1),
-            f(c * 3 + 2),
-            if c == 3 { 1.0 } else { 0.0 },
-        )
-    };
-    Mat4::from_cols(col(0), col(1), col(2), col(3))
 }
 
 /// An object animation from `object_animations.json`'s form.

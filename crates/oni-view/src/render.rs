@@ -2476,7 +2476,11 @@ pub(crate) fn load_png(path: &Path) -> std::io::Result<(u32, u32, Vec<u8>)> {
     Ok((info.width, info.height, rgba))
 }
 
-const SHADER: &str = r#"
+/// The world shaders' shared head: the uniforms and the fog (linear in
+/// screen depth: −1 near, 1 far; `gl_fog_*`).
+macro_rules! world_wgsl {
+    () => {
+        r#"
 struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
 @group(0) @binding(0) var<uniform> u: Uniforms;
 // The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
@@ -2492,6 +2496,13 @@ fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
     return mix(u.fog_color.rgb, rgb, f);
 }
 
+"#
+    };
+}
+
+const SHADER: &str = concat!(
+    world_wgsl!(),
+    r#"
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -2649,7 +2660,8 @@ fn fs_jello_object(in: VSOut) -> @location(0) vec4<f32> {
     let c = lit(in);
     return vec4<f32>(fogged(c.rgb, in.clip.z), c.a * (31.0 / 255.0));
 }
-"#;
+"#
+);
 
 /// The overlay: the texture times the colour.
 const OVERLAY_SHADER: &str = r#"
@@ -2679,22 +2691,9 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
 
 /// Decals: the texture times the corners' light, its alpha times the
 /// decal's opacity.
-const DECAL_SHADER: &str = r#"
-struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
-@group(0) @binding(0) var<uniform> u: Uniforms;
-// The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
-fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
-    let z = depth * 2.0 - 1.0;
-    let span = u.fog.y - u.fog.x;
-    var f = 1.0;
-    if (span > 0.0) {
-        f = clamp((u.fog.y - z) / span, 0.0, 1.0);
-    } else if (z >= u.fog.y) {
-        f = 0.0;
-    }
-    return mix(u.fog_color.rgb, rgb, f);
-}
-
+const DECAL_SHADER: &str = concat!(
+    world_wgsl!(),
+    r#"
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -2718,27 +2717,15 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let texel = textureSample(tex, samp, in.uv);
     return vec4<f32>(fogged(texel.rgb * in.color.rgb, in.clip.z), texel.a * in.color.a);
 }
-"#;
+"#
+);
 
 /// Camera-facing billboard shader for additive particle sprites. The quad is
 /// built from each vertex's `center`/`size`/`corner` using the camera's
 /// world-space right/up basis (pushed per draw).
-const PARTICLE_SHADER: &str = r#"
-struct Uniforms { view_proj: mat4x4<f32>, fog_color: vec4<f32>, fog: vec4<f32> };
-@group(0) @binding(0) var<uniform> u: Uniforms;
-// The fog (linear in screen depth: −1 near, 1 far; `gl_fog_*`).
-fn fogged(rgb: vec3<f32>, depth: f32) -> vec3<f32> {
-    let z = depth * 2.0 - 1.0;
-    let span = u.fog.y - u.fog.x;
-    var f = 1.0;
-    if (span > 0.0) {
-        f = clamp((u.fog.y - z) / span, 0.0, 1.0);
-    } else if (z >= u.fog.y) {
-        f = 0.0;
-    }
-    return mix(u.fog_color.rgb, rgb, f);
-}
-
+const PARTICLE_SHADER: &str = concat!(
+    world_wgsl!(),
+    r#"
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
 
@@ -2771,4 +2758,5 @@ fn fs_main(in: VSOut) -> @location(0) vec4<f32> {
     let c = textureSample(tex, samp, in.uv);
     return vec4<f32>(fogged(c.rgb, in.clip.z), c.a);
 }
-"#;
+"#
+);

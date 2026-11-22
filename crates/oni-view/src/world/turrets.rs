@@ -190,25 +190,11 @@ fn class(c: &Value, common: &Path, particles: &p3::Classes) -> TurretClass {
             .as_array()
             .into_iter()
             .flatten()
-            .map(|a| {
-                let m: Vec<f32> = a["matrix"]
-                    .as_array()
-                    .map(|m| m.iter().map(f).collect())
-                    .unwrap_or_default();
-                let col = |k: usize| {
-                    glam::Vec4::new(
-                        m.get(k * 3).copied().unwrap_or(0.0),
-                        m.get(k * 3 + 1).copied().unwrap_or(0.0),
-                        m.get(k * 3 + 2).copied().unwrap_or(0.0),
-                        if k == 3 { 1.0 } else { 0.0 },
-                    )
-                };
-                Attachment {
-                    class: a["class"].as_str().and_then(|n| particles.get(n)),
-                    shooter: a["shooter"].as_i64().unwrap_or(-1) as i32,
-                    chamber: a["chamber"].as_u64().unwrap_or(0) as u16,
-                    matrix: Mat4::from_cols(col(0), col(1), col(2), col(3)),
-                }
+            .map(|a| Attachment {
+                class: a["class"].as_str().and_then(|n| particles.get(n)),
+                shooter: a["shooter"].as_i64().unwrap_or(-1) as i32,
+                chamber: a["chamber"].as_u64().unwrap_or(0) as u16,
+                matrix: crate::geom::mat4_json(&a["matrix"]),
             })
             .collect(),
         gun,

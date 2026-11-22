@@ -3,7 +3,7 @@
 //! after them a ring for the dead of play — each its class's body drawn
 //! with its parts' stored matrices (`ONrCorpse_*`).
 
-use glam::{Mat4, Vec3, Vec4};
+use glam::{Mat4, Vec3};
 
 use super::World;
 
@@ -95,11 +95,7 @@ pub fn load(level_dir: &std::path::Path) -> Corpses {
                         .filter_map(|x| x.as_f64())
                         .map(|x| x as f32)
                         .collect();
-                    let col =
-                        |k: usize, w: f32| Vec4::from((Vec3::from_slice(&f[k * 3..k * 3 + 3]), w));
-                    (f.len() == 12).then(|| {
-                        Mat4::from_cols(col(0, 0.0), col(1, 0.0), col(2, 0.0), col(3, 1.0))
-                    })
+                    (f.len() == 12).then(|| crate::geom::mat4_4x3(&f))
                 })
                 .collect::<Option<Vec<Mat4>>>()?;
             Some(Corpse {

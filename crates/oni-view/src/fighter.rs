@@ -1712,15 +1712,7 @@ impl Fighter {
     /// building `chrBaseMatrix`).
     fn replace(&mut self) {
         if let Some((anim, frame)) = &self.env_anim {
-            let m = anim.matrix((*frame - 1).max(0));
-            let col = |c: usize| {
-                glam::Vec4::new(
-                    m[c * 3],
-                    m[c * 3 + 1],
-                    m[c * 3 + 2],
-                    if c == 3 { 1.0 } else { 0.0 },
-                )
-            };
+            let clip = crate::geom::clip_matrix(anim, (*frame - 1).max(0));
             self.placement = if self.env_anim_no_rotation {
                 let s = &anim.scale;
                 let scale = Mat4::from_cols(
@@ -1729,10 +1721,9 @@ impl Fighter {
                     glam::Vec4::new(s[6], s[7], s[8], 0.0),
                     glam::Vec4::W,
                 );
-                Mat4::from_translation(Vec3::new(m[9], m[10], m[11])) * scale
+                Mat4::from_translation(clip.w_axis.truncate()) * scale
             } else {
-                Mat4::from_cols(col(0), col(1), col(2), col(3))
-                    * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
+                clip * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
             };
             return;
         }

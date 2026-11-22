@@ -29,6 +29,7 @@ mod fighter;
 mod frame;
 mod game;
 mod gamma;
+mod geom;
 mod gltf;
 mod hud;
 mod impacts;

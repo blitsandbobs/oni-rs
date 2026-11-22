@@ -563,19 +563,7 @@ impl GameCamera {
     }
 }
 
-/// An object clip's matrix at `frame`.
-fn clip_matrix(a: &ObjectAnimation, frame: i32) -> Mat4 {
-    let m = a.matrix(frame);
-    let col = |c: usize| {
-        glam::Vec4::new(
-            m[c * 3],
-            m[c * 3 + 1],
-            m[c * 3 + 2],
-            if c == 3 { 1.0 } else { 0.0 },
-        )
-    };
-    Mat4::from_cols(col(0), col(1), col(2), col(3))
-}
+use crate::geom::clip_matrix;
 
 #[cfg(test)]
 mod tests {
