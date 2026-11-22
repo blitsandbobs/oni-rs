@@ -62,31 +62,21 @@ impl TexAnim {
 /// The animated textures by file stem, their frames under `oni` (the
 /// converted tree's root).
 pub fn load(oni: &Path) -> HashMap<String, TexAnim> {
-    let doc: serde_json::Value = crate::json::load(oni.join("common/texture_animations.json"));
-    let Some(map) = doc.as_object() else {
-        return HashMap::new();
-    };
-    map.iter()
+    let doc: oni_schema::files::TextureAnimationsFile =
+        crate::json::read_file(oni.join("common/texture_animations.json"));
+    doc.animations
+        .into_iter()
         .filter_map(|(name, a)| {
-            let frames: Vec<PathBuf> = a["frames"]
-                .as_array()?
-                .iter()
-                .filter_map(|f| Some(oni.join(f.as_str()?)))
-                .collect();
-            let has = |flag: &str| {
-                a["flags"]
-                    .as_array()
-                    .is_some_and(|f| f.iter().any(|x| x == flag))
-            };
+            let has = |flag: &str| a.flags.iter().any(|x| x == flag);
             let anim = TexAnim {
-                frames,
-                time_per_frame: a["timePerFrame"].as_u64().unwrap_or(1) as u32,
+                frames: a.frames.iter().map(|f| oni.join(f)).collect(),
+                time_per_frame: u32::from(a.time_per_frame),
                 ping_pong: has("pingPong"),
                 random_frame: has("randomFrame"),
                 random_start: has("randomStart"),
                 dont_animate: has("dontAnimate"),
             };
-            (!anim.frames.is_empty()).then(|| (name.clone(), anim))
+            (!anim.frames.is_empty()).then_some((name, anim))
         })
         .collect()
 }

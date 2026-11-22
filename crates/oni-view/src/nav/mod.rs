@@ -138,81 +138,47 @@ impl Navigation {
     /// Loads `navigation.json` (+ its grids) from a level folder.
     pub fn load(level_dir: &Path) -> std::io::Result<Navigation> {
         let text = std::fs::read_to_string(level_dir.join("navigation.json"))?;
-        let doc: serde_json::Value = serde_json::from_str(&text)
+        let doc: oni_schema::files::NavigationFile = serde_json::from_str(&text)
             .map_err(|e| std::io::Error::other(format!("navigation.json: {e}")))?;
-        let bin = std::fs::read(level_dir.join(doc["grids"].as_str().unwrap_or("navigation.bin")))?;
-        use crate::json::vec3 as v3;
-        let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0) as f32;
-        let plane = |v: &serde_json::Value| [f(&v[0]), f(&v[1]), f(&v[2]), f(&v[3])];
+        let bin = std::fs::read(level_dir.join(&doc.grids))?;
         let mut rooms: Vec<Room> = Vec::new();
         let mut raw_links: Vec<Vec<RawLink>> = Vec::new();
-        for r in doc["rooms"].as_array().into_iter().flatten() {
-            let names: Vec<&str> = r["flags"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter_map(|v| v.as_str())
-                .collect();
-            let flags = oni_schema::bits(&oni_schema::ROOM_FLAGS, names);
-            let planes = r["planes"]
-                .as_array()
-                .into_iter()
-                .flatten()
+        for r in &doc.rooms {
+            let flags =
+                oni_schema::bits(&oni_schema::ROOM_FLAGS, r.flags.iter().map(String::as_str));
+            let planes = r
+                .planes
+                .iter()
                 .map(|p| {
-                    let p = plane(p);
                     let n = Vec3::new(p[0], p[1], p[2]).length().max(1e-6);
                     [p[0] / n, p[1] / n, p[2] / n, p[3] / n]
                 })
                 .collect();
-            let grid = r["grid"].is_object().then(|| {
-                let g = &r["grid"];
-                let (w, h) = (
-                    g["width"].as_u64().unwrap_or(0) as i32,
-                    g["height"].as_u64().unwrap_or(0) as i32,
-                );
-                let at = g["offset"].as_u64().unwrap_or(0) as usize;
+            let grid = r.grid.as_ref().map(|g| {
+                let (w, h) = (g.width as i32, g.height as i32);
                 Grid {
-                    origin: Vec2::new(f(&g["origin"][0]), f(&g["origin"][1])),
+                    origin: Vec2::from(g.origin),
                     width: w,
                     height: h,
                     cells: bin
-                        .get(at..at + (w * h) as usize)
+                        .get(g.offset..g.offset + (w * h) as usize)
                         .map(<[u8]>::to_vec)
                         .unwrap_or_default(),
                 }
             });
-            let stair = r["stair"]
-                .is_object()
-                .then(|| (plane(&r["stair"]["plane"]), f(&r["stair"]["height"])));
             rooms.push(Room {
                 flags,
                 planes,
-                min: v3(&r["min"]),
-                max: v3(&r["max"]),
-                stair,
+                min: Vec3::from(r.min),
+                max: Vec3::from(r.max),
+                stair: r.stair.as_ref().map(|s| (s.plane, s.height)),
                 grid,
                 portals: Vec::new(),
             });
             raw_links.push(
-                r["links"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .map(|l| {
-                        let portal = l["portal"]
-                            .as_array()
-                            .into_iter()
-                            .flatten()
-                            .filter_map(|v| v.as_str())
-                            .map(String::from)
-                            .collect();
-                        let q = &l["quad"];
-                        (
-                            l["to"].as_u64().unwrap_or(0) as usize,
-                            portal,
-                            [v3(&q[0]), v3(&q[1]), v3(&q[2]), v3(&q[3])],
-                        )
-                    })
+                r.links
+                    .iter()
+                    .map(|l| (l.to as usize, l.portal.clone(), l.quad.map(Vec3::from)))
                     .collect(),
             );
         }

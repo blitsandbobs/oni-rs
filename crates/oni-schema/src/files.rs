@@ -1466,6 +1466,109 @@ pub enum MessageTable {
     ByName(BTreeMap<String, String>),
 }
 
+/// `common/fonts.json`: the font families (`TSFF`), by name.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FontsFile {
+    pub families: BTreeMap<String, FontFamily>,
+}
+
+/// A font family: its fonts, and the characters a line may break after.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct FontFamily {
+    pub fonts: Vec<FontFile>,
+    pub breaking: String,
+}
+
+/// A font (`TSFT`): its size, style and metrics, its atlas (a path under
+/// `common/`) and its glyphs by character code: `[x, y, width, kerning]`
+/// of its cell in the atlas.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FontFile {
+    pub size: u16,
+    pub style: String,
+    pub ascending_height: u32,
+    pub descending_height: u32,
+    pub leading_height: i16,
+    pub leading_width: i16,
+    pub atlas: String,
+    pub glyphs: BTreeMap<String, [u32; 4]>,
+}
+
+/// `common/texture_animations.json`: the animated textures, by file stem.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct TextureAnimationsFile {
+    pub animations: BTreeMap<String, TextureAnimation>,
+}
+
+/// An animated texture: its frames (files under the converted tree), how
+/// long each shows (ticks) and how it runs (`pingPong`, `randomFrame`,
+/// `randomStart`, `dontAnimate`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TextureAnimation {
+    pub time_per_frame: u16,
+    pub frames: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flags: Vec<String>,
+}
+
+/// `levels/NN/navigation.json`: the level's pathfinding rooms (`BNV`),
+/// their grids in a binary file beside it.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NavigationFile {
+    /// A grid square's size.
+    pub square_size: f32,
+    /// The grid cells' kinds, by value.
+    pub square_types: Vec<String>,
+    /// The grids' file (beside this one).
+    pub grids: String,
+    pub rooms: Vec<NavRoom>,
+}
+
+/// A pathfinding room: its flags (`ROOM_FLAGS`), bounds, side planes,
+/// links to its neighbours, its stair, and its grid.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NavRoom {
+    pub flags: Vec<String>,
+    pub min: V3,
+    pub max: V3,
+    pub planes: Vec<[f32; 4]>,
+    pub links: Vec<NavLink>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stair: Option<NavStair>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grid: Option<NavGrid>,
+}
+
+/// A link to a neighbouring room: its portal's flags (`PORTAL_FLAGS`) and
+/// quad.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NavLink {
+    pub to: u32,
+    pub portal: Vec<String>,
+    pub quad: [V3; 4],
+}
+
+/// A room's stair: its plane and height.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NavStair {
+    pub plane: [f32; 4],
+    pub height: f32,
+}
+
+/// A room's grid: where it starts, its size in squares, and where its
+/// cells sit in the grids' file.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct NavGrid {
+    pub origin: [f32; 2],
+    pub width: u32,
+    pub height: u32,
+    pub offset: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

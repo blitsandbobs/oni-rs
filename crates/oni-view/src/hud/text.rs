@@ -53,48 +53,46 @@ pub struct Fonts {
 impl Fonts {
     /// Loads the default family (Tahoma) from `common/fonts.json`.
     pub fn load(common: &Path) -> Fonts {
-        let Some(doc) = crate::json::read(common.join("fonts.json")) else {
+        let Some(doc) =
+            crate::json::read_some::<oni_schema::files::FontsFile>(common.join("fonts.json"))
+        else {
             return Fonts::default();
         };
-        let fam = doc["families"]
-            .as_object()
-            .and_then(|f| f.get("Tahoma").or_else(|| f.values().next()))
-            .cloned()
-            .unwrap_or_default();
-        let int = |v: &serde_json::Value| v.as_i64().unwrap_or(0) as i32;
-        let fonts = fam["fonts"]
-            .as_array()
-            .into_iter()
-            .flatten()
+        let Some(fam) = doc
+            .families
+            .get("Tahoma")
+            .or_else(|| doc.families.values().next())
+        else {
+            return Fonts {
+                fonts: Vec::new(),
+                breaking: vec![' '],
+            };
+        };
+        let fonts = fam
+            .fonts
+            .iter()
             .map(|f| {
-                let atlas = common.join(f["atlas"].as_str().unwrap_or(""));
+                let atlas = common.join(&f.atlas);
                 let size = image_size(&atlas).unwrap_or([512.0, 512.0]);
                 Font {
-                    size: f["size"].as_u64().unwrap_or(0) as u16,
-                    style: f["style"].as_str().unwrap_or("plain").to_string(),
-                    ascending: int(&f["ascendingHeight"]),
-                    descending: int(&f["descendingHeight"]),
-                    leading: int(&f["leadingHeight"]),
+                    size: f.size,
+                    style: f.style.clone(),
+                    ascending: f.ascending_height as i32,
+                    descending: f.descending_height as i32,
+                    leading: i32::from(f.leading_height),
                     atlas,
                     atlas_size: size,
-                    glyphs: f["glyphs"]
-                        .as_object()
-                        .into_iter()
-                        .flatten()
-                        .filter_map(|(k, v)| {
-                            let a = v.as_array()?;
-                            Some((
-                                k.parse().ok()?,
-                                std::array::from_fn(|i| a.get(i).map_or(0, int)),
-                            ))
-                        })
+                    glyphs: f
+                        .glyphs
+                        .iter()
+                        .filter_map(|(k, g)| Some((k.parse().ok()?, g.map(|v| v as i32))))
                         .collect(),
                 }
             })
             .collect();
         Fonts {
             fonts,
-            breaking: fam["breaking"].as_str().unwrap_or(" ").chars().collect(),
+            breaking: fam.breaking.chars().collect(),
         }
     }
 

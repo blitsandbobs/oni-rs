@@ -11,11 +11,6 @@ pub fn read(path: impl AsRef<Path>) -> Option<Value> {
     serde_json::from_str(&std::fs::read_to_string(path).ok()?).ok()
 }
 
-/// A JSON file's value; `Null` when it's missing or doesn't parse.
-pub fn load(path: impl AsRef<Path>) -> Value {
-    read(path).unwrap_or_default()
-}
-
 /// A converted file in its shared format (`oni_schema::files`): its
 /// default when the file is missing (a level without lasers, say); a file
 /// there that doesn't read as its format is said so, and taken as missing.

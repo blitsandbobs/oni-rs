@@ -325,7 +325,7 @@ pub fn convert_with(
         shade: Some(0xFFFF_7F00),
     };
     // The animated textures (by file stem), from every file.
-    let mut texture_anims: BTreeMap<String, serde_json::Value> = BTreeMap::new();
+    let mut texture_anims = oni_schema::files::TextureAnimationsFile::default();
 
     // --- Pass 2: per file, export canonical-named + unnamed assets, resolving refs ---
     for (fi, f) in files.iter().enumerate() {
@@ -352,7 +352,13 @@ pub fn convert_with(
             &global_named,
             &mut stats,
         )?;
-        texture_animations(&dat, &f.root, fi, &global_named, &mut texture_anims);
+        texture_animations(
+            &dat,
+            &f.root,
+            fi,
+            &global_named,
+            &mut texture_anims.animations,
+        );
         convert_sounds(
             &dat,
             raw.as_deref(),
@@ -1323,7 +1329,7 @@ fn texture_animations(
     this_root: &str,
     fi: usize,
     global_named: &BTreeMap<(FourCc, String), usize>,
-    out: &mut BTreeMap<String, serde_json::Value>,
+    out: &mut BTreeMap<String, oni_schema::files::TextureAnimation>,
 ) {
     const FLAGS: [(u32, &str); 4] = [
         (1 << 6, "pingPong"),
@@ -1368,15 +1374,15 @@ fn texture_animations(
             }
         }
         let flags = le_u32(d, 128);
-        let names: Vec<&str> = FLAGS
-            .iter()
-            .filter(|(b, _)| flags & b != 0)
-            .map(|(_, n)| *n)
-            .collect();
-        let mut entry = serde_json::json!({ "timePerFrame": le_u16(a, 12), "frames": frames });
-        if !names.is_empty() {
-            entry["flags"] = serde_json::json!(names);
-        }
+        let entry = oni_schema::files::TextureAnimation {
+            time_per_frame: le_u16(a, 12),
+            frames,
+            flags: FLAGS
+                .iter()
+                .filter(|(b, _)| flags & b != 0)
+                .map(|(_, n)| n.to_string())
+                .collect(),
+        };
         out.insert(asset_name(dat, inst), entry);
     }
 }
@@ -1612,42 +1618,50 @@ fn convert_navigation(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result
     let Some(rooms) = nav::extract_navigation(dat, akev, raw) else {
         return Ok(());
     };
+    let names = |table: &[&'static str], bits: u32| -> Vec<String> {
+        sc::bit_names(table, bits)
+            .into_iter()
+            .map(String::from)
+            .collect()
+    };
     let mut bin: Vec<u8> = Vec::new();
-    let rooms_json: Vec<serde_json::Value> = rooms
+    let rooms_out: Vec<oni_schema::files::NavRoom> = rooms
         .iter()
-        .map(|r| {
-            let mut o = serde_json::json!({
-                "flags": sc::bit_names(&sc::ROOM_FLAGS, r.flags),
-                "min": r.min,
-                "max": r.max,
-                "planes": r.planes,
-                "links": r.links.iter().map(|l| serde_json::json!({
-                    "to": l.to,
-                    "portal": sc::bit_names(&sc::PORTAL_FLAGS, l.quad_flags),
-                    "quad": l.quad,
-                })).collect::<Vec<_>>(),
-            });
-            if let Some((plane, height)) = r.stair {
-                o["stair"] = serde_json::json!({ "plane": plane, "height": height });
-            }
-            if let Some(g) = &r.grid {
-                o["grid"] = serde_json::json!({
-                    "origin": g.origin,
-                    "width": g.width,
-                    "height": g.height,
-                    "offset": bin.len(),
-                });
+        .map(|r| oni_schema::files::NavRoom {
+            flags: names(&sc::ROOM_FLAGS, r.flags),
+            min: r.min,
+            max: r.max,
+            planes: r.planes.clone(),
+            links: r
+                .links
+                .iter()
+                .map(|l| oni_schema::files::NavLink {
+                    to: l.to,
+                    portal: names(&sc::PORTAL_FLAGS, l.quad_flags),
+                    quad: l.quad,
+                })
+                .collect(),
+            stair: r
+                .stair
+                .map(|(plane, height)| oni_schema::files::NavStair { plane, height }),
+            grid: r.grid.as_ref().map(|g| {
+                let grid = oni_schema::files::NavGrid {
+                    origin: g.origin,
+                    width: g.width,
+                    height: g.height,
+                    offset: bin.len(),
+                };
                 bin.extend_from_slice(&g.cells);
-            }
-            o
+                grid
+            }),
         })
         .collect();
-    let doc = serde_json::json!({
-        "squareSize": nav::SQUARE,
-        "squareTypes": sc::SQUARE_TYPES,
-        "grids": "navigation.bin",
-        "rooms": rooms_json,
-    });
+    let doc = oni_schema::files::NavigationFile {
+        square_size: nav::SQUARE,
+        square_types: sc::SQUARE_TYPES.iter().map(|s| s.to_string()).collect(),
+        grids: "navigation.bin".into(),
+        rooms: rooms_out,
+    };
     std::fs::create_dir_all(root)?;
     std::fs::write(root.join("navigation.json"), serde_json::to_string(&doc)?)?;
     std::fs::write(root.join("navigation.bin"), bin)?;

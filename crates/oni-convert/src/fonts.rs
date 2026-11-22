@@ -9,10 +9,11 @@
 //! the line) and moves the pen on by the glyph's kerning
 //! (`TSiContext_DrawTextLine`).
 
+use std::collections::BTreeMap;
 use std::path::Path;
 
 use oni_dat::{Dat, FourCc};
-use serde_json::{json, Value};
+use oni_schema::files;
 
 use crate::{le_i16, le_u16, le_u32};
 
@@ -23,7 +24,12 @@ const TAG_TSFT: FourCc = FourCc(0x5453_4654);
 const ATLAS_WIDTH: usize = 512;
 
 /// One font: its metrics, and its glyphs' cells packed into an image.
-fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Option<Value>> {
+fn font(
+    dat: &Dat<'_>,
+    d: &[u8],
+    file: &str,
+    out: &Path,
+) -> std::io::Result<Option<files::FontFile>> {
     // TStFont: pad[6], font_size@6, font_style@8 (u32), ascending@12,
     // descending@14, leading height@16, leading width@18, glyph arrays
     // [256]@20, num_longs@1044, the glyph data (longs[])@1048.
@@ -88,7 +94,7 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
     for p in rgba.as_chunks_mut::<4>().0 {
         p[..3].copy_from_slice(&[255, 255, 255]);
     }
-    let mut table = serde_json::Map::new();
+    let mut table = BTreeMap::new();
     for (g, &(cx, cy)) in glyphs.iter().zip(&places) {
         let &(code, kerning, w, h, ox, oy, offset) = g;
         let src = longs + offset * 4;
@@ -107,7 +113,10 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
                 rgba[((cy + ty as usize) * ATLAS_WIDTH + cx + tx as usize) * 4 + 3] = a;
             }
         }
-        table.insert(code.to_string(), json!([cx, cy, w, kerning]));
+        table.insert(
+            code.to_string(),
+            [cx as u32, cy as u32, w as u32, u32::from(kerning)],
+        );
     }
     std::fs::create_dir_all(out.join("fonts"))?;
     crate::write_png(
@@ -120,23 +129,23 @@ fn font(dat: &Dat<'_>, d: &[u8], file: &str, out: &Path) -> std::io::Result<Opti
         .get(style as usize)
         .copied()
         .unwrap_or("plain");
-    Ok(Some(json!({
-        "size": size,
-        "style": style,
-        "ascendingHeight": asc,
-        "descendingHeight": desc,
-        "leadingHeight": le_i16(d, 16),
-        "leadingWidth": le_i16(d, 18),
-        "atlas": format!("fonts/{file}.png"),
-        "glyphs": table,
-    })))
+    Ok(Some(files::FontFile {
+        size,
+        style: style.to_string(),
+        ascending_height: asc as u32,
+        descending_height: desc as u32,
+        leading_height: le_i16(d, 16),
+        leading_width: le_i16(d, 18),
+        atlas: format!("fonts/{file}.png"),
+        glyphs: table,
+    }))
 }
 
 /// Writes `fonts.json` (each family's fonts: metrics and glyphs, by code:
 /// `[x, y, width, kerning]` of its cell in the atlas) and the atlases.
 /// Returns how many fonts.
 pub fn convert(dat: &Dat<'_>, out: &Path) -> std::io::Result<usize> {
-    let mut families = serde_json::Map::new();
+    let mut families = BTreeMap::new();
     let mut count = 0;
     for inst in dat.instances.iter().filter(|i| i.tag == TAG_TSFF) {
         let (Some(d), Some(name)) = (dat.instance_data(inst), inst.name.as_deref()) else {
@@ -177,10 +186,7 @@ pub fn convert(dat: &Dat<'_>, out: &Path) -> std::io::Result<usize> {
             .and_then(|l| dat.instance_data(l))
             .map(|l| crate::cstr(l, 64, 64))
             .unwrap_or_default();
-        families.insert(
-            name.to_string(),
-            json!({ "fonts": fonts, "breaking": breaking }),
-        );
+        families.insert(name.to_string(), files::FontFamily { fonts, breaking });
     }
     if families.is_empty() {
         return Ok(0);
@@ -188,7 +194,7 @@ pub fn convert(dat: &Dat<'_>, out: &Path) -> std::io::Result<usize> {
     std::fs::create_dir_all(out)?;
     std::fs::write(
         out.join("fonts.json"),
-        serde_json::to_string_pretty(&json!({ "families": families }))?,
+        serde_json::to_string_pretty(&files::FontsFile { families })?,
     )?;
     Ok(count)
 }
