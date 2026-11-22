@@ -197,12 +197,8 @@ pub struct World {
     pub timer_expired: Option<String>,
     /// The fog (`world/fog.rs`).
     pub fog: fog::FogState,
-    /// The level's placed objects as authored, and those scripts have made.
-    pub object_setups: Vec<objects::Setup>,
-    pub objects: Vec<objects::Object>,
-    /// The object animations scripts name (`OBAN`, the level's and the
-    /// common ones), by name.
-    pub object_anims: std::collections::HashMap<String, Rc<oni_geom::objanim::ObjectAnimation>>,
+    /// The level's placed objects (`world/objects.rs`).
+    pub placed: objects::Placed,
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
@@ -291,9 +287,7 @@ impl World {
             timer_expired: None,
             pause_volume: 1.0,
             fog: Default::default(),
-            object_anims: Default::default(),
-            object_setups: Vec::new(),
-            objects: Vec::new(),
+            placed: Default::default(),
             script_events: Vec::new(),
             now: 0,
             rng: 0x9E37_79B9,
@@ -1166,8 +1160,8 @@ impl World {
         }
         self.doors = crate::doors::Doors::load(level_dir);
         self.lasers = crate::lasers::load(level_dir);
-        self.object_setups = objects::load(level_dir);
-        self.objects.clear();
+        self.placed.setups = objects::load(level_dir);
+        self.placed.list.clear();
         let level = level_dir
             .file_name()
             .and_then(|n| n.to_str())
@@ -1262,10 +1256,12 @@ impl World {
     /// An object animation by name (exactly, else ignoring case, as the
     /// original's template names go).
     pub fn object_anim(&self, name: &str) -> Option<Rc<oni_geom::objanim::ObjectAnimation>> {
-        self.object_anims
+        self.placed
+            .anims
             .get(name)
             .or_else(|| {
-                self.object_anims
+                self.placed
+                    .anims
                     .iter()
                     .find(|(k, _)| k.eq_ignore_ascii_case(name))
                     .map(|(_, a)| a)
@@ -1281,12 +1277,12 @@ impl World {
             .boxes
             .iter()
             .any(|d| d.solid && d.meets_segment(a, b))
-            || (0..self.objects.len()).any(|k| {
+            || (0..self.placed.list.len()).any(|k| {
                 crate::geom::segment_meets_sphere(
                     a,
                     b,
                     self.object_matrix(k).w_axis.truncate(),
-                    self.object_setups[self.objects[k].setup].radius,
+                    self.placed.setups[self.placed.list[k].setup].radius,
                 )
             })
     }
@@ -1296,10 +1292,10 @@ impl World {
     /// — 0 when it starts inside one, as shipped. (Door leaves are met as
     /// the level's door boxes.)
     pub fn ray_to_object(&self, from: Vec3, dir: Vec3, max: f32) -> Option<f32> {
-        (0..self.objects.len())
+        (0..self.placed.list.len())
             .filter_map(|k| {
                 let c = self.object_matrix(k).w_axis.truncate();
-                let r = self.object_setups[self.objects[k].setup].radius;
+                let r = self.placed.setups[self.placed.list[k].setup].radius;
                 match crate::geom::ray_sphere(from, dir, c, r)? {
                     crate::geom::Entry::Inside => Some(0.0),
                     crate::geom::Entry::At(t) => Some(t),

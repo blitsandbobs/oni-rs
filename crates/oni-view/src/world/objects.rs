@@ -27,6 +27,17 @@ mod aflag {
     pub const AUTOSTART: u32 = 0x8;
 }
 
+/// The level's placed objects: as authored, those scripts have made, and
+/// the object animations scripts name.
+#[derive(Default)]
+pub struct Placed {
+    pub setups: Vec<Setup>,
+    pub list: Vec<Object>,
+    /// The object animations scripts name (`OBAN`, the level's and the
+    /// common ones), by name.
+    pub anims: std::collections::HashMap<String, Rc<oni_geom::objanim::ObjectAnimation>>,
+}
+
 /// One placed object as the level authored it (`OBtObjectSetup`).
 #[derive(Clone, Debug)]
 pub struct Setup {
@@ -200,8 +211,8 @@ impl World {
     /// Object `k`'s matrix (`PHrPhysics_MaintainMatrix`): its clip's (from
     /// its origin, for a localized one), else its placement.
     pub fn object_matrix(&self, k: usize) -> Mat4 {
-        let o = &self.objects[k];
-        let s = &self.object_setups[o.setup];
+        let o = &self.placed.list[k];
+        let s = &self.placed.setups[o.setup];
         match &o.anim {
             Some(a) => crate::geom::placed_clip_matrix(a, o.frame, s.origin),
             None => {
@@ -213,8 +224,10 @@ impl World {
     /// The live objects with script ids in `lo..=hi` (`AIiObjectsFromScript`).
     fn objects_by_id(&self, a: u32, b: u32) -> Vec<usize> {
         let (lo, hi) = (a.min(b), a.max(b));
-        (0..self.objects.len())
-            .filter(|&k| (lo..=hi).contains(&self.object_setups[self.objects[k].setup].script_id))
+        (0..self.placed.list.len())
+            .filter(|&k| {
+                (lo..=hi).contains(&self.placed.setups[self.placed.list[k].setup].script_id)
+            })
             .collect()
     }
 
@@ -222,15 +235,15 @@ impl World {
     /// in the range (even one already made).
     pub fn obj_create(&mut self, a: u32, b: u32) {
         let (lo, hi) = (a.min(b), a.max(b));
-        for i in 0..self.object_setups.len() {
-            let s = &self.object_setups[i];
+        for i in 0..self.placed.setups.len() {
+            let s = &self.placed.setups[i];
             if s.flags & oflag::IN_USE == 0 || !(lo..=hi).contains(&s.script_id) {
                 continue;
             }
             let flags = s.flags;
             let anim = s.animation.clone().and_then(|n| self.object_anim(&n));
             let cell = std::rc::Rc::new(std::cell::Cell::new(Mat4::IDENTITY));
-            self.objects.push(Object {
+            self.placed.list.push(Object {
                 setup: i,
                 anim,
                 frame: 0,
@@ -241,7 +254,7 @@ impl World {
                 shade: None,
                 cell: cell.clone(),
             });
-            let k = self.objects.len() - 1;
+            let k = self.placed.list.len() - 1;
             cell.set(self.object_matrix(k));
             // Its particles (`OBrSetParticles`), unless hidden.
             if flags & oflag::INVISIBLE == 0 {
@@ -254,10 +267,10 @@ impl World {
     pub fn obj_kill(&mut self, a: u32, b: u32) {
         let gone = self.objects_by_id(a, b);
         for &k in &gone {
-            self.object_particles_delete(self.objects[k].setup);
+            self.object_particles_delete(self.placed.list[k].setup);
         }
         let mut k = 0;
-        self.objects.retain(|_| {
+        self.placed.list.retain(|_| {
             k += 1;
             !gone.contains(&(k - 1))
         });
@@ -266,7 +279,7 @@ impl World {
     /// `obj_show` / `obj_hide`: drawn and solid, or neither (`OBrShow`).
     pub fn obj_show(&mut self, a: u32, b: u32, show: bool) {
         for k in self.objects_by_id(a, b) {
-            let o = &mut self.objects[k];
+            let o = &mut self.placed.list[k];
             if show {
                 o.flags &= !oflag::INVISIBLE;
             } else {
@@ -287,11 +300,14 @@ impl World {
     /// Returns whether it waits.
     pub fn env_anim(&mut self, a: u32, b: Option<u32>, block: bool) -> bool {
         let found = self.objects_by_id(a, b.unwrap_or(a));
-        if block && b.is_some_and(|b| b != 0) && found.iter().any(|&k| self.objects[k].playing()) {
+        if block
+            && b.is_some_and(|b| b != 0)
+            && found.iter().any(|&k| self.placed.list[k].playing())
+        {
             return true;
         }
         for k in found {
-            self.objects[k].start();
+            self.placed.list[k].start();
         }
         false
     }
@@ -305,14 +321,14 @@ impl World {
         if found.is_empty() {
             return false;
         }
-        if block && found.iter().any(|&k| self.objects[k].playing()) {
+        if block && found.iter().any(|&k| self.placed.list[k].playing()) {
             return true;
         }
         let Some(anim) = self.object_anim(clip) else {
             return false;
         };
         for k in found {
-            let o = &mut self.objects[k];
+            let o = &mut self.placed.list[k];
             o.anim = Some(anim.clone());
             o.start();
             o.stop = i32::from(anim.num_frames);
@@ -322,11 +338,11 @@ impl World {
 
     /// One tick of every object's clip.
     pub(super) fn objects_tick(&mut self) {
-        for o in &mut self.objects {
+        for o in &mut self.placed.list {
             o.tick();
         }
-        for k in 0..self.objects.len() {
-            self.objects[k].cell.set(self.object_matrix(k));
+        for k in 0..self.placed.list.len() {
+            self.placed.list[k].cell.set(self.object_matrix(k));
         }
     }
 
@@ -334,19 +350,19 @@ impl World {
     /// place, `OBiUpdate`): not hidden, not without collision.
     /// The setup of the `n`th object in [`World::object_spheres`].
     pub(crate) fn object_spheres_index(&self, n: usize) -> Option<usize> {
-        (0..self.objects.len())
-            .filter(|&k| self.objects[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
+        (0..self.placed.list.len())
+            .filter(|&k| self.placed.list[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
             .nth(n)
-            .map(|k| self.objects[k].setup)
+            .map(|k| self.placed.list[k].setup)
     }
 
     pub fn object_spheres(&self) -> Vec<(Vec3, f32)> {
-        (0..self.objects.len())
-            .filter(|&k| self.objects[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
+        (0..self.placed.list.len())
+            .filter(|&k| self.placed.list[k].flags & (oflag::INVISIBLE | oflag::NO_COLLISION) == 0)
             .map(|k| {
                 (
                     self.object_matrix(k).w_axis.truncate(),
-                    self.object_setups[self.objects[k].setup].radius,
+                    self.placed.setups[self.placed.list[k].setup].radius,
                 )
             })
             .collect()
@@ -363,15 +379,15 @@ impl World {
             .iter()
             .flat_map(|l| l.eye_draws())
             .map(|(p, m)| (p, m, None));
-        (0..self.objects.len())
+        (0..self.placed.list.len())
             .filter(|&k| {
-                self.objects[k].flags & oflag::INVISIBLE == 0
+                self.placed.list[k].flags & oflag::INVISIBLE == 0
                     && !self.see_through.objects.contains(&k)
             })
             .flat_map(|k| {
                 let m = self.object_matrix(k);
-                let shade = self.objects[k].shade;
-                self.object_setups[self.objects[k].setup]
+                let shade = self.placed.list[k].shade;
+                self.placed.setups[self.placed.list[k].setup]
                     .models
                     .iter()
                     .map(move |p| (p.clone(), m, shade))
@@ -385,7 +401,7 @@ impl World {
     pub fn obj_shade(&mut self, a: u32, b: u32, rgb: [f32; 3]) {
         let shade = rgb.map(|c| (c.clamp(0.0, 1.0) * 255.0).round() / 255.0);
         for k in self.objects_by_id(a, b) {
-            self.objects[k].shade = Some(shade);
+            self.placed.list[k].shade = Some(shade);
         }
     }
 
@@ -394,7 +410,7 @@ impl World {
     /// only kept.
     pub fn obj_force_draw(&mut self, a: u32, b: u32) {
         for k in self.objects_by_id(a, b) {
-            self.objects[k].flags |= oflag::FORCE_DRAW;
+            self.placed.list[k].flags |= oflag::FORCE_DRAW;
         }
     }
 
@@ -405,14 +421,14 @@ impl World {
     }
 
     fn object_models(&self, see_through: bool) -> Vec<(PathBuf, Mat4)> {
-        (0..self.objects.len())
+        (0..self.placed.list.len())
             .filter(|&k| {
-                self.objects[k].flags & oflag::INVISIBLE == 0
+                self.placed.list[k].flags & oflag::INVISIBLE == 0
                     && self.see_through.objects.contains(&k) == see_through
             })
             .flat_map(|k| {
                 let m = self.object_matrix(k);
-                self.object_setups[self.objects[k].setup]
+                self.placed.setups[self.placed.list[k].setup]
                     .models
                     .iter()
                     .map(move |p| (p.clone(), m))
@@ -422,11 +438,11 @@ impl World {
 
     /// The live objects: name, place, frame and whether its clip runs.
     pub fn object_states(&self) -> Vec<(String, Vec3, i32, bool)> {
-        (0..self.objects.len())
+        (0..self.placed.list.len())
             .map(|k| {
-                let o = &self.objects[k];
+                let o = &self.placed.list[k];
                 (
-                    self.object_setups[o.setup].name.clone(),
+                    self.placed.setups[o.setup].name.clone(),
                     self.object_matrix(k).w_axis.truncate(),
                     o.frame,
                     o.animating,

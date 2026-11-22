@@ -67,7 +67,7 @@ impl World {
                         Some(k) if k.id & p3::OBJECT_HIT != 0 => {
                             let k = (k.id & !p3::OBJECT_HIT) as usize;
                             self.object_spheres_index(k)
-                                .and_then(|s| self.object_setups[s].texture.as_deref())
+                                .and_then(|s| self.placed.setups[s].texture.as_deref())
                                 .and_then(|t| impacts.texture_material(t))
                         }
                         Some(k) => self.struck_material(k.id as usize, k.point),

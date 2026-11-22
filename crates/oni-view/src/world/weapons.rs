@@ -1100,7 +1100,7 @@ impl World {
         // (The doors' flat shades come from their quads.)
         self.doors.shade_from(&self.quads);
         // The object animations scripts name: the common ones, then the level's.
-        self.object_anims.clear();
+        self.placed.anims.clear();
         for path in [
             common.join("object_animations.json"),
             self.level_dir.join("object_animations.json"),
@@ -1110,7 +1110,7 @@ impl World {
                 if let (Some(name), Some(anim)) =
                     (a["name"].as_str(), crate::doors::object_animation(a))
                 {
-                    self.object_anims.insert(name.to_string(), anim);
+                    self.placed.anims.insert(name.to_string(), anim);
                 }
             }
         }
@@ -1309,13 +1309,13 @@ impl World {
                 out.push(one(b.position, b.radius, false));
             }
         }
-        for k in 0..self.objects.len() {
-            if self.objects[k].flags & crate::world::objects::oflag::INVISIBLE != 0 {
+        for k in 0..self.placed.list.len() {
+            if self.placed.list[k].flags & crate::world::objects::oflag::INVISIBLE != 0 {
                 continue;
             }
             out.push(one(
                 self.object_matrix(k).w_axis.truncate(),
-                self.object_setups[self.objects[k].setup].radius,
+                self.placed.setups[self.placed.list[k].setup].radius,
                 false,
             ));
         }

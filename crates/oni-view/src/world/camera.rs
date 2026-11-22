@@ -525,9 +525,9 @@ impl World {
         } else {
             v.location + to_focus
         };
-        self.see_through.objects = (0..self.objects.len())
+        self.see_through.objects = (0..self.placed.list.len())
             .filter(|&k| {
-                let r = self.object_setups[self.objects[k].setup].radius;
+                let r = self.placed.setups[self.placed.list[k].setup].radius;
                 segment_meets_sphere(v.location, end, self.object_matrix(k).w_axis.truncate(), r)
             })
             .collect();

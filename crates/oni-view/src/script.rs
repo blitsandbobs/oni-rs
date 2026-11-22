@@ -929,7 +929,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |lua, ()| {
             let host = h.borrow();
             let out = lua.create_table()?;
-            for o in &host.world.objects {
+            for o in &host.world.placed.list {
                 match o.shade {
                     Some(c) => out.set(out.raw_len() + 1, c.to_vec())?,
                     None => out.set(out.raw_len() + 1, false)?,

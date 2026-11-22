@@ -179,7 +179,7 @@ impl World {
         {
             return;
         }
-        let s = &self.object_setups[setup];
+        let s = &self.placed.setups[setup];
         let name = s.name.clone();
         let made: Vec<EnvParticle> = s
             .particles
