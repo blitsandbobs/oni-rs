@@ -259,7 +259,7 @@ impl ScriptHost {
             cam.eye,
             self.show_decals,
         );
-        self.magic_drawn = self.renderer.magic.len();
+        self.magic_drawn = self.renderer.scene.magic.len();
         let draws = frame.draws(&self.world);
         let basis = cam.billboard_basis();
         crate::render_to_rgba(

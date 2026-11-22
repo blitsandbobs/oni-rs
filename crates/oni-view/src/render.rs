@@ -170,6 +170,8 @@ fn shade_extra(shade: Option<[f32; 3]>) -> [f32; 4] {
 }
 
 pub struct Renderer {
+    /// The world as this frame shows it (`frame.rs` fills it).
+    pub scene: crate::draw::Scene,
     opaque_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     jello_pipeline: wgpu::RenderPipeline,
@@ -202,11 +204,6 @@ pub struct Renderer {
     /// The level's prims' triangles by quad (`attach_quads`), for drawing
     /// some quads see-through.
     tri_quads: Vec<Option<TriQuads>>,
-    /// The quads drawn see-through this frame (the camera's jello).
-    pub jello: Vec<u32>,
-    /// The door leaves (object id, leaf) drawn see-through this frame: open
-    /// or moving, in the camera's way (as objects: 31 of 255).
-    pub jello_doors: std::collections::HashSet<(u32, u8)>,
     /// Index buffers for the jello last built: for it, per prim, the solid
     /// rest and the see-through part.
     jello_cache: (Vec<u32>, std::collections::HashMap<usize, JelloSplit>),
@@ -215,8 +212,6 @@ pub struct Renderer {
     particle_pipeline: wgpu::RenderPipeline,
     decal_pipeline: wgpu::RenderPipeline,
     decal_additive_pipeline: wgpu::RenderPipeline,
-    /// This frame's decals, in drawing order.
-    pub decals: Vec<DecalDraw>,
     uniform_buf: wgpu::Buffer,
     uniform_bg: wgpu::BindGroup,
     tex_bgl: wgpu::BindGroupLayout,
@@ -224,29 +219,9 @@ pub struct Renderer {
     tex_bgs: Vec<wgpu::BindGroup>,
     default_tex: wgpu::BindGroup,
     prims: Vec<GpuPrim>,
-    /// Doors (object ids) open now: their closed leaves aren't drawn.
-    /// How each moving door leaf (object id, leaf) has moved from closed.
-    pub door_motion: std::collections::HashMap<(u32, u8), Mat4>,
-    /// Level parts scripts have hidden (`env_show` references).
-    pub hidden_refs: std::collections::HashSet<u32>,
-    /// Broken glass panes (by quad) — not drawn.
-    pub broken_glass: std::collections::HashSet<u32>,
-    /// Laser beams to draw this frame (from, to, colour): thin glowing
-    /// strips facing the camera.
-    pub beams: Vec<(glam::Vec3, glam::Vec3, [f32; 3])>,
     char_models: Vec<CharModel>,
     /// Rigid models loaded by file (guns), drawn as one-bone characters.
     models_by_path: std::collections::HashMap<std::path::PathBuf, Option<usize>>,
-    /// Particles to draw this frame (glowing sprites), and textures loaded
-    /// for them by file.
-    pub sprites: Vec<Sprite>,
-    /// This frame's magic effects (shields, invisibility).
-    pub magic: Vec<MagicDraw>,
-    /// Level parts shaded flat by script reference (`env_shade`).
-    pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
-    /// Each door's flat shade (object id): its leaves and level quads lit
-    /// flat in it (`OBJtOSD_Door.shade`).
-    pub door_shades: std::collections::HashMap<u32, [f32; 3]>,
     textures_by_path: std::collections::HashMap<std::path::PathBuf, usize>,
     /// The scene's and models' textures by index, their files (to find the
     /// animated ones).
@@ -255,12 +230,6 @@ pub struct Renderer {
     /// frames' texture indices (`texanim`).
     tex_anims: std::collections::HashMap<String, crate::texanim::TexAnim>,
     animated: std::collections::HashMap<usize, (crate::texanim::TexAnim, Vec<usize>)>,
-    /// The game time this frame (ticks): what the textures animate by.
-    pub anim_time: u32,
-    /// Where the camera is this frame (billboard sprites turn toward it).
-    pub eye: glam::Vec3,
-    /// This frame's fog.
-    pub fog: Fog,
     particles: Vec<ParticleGroup>,
     depth: Option<(wgpu::TextureView, u32, u32)>,
     /// The characters' depth alone, for the lens flares when characters hide
@@ -829,13 +798,12 @@ impl Renderer {
             movie: None,
             overlay_white,
             nearest,
+            scene: crate::draw::Scene::default(),
             overlay: Vec::new(),
             overlay_size: [640.0, 480.0],
             gamma: 0.5,
             gamma_pass: crate::gamma::GammaPass::new(device, format),
             tri_quads: Vec::new(),
-            jello: Vec::new(),
-            jello_doors: Default::default(),
             jello_cache: Default::default(),
             additive_pipeline,
             flare_pipeline,
@@ -848,7 +816,6 @@ impl Renderer {
             particle_pipeline,
             decal_pipeline,
             decal_additive_pipeline,
-            decals: Vec::new(),
             uniform_buf,
             uniform_bg,
             tex_bgl,
@@ -856,23 +823,12 @@ impl Renderer {
             tex_bgs,
             default_tex,
             prims,
-            door_motion: Default::default(),
-            hidden_refs: Default::default(),
-            broken_glass: Default::default(),
-            beams: Vec::new(),
             char_models: Vec::new(),
             models_by_path: Default::default(),
-            sprites: Vec::new(),
-            magic: Vec::new(),
-            env_shades: Default::default(),
-            door_shades: Default::default(),
             textures_by_path: Default::default(),
             tex_paths,
             tex_anims: Default::default(),
             animated: Default::default(),
-            anim_time: 0,
-            eye: glam::Vec3::ZERO,
-            fog: Fog::default(),
             particles: particle_groups,
             depth: None,
         }
@@ -1197,7 +1153,7 @@ impl Renderer {
         let sprites = self.sprite_prims(gpu, cam_right, cam_up);
         let decals = self.decal_batches(gpu);
         // The magic effects, their textures loaded.
-        let magic: Vec<(MagicDraw, usize)> = std::mem::take(&mut self.magic)
+        let magic: Vec<(MagicDraw, usize)> = std::mem::take(&mut self.scene.magic)
             .into_iter()
             .map(|m| {
                 let t = self.texture_index(gpu, &m.texture);
@@ -1210,8 +1166,13 @@ impl Renderer {
             0,
             bytemuck::bytes_of(&Uniforms {
                 view_proj: view_proj.to_cols_array_2d(),
-                fog_color: [self.fog.color[0], self.fog.color[1], self.fog.color[2], 1.0],
-                fog: [self.fog.start, self.fog.end, 0.0, 0.0],
+                fog_color: [
+                    self.scene.fog.color[0],
+                    self.scene.fog.color[1],
+                    self.scene.fog.color[2],
+                    1.0,
+                ],
+                fog: [self.scene.fog.start, self.scene.fog.end, 0.0, 0.0],
             }),
         );
 
@@ -1259,8 +1220,8 @@ impl Renderer {
             let env_shade = |p: &GpuPrim| {
                 shade_extra(
                     p.env_ref
-                        .and_then(|r| self.env_shades.get(&r))
-                        .or_else(|| p.door.and_then(|(d, _)| self.door_shades.get(&d)))
+                        .and_then(|r| self.scene.env_shades.get(&r))
+                        .or_else(|| p.door.and_then(|(d, _)| self.scene.door_shades.get(&d)))
                         .copied(),
                 )
             };
@@ -1298,7 +1259,7 @@ impl Renderer {
             // The sky first, round the eye (`ONrSky_Draw`).
             if !self.sky.is_empty() {
                 pass.set_pipeline(&self.sky_pipeline);
-                let model = Mat4::from_translation(self.eye);
+                let model = Mat4::from_translation(self.scene.eye);
                 for (p, t) in &self.sky {
                     pass.set_push_constants(
                         wgpu::ShaderStages::VERTEX,
@@ -1334,13 +1295,15 @@ impl Renderer {
                     continue;
                 }
                 let shown = |p: &&GpuPrim| {
-                    p.env_ref.is_none_or(|r| !self.hidden_refs.contains(&r))
-                        && p.glass.is_none_or(|g| !self.broken_glass.contains(&g))
+                    p.env_ref
+                        .is_none_or(|r| !self.scene.hidden_refs.contains(&r))
+                        && p.glass
+                            .is_none_or(|g| !self.scene.broken_glass.contains(&g))
                 };
                 // (Its solid and see-through parts; what glows on it glows on.)
                 let door_seen_through = |p: &GpuPrim| {
                     matches!(p.bucket, Bucket::Opaque | Bucket::Alpha)
-                        && p.door.is_some_and(|d| self.jello_doors.contains(&d))
+                        && p.door.is_some_and(|d| self.scene.jello_doors.contains(&d))
                 };
                 // (Each bucket starts on its pipeline: what follows the level's
                 // prims — beams, sprites, characters, objects — draws with it,
@@ -1359,7 +1322,7 @@ impl Renderer {
                     }
                     let model = p
                         .door
-                        .and_then(|d| self.door_motion.get(&d))
+                        .and_then(|d| self.scene.door_motion.get(&d))
                         .copied()
                         .unwrap_or(Mat4::IDENTITY);
                     match self.jello_cache.1.get(&k) {
@@ -1402,7 +1365,7 @@ impl Renderer {
                         // quads go see-through as any wall's.)
                         let model = p
                             .door
-                            .and_then(|d| self.door_motion.get(&d))
+                            .and_then(|d| self.scene.door_motion.get(&d))
                             .copied()
                             .unwrap_or(Mat4::IDENTITY);
                         pass.set_push_constants(
@@ -1426,7 +1389,7 @@ impl Renderer {
                 // The objects in the camera's way, faint (`OBrDraw`'s jello
                 // alpha, 31 of 255): all their parts, with what is seen
                 // through.
-                if bucket == Bucket::Alpha && !self.jello_doors.is_empty() {
+                if bucket == Bucket::Alpha && !self.scene.jello_doors.is_empty() {
                     pass.set_pipeline(&self.object_jello_pipeline);
                     for p in self
                         .prims
@@ -1435,7 +1398,7 @@ impl Renderer {
                     {
                         let model = p
                             .door
-                            .and_then(|d| self.door_motion.get(&d))
+                            .and_then(|d| self.scene.door_motion.get(&d))
                             .copied()
                             .unwrap_or(Mat4::IDENTITY);
                         draw_prim(&mut pass, p, model);
@@ -1683,7 +1646,7 @@ impl Renderer {
     /// Rebuilds the see-through split of the prims the jello touches, when
     /// it changed.
     fn jello_buffers(&mut self, gpu: &Gpu) {
-        let mut want = self.jello.clone();
+        let mut want = self.scene.jello.clone();
         want.sort_unstable();
         if want == self.jello_cache.0 {
             return;
@@ -1932,7 +1895,7 @@ impl Renderer {
                     .file_stem()?
                     .to_string_lossy()
                     .into_owned();
-                Some((stem, anim.frame(self.anim_time, 0)))
+                Some((stem, anim.frame(self.scene.anim_time, 0)))
             })
             .collect();
         out.sort();
@@ -1968,7 +1931,9 @@ impl Renderer {
     /// index of their own: 0).
     fn shown(&self, i: usize) -> usize {
         match self.animated.get(&i) {
-            Some((anim, frames)) => frames[anim.frame(self.anim_time, 0).min(frames.len() - 1)],
+            Some((anim, frames)) => {
+                frames[anim.frame(self.scene.anim_time, 0).min(frames.len() - 1)]
+            }
             None => i,
         }
     }
@@ -1995,7 +1960,7 @@ impl Renderer {
     /// This frame's particle sprites as additive textured quads, one mesh
     /// per texture.
     fn sprite_prims(&mut self, gpu: &Gpu, right: glam::Vec3, up: glam::Vec3) -> Vec<GpuPrim> {
-        let sprites = std::mem::take(&mut self.sprites);
+        let sprites = std::mem::take(&mut self.scene.sprites);
         let mut by_texture: std::collections::BTreeMap<(usize, bool), (Vec<Vertex>, Vec<u32>)> =
             Default::default();
         for s in &sprites {
@@ -2031,7 +1996,10 @@ impl Renderer {
                 // sight to it.
                 SpriteMode::Billboard(d) => {
                     let x = d.try_normalize().unwrap_or(glam::Vec3::Y);
-                    (x, x.cross(s.at - self.eye).try_normalize().unwrap_or(up))
+                    (
+                        x,
+                        x.cross(s.at - self.scene.eye).try_normalize().unwrap_or(up),
+                    )
                 }
                 SpriteMode::Fixed([u, v]) => (u, v),
                 SpriteMode::Quad(_) => unreachable!("drawn above"),
@@ -2091,7 +2059,7 @@ impl Renderer {
     /// This frame's decals as meshes: consecutive ones sharing a texture
     /// and blend in one (so the drawing order holds).
     fn decal_batches(&mut self, gpu: &Gpu) -> Vec<(wgpu::Buffer, wgpu::Buffer, u32, usize, bool)> {
-        let decals = std::mem::take(&mut self.decals);
+        let decals = std::mem::take(&mut self.scene.decals);
         let mut batches: Vec<(usize, bool, Vec<DecalVertex>, Vec<u32>)> = Vec::new();
         for d in &decals {
             let t = self.texture_index(gpu, &d.texture);
@@ -2146,13 +2114,13 @@ impl Renderer {
         right: glam::Vec3,
         up: glam::Vec3,
     ) -> Option<GpuPrim> {
-        if self.beams.is_empty() {
+        if self.scene.beams.is_empty() {
             return None;
         }
         let forward = right.cross(up).normalize_or_zero();
         let mut vertices = Vec::new();
         let mut indices = Vec::new();
-        for &(a, b, color) in &self.beams {
+        for &(a, b, color) in &self.scene.beams {
             let side = (b - a).cross(forward).try_normalize().unwrap_or(up) * BEAM_WIDTH;
             let base = vertices.len() as u32;
             for p in [a - side, a + side, b + side, b - side] {

@@ -124,3 +124,40 @@ pub struct MagicDraw {
     pub alpha: [f32; 19],
     pub time: u32,
 }
+
+/// The world as one frame shows it: what the renderer reads besides the
+/// level's own geometry and the draw lists.
+#[derive(Default)]
+pub struct Scene {
+    /// The quads drawn see-through this frame (the camera's jello).
+    pub jello: Vec<u32>,
+    /// The door leaves (object id, leaf) drawn see-through this frame: open
+    /// or moving, in the camera's way (as objects: 31 of 255).
+    pub jello_doors: std::collections::HashSet<(u32, u8)>,
+    /// This frame's decals, in drawing order.
+    pub decals: Vec<DecalDraw>,
+    /// How each moving door leaf (object id, leaf) has moved from closed.
+    pub door_motion: std::collections::HashMap<(u32, u8), Mat4>,
+    /// Level parts scripts have hidden (`env_show` references).
+    pub hidden_refs: std::collections::HashSet<u32>,
+    /// Broken glass panes (by quad) — not drawn.
+    pub broken_glass: std::collections::HashSet<u32>,
+    /// Laser beams to draw this frame (from, to, colour): thin glowing
+    /// strips facing the camera.
+    pub beams: Vec<(glam::Vec3, glam::Vec3, [f32; 3])>,
+    /// Particles to draw this frame (glowing sprites).
+    pub sprites: Vec<Sprite>,
+    /// This frame's magic effects (shields, invisibility).
+    pub magic: Vec<MagicDraw>,
+    /// Level parts shaded flat by script reference (`env_shade`).
+    pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
+    /// Each door's flat shade (object id): its leaves and level quads lit
+    /// flat in it (`OBJtOSD_Door.shade`).
+    pub door_shades: std::collections::HashMap<u32, [f32; 3]>,
+    /// The game time this frame (ticks): what the textures animate by.
+    pub anim_time: u32,
+    /// Where the camera is this frame (billboard sprites turn toward it).
+    pub eye: glam::Vec3,
+    /// This frame's fog.
+    pub fog: Fog,
+}

@@ -25,26 +25,28 @@ impl WorldFrame {
         eye: Vec3,
         decals: bool,
     ) -> Self {
-        renderer.door_motion = world.doors.motions();
-        renderer.beams = world.beams.clone();
-        renderer.sprites = world.sprites();
-        renderer.decals = if decals {
-            world.decal_draws(eye)
-        } else {
-            Vec::new()
-        };
-        renderer.hidden_refs = world.parts.hidden.clone();
-        renderer.env_shades = world.parts.shades.clone();
-        renderer.door_shades = world.doors.shades.clone();
-        renderer.broken_glass = world.glass.broken.clone();
-        renderer.jello = world.see_through.quads.clone();
-        renderer.jello_doors = world.see_through.doors.iter().copied().collect();
-        renderer.anim_time = world.game_tick();
-        renderer.eye = eye;
-        renderer.fog = world.fog.fog;
         let bones: Vec<Vec<Mat4>> = world.fighters.iter().map(|f| f.bones()).collect();
-        // The magic effects over the bodies (shields, invisibility).
-        renderer.magic = world.magic_draws(&bones);
+        renderer.scene = crate::draw::Scene {
+            door_motion: world.doors.motions(),
+            beams: world.beams.clone(),
+            sprites: world.sprites(),
+            decals: if decals {
+                world.decal_draws(eye)
+            } else {
+                Vec::new()
+            },
+            hidden_refs: world.parts.hidden.clone(),
+            env_shades: world.parts.shades.clone(),
+            door_shades: world.doors.shades.clone(),
+            broken_glass: world.glass.broken.clone(),
+            jello: world.see_through.quads.clone(),
+            jello_doors: world.see_through.doors.iter().copied().collect(),
+            anim_time: world.game_tick(),
+            eye,
+            fog: world.fog.fog,
+            // The magic effects over the bodies (shields, invisibility).
+            magic: world.magic_draws(&bones),
+        };
         // One-bone models placed by their matrices.
         let mut models: Vec<ModelDraw> = Vec::new();
         let mut add = |k: Option<usize>, m: Mat4, see_through: bool, alpha: f32, shade| {

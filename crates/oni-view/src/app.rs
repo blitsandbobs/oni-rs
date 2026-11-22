@@ -1349,7 +1349,7 @@ impl State {
                 true,
             ));
         } else {
-            self.renderer.magic.clear();
+            self.renderer.scene.magic.clear();
         }
         self.renderer.gamma = self.gamma;
         // The movie over everything: on black, as big as fits, centred
