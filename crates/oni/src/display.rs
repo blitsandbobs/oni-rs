@@ -97,6 +97,25 @@ fn monitor_size(m: Option<&MonitorHandle>) -> Option<(u32, u32)> {
     })
 }
 
+/// The window sizes `monitor` offers (its display modes' sizes, at least
+/// 640 × 480 and no larger than it, smallest first; its own size last).
+pub fn resolutions(monitor: Option<&MonitorHandle>) -> Vec<(u32, u32)> {
+    let Some(m) = monitor else { return Vec::new() };
+    let (mw, mh) = (m.size().width, m.size().height);
+    let modes = m.video_modes().map(|v| (v.size().width, v.size().height));
+    sizes(modes, (mw, mh))
+}
+
+fn sizes(modes: impl Iterator<Item = (u32, u32)>, (mw, mh): (u32, u32)) -> Vec<(u32, u32)> {
+    let mut list: Vec<(u32, u32)> = modes
+        .chain(std::iter::once((mw, mh)))
+        .filter(|&(w, h)| w >= 640 && h >= 480 && w <= mw && h <= mh)
+        .collect();
+    list.sort_by_key(|&(w, h)| (w, h));
+    list.dedup();
+    list
+}
+
 /// The window's attributes as `d` has it, on `monitor`.
 pub fn attributes(d: &Display, monitor: Option<MonitorHandle>) -> WindowAttributes {
     let (w, h) = fit_window(d.window, monitor_size(monitor.as_ref()));
@@ -147,6 +166,22 @@ mod tests {
         let (w, h) = fit_window(Some((3840, 2160)), Some((1920, 1080)));
         assert!(w <= 1824 && h <= 972 && (w as f32 / h as f32 - 16.0 / 9.0).abs() < 0.01);
         assert_eq!(fit_window(None, None), (1280, 720));
+    }
+
+    #[test]
+    fn the_display_offers_its_sizes_once_each() {
+        let modes = [
+            (3840, 2160),
+            (1920, 1080),
+            (1920, 1080),
+            (5120, 2880),
+            (320, 200),
+            (2560, 1440),
+        ];
+        assert_eq!(
+            sizes(modes.into_iter(), (3840, 2160)),
+            [(1920, 1080), (2560, 1440), (3840, 2160)]
+        );
     }
 
     #[test]

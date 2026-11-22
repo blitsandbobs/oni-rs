@@ -333,11 +333,12 @@ pub struct Window {
     timer: Instant,
 }
 
-/// The options dialog with the port's "Hide Lens Flares" row (#58): the
-/// Graphics panel a row taller, all below it 25 lower (the Close button
-/// ends at 470 of 480), and in the new row a label like Gamma's and a box
-/// like Subtitles'.
-fn add_hide_flares(def: &mut DialogDef) {
+/// The options dialog with the port's rows on the Graphics panel: "Hide
+/// Lens Flares" (#58) and "Fullscreen" (#97), each a label like Gamma's
+/// and a box like Subtitles'. The panel two rows taller; the Sound panel
+/// (one slider) a row shorter, all below it a row lower (the Close button
+/// ends at 470 of 480).
+fn add_port_rows(def: &mut DialogDef) {
     const ROW: f32 = 25.0;
     let label = def
         .items
@@ -345,24 +346,40 @@ fn add_hide_flares(def: &mut DialogDef) {
         .find(|i| i.id == 0 && i.title == "Gamma:")
         .cloned();
     let check = def.items.iter().find(|i| i.id == SUBTITLES).cloned();
-    let (Some(mut label), Some(mut check)) = (label, check) else {
+    let (Some(label), Some(check)) = (label, check) else {
         return;
     };
     for i in &mut def.items {
         let [_, y, _, h] = i.rect;
         if i.title == "Graphics" && h > 50.0 {
-            i.rect[3] += ROW;
-        } else if y > 150.0 && h < 400.0 {
+            i.rect[3] += 2.0 * ROW;
+        } else if i.title == "Sound" && h > 50.0 {
+            i.rect[1] += 2.0 * ROW;
+            i.rect[3] -= ROW;
+        } else if y > 150.0 && y < 290.0 && h < 400.0 {
+            i.rect[1] += 2.0 * ROW;
+        } else if y >= 290.0 && h < 400.0 {
             i.rect[1] += ROW;
         }
     }
-    label.title = "Hide Lens Flares:".into();
-    label.rect = [30.0, 140.0, 130.0, 20.0];
-    check.id = HIDE_FLARES;
-    check.title = "On".into();
-    check.rect = [165.0, 140.0, 50.0, 20.0];
-    def.items.insert(0, check);
-    def.items.insert(0, label);
+    for (k, (id, title)) in [
+        (HIDE_FLARES, "Hide Lens Flares:"),
+        (FULLSCREEN, "Fullscreen:"),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let y = 140.0 + k as f32 * ROW;
+        let mut l = label.clone();
+        l.title = title.into();
+        l.rect = [30.0, y, 130.0, 20.0];
+        let mut c = check.clone();
+        c.id = id;
+        c.title = "On".into();
+        c.rect = [165.0, y, 50.0, 20.0];
+        def.items.insert(0, c);
+        def.items.insert(0, l);
+    }
 }
 
 impl Window {
@@ -371,7 +388,7 @@ impl Window {
     pub fn new(data: &Data, name: &str) -> Window {
         let mut def = data.dialogs.get(name).cloned().unwrap_or_default();
         if name == "options" {
-            add_hide_flares(&mut def);
+            add_port_rows(&mut def);
         }
         let mut line = HashMap::new();
         let controls = def
@@ -1416,12 +1433,14 @@ const GAMMA: i64 = 110;
 /// The port's own box on the options' Graphics panel (#58): characters
 /// hide the lens flares behind them.
 const HIDE_FLARES: i64 = 112;
+/// The port's own box beside the resolution (#97): fullscreen.
+const FULLSCREEN: i64 = 113;
 /// The new game prompt's faithful checkbox (the port's own; not in the
 /// data).
 pub const FAITHFUL: i64 = 3;
-/// The resolutions the options offer (shown and kept; the window is sized
-/// freely), named without the original's bit depth (`%d x %d x %d bit`:
-/// the port has none to choose, and the longest wouldn't fit the popup).
+/// The resolutions the options offer without the display's own list,
+/// named without the original's bit depth (`%d x %d x %d bit`: the port
+/// has none to choose, and the longest wouldn't fit the popup).
 const RESOLUTIONS: [(u32, u32); 5] = [
     (640, 480),
     (800, 600),
@@ -1448,6 +1467,8 @@ pub enum Action {
     Quit,
     /// An option changed (kept at once, `ONrPersist_Set*`).
     Options(Settings),
+    /// The window's size or fullscreen changed (#97), with the options.
+    Display(Settings),
 }
 
 /// A row of the load game list: the level's, or one of its continues.
@@ -1467,6 +1488,8 @@ pub struct MainMenu {
     pub settings: Settings,
     /// The original's slips kept (Q19).
     pub quirks: crate::quirks::Quirks,
+    /// The window sizes the display offers (empty: the original's list).
+    pub resolutions: Vec<(u32, u32)>,
 }
 
 impl MainMenu {
@@ -1481,6 +1504,7 @@ impl MainMenu {
             in_game,
             settings,
             quirks: crate::quirks::Quirks::FIXED,
+            resolutions: Vec::new(),
         }
     }
 
@@ -1536,16 +1560,23 @@ impl MainMenu {
                 .position(|d| *d == s.difficulty)
                 .unwrap_or(1) as i64,
         );
-        let modes: Vec<(i64, String)> = RESOLUTIONS
+        let list = self.resolution_list();
+        let modes: Vec<(i64, String)> = list
             .iter()
             .enumerate()
             .map(|(i, (w, h))| (i as i64, format!("{w} x {h}")))
             .collect();
-        let current = RESOLUTIONS
+        // (The window's size, else the nearest offered.)
+        let size = s.window_size.unwrap_or(s.resolution);
+        let current = list
             .iter()
-            .position(|r| *r == s.resolution)
-            .unwrap_or(0) as i64;
+            .enumerate()
+            .min_by_key(|(_, (w, h))| w.abs_diff(size.0) + h.abs_diff(size.1))
+            .map_or(0, |(i, _)| i) as i64;
         w.set_popup(RESOLUTION, Some(modes), current);
+        w.set_check(FULLSCREEN, s.fullscreen);
+        // (Fullscreen is the display's own resolution.)
+        w.set_enabled(RESOLUTION, !s.fullscreen);
         self.stack.push(w);
     }
 
@@ -1631,10 +1662,33 @@ impl MainMenu {
             (DIFFICULTY, Notify::Menu(k)) => {
                 s.difficulty = DIFFICULTIES.get(k as usize)?.to_string()
             }
-            (RESOLUTION, Notify::Menu(k)) => s.resolution = *RESOLUTIONS.get(k as usize)?,
+            (RESOLUTION, Notify::Menu(k)) => {
+                let size = *self.resolution_list().get(k as usize)?;
+                let s = &mut self.settings;
+                (s.resolution, s.window_size) = (size, Some(size));
+                return Some(Action::Display(s.clone()));
+            }
+            (FULLSCREEN, Notify::Click) => {
+                s.fullscreen = w.check(FULLSCREEN);
+                let on = s.fullscreen;
+                let s = s.clone();
+                if let Some(w) = self.stack.last_mut() {
+                    w.set_enabled(RESOLUTION, !on);
+                }
+                return Some(Action::Display(s));
+            }
             _ => return None,
         }
         Some(Action::Options(s.clone()))
+    }
+
+    /// The window sizes offered: the display's, else the original's.
+    fn resolution_list(&self) -> Vec<(u32, u32)> {
+        if self.resolutions.is_empty() {
+            RESOLUTIONS.to_vec()
+        } else {
+            self.resolutions.clone()
+        }
     }
 
     /// The menus over a `w` × `h` screen: black behind (the desktop's

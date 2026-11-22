@@ -16,6 +16,7 @@ fn act(a: Option<crate::hud::menu::Action>) -> Option<String> {
         Action::Resume => "resume".into(),
         Action::Quit => "quit".into(),
         Action::Options(_) => "options".into(),
+        Action::Display(_) => "display".into(),
     })
 }
 fn run(host: &mut ScriptHost, cmds: Vec<crate::hud::menu::Command>) -> Option<String> {

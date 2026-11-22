@@ -961,6 +961,21 @@ impl State {
         crate::display::ui_scale(self.display.ui_scale, self.config.height)
     }
 
+    /// The window as `d` has it: fullscreen or not, its size (a window's).
+    fn set_display(&mut self, d: crate::display::Display) {
+        if d.fullscreen != self.display.fullscreen {
+            crate::display::set_fullscreen(&self.window, d.fullscreen);
+        }
+        if let (Some((w, h)), false) = (d.window, d.fullscreen) {
+            if d.window != self.display.window {
+                let _ = self
+                    .window
+                    .request_inner_size(winit::dpi::PhysicalSize::new(w, h));
+            }
+        }
+        self.display = d;
+    }
+
     /// Fullscreen (borderless, native) or back to the window, kept.
     fn toggle_fullscreen(&mut self) {
         self.display.fullscreen = !self.display.fullscreen;

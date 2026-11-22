@@ -61,6 +61,11 @@ assert(m.popups[108] == 1, "difficulty normal")
 assert(m.checks[112] == true, "lens flares hidden behind characters")
 assert(menu_click(112) == "options" and menu_state().checks[112] == false, "unticked")
 assert(menu_click(112) == "options" and menu_state().checks[112] == true, "ticked again")
+-- The port's Fullscreen box beside the resolution (#97): off by default; a
+-- click asks for the window to change ("display"), another back.
+assert(m.checks[113] == false, "windowed by default")
+assert(menu_click(113) == "display" and menu_state().checks[113] == true, "fullscreen")
+assert(menu_click(113) == "display" and menu_state().checks[113] == false, "windowed again")
 -- (Q19: shipped, the Invert Mouse box, ticked for inverted, reads "Off".)
 assert(m.visible[109] == (faithful() and "Off" or "On"), "the invert box's title: " .. tostring(m.visible[109]))
 shot("options")

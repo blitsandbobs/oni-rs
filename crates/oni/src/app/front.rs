@@ -106,6 +106,9 @@ impl State {
         }
         let mut menu = MainMenu::open(&front.data, in_game, front.user.clone());
         menu.quirks = quirks;
+        // (The window as it is now, the sizes its display offers.)
+        menu.settings.set_display(&self.display);
+        menu.resolutions = crate::display::resolutions(self.window.current_monitor().as_ref());
         front.menu = Some(menu);
         if !in_game && front.audio.is_none() {
             let common = front.oni_root.join("common");
@@ -166,10 +169,15 @@ impl State {
     }
 
     fn menu_action(&mut self, action: Action) {
+        let display = matches!(action, Action::Display(_));
         match action {
-            Action::Options(mut s) => {
-                // (The window as it is now, not as the menu was opened.)
-                s.set_display(&self.display);
+            Action::Options(mut s) | Action::Display(mut s) => {
+                if display {
+                    self.set_display(s.display());
+                } else {
+                    // (The window as it is now, not as the menu was opened.)
+                    s.set_display(&self.display);
+                }
                 s.store();
                 self.tuning.invert_y = s.invert_mouse;
                 self.settings.subtitles = s.subtitles;
