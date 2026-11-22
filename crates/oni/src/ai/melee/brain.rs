@@ -1081,13 +1081,21 @@ pub fn view<'a>(
     // Core parts (pelvis, spine, chest, head, feet) — plus hands for an
     // incoming attack; planning our own, feet count only for height (unless
     // lying) and the radius is kept back to 0.75.
-    const CORE: [usize; 6] = [0, 7, 8, 10, 3, 6];
-    const HANDS: [usize; 2] = [14, 18];
+    use crate::fighter::part;
+    const CORE: [usize; 6] = [
+        part::PELVIS,
+        part::SPINE,
+        part::CHEST,
+        part::HEAD,
+        part::LEFT_FOOT,
+        part::RIGHT_FOOT,
+    ];
+    const HANDS: [usize; 2] = [part::LEFT_HAND, part::RIGHT_HAND];
     let spheres = f.body_spheres();
     let cylinder = |parts: &[usize], feet_for_height_only: bool| {
         let (mut r, mut lo, mut hi) = (0.0f32, f32::MAX, f32::MIN);
         for &(part, c, rad) in spheres.iter().filter(|(p, _, _)| parts.contains(p)) {
-            let is_foot = part == 3 || part == 6;
+            let is_foot = part == part::LEFT_FOOT || part == part::RIGHT_FOOT;
             if !(feet_for_height_only && is_foot) {
                 let d = Vec3::new(c.x - feet.x, 0.0, c.z - feet.z).length();
                 r = r.max(d + rad);

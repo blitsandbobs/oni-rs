@@ -243,7 +243,7 @@ impl World {
     /// (`AI2rManeuver_CheckBlockage`): the level as characters collide with
     /// it, or an animating object.
     fn neutral_blocked(&self, i: usize, point: Vec3) -> bool {
-        let from = self.fighters[i].sight_points()[0];
+        let from = self.fighters[i].sight_points().pelvis;
         !self
             .quads
             .clear(from, point, crate::quads::flag::CHR_COL_SKIP)
@@ -281,7 +281,7 @@ impl World {
                 return false;
             }
         }
-        let at = self.fighters[target].sight_points()[0];
+        let at = self.fighters[target].sight_points().pelvis;
         !self.neutral_blocked(i, at)
     }
 
@@ -339,7 +339,7 @@ impl World {
                     return Some((i, true));
                 }
             } else if found.is_none() && self.neutral_could_trigger(i, who, false) {
-                let at = self.fighters[who].sight_points()[0];
+                let at = self.fighters[who].sight_points().pelvis;
                 if !self.neutral_blocked(i, at) {
                     found = Some((i, false));
                 }
@@ -760,7 +760,7 @@ impl World {
         let t = r.target;
         let now = self.now as u64;
         let our = self.fighters[i].feet();
-        let target = self.fighters[t].sight_points()[0];
+        let target = self.fighters[t].sight_points().pelvis;
         let d2 = our.distance_squared(target);
         let close = d2 < r.behavior.conversation_range * r.behavior.conversation_range
             && !self.neutral_blocked(i, target);
@@ -953,7 +953,7 @@ impl World {
             block |= self.fighters[speaker].speech.current.is_some();
         }
         // Keep looking at each other.
-        let at = self.fighters[t].sight_points()[0];
+        let at = self.fighters[t].sight_points().pelvis;
         if let Some(Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
             a.look_at(at);
         }

@@ -167,7 +167,7 @@ impl World {
                 let eye = f.feet() + Vec3::Y * f.motion.height() * 2.0;
                 let eye = f
                     .bones()
-                    .get(super::HEAD_BONE)
+                    .get(crate::fighter::part::HEAD)
                     .map_or(eye, |m| m.w_axis.truncate());
                 let handle = self.audio.ambient_start(&sound, eye, Some(&self.quads));
                 let duration = match self.audio.ambient_duration(&sound) {
@@ -310,7 +310,7 @@ impl World {
         let f = &self.fighters[who];
         let eye = f
             .bones()
-            .get(super::HEAD_BONE)
+            .get(crate::fighter::part::HEAD)
             .map_or(f.feet(), |m| m.w_axis.truncate());
         self.audio
             .impulse_play(&name, Some(eye), volume, Some(&self.quads));

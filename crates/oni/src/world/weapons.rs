@@ -1190,7 +1190,7 @@ impl World {
 
     fn drop_powerup(&mut self, who: usize, kind: usize, amount: u16) {
         let f = &self.fighters[who];
-        let pelvis = f.sight_points()[0];
+        let pelvis = f.sight_points().pelvis;
         let mut at = Vec3::new(pelvis.x, f.feet().y + f.motion.height(), pelvis.z);
         let deviate = |w: &mut World, v: &mut Vec3, by: f32| {
             v.x += (w.random() * 2.0 - 1.0) * by;

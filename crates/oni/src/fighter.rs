@@ -11,9 +11,47 @@
 
 use std::rc::Rc;
 
-/// The feet's bones (footsteps sound at the foot that came down).
-const LEFT_FOOT: usize = 3;
-const RIGHT_FOOT: usize = 6;
+/// The body parts, by index (`ONcPelvis_Index` …): the bones a
+/// character's body is built of, in the data's order. (All of them, used
+/// or not.)
+#[allow(dead_code)]
+pub mod part {
+    pub const PELVIS: usize = 0;
+    pub const LEFT_THIGH: usize = 1;
+    pub const LEFT_CALF: usize = 2;
+    pub const LEFT_FOOT: usize = 3;
+    pub const RIGHT_THIGH: usize = 4;
+    pub const RIGHT_CALF: usize = 5;
+    pub const RIGHT_FOOT: usize = 6;
+    pub const SPINE: usize = 7;
+    pub const CHEST: usize = 8;
+    pub const NECK: usize = 9;
+    pub const HEAD: usize = 10;
+    pub const LEFT_SHOULDER: usize = 11;
+    pub const LEFT_ARM: usize = 12;
+    pub const LEFT_FOREARM: usize = 13;
+    pub const LEFT_HAND: usize = 14;
+    pub const RIGHT_SHOULDER: usize = 15;
+    pub const RIGHT_ARM: usize = 16;
+    pub const RIGHT_FOREARM: usize = 17;
+    pub const RIGHT_HAND: usize = 18;
+}
+
+/// Where others look for a fighter: its pelvis, its head, and just above
+/// its feet.
+#[derive(Clone, Copy, Debug)]
+pub struct SightPoints {
+    pub pelvis: Vec3,
+    pub head: Vec3,
+    pub feet: Vec3,
+}
+
+impl SightPoints {
+    /// All three, pelvis first.
+    pub fn all(&self) -> [Vec3; 3] {
+        [self.pelvis, self.head, self.feet]
+    }
+}
 
 use glam::{Mat4, Quat, Vec3};
 
@@ -711,8 +749,8 @@ impl Fighter {
                 }
                 let feet = self.feet();
                 let foot = match clip.footstep_kinds.get(k) {
-                    Some(1) => Some(LEFT_FOOT),
-                    Some(2) => Some(RIGHT_FOOT),
+                    Some(1) => Some(part::LEFT_FOOT),
+                    Some(2) => Some(part::RIGHT_FOOT),
                     _ => None,
                 };
                 let at = match foot.and_then(|b| self.bones().get(b).map(|m| m.w_axis.truncate())) {
@@ -748,15 +786,15 @@ impl Fighter {
     }
 
     /// Where others look for it: pelvis, head, feet (+1).
-    pub fn sight_points(&self) -> [Vec3; 3] {
+    pub fn sight_points(&self) -> SightPoints {
         let spheres = self.body_spheres();
-        let part = |k: usize, or: Vec3| spheres.iter().find(|s| s.0 == k).map_or(or, |s| s.1);
+        let at = |k: usize, or: Vec3| spheres.iter().find(|s| s.0 == k).map_or(or, |s| s.1);
         let feet = self.feet();
-        [
-            part(0, feet + Vec3::Y * 8.0),
-            part(10, feet + Vec3::Y * 15.0),
-            feet + Vec3::Y,
-        ]
+        SightPoints {
+            pelvis: at(part::PELVIS, feet + Vec3::Y * 8.0),
+            head: at(part::HEAD, feet + Vec3::Y * 15.0),
+            feet: feet + Vec3::Y,
+        }
     }
 
     /// A startled jump toward something at `at`: the startle animation for

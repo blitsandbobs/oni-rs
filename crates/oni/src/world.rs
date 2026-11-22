@@ -21,8 +21,6 @@ use crate::quirks::Quirks;
 use crate::skel::Character;
 
 /// The head's bone (the listener's ear height).
-const HEAD_BONE: usize = 10;
-
 pub mod anim_particles;
 pub mod camera;
 pub mod cheats;
@@ -578,7 +576,8 @@ impl World {
             .collect();
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
         let feet: Vec<Vec3> = self.fighters.iter().map(|f| f.feet()).collect();
-        let points: Vec<[Vec3; 3]> = self.fighters.iter().map(|f| f.sight_points()).collect();
+        let points: Vec<crate::fighter::SightPoints> =
+            self.fighters.iter().map(|f| f.sight_points()).collect();
         let faithful = self.quirks.faithful;
 
         // Deaths.
@@ -633,7 +632,7 @@ impl World {
                 if s.at.distance(feet[i]) > range {
                     continue;
                 }
-                let eye = points[i][1];
+                let eye = points[i].head;
                 let gate = |r: usize, k: usize| {
                     portal_doors
                         .get(&(r, k))
@@ -714,7 +713,7 @@ impl World {
             if (i as u64 * 13) % every != now % every {
                 continue;
             }
-            let eye = points[i][1];
+            let eye = points[i].head;
             // Along its aim while it aims (`aimingVector`: the head's turn,
             // pitched — "up" is square to it), else its body's facing.
             let (look, up) = match self.fighters[i].aim.ai {
@@ -742,8 +741,11 @@ impl World {
                 let Some(stimulus) = p.tuning.sees(aim - eye, look, up, known, faithful) else {
                     continue;
                 };
-                let seen = points[j].iter().find(|&&pt| self.quads.sees(eye, pt));
-                let Some(&at) = seen else { continue };
+                let seen = points[j]
+                    .all()
+                    .into_iter()
+                    .find(|&pt| self.quads.sees(eye, pt));
+                let Some(at) = seen else { continue };
                 let strength = if stimulus == Stimulus::SightDefinite {
                     Strength::Definite
                 } else {
@@ -858,7 +860,10 @@ impl World {
             obstructions::local_view(&self.obstructions, n, self.now as u64, &snap, i, through)
         });
         // (`AI2rManeuver_CheckBlockage`: the level, objects, the body's sweep.)
-        let (tree, from) = (self.fighters[i].tree(), self.fighters[i].sight_points()[0]);
+        let (tree, from) = (
+            self.fighters[i].tree(),
+            self.fighters[i].sight_points().pelvis,
+        );
         let objects = self.object_spheres();
         let blockage_fn = |to: Vec3| {
             let v = to - from;
@@ -902,7 +907,7 @@ impl World {
         let now = self.now as u64;
         let quirks = self.quirks;
         let f = &mut self.fighters[i];
-        let (feet, eye, facing) = (f.feet(), f.sight_points()[1], f.facing.facing);
+        let (feet, eye, facing) = (f.feet(), f.sight_points().head, f.facing.facing);
         let fallen = matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT);
         let crouching = f.motion.crouching();
         let f_state_standing = f.motion.state == st::STANDING;
@@ -945,7 +950,7 @@ impl World {
             can_pickup: picks_up(f.motion.current()),
             picking_up: crate::anim::types::ty::is_pickup(f.motion.kind),
         };
-        let (pelvis, using_console) = (f.sight_points()[0], f.console.is_some());
+        let (pelvis, using_console) = (f.sight_points().pelvis, f.console.is_some());
         // (The roll that way, else the slide: one that can pick up.)
         let (motion, body_facing) = (&f.motion, f.facing.facing);
         let escape_fn = |way: usize| {
@@ -1589,7 +1594,7 @@ impl World {
     fn door_in_reach(&self, i: usize) -> Option<(usize, bool)> {
         let f = self.fighters.get(i)?;
         self.doors
-            .manual_in_reach(f.sight_points()[0], f.facing.facing, f.feet())
+            .manual_in_reach(f.sight_points().pelvis, f.facing.facing, f.feet())
     }
 
     /// Whether fighter `i` could open a manual door with Action now (the
@@ -1737,7 +1742,7 @@ impl World {
     /// marker is nearest its pelvis, if it is in reach.
     fn console_in_reach(&self, i: usize, generous: bool) -> Option<usize> {
         let f = self.fighters.get(i)?;
-        let pelvis = f.sight_points()[0];
+        let pelvis = f.sight_points().pelvis;
         let (c, k) = self.consoles.iter().enumerate().min_by(|a, b| {
             a.1.marker
                 .distance_squared(pelvis)
@@ -2205,7 +2210,7 @@ impl World {
             .fighters
             .iter()
             .map(|f| {
-                let p = f.sight_points()[0];
+                let p = f.sight_points().pelvis;
                 Vec3::new(p.x, f.feet().y, p.z)
             })
             .collect();
@@ -2492,7 +2497,7 @@ impl World {
                 let feet = p.feet();
                 let head = p
                     .bones()
-                    .get(HEAD_BONE)
+                    .get(crate::fighter::part::HEAD)
                     .map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
                 let f = p.facing.facing;
                 self.audio.listen(
@@ -2739,7 +2744,7 @@ impl World {
     fn throw_sense(&self, me: usize) -> Option<throw::Sense> {
         let f = self.fighters.get(me)?;
         let through_walls = self.quirks.throw_through_walls();
-        let mine = f.sight_points()[0];
+        let mine = f.sight_points().pelvis;
         let candidates = self
             .fighters
             .iter()
@@ -2757,7 +2762,7 @@ impl World {
                         || o.feet().distance(f.feet()) > throw::SEARCH_RANGE
                         || self.quads.clear(
                             mine,
-                            o.sight_points()[0],
+                            o.sight_points().pelvis,
                             crate::quads::flag::CHR_COL_SKIP,
                         ))
             })
@@ -2898,7 +2903,7 @@ impl World {
                             )
                         );
                     if ai {
-                        let point = f.sight_points()[0] - away * 0.5;
+                        let point = f.sight_points().pelvis - away * 0.5;
                         let feet = f.feet();
                         f.avoid.notify(
                             crate::ai::avoid::With::Character(other),
