@@ -32,7 +32,7 @@ pub struct Classes {
     /// AI melee profiles by name.
     melee: HashMap<String, Rc<crate::ai::melee::profile::Profile>>,
     /// The game settings (`common/game_settings.json`).
-    settings: serde_json::Value,
+    settings: oni_schema::files::GameSettingsFile,
 }
 
 impl Classes {
@@ -53,7 +53,7 @@ impl Classes {
             kinds: HashMap::new(),
             singles: HashMap::new(),
             melee,
-            settings: crate::json::load(oni_root.join("common/game_settings.json")),
+            settings: crate::json::read_file(oni_root.join("common/game_settings.json")),
         })
     }
 
@@ -234,18 +234,16 @@ impl Classes {
 
     /// The AI's difficulty multipliers for `level` ("easy", "normal", "hard").
     pub fn difficulty(&self, level: &str) -> crate::ai::melee::brain::Difficulty {
-        let d = &self.settings["difficulty"];
-        let i = d["levels"]
-            .as_array()
-            .and_then(|l| l.iter().position(|v| v.as_str() == Some(level)));
-        let pick = |k: &str| i.and_then(|i| d[k][i].as_f64()).map_or(1.0, |v| v as f32);
+        let d = &self.settings.difficulty;
+        let i = d.levels.iter().position(|v| v == level);
+        let pick = |m: &[f32]| i.and_then(|i| m.get(i).copied()).unwrap_or(1.0);
         crate::ai::melee::brain::Difficulty {
-            notice: pick("noticeMultiplier"),
-            dodge: pick("dodgeMultiplier"),
-            block: pick("blockMultiplier"),
-            player_hp: pick("playerHpMultiplier"),
-            enemy_hp: pick("enemyHpMultiplier"),
-            inaccuracy: pick("inaccuracyMultiplier"),
+            notice: pick(&d.notice_multiplier),
+            dodge: pick(&d.dodge_multiplier),
+            block: pick(&d.block_multiplier),
+            player_hp: pick(&d.player_hp_multiplier),
+            enemy_hp: pick(&d.enemy_hp_multiplier),
+            inaccuracy: pick(&d.inaccuracy_multiplier),
             level: i.map_or(1, |i| i as i64),
         }
     }

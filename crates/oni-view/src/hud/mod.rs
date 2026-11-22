@@ -369,19 +369,12 @@ impl Hud {
                 })
                 .unwrap_or_default()
         };
-        let settings: serde_json::Value = crate::json::load(common.join("game_settings.json"));
-        let autoprompts = settings["autoprompts"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|a| {
-                let l = |k: usize| a["levels"][k].as_u64().unwrap_or(0) as u16;
-                (
-                    a["event"].as_str().unwrap_or("").to_string(),
-                    [l(0), l(1)],
-                    a["message"].as_str().unwrap_or("").to_string(),
-                )
-            })
+        let settings: oni_schema::files::GameSettingsFile =
+            crate::json::read_file(common.join("game_settings.json"));
+        let autoprompts = settings
+            .autoprompts
+            .iter()
+            .map(|a| (a.event.clone(), a.levels, a.message.clone()))
             .collect();
         let flags: oni_schema::files::TextureFlagsFile =
             crate::json::read_file(common.join("texture_flags.json"));

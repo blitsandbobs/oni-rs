@@ -308,7 +308,7 @@ pub fn convert_with(
     // across files into a single catalog written at the end.
     let mut character_classes: Vec<serde_json::Value> = Vec::new();
     let mut melee_profiles: Vec<melee::Profile> = Vec::new();
-    let mut game_settings: Option<serde_json::Value> = None;
+    let mut game_settings: Option<oni_schema::files::GameSettingsFile> = None;
     let mut part_specs = serde_json::Map::new();
     let mut console_classes = std::collections::HashMap::new();
     let mut laser_classes = std::collections::BTreeMap::new();
@@ -567,11 +567,9 @@ pub fn convert_with(
             serde_json::to_string_pretty(&serde_json::json!({ "partSpecs": part_specs }))?,
         )?;
     }
-    if let Some(mut gs) = game_settings {
-        // (A geometry no level holds: drawn as its glow alone.)
-        for (_, v) in gs["powerups"].as_object_mut().into_iter().flatten() {
-            v.as_object_mut().map(|o| o.remove("geometry"));
-        }
+    if let Some(gs) = game_settings {
+        // (A geometry no level holds: drawn as its glow alone — the
+        // geometry's name isn't written.)
         let dir = output_dir.join("common");
         std::fs::create_dir_all(&dir)?;
         std::fs::write(
@@ -664,9 +662,9 @@ fn collect_part_specs(
 /// powerup names (`"geometry"`, dropped once found): the model, the sphere
 /// it falls with, and how far above its place its glow lies (its lowest
 /// point + 0.1, `WPrPowerup_Draw`).
-fn powerup_model(dat: &Dat<'_>, v: &mut serde_json::Value) {
+fn powerup_model(dat: &Dat<'_>, v: &mut oni_schema::files::PowerupLook) {
     const TAG_M3GM: FourCc = FourCc(u32::from_be_bytes(*b"M3GM"));
-    let Some(geom) = v["geometry"].as_str().map(str::to_string) else {
+    let Some(geom) = v.geometry.clone() else {
         return;
     };
     let Some(inst) = dat.instances.iter().find(|i| {
@@ -681,15 +679,15 @@ fn powerup_model(dat: &Dat<'_>, v: &mut serde_json::Value) {
         return;
     };
     let low = mesh.positions.iter().map(|p| p[1]).fold(f32::MAX, f32::min);
-    v["model"] = serde_json::json!(format!("models/{}.glb", asset_name(dat, inst)));
-    v["radius"] = serde_json::json!(low.abs().max(1.0));
-    v["glowHeight"] = serde_json::json!(low + 0.1);
-    v.as_object_mut().map(|o| o.remove("geometry"));
+    v.model = Some(format!("models/{}.glb", asset_name(dat, inst)));
+    v.radius = low.abs().max(1.0);
+    v.glow_height = Some(low + 0.1);
+    v.geometry = None;
 }
 
 /// `powerup_model` for every powerup the game settings left without one.
-fn powerup_models(dat: &Dat<'_>, settings: &mut serde_json::Value) {
-    for (_, v) in settings["powerups"].as_object_mut().into_iter().flatten() {
+fn powerup_models(dat: &Dat<'_>, settings: &mut oni_schema::files::GameSettingsFile) {
+    for v in settings.powerups.values_mut() {
         powerup_model(dat, v);
     }
 }
@@ -697,7 +695,7 @@ fn powerup_models(dat: &Dat<'_>, settings: &mut serde_json::Value) {
 fn collect_game_settings(
     dat: &Dat<'_>,
     registry: &oni_template::Registry,
-) -> Option<serde_json::Value> {
+) -> Option<oni_schema::files::GameSettingsFile> {
     const TAG_ONGS: FourCc = FourCc(0x4F4E_4753);
     let inst = dat.instances.iter().find(|i| i.tag == TAG_ONGS)?;
     let rec = oni_template::decode(
@@ -749,10 +747,10 @@ fn collect_game_settings(
         "invis",
         "timerCritical",
     ];
-    let names = |at: usize, keys: &[&str]| -> serde_json::Map<String, serde_json::Value> {
+    let names = |at: usize, keys: &[&str]| -> BTreeMap<String, String> {
         keys.iter()
             .enumerate()
-            .map(|(k, n)| (n.to_string(), serde_json::json!(cstr(d, at + k * 32, 32))))
+            .map(|(k, n)| (n.to_string(), cstr(d, at + k * 32, 32)))
             .collect()
     };
     let (events, conditions) = if d.len() >= 2576 + 5 * 32 {
@@ -775,11 +773,11 @@ fn collect_game_settings(
             .collect(),
         _ => Vec::new(),
     };
-    let health_color: Vec<serde_json::Value> = floats("healthcolor_values")
+    let health_color = floats("healthcolor_values")
         .into_iter()
         .zip(colors)
         .take(points)
-        .map(|(v, c)| serde_json::json!({ "health": v, "color": c }))
+        .map(|(health, color)| oni_schema::files::HealthColor { health, color })
         .collect();
     // The powerups' looks (`powerup_geom[7][128]` @152, `powerup_glow` @1048,
     // `powerup_glowsize[7][2]` @1944), by type: the model, the glow
@@ -795,78 +793,76 @@ fn collect_game_settings(
         "invisibility",
         "lsi",
     ];
-    let powerups: serde_json::Map<String, serde_json::Value> = POWERUPS
+    let powerups = POWERUPS
         .iter()
         .enumerate()
         .map(|(k, name)| {
             let geom = cstr(d, 152 + k * 128, 128);
-            let glow_size = [le_f32(d, 1944 + 8 * k), le_f32(d, 1948 + 8 * k)];
-            let mut v = serde_json::json!({ "radius": 2.0, "glowSize": glow_size });
-            if !geom.is_empty() {
-                v["geometry"] = serde_json::json!(geom);
-                powerup_model(dat, &mut v);
-            }
             let glow = cstr(d, 1048 + k * 128, 128);
-            if !glow.is_empty() {
-                v["glow"] = serde_json::json!(sanitize(&glow));
-            }
+            let mut v = oni_schema::files::PowerupLook {
+                radius: 2.0,
+                glow_size: [le_f32(d, 1944 + 8 * k), le_f32(d, 1948 + 8 * k)],
+                glow: (!glow.is_empty()).then(|| sanitize(&glow)),
+                geometry: (!geom.is_empty()).then_some(geom),
+                ..Default::default()
+            };
+            powerup_model(dat, &mut v);
             (name.to_string(), v)
         })
         .collect();
     // The autoprompts (`num_autoprompts` @2808, `ONtAutoPrompt[16]` @2812:
     // event name[32], first and last level, message name[32]).
-    let autoprompts: Vec<serde_json::Value> = dat
+    let autoprompts = dat
         .instance_data(inst)
         .map(|d| {
             (0..(le_u32(d, 2808) as usize).min(16))
                 .map(|k| {
                     let o = 2812 + k * 68;
-                    serde_json::json!({
-                        "event": cstr(d, o, 32),
-                        "levels": [le_u16(d, o + 32), le_u16(d, o + 34)],
-                        "message": cstr(d, o + 36, 32),
-                    })
+                    oni_schema::files::Autoprompt {
+                        event: cstr(d, o, 32),
+                        levels: [le_u16(d, o + 32), le_u16(d, o + 34)],
+                        message: cstr(d, o + 36, 32),
+                    }
                 })
                 .collect()
         })
         .unwrap_or_default();
     // The magic effects' textures (`ONrCharacter_Draw`: by name, the shield,
     // a super shield's and invisibility's), as their files are named.
-    let magic = serde_json::json!({
-        "shield": sanitize("SHIELD"),
-        "daodanShield": sanitize("DAODAN_SHIELD"),
-        "invis": sanitize("INVIS"),
-    });
-    Some(serde_json::json!({
-        "powerups": powerups,
-        "magicTextures": magic,
-        "autoprompts": autoprompts,
-        "healthColor": health_color,
-        "eventSounds": events,
-        "conditionSounds": conditions,
+    Some(oni_schema::files::GameSettingsFile {
+        powerups,
+        magic_textures: oni_schema::files::MagicTextures {
+            shield: sanitize("SHIELD"),
+            daodan_shield: sanitize("DAODAN_SHIELD"),
+            invis: sanitize("INVIS"),
+        },
+        autoprompts,
+        health_color,
+        event_sounds: events,
+        condition_sounds: conditions,
         // A hypo heals this share of full health (`hypo_amount`), past full
         // this share (`hypo_boost_amount`); above full, a super-hypo class
         // hits harder, from the base to the most at double health.
-        "hypo": {
-            "amount": fl("hypo_amount"),
-            "boostAmount": fl("hypo_boost_amount"),
-            "overhypoBaseDamage": fl("overhypo_base_damage"),
-            "overhypoMaxDamage": fl("overhypo_max_damage"),
+        hypo: oni_schema::files::HypoSettings {
+            amount: fl("hypo_amount"),
+            boost_amount: fl("hypo_boost_amount"),
+            overhypo_base_damage: fl("overhypo_base_damage"),
+            overhypo_max_damage: fl("overhypo_max_damage"),
         },
-        "boostedHealth": match rec.get("boosted_health").map(|e| &e.value) {
+        boosted_health: match rec.get("boosted_health").map(|e| &e.value) {
             Some(oni_template::Value::Float(f)) => *f,
             _ => 1.5,
         },
-        "difficulty": {
-            "levels": ["easy", "normal", "hard"],
-            "noticeMultiplier": floats("notice_multipliers"),
-            "blockMultiplier": floats("blocking_multipliers"),
-            "dodgeMultiplier": floats("dodge_multipliers"),
-            "inaccuracyMultiplier": floats("inaccuracy_multipliers"),
-            "playerHpMultiplier": floats("player_hp_multipliers"),
-            "enemyHpMultiplier": floats("enemy_hp_multipliers"),
-        }
-    }))
+        difficulty: oni_schema::files::DifficultySettings {
+            levels: vec!["easy".into(), "normal".into(), "hard".into()],
+            notice_multiplier: floats("notice_multipliers"),
+            block_multiplier: floats("blocking_multipliers"),
+            dodge_multiplier: floats("dodge_multipliers"),
+            inaccuracy_multiplier: floats("inaccuracy_multipliers"),
+            player_hp_multiplier: floats("player_hp_multipliers"),
+            enemy_hp_multiplier: floats("enemy_hp_multipliers"),
+        },
+    })
 }
 
 /// A class's AI perception tuning (`docs/PERCEPTION.md`): vision (the

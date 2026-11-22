@@ -1148,6 +1148,91 @@ pub struct AnimSound {
     pub frame: Option<u32>,
 }
 
+/// `common/game_settings.json`: the game's settings (`ONGS`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GameSettingsFile {
+    /// The powerups' looks, by kind.
+    pub powerups: BTreeMap<String, PowerupLook>,
+    pub magic_textures: MagicTextures,
+    pub autoprompts: Vec<Autoprompt>,
+    /// A character's health colour ramp (melee flashes, the HUD).
+    pub health_color: Vec<HealthColor>,
+    /// The game's event and condition sounds (empty: silent), by name.
+    pub event_sounds: BTreeMap<String, String>,
+    pub condition_sounds: BTreeMap<String, String>,
+    pub hypo: HypoSettings,
+    pub boosted_health: f32,
+    pub difficulty: DifficultySettings,
+}
+
+/// A powerup's look: its model (a path under `common/`), the glow sprite
+/// and its size and height, and the physics sphere a dropped one falls with.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PowerupLook {
+    pub radius: f32,
+    pub glow_size: [f32; 2],
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub glow_height: Option<f32>,
+    /// Its geometry's name, while the converter looks for it (not written).
+    #[serde(skip)]
+    pub geometry: Option<String>,
+}
+
+/// The magic effects' textures (by file name).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MagicTextures {
+    pub shield: String,
+    pub daodan_shield: String,
+    pub invis: String,
+}
+
+/// An autoprompt: an event's message, on levels `levels[0]..=levels[1]`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Autoprompt {
+    pub event: String,
+    pub levels: [u16; 2],
+    pub message: String,
+}
+
+/// A point of the health colour ramp: a health fraction and its colour
+/// (`#aarrggbb`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct HealthColor {
+    pub health: f32,
+    pub color: String,
+}
+
+/// What a hypo does: the share of full health it heals, past full the
+/// share it boosts, and a super-hypo class's extra damage.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HypoSettings {
+    pub amount: f32,
+    pub boost_amount: f32,
+    pub overhypo_base_damage: f32,
+    pub overhypo_max_damage: f32,
+}
+
+/// The difficulty levels and their multipliers (one per level).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DifficultySettings {
+    pub levels: Vec<String>,
+    pub notice_multiplier: Vec<f32>,
+    pub block_multiplier: Vec<f32>,
+    pub dodge_multiplier: Vec<f32>,
+    pub inaccuracy_multiplier: Vec<f32>,
+    pub player_hp_multiplier: Vec<f32>,
+    pub enemy_hp_multiplier: Vec<f32>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

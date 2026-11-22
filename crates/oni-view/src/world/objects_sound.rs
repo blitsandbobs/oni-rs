@@ -7,7 +7,6 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use glam::Vec3;
-use serde_json::Value;
 
 use super::World;
 
@@ -48,29 +47,24 @@ pub(crate) struct GameSounds {
     laser_hum: Vec<Option<Option<usize>>>,
 }
 
-fn names(j: &Value) -> HashMap<String, String> {
-    j.as_object()
-        .into_iter()
-        .flatten()
-        .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-        .collect()
-}
-
-fn read(path: &Path) -> Value {
-    crate::json::load(path)
-}
-
 impl GameSounds {
     pub fn load(common: &Path) -> GameSounds {
-        let gs = read(&common.join("game_settings.json"));
+        let gs: Option<oni_schema::files::GameSettingsFile> =
+            crate::json::read_some(common.join("game_settings.json"));
         let doors: oni_schema::files::DoorClassesFile =
             crate::json::read_file(common.join("door_classes.json"));
         let lasers: oni_schema::files::LaserClassesFile =
             crate::json::read_file(common.join("laser_classes.json"));
         GameSounds {
-            events: names(&gs["eventSounds"]),
-            conditions: names(&gs["conditionSounds"]),
-            boosted_health: gs["boostedHealth"].as_f64().unwrap_or(1.5) as f32,
+            events: gs
+                .as_ref()
+                .map(|g| g.event_sounds.clone().into_iter().collect())
+                .unwrap_or_default(),
+            conditions: gs
+                .as_ref()
+                .map(|g| g.condition_sounds.clone().into_iter().collect())
+                .unwrap_or_default(),
+            boosted_health: gs.as_ref().map_or(1.5, |g| g.boosted_health),
             doors: doors
                 .classes
                 .into_iter()

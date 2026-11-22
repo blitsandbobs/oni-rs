@@ -1068,29 +1068,40 @@ impl World {
         self.impacts = crate::impacts::Impacts::load(common).map(Rc::new);
         self.anim_sounds = crate::anim_sounds::AnimSounds::load(common).map(Rc::new);
         self.game_sounds = super::objects_sound::GameSounds::load(common);
-        let gs: serde_json::Value = crate::json::load(common.join("game_settings.json"));
-        self.hypo = super::hypo::HypoSettings::load(&gs);
-        let settings: serde_json::Value = crate::json::load(common.join("game_settings.json"));
+        let gs: Option<oni_schema::files::GameSettingsFile> =
+            crate::json::read_some(common.join("game_settings.json"));
+        self.hypo = super::hypo::HypoSettings::load(gs.as_ref());
         // The magic effects' textures (shield, super shield, invisibility).
-        self.magic_textures = ["shield", "daodanShield", "invis"].map(|k| {
-            settings["magicTextures"][k]
-                .as_str()
-                .map(|t| common.join("textures").join(format!("{t}.png")))
-        });
+        let texture = |t: &str| common.join("textures").join(format!("{t}.png"));
+        self.magic_textures = match &gs {
+            Some(gs) => {
+                let m = &gs.magic_textures;
+                [&m.shield, &m.daodan_shield, &m.invis].map(|t| Some(texture(t)))
+            }
+            None => [None, None, None],
+        };
         self.armory.powerup_looks = POWERUP_DATA
             .iter()
             .map(|k| {
-                let p = &settings["powerups"][*k];
-                let size = |k: usize| p["glowSize"][k].as_f64().unwrap_or(POWERUP_GLOW_SIZE) as f32;
+                let p = gs.as_ref().and_then(|gs| gs.powerups.get(*k));
                 PowerupLook {
-                    model: p["model"].as_str().map(|m| common.join(m)),
-                    radius: p["radius"].as_f64().unwrap_or(2.0) as f32,
-                    glow: p["glow"]
-                        .as_str()
-                        .map(|g| common.join("textures").join(format!("{g}.png"))),
-                    glow_size: [size(0), size(1)],
-                    glow_height: p["glowHeight"].as_f64().unwrap_or(0.0) as f32,
+                    model: p.and_then(|p| p.model.as_ref()).map(|m| common.join(m)),
+                    radius: p.map_or(2.0, |p| p.radius),
+                    glow: p.and_then(|p| p.glow.as_deref()).map(texture),
+                    glow_size: p.map_or([POWERUP_GLOW_SIZE as f32; 2], |p| p.glow_size),
+                    glow_height: p.and_then(|p| p.glow_height).unwrap_or(0.0),
                 }
+            })
+            .collect();
+        // The health colour ramp.
+        self.health_color = gs
+            .iter()
+            .flat_map(|gs| &gs.health_color)
+            .filter_map(|p| {
+                Some((
+                    p.health,
+                    u32::from_str_radix(p.color.trim_start_matches('#'), 16).ok()?,
+                ))
             })
             .collect();
         self.env_particles =
@@ -1126,19 +1137,6 @@ impl World {
             crate::json::read_file(common.join("texture_flags.json"));
         self.additive_textures = flags.additive.into_iter().collect();
         self.texture_anims = crate::texanim::load(&common.join(".."));
-        // The health colour ramp.
-        let gs: serde_json::Value = crate::json::load(common.join("game_settings.json"));
-        self.health_color = gs["healthColor"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|p| {
-                Some((
-                    p["health"].as_f64()? as f32,
-                    u32::from_str_radix(p["color"].as_str()?.trim_start_matches('#'), 16).ok()?,
-                ))
-            })
-            .collect();
         self.env_particles_started = false;
         let items: oni_schema::files::ItemsFile =
             crate::json::read_file(self.level_dir.join("items.json"));

@@ -31,15 +31,14 @@ impl Default for HypoSettings {
 }
 
 impl HypoSettings {
-    pub fn load(gs: &serde_json::Value) -> HypoSettings {
-        let d = HypoSettings::default();
-        let f = |k: &str, or: f32| gs["hypo"][k].as_f64().map_or(or, |v| v as f32);
-        HypoSettings {
-            amount: f("amount", d.amount),
-            boost_amount: f("boostAmount", d.boost_amount),
-            overhypo_base: f("overhypoBaseDamage", d.overhypo_base),
-            overhypo_max: f("overhypoMaxDamage", d.overhypo_max),
-        }
+    /// From the game settings (none: the defaults).
+    pub fn load(gs: Option<&oni_schema::files::GameSettingsFile>) -> HypoSettings {
+        gs.map_or_else(HypoSettings::default, |gs| HypoSettings {
+            amount: gs.hypo.amount,
+            boost_amount: gs.hypo.boost_amount,
+            overhypo_base: gs.hypo.overhypo_base_damage,
+            overhypo_max: gs.hypo.overhypo_max_damage,
+        })
     }
 }
 
