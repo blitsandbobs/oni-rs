@@ -335,9 +335,10 @@ pub struct Window {
 
 /// The options dialog with the port's rows on the Graphics panel: "Hide
 /// Lens Flares" (#58) and "Fullscreen" (#97), each a label like Gamma's
-/// and a box like Subtitles'. The panel two rows taller; the Sound panel
-/// (one slider) a row shorter, all below it a row lower (the Close button
-/// ends at 470 of 480).
+/// and a box like Subtitles'. The panel two rows taller, the Sound panel
+/// below it as much lower; the misc panel (difficulty, subtitles, invert
+/// mouse) to the right at its own height, out of their way and with room
+/// to grow. The Close button stays.
 fn add_port_rows(def: &mut DialogDef) {
     const ROW: f32 = 25.0;
     let label = def
@@ -349,17 +350,15 @@ fn add_port_rows(def: &mut DialogDef) {
     let (Some(label), Some(check)) = (label, check) else {
         return;
     };
+    const RIGHT: f32 = 330.0;
     for i in &mut def.items {
         let [_, y, _, h] = i.rect;
         if i.title == "Graphics" && h > 50.0 {
             i.rect[3] += 2.0 * ROW;
-        } else if i.title == "Sound" && h > 50.0 {
-            i.rect[1] += 2.0 * ROW;
-            i.rect[3] -= ROW;
         } else if y > 150.0 && y < 290.0 && h < 400.0 {
             i.rect[1] += 2.0 * ROW;
-        } else if y >= 290.0 && h < 400.0 {
-            i.rect[1] += ROW;
+        } else if (290.0..400.0).contains(&y) && h < 400.0 {
+            i.rect[0] += RIGHT;
         }
     }
     for (k, (id, title)) in [

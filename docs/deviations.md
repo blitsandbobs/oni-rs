@@ -304,7 +304,8 @@ our own additions. Not affected by `--faithful`.
   `uiScale` 1 is pixel for pixel as shipped on an unscaled display). The
   options' Resolution lists the usual window sizes that fit the display,
   and its own; our Fullscreen box sits under Hide Lens Flares
-  (the Sound panel a row shorter to make room). Settings live in `$ONI_SAVE_DIR/settings.json` (or
+  (the Difficulty / Subtitles / Invert Mouse panel moved to the right to
+  make room). Settings live in `$ONI_SAVE_DIR/settings.json` (or
   `~/.oni-rs/`), apart from the save; continues in `continues.json` there
   (in memory for scripted runs). `--unlock-all`, `--save-point N`,
   `--outro` are ours.
