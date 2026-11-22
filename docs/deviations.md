@@ -235,8 +235,7 @@ our own additions. Not affected by `--faithful`.
   can't turn (`ONrCharacter_IsUnableToTurn`), and at the first position step
   the original has no timer, so it would lie there for good.
 - Melee look-ahead on levels without nav data: danger is a floor drop beyond
-  the class's fall-damage height, found by a collision probe. The melee AI
-  plans with its own class's animations, not the profile's `char_classname`.
+  the class's fall-damage height, found by a collision probe.
 - Placed characters have no script id (found by name); the player is 0;
   unnamed setups are `ai_<n>`. A brainless passive fighter gets up after
   1.5 s (stands in for the daze timer); passive dummies deal no hits.

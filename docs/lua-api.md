@@ -194,6 +194,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `nav_path(id: int)` | The waypoints fighter `id` is following (`go_to` or an agent's) → {{x, z, radius, next}, …} (next: the one it heads for); empty without a path. |
 | `nav_state(id: int)` | Fighter `id`'s navigation → "planning", "following", "arrived", "failed: …", or "none". |
 | `nav_obstruction(x: number, y: number, z: number, asker: int?)` | What the pathfinding grid has stamped at (`x`, `y`, `z`) → "character", "object" or "door", its index (fighter, object, door), and whether it blocks fighter `asker` (default 1) planning a path; nil if nothing. |
+| `melee_plan_of(id: int)` | The class fighter `id`'s melee techniques are planned with (its profile's `char_classname`), or nil: none (its own class, or no profile). |
 | `watch(id: int)` | Perception: makes fighter `id` an AI that watches and listens (not a passive dummy). |
 | `alert_of(id: int)` | Fighter `id`'s alert level name ("lull", "low", "medium", "high", "combat"), or nil without perception. |
 | `contact_of(id: int, other: int)` | What fighter `id` knows of fighter `other` → "dead", "forgotten", "weak", "strong" or "definite", or nil: nothing. |

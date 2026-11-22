@@ -198,7 +198,7 @@ impl crate::mission::Host for PlayHost<'_> {
         self.classes
             .kind(class, |ch| renderer.add_character(gpu, ch))
     }
-    fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
+    fn melee(&mut self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
         self.classes.melee_by_id(id)
     }
     fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {

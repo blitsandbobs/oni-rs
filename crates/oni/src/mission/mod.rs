@@ -30,7 +30,7 @@ pub trait Host {
     /// The spawnable kind for a character class (loading it if need be).
     fn kind(&mut self, class: &str) -> Result<CharKind, String>;
     /// A melee profile by id.
-    fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>>;
+    fn melee(&mut self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>>;
     /// A clip by name from any character's animations (as a one-clip
     /// collection), for a script playing it on someone else.
     fn clip(
@@ -472,7 +472,7 @@ mod tests {
         fn kind(&mut self, class: &str) -> Result<CharKind, String> {
             self.classes.kind(class, |_| 0)
         }
-        fn melee(&self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
+        fn melee(&mut self, id: u16) -> Option<std::rc::Rc<crate::ai::melee::profile::Profile>> {
             self.classes.melee_by_id(id)
         }
         fn clip(

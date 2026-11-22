@@ -426,7 +426,7 @@ fn air_strike_ready(m: &mut Melee, me: &View, target: &View, p: &tables::Positio
     if along < target.planning.0 + info.ideal_range {
         return true;
     }
-    let c = &me.motion.coll.entries[clip].clip;
+    let c = &m.planned_coll(me).entries[clip].clip;
     let air = geometry::Air {
         velocity: me.motion.air.velocity,
         gravity: me.motion.tuning.jump_gravity,
@@ -495,7 +495,7 @@ fn in_reach_after_run_in(m: &Melee, me: &View, target: &View) -> bool {
         };
         let (rel, vel) = relative_turned(me, target, turn);
         let attacker = Attacker {
-            clip: &me.motion.coll.entries[clip].clip,
+            clip: &m.planned_coll(me).entries[clip].clip,
             tick: 0,
             air: None,
             sphere: 3.0,

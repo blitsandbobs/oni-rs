@@ -112,7 +112,7 @@ impl crate::mission::Host for ScriptHost {
         self.class_names.push(class.to_string());
         Ok(k)
     }
-    fn melee(&self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
+    fn melee(&mut self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
         self.classes.melee_by_id(id)
     }
     fn clip(&mut self, name: &str) -> Option<std::rc::Rc<crate::anim::collection::AnimCollection>> {
@@ -3322,6 +3322,23 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 Some((O::Door(i), b)) => (Some("door"), Some(i), Some(b)),
                 None => (None, None, None),
             })
+        })?,
+    )?;
+
+    // The class fighter `id`'s melee techniques are planned with (its
+    // profile's `char_classname`), or nil: none (its own class, or no
+    // profile).
+    let h = host.clone();
+    g.set(
+        "melee_plan_of",
+        lua.create_function(move |_, id: usize| {
+            Ok(h.borrow()
+                .world
+                .fighters
+                .get(id)
+                .and_then(|f| f.melee_profile.as_ref())
+                .filter(|p| p.plan.get().is_some())
+                .map(|p| p.class.clone()))
         })?,
     )?;
 

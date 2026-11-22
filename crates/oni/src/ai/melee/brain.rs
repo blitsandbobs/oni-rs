@@ -169,6 +169,8 @@ pub struct Melee {
     pub profile: Rc<Profile>,
     pub target: usize,
     pub(super) info: Vec<TechInfo>,
+    /// What `info` was planned with (its clips index these animations).
+    pub(super) planned: Option<Rc<super::profile::Planning>>,
     pub(super) jumps: Jumps,
     pub(super) technique: Option<usize>,
     pub(super) move_index: usize,
@@ -220,6 +222,7 @@ impl Melee {
             profile,
             target,
             info: Vec::new(),
+            planned: None,
             jumps: Jumps::default(),
             technique: None,
             move_index: 0,
@@ -267,6 +270,15 @@ impl Melee {
         self.seeds = (self.random() & 0xFFFF, self.random() & 0xFFFF);
     }
 
+    /// The animations its techniques were planned with (their clip
+    /// indices are into these).
+    pub(super) fn planned_coll<'a>(
+        &'a self,
+        me: &'a View,
+    ) -> &'a crate::anim::collection::AnimCollection {
+        self.planned.as_deref().map_or(&me.motion.coll, |p| &p.coll)
+    }
+
     /// The technique being run.
     pub(super) fn current(&self) -> Option<&Technique> {
         self.technique.map(|t| &self.profile.techniques[t])
@@ -290,13 +302,22 @@ impl Melee {
         self.difficulty = difficulty;
         self.quirks = quirks;
         if self.info.is_empty() {
+            // Planned with the profile's class (`AI2rMelee_PrepareForUse`),
+            // else the fighter's own.
+            let plan = self.profile.plan.get().cloned().unwrap_or_else(|| {
+                Rc::new(super::profile::Planning {
+                    coll: me.motion.coll.clone(),
+                    tuning: me.motion.tuning,
+                })
+            });
             self.info = self
                 .profile
                 .techniques
                 .iter()
-                .map(|t| tech_info(t, me.motion))
+                .map(|t| tech_info(t, &plan.coll))
                 .collect();
-            self.jumps = Jumps::of(me.motion);
+            self.jumps = Jumps::of(&plan.coll, plan.tuning);
+            self.planned = Some(plan);
         }
         if !me.alive || me.motion.dying || crate::anim::reaction::is_victim(me.motion.kind) {
             // Hit (or dead): the plan is off.
@@ -940,7 +961,7 @@ impl Melee {
                     f *= HIT_FIRST_WEIGHT;
                 }
             }
-            let c = &me.motion.coll.entries[clip].clip;
+            let c = &self.planned_coll(me).entries[clip].clip;
             let (rel, _) = relative_turned(me, target, turn);
             let mut vel = Quat::from_rotation_y(-(me.facing + turn))
                 * target.predicted(self.quirks.colliding_velocity_slip());
@@ -1133,18 +1154,18 @@ pub(super) struct Jumps {
 const STANDING_JUMP_HEIGHT: f32 = 7.0;
 
 impl Jumps {
-    fn of(motion: &Motion) -> Jumps {
-        let t = motion.tuning;
+    fn of(
+        coll: &crate::anim::collection::AnimCollection,
+        t: crate::anim::motion::ClassTuning,
+    ) -> Jumps {
         let g = t.jump_gravity.max(1e-3);
         let min = 2.0 * t.jump_amount / g;
         let max = min + 2.0 * t.jump_accel_amount * f32::from(t.num_jump_accel_frames) / g;
         // A running jump keeps the run's speed: the first tick of each run.
         let first = |anim: &str, state: MeleeState, axis: usize, sign: f32| {
-            motion
-                .coll
-                .lookup(tables::ty(anim), state.anim_state(), var::FIGHT)
+            coll.lookup(tables::ty(anim), state.anim_state(), var::FIGHT)
                 .and_then(|c| {
-                    motion.coll.entries[c]
+                    coll.entries[c]
                         .clip
                         .root_motion
                         .first()
@@ -1517,8 +1538,7 @@ fn crowd(
 }
 
 /// What's fixed about a technique for `motion`'s animation set.
-fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
-    let coll = &motion.coll;
+fn tech_info(t: &Technique, coll: &crate::anim::collection::AnimCollection) -> TechInfo {
     let mut info = TechInfo::default();
     let rules = crate::anim::rules::fighting();
     for (mi, m) in t.moves.iter().enumerate() {
@@ -1538,8 +1558,7 @@ fn tech_info(t: &Technique, motion: &Motion) -> TechInfo {
                     info.broken = true; // no way to ask for it (as in the original)
                 }
                 if info.attack.is_none() {
-                    let found =
-                        coll.lookup(anim, am.from.anim_state(), var::FIGHT | motion.varient);
+                    let found = coll.lookup(anim, am.from.anim_state(), var::FIGHT);
                     match found {
                         Some(clip) => {
                             let c = &coll.entries[clip].clip;

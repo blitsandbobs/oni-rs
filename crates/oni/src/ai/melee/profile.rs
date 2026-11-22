@@ -71,14 +71,28 @@ pub struct GuardWeights {
     pub throw_into_danger: f32,
 }
 
+/// What a profile plans its techniques with (`AI2rMelee_PrepareForUse`):
+/// its class's animations and jumping.
+pub struct Planning {
+    pub coll: Rc<crate::anim::collection::AnimCollection>,
+    pub tuning: crate::anim::motion::ClassTuning,
+}
+
+impl std::fmt::Debug for Planning {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Planning")
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Profile {
     pub id: u16,
     pub name: String,
-    /// The class whose animations the original plans with; we plan with the
-    /// fighter's own (the same class for every shipped profile but two).
-    #[allow(dead_code)]
+    /// The class whose animations and jumps its techniques are planned with
+    /// (`char_classname`), and those once loaded (`Classes::plan`; none: the
+    /// fighter's own).
     pub class: String,
+    pub plan: std::cell::OnceCell<Rc<Planning>>,
     pub notice_percent: f32,
     pub dodge_base: f32,
     pub dodge_additional: f32,
@@ -129,6 +143,7 @@ fn profile(p: &files::MeleeProfile) -> Profile {
         id: p.id as u16,
         name: p.name.clone(),
         class: p.class.clone(),
+        plan: Default::default(),
         notice_percent: p.attack_notice_percent as f32,
         dodge_base: p.dodge.base_percent as f32,
         dodge_additional: p.dodge.additional_percent as f32,

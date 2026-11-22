@@ -93,24 +93,7 @@ impl Classes {
             .animation_collection
             .clone()
             .ok_or_else(|| format!("{name}: no animation collection"))?;
-        let anims = match self.collections.get(&coll_name) {
-            Some(a) => a.clone(),
-            None => {
-                let a = AnimCollection::load(&self.anim_dir, &coll_name, self.level)
-                    .map_err(|e| format!("{name}: collection {coll_name}: {e}"))?;
-                if a.is_empty() {
-                    return Err(format!("{name}: collection {coll_name} has no clips"));
-                }
-                eprintln!(
-                    "class {name} → {coll_name}: {} clips (level {})",
-                    a.len(),
-                    self.level
-                );
-                let a = Rc::new(a);
-                self.collections.insert(coll_name, a.clone());
-                a
-            }
-        };
+        let anims = self.collection(name, &coll_name)?;
 
         let daze = c
             .dazed
@@ -167,8 +150,57 @@ impl Classes {
             ),
             class_particles: Rc::new(crate::world::anim_particles::class_particles(&c)),
         };
+        if let Some(p) = &kind.melee {
+            self.plan(p);
+        }
         self.kinds.insert(name.to_string(), kind.clone());
         Ok(kind)
+    }
+
+    /// Animation collection `coll_name` (class `name`'s), loaded once.
+    fn collection(&mut self, name: &str, coll_name: &str) -> Result<Rc<AnimCollection>, String> {
+        if let Some(a) = self.collections.get(coll_name) {
+            return Ok(a.clone());
+        }
+        let a = AnimCollection::load(&self.anim_dir, coll_name, self.level)
+            .map_err(|e| format!("{name}: collection {coll_name}: {e}"))?;
+        if a.is_empty() {
+            return Err(format!("{name}: collection {coll_name} has no clips"));
+        }
+        eprintln!(
+            "class {name} → {coll_name}: {} clips (level {})",
+            a.len(),
+            self.level
+        );
+        let a = Rc::new(a);
+        self.collections.insert(coll_name.to_string(), a.clone());
+        Ok(a)
+    }
+
+    /// Gives melee profile `p` what it plans with: its class's animations
+    /// and jumping (`AI2rMelee_PrepareForUse`), once. A class not found (or
+    /// without animations) leaves the fighter's own to plan with.
+    fn plan(&mut self, p: &Rc<crate::ai::melee::profile::Profile>) {
+        if p.plan.get().is_some() {
+            return;
+        }
+        let Some(c) = self
+            .entries
+            .iter()
+            .find(|c| c.name.as_deref() == Some(p.class.as_str()))
+            .cloned()
+        else {
+            return;
+        };
+        let Some(coll_name) = c.animation_collection.as_deref() else {
+            return;
+        };
+        if let Ok(coll) = self.collection(&p.class, coll_name) {
+            let _ = p.plan.set(Rc::new(crate::ai::melee::profile::Planning {
+                coll,
+                tuning: tuning(&c),
+            }));
+        }
     }
 }
 
@@ -237,8 +269,10 @@ impl Classes {
     }
 
     /// A melee profile by id (what a placed character names).
-    pub fn melee_by_id(&self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
-        self.melee.values().find(|p| p.id == id).cloned()
+    pub fn melee_by_id(&mut self, id: u16) -> Option<Rc<crate::ai::melee::profile::Profile>> {
+        let p = self.melee.values().find(|p| p.id == id).cloned()?;
+        self.plan(&p);
+        Some(p)
     }
 
     /// The AI's difficulty multipliers for `level` ("easy", "normal", "hard").

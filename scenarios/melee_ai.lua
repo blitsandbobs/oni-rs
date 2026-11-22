@@ -75,4 +75,13 @@ assert(n > 1 and d > 1 and b > 1, "hard sharpens the AI")
 n, d, b = difficulty("easy")
 assert(n < 1 and d < 1 and b < 1, "easy dulls it")
 difficulty("normal")
-print("melee AI ok: profile techniques land hits; flying kicks; daze then get up; difficulty")
+
+-- A civilian (melee profile Security_Guard) plans its techniques with the
+-- profile's class, the guard's animations (`char_classname`,
+-- `AI2rMelee_PrepareForUse`).
+local px, py, pz = pos()
+local civ = spawn(px + 60, py + 5, pz + 60, 0, "generic_male_1")
+step(2)
+print("generic_male_1 plans with:", melee_plan_of(civ))
+assert(melee_plan_of(civ) == "security_guard_1", "the profile's class")
+print("melee AI ok: profile techniques land hits; flying kicks; daze then get up; difficulty; profile class")
