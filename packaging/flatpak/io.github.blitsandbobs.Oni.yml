@@ -1,0 +1,48 @@
+# The Flatpak of Oni (#105). Builds from this repository's checkout:
+#   flatpak-builder --user --install --force-clean build-dir \
+#       packaging/flatpak/io.github.blitsandbobs.Oni.yml
+#   flatpak build-bundle ~/.local/share/flatpak/repo Oni.flatpak \
+#       io.github.blitsandbobs.Oni
+# Cargo fetches the crates during the build (network allowed below); for
+# Flathub, generate cargo-sources.json with flatpak-cargo-generator and drop
+# the network instead.
+app-id: io.github.blitsandbobs.Oni
+runtime: org.freedesktop.Platform
+runtime-version: '24.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: oni
+finish-args:
+  # The window: Wayland, else X11; the GPU; the sound.
+  - --share=ipc
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --device=dri
+  - --socket=pulseaudio
+  # (No file system access: the Anniversary Edition comes through the file
+  # chooser's portal; the install goes to the app's own data folder.)
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+  env:
+    CARGO_HOME: /run/build/oni/cargo
+modules:
+  - name: oni
+    buildsystem: simple
+    build-options:
+      build-args:
+        - --share=network
+    build-commands:
+      - cargo build --release -p oni --locked
+      - install -Dm755 target/release/oni /app/bin/oni
+      - install -Dm644 packaging/linux/io.github.blitsandbobs.Oni.desktop /app/share/applications/io.github.blitsandbobs.Oni.desktop
+      - install -Dm644 packaging/linux/io.github.blitsandbobs.Oni.metainfo.xml /app/share/metainfo/io.github.blitsandbobs.Oni.metainfo.xml
+      - install -Dm644 packaging/icons/oni-512.png /app/share/icons/hicolor/512x512/apps/io.github.blitsandbobs.Oni.png
+      - install -Dm644 packaging/NOTICE.md /app/share/licenses/io.github.blitsandbobs.Oni/NOTICE.md
+      - install -Dm644 crates/oni/assets/launcher/OFL.txt /app/share/licenses/io.github.blitsandbobs.Oni/Rajdhani-OFL.txt
+    sources:
+      - type: dir
+        path: ../..
+        skip:
+          - target
+          - .git

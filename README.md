@@ -113,6 +113,23 @@ gatling guns and last man standing across levels). Not carried out:
 `shapeshifter`, `glassworld`, `killmequick`. As shipped the cheats unlock once the game has been won; the
 port keeps that with the saved game.
 
+## Packaging
+
+`packaging/` builds the game for players (#105) — it contains none of the
+original game; the launcher installs the player's own:
+
+- macOS: `packaging/macos/build-app.sh [--universal]` → `target/package/Oni.app`
+  and `Oni-macos.zip` (signed ad hoc, not notarized: the first start is from
+  the context menu's Open).
+- Linux: the Flatpak manifest `packaging/flatpak/io.github.blitsandbobs.Oni.yml`
+  (`flatpak-builder`), with its desktop entry and AppStream metadata in
+  `packaging/linux/`.
+- Windows: a zip of `Oni.exe` (no console window in release builds).
+
+The `package` workflow (`.github/workflows/package.yml`, run by hand or by a
+`v*` tag) builds all three. A build includes `oni-bink` (GPL-3.0-or-later),
+so it is distributed under the GPL-3.0 — `packaging/NOTICE.md` goes with it.
+
 ## Build & test
 
 ```sh

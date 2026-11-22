@@ -14,6 +14,8 @@
 //! The rest of the options (`--character`, `--anim`, `--char-pos`, `--class`,
 //! `--opponent`, `--difficulty`, `--spar`, `--subtitles`, `--sound-law`,
 //! `--outro`, `--unlock-all`, …) are read in `main` below.
+// (A Windows release opens no console window: it is a game, not a tool.)
+#![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod ai;
 mod angle;

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.blitsandbobs.Oni</id>
+  <name>Oni</name>
+  <summary>Bungie's Oni, preserved for today's computers</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <developer id="io.github.blitsandbobs">
+    <name>blitsandbobs</name>
+  </developer>
+  <description>
+    <p>
+      A preservation port of Oni (2001): the engine rewritten for modern
+      systems — high resolutions, fullscreen or windowed, Wayland and X11.
+    </p>
+    <p>
+      It contains none of the original game. On first start it asks for
+      your copy of Oni: Anniversary Edition (its .7z archive or folder) and
+      converts it, which takes a few seconds.
+    </p>
+  </description>
+  <launchable type="desktop-id">io.github.blitsandbobs.Oni.desktop</launchable>
+  <url type="homepage">https://github.com/blitsandbobs/oni-rs</url>
+  <content_rating type="oars-1.1">
+    <content_attribute id="violence-realistic">moderate</content_attribute>
+    <content_attribute id="violence-bloodshed">mild</content_attribute>
+  </content_rating>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <releases>
+    <release version="0.0.1" date="2026-11-22"/>
+  </releases>
+</component>

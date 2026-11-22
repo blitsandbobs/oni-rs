@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Oni
+GenericName=Action game
+Comment=Bungie's Oni, preserved: bring your own Anniversary Edition
+Exec=oni
+Icon=io.github.blitsandbobs.Oni
+Terminal=false
+Categories=Game;ActionGame;
+Keywords=oni;konoko;bungie;anniversary;
+StartupWMClass=oni
