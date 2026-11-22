@@ -7,7 +7,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 use glam::Vec3;
-use serde_json::Value;
 
 use super::perception::{Alert, Team};
 
@@ -247,12 +246,6 @@ pub struct LevelAi {
     pub films: HashMap<String, Rc<Film>>,
 }
 
-fn read(path: &Path) -> Value {
-    crate::json::load(path)
-}
-
-use crate::json::vec3 as v3;
-
 /// An alert level by name (`lull`, `low`, `medium`, `high`, `combat`).
 pub fn alert_named(n: &str) -> Alert {
     match n.to_ascii_lowercase().as_str() {
@@ -264,94 +257,63 @@ pub fn alert_named(n: &str) -> Alert {
     }
 }
 
-fn alert(v: &Value) -> Alert {
-    match v.as_str() {
-        Some("low") => Alert::Low,
-        Some("medium") => Alert::Medium,
-        Some("high") => Alert::High,
-        Some("combat") => Alert::Combat,
-        _ => Alert::Lull,
-    }
-}
-
 impl LevelAi {
     /// Loads a level's AI data (`level_dir`) and the common combat profiles
     /// (`common_dir`). Missing files leave their part empty.
     pub fn load(level_dir: &Path, common_dir: &Path) -> LevelAi {
-        let s = |v: &Value| v.as_str().unwrap_or("").to_string();
+        use crate::json::read_file;
+        use oni_schema::files;
         let mut out = LevelAi::default();
-        for c in read(&level_dir.join("characters.json"))["characters"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let a = &c["alert"];
-            let p = &c["pursue"];
+        let characters: files::CharactersFile = read_file(level_dir.join("characters.json"));
+        for c in &characters.characters {
+            let carried = |kind: &str| c.inventory.get(kind);
+            const KINDS: [&str; 5] = [
+                "ammoBallistic",
+                "ammoEnergy",
+                "hypo",
+                "shieldBelt",
+                "invisibility",
+            ];
+            let (a, p) = (&c.alert, &c.pursue);
             out.characters.push(Placed {
-                name: s(&c["name"]),
-                class: s(&c["class"]),
-                flags: c["flags"].as_array().into_iter().flatten().map(s).collect(),
-                at: v3(&c["position"]),
-                facing: c["facing"].as_f64().unwrap_or(0.0) as f32,
-                team: Team::from_name(c["team"].as_str().unwrap_or("neutral")),
-                job: s(&c["job"]),
-                job_id: c["jobId"].as_u64().map(|v| v as u16),
-                combat_id: c["combatProfileId"].as_u64().unwrap_or(0) as u16,
-                melee_id: c["meleeProfileId"].as_u64().map(|v| v as u16),
-                neutral_id: c["neutralId"].as_u64().map(|v| v as u16),
-                hp_offset: c["hitPointOffset"].as_i64().unwrap_or(0) as i32,
-                weapon: c["weapon"]
-                    .as_str()
-                    .filter(|w| !w.is_empty() && *w != "none")
-                    .map(String::from),
-                ammo_percent: c["ammoPercent"].as_u64().map(|v| v as u32),
-                carries: [
-                    "ammoBallistic",
-                    "ammoEnergy",
-                    "hypo",
-                    "shieldBelt",
-                    "invisibility",
-                ]
-                .map(|k| c["inventory"][k]["use"].as_u64().unwrap_or(0) as u16),
-                drops: [
-                    "ammoBallistic",
-                    "ammoEnergy",
-                    "hypo",
-                    "shieldBelt",
-                    "invisibility",
-                ]
-                .map(|k| c["inventory"][k]["drop"].as_u64().unwrap_or(0) as u16),
-                alarm_groups: c["alarmGroups"]
-                    .as_array()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|b| b.as_u64().filter(|&b| b < 32))
+                name: c.name.clone(),
+                class: c.class.clone(),
+                flags: c.flags.clone(),
+                at: Vec3::from(c.position),
+                facing: c.facing,
+                team: Team::from_name(&c.team),
+                job: c.job.clone(),
+                job_id: c.job_id,
+                combat_id: c.combat_profile_id,
+                melee_id: c.melee_profile_id,
+                neutral_id: c.neutral_id,
+                hp_offset: c.hit_point_offset.unwrap_or(0),
+                weapon: c.weapon.clone().filter(|w| !w.is_empty() && w != "none"),
+                ammo_percent: Some(c.ammo_percent),
+                carries: KINDS.map(|k| carried(k).map_or(0, |x| x.uses)),
+                drops: KINDS.map(|k| carried(k).map_or(0, |x| x.drop)),
+                alarm_groups: c
+                    .alarm_groups
+                    .iter()
+                    .filter(|&&b| b < 32)
                     .fold(0, |m, b| m | 1 << b),
                 alert: [
-                    alert(&a["initial"]),
-                    alert(&a["minimum"]),
-                    alert(&a["job"]),
-                    alert(&a["investigate"]),
+                    alert_named(&a.initial),
+                    alert_named(&a.minimum),
+                    alert_named(&a.job),
+                    alert_named(&a.investigate),
                 ],
                 pursue: Pursue {
-                    strong_unseen: s(&p["strongUnseen"]),
-                    weak_unseen: s(&p["weakUnseen"]),
-                    strong_seen: s(&p["strongSeen"]),
-                    weak_seen: s(&p["weakSeen"]),
-                    lost: s(&p["lost"]),
+                    strong_unseen: p.strong_unseen.clone(),
+                    weak_unseen: p.weak_unseen.clone(),
+                    strong_seen: p.strong_seen.clone(),
+                    weak_seen: p.weak_seen.clone(),
+                    lost: p.lost.clone(),
                 },
-                scripts: c["scripts"]
-                    .as_object()
-                    .map(|m| {
-                        m.iter()
-                            .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-                            .collect()
-                    })
-                    .unwrap_or_default(),
+                scripts: c.scripts.clone().into_iter().collect(),
             });
         }
-        let flags: oni_schema::files::FlagsFile =
-            crate::json::read_file(level_dir.join("flags.json"));
+        let flags: files::FlagsFile = read_file(level_dir.join("flags.json"));
         for f in &flags.flags {
             out.flags.insert(
                 f.id as i16,
@@ -361,31 +323,21 @@ impl LevelAi {
                 },
             );
         }
-        for c in read(&level_dir.join("setups.json"))["setups"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let text = |v: &Value| v.as_str().map(str::to_string);
+        let setups: files::SetupsFile = read_file(level_dir.join("setups.json"));
+        for c in &setups.setups {
             let setup = Setup {
-                script_id: c["scriptId"].as_u64().unwrap_or(0) as u16,
-                name: text(&c["name"]),
-                flag: c["flag"].as_i64().unwrap_or(0) as i16,
-                class: text(&c["class"]),
-                team: Team::from_name(c["team"].as_str().unwrap_or("neutral")),
-                weapon: text(&c["weapon"]),
-                ammo: c["ammo"].as_u64().unwrap_or(0) as u16,
-                scripts: c["scripts"]
-                    .as_object()
-                    .into_iter()
-                    .flatten()
-                    .filter_map(|(k, v)| Some((k.clone(), v.as_str()?.to_string())))
-                    .collect(),
+                script_id: c.script_id,
+                name: c.name.clone(),
+                flag: c.flag,
+                class: c.class.clone(),
+                team: Team::from_name(&c.team),
+                weapon: c.weapon.clone(),
+                ammo: c.ammo.unwrap_or(0),
+                scripts: c.scripts.clone().into_iter().collect(),
             };
             out.setups.insert(setup.script_id, setup);
         }
-        let patrols: oni_schema::files::PatrolsFile =
-            crate::json::read_file(level_dir.join("patrols.json"));
+        let patrols: files::PatrolsFile = read_file(level_dir.join("patrols.json"));
         for p in &patrols.patrols {
             let path = PatrolPath {
                 id: p.id,
@@ -395,84 +347,52 @@ impl LevelAi {
             };
             out.patrols.insert(path.id, Rc::new(path));
         }
-        for f in read(&level_dir.join("films.json"))["films"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let keys = f["keys"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .map(|k| {
-                    (
-                        k["time"].as_u64().unwrap_or(0) as u32,
-                        k["buttons"].as_u64().unwrap_or(0),
-                        k["turnLR"].as_f64().unwrap_or(0.0) as f32,
-                    )
-                })
-                .collect();
+        let films: files::FilmsFile = read_file(level_dir.join("films.json"));
+        for f in &films.films {
             let film = Film {
-                start: v3(&f["initialLocation"]),
-                facing: f["initialFacing"].as_f64().unwrap_or(0.0) as f32,
-                desired_facing: f["initialDesiredFacing"]
-                    .as_f64()
-                    .or_else(|| f["initialFacing"].as_f64())
-                    .unwrap_or(0.0) as f32,
-                aim: (
-                    f["aiming"][0].as_f64().unwrap_or(0.0) as f32,
-                    f["aiming"][1].as_f64().unwrap_or(0.0) as f32,
-                ),
-                length: f["length"].as_u64().unwrap_or(0) as u32,
-                keys,
+                start: Vec3::from(f.initial_location),
+                facing: f.initial_facing,
+                desired_facing: f.initial_desired_facing,
+                aim: (f.aiming[0], f.aiming[1]),
+                length: f.length,
+                keys: f
+                    .keys
+                    .iter()
+                    .map(|k| (k.time, k.buttons, k.turn_lr))
+                    .collect(),
             };
-            out.films.insert(s(&f["name"]), Rc::new(film));
+            out.films
+                .insert(f.name.clone().unwrap_or_default(), Rc::new(film));
         }
-        for c in read(&common_dir.join("combat_profiles.json"))["profiles"]
-            .as_array()
-            .into_iter()
-            .flatten()
-        {
-            let b = &c["behavior"];
-            let f = |v: &Value, d: f32| v.as_f64().map_or(d, |x| x as f32);
+        let profiles: files::CombatProfilesFile =
+            read_file(common_dir.join("combat_profiles.json"));
+        for c in &profiles.profiles {
+            let (b, a) = (&c.behavior, &c.alarm);
             let profile = CombatProfile {
-                name: s(&c["name"]),
+                name: c.name.clone(),
                 behavior: [
-                    s(&b["long"]),
-                    s(&b["medium"]),
-                    s(&b["short"]),
-                    s(&b["mediumRetreat"]),
-                    s(&b["longRetreat"]),
+                    b.long.clone(),
+                    b.medium.clone(),
+                    b.short.clone(),
+                    b.medium_retreat.clone(),
+                    b.long_retreat.clone(),
                 ],
-                short_range: f(&c["shortRange"], 40.0),
-                medium_range: f(&c["mediumRange"], 200.0),
-                melee_when: s(&c["meleeWhen"]),
-                no_gun: s(&c["noGun"]),
-                pursuit_distance: f(&c["pursuitDistance"], 200.0),
-                panic: {
-                    let u = |k: &str, d: u32| c["panic"][k].as_u64().map_or(d, |v| v as u32);
-                    [
-                        u("melee", 600),
-                        u("gunfire", 900),
-                        u("sight", 600),
-                        u("hurt", 1200),
-                    ]
-                },
-                alarm: {
-                    let a = &c["alarm"];
-                    let d = AlarmSettings::default();
-                    AlarmSettings {
-                        find_distance: f(&a["findDistance"], d.find_distance),
-                        ignore_distance: f(&a["ignoreEnemyDistance"], d.ignore_distance),
-                        chase_distance: f(&a["chaseEnemyDistance"], d.chase_distance),
-                        damage_threshold: a["damageThreshold"].as_i64().unwrap_or(30) as i32,
-                        fight_ticks: a["fightTicks"].as_u64().unwrap_or(360) as u32,
-                        attack_if_knocked_down: a["attackIfKnockedDown"].as_bool().unwrap_or(false),
-                    }
+                short_range: c.short_range,
+                medium_range: c.medium_range,
+                melee_when: c.melee_when.clone(),
+                no_gun: c.no_gun.clone(),
+                pursuit_distance: c.pursuit_distance,
+                panic: [c.panic.melee, c.panic.gunfire, c.panic.sight, c.panic.hurt],
+                alarm: AlarmSettings {
+                    find_distance: a.find_distance,
+                    ignore_distance: a.ignore_enemy_distance,
+                    chase_distance: a.chase_enemy_distance,
+                    damage_threshold: a.damage_threshold as i32,
+                    fight_ticks: a.fight_ticks,
+                    attack_if_knocked_down: a.attack_if_knocked_down,
                 },
             };
-            out.combat
-                .insert(c["id"].as_u64().unwrap_or(0) as u16, Rc::new(profile));
+            out.combat.insert(c.id, Rc::new(profile));
         }
         out
     }

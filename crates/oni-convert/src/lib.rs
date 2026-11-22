@@ -434,7 +434,9 @@ pub fn convert_with(
                     std::fs::create_dir_all(&dir)?;
                     std::fs::write(
                         dir.join("combat_profiles.json"),
-                        serde_json::to_string_pretty(&serde_json::json!({ "profiles": profiles }))?,
+                        serde_json::to_string_pretty(&oni_schema::files::CombatProfilesFile {
+                            profiles,
+                        })?,
                     )?;
                 }
             }
@@ -1951,37 +1953,42 @@ fn convert_films(dat: &Dat<'_>, root: &Path) -> std::io::Result<usize> {
         if 56 + num_keys.saturating_mul(24) > d.len() {
             continue; // malformed
         }
-        let keys: Vec<serde_json::Value> = (0..num_keys)
+        let keys: Vec<oni_schema::files::FilmKey> = (0..num_keys)
             .map(|k| {
                 let o = 56 + k * 24; // ONtFilmKey: turnUD,turnLR,current(u64),time
-                serde_json::json!({
-                    "turnUD": le_f32(d, o), "turnLR": le_f32(d, o + 4),
-                    "buttons": le_u64(d, o + 8), "time": le_u32(d, o + 16),
-                })
+                oni_schema::files::FilmKey {
+                    turn_ud: le_f32(d, o),
+                    turn_lr: le_f32(d, o + 4),
+                    buttons: le_u64(d, o + 8),
+                    time: le_u32(d, o + 16),
+                }
             })
             .collect();
-        films.push(serde_json::json!({
-            "name": inst.name,
-            "initialLocation": [le_f32(d, 0), le_f32(d, 4), le_f32(d, 8)],
-            "initialFacing": le_f32(d, 12),
-            "initialDesiredFacing": le_f32(d, 16),
-            "aiming": [le_f32(d, 20), le_f32(d, 24)],
-            "length": le_u32(d, 28),
-            "keyCount": keys.len(),
-            "keys": keys,
-        }));
+        films.push(oni_schema::files::Film {
+            name: inst.name.clone(),
+            initial_location: [le_f32(d, 0), le_f32(d, 4), le_f32(d, 8)],
+            initial_facing: le_f32(d, 12),
+            initial_desired_facing: le_f32(d, 16),
+            aiming: [le_f32(d, 20), le_f32(d, 24)],
+            length: le_u32(d, 28),
+            key_count: keys.len(),
+            keys,
+        });
     }
     if films.is_empty() {
         return Ok(0);
     }
+    let count = films.len();
     std::fs::create_dir_all(root)?;
     std::fs::write(
         root.join("films.json"),
-        serde_json::to_string(
-            &serde_json::json!({"ticksPerSecond": 60, "count": films.len(), "films": films}),
-        )?,
+        serde_json::to_string(&oni_schema::files::FilmsFile {
+            ticks_per_second: 60,
+            count: films.len(),
+            films,
+        })?,
     )?;
-    Ok(films.len())
+    Ok(count)
 }
 
 /// An object animation as `object_animations.json` writes it (and the door

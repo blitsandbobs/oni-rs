@@ -8,7 +8,6 @@ use std::path::Path;
 use oni_dat::Dat;
 use oni_schema as sc;
 use oni_schema::files;
-use serde_json::{json, Value};
 
 use crate::{cstr, le_f32, le_u16, le_u32};
 
@@ -230,7 +229,7 @@ pub fn write(dat: &Dat<'_>, raw: &[u8], root: &Path) -> std::io::Result<()> {
 }
 
 /// The combat profiles (level 0).
-pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
+pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<files::CombatProfile> {
     let (version, objects) = crate::objects::read(dat, raw, "Combat");
     objects
         .iter()
@@ -255,36 +254,39 @@ pub fn combat_profiles(dat: &Dat<'_>, raw: &[u8]) -> Vec<Value> {
                 sc::name(&sc::COMBAT_BEHAVIORS, le_u32(d, 68 + k * 4) as u16).unwrap_or("none")
             };
             let flags = if version >= 36 { le_u16(d, 66) } else { 0 };
-            json!({
-                "id": le_u16(d, 64),
-                "name": cstr(d, 0, 64),
-                "behavior": {
-                    "long": behavior(0),
-                    "medium": behavior(1),
-                    "short": behavior(2),
-                    "mediumRetreat": behavior(3),
-                    "longRetreat": behavior(4),
+            let name_of = |table: &[&'static str], v: u32, or: &str| {
+                sc::name(table, v as u16).unwrap_or(or).to_string()
+            };
+            files::CombatProfile {
+                id: le_u16(d, 64),
+                name: cstr(d, 0, 64),
+                behavior: files::CombatBehaviors {
+                    long: behavior(0).to_string(),
+                    medium: behavior(1).to_string(),
+                    short: behavior(2).to_string(),
+                    medium_retreat: behavior(3).to_string(),
+                    long_retreat: behavior(4).to_string(),
                 },
-                "mediumRange": f(88, 200.0),
-                "meleeWhen": sc::name(&sc::MELEE_WHEN, u(92, 3) as u16).unwrap_or("ifShortRange"),
-                "noGun": sc::name(&sc::NO_GUN, u(96, 0) as u16).unwrap_or("melee"),
-                "shortRange": f(100, 40.0),
-                "pursuitDistance": f(104, 200.0),
-                "panic": {
-                    "melee": u(108, 600),
-                    "gunfire": u(112, 900),
-                    "sight": u(116, 600),
-                    "hurt": u(120, 1200),
+                medium_range: f(88, 200.0),
+                melee_when: name_of(&sc::MELEE_WHEN, u(92, 3), "ifShortRange"),
+                no_gun: name_of(&sc::NO_GUN, u(96, 0), "melee"),
+                short_range: f(100, 40.0),
+                pursuit_distance: f(104, 200.0),
+                panic: files::PanicTicks {
+                    melee: u(108, 600),
+                    gunfire: u(112, 900),
+                    sight: u(116, 600),
+                    hurt: u(120, 1200),
                 },
-                "alarm": {
-                    "findDistance": f(124, 300.0),
-                    "ignoreEnemyDistance": f(128, 80.0),
-                    "chaseEnemyDistance": f(132, 0.0),
-                    "damageThreshold": u(136, 30),
-                    "fightTicks": u(140, 360),
-                    "attackIfKnockedDown": flags & 1 != 0,
+                alarm: files::AlarmSettings {
+                    find_distance: f(124, 300.0),
+                    ignore_enemy_distance: f(128, 80.0),
+                    chase_enemy_distance: f(132, 0.0),
+                    damage_threshold: u(136, 30),
+                    fight_ticks: u(140, 360),
+                    attack_if_knocked_down: flags & 1 != 0,
                 },
-            })
+            }
         })
         .collect()
 }

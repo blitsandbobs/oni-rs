@@ -557,6 +557,196 @@ pub enum Waypoint {
     Unknown,
 }
 
+/// `levels/NN/characters.json`: the level's placed characters.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CharactersFile {
+    pub characters: Vec<PlacedCharacter>,
+}
+
+/// A placed character (`OBJtOSD_Character`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PlacedCharacter {
+    pub id: u32,
+    pub name: String,
+    pub class: String,
+    /// `CHARACTER_FLAGS` names.
+    pub flags: Vec<String>,
+    pub position: V3,
+    pub facing: f32,
+    pub team: String,
+    pub job: String,
+    pub alert: AlertLevels,
+    pub pursue: PursueModes,
+    pub ammo_percent: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon: Option<String>,
+    /// Its event scripts (`spawn`, `die`, …), by event.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scripts: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hit_point_offset: Option<i32>,
+    /// Its patrol path or guard's id (0 is a real id).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_id: Option<u16>,
+    pub combat_profile_id: u16,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub melee_profile_id: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub neutral_id: Option<u16>,
+    /// What it carries and drops, by `INVENTORY` kind.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub inventory: BTreeMap<String, Carried>,
+    /// The alarm groups it answers (bit numbers).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub alarm_groups: Vec<u32>,
+}
+
+/// A character's alert levels (`ALERT_LEVELS` names).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct AlertLevels {
+    pub initial: String,
+    pub minimum: String,
+    pub job: String,
+    pub investigate: String,
+}
+
+/// What a character does about a lost or unseen enemy (`PURSUIT_MODES`,
+/// `PURSUIT_LOST` names).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PursueModes {
+    pub strong_unseen: String,
+    pub weak_unseen: String,
+    pub strong_seen: String,
+    pub weak_seen: String,
+    pub lost: String,
+}
+
+/// How many of an item a character uses and drops.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct Carried {
+    #[serde(rename = "use")]
+    pub uses: u16,
+    pub drop: u16,
+}
+
+/// `levels/NN/setups.json`: the characters `chr_create` makes by script id.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SetupsFile {
+    pub setups: Vec<CharacterSetup>,
+}
+
+/// A character setup (`AItCharacterSetup`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CharacterSetup {
+    pub script_id: u16,
+    pub flag: i16,
+    pub team: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub class: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub weapon: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ammo: Option<u16>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub scripts: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub variable: Option<String>,
+}
+
+/// `levels/NN/films.json`: cutscene recordings (`FILM`).
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FilmsFile {
+    pub ticks_per_second: u32,
+    pub count: usize,
+    pub films: Vec<Film>,
+}
+
+/// A film: its start, and its keys.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Film {
+    pub name: Option<String>,
+    pub initial_location: V3,
+    pub initial_facing: f32,
+    pub initial_desired_facing: f32,
+    /// Aiming left-right and up-down.
+    pub aiming: [f32; 2],
+    pub length: u32,
+    pub key_count: usize,
+    pub keys: Vec<FilmKey>,
+}
+
+/// A film key: the turns and buttons from tick `time`.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct FilmKey {
+    #[serde(rename = "turnUD")]
+    pub turn_ud: f32,
+    #[serde(rename = "turnLR")]
+    pub turn_lr: f32,
+    pub buttons: u64,
+    pub time: u32,
+}
+
+/// `common/combat_profiles.json`.
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct CombatProfilesFile {
+    pub profiles: Vec<CombatProfile>,
+}
+
+/// A combat profile (`OBJtOSD_Combat`).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CombatProfile {
+    pub id: u16,
+    pub name: String,
+    pub behavior: CombatBehaviors,
+    pub medium_range: f32,
+    pub melee_when: String,
+    pub no_gun: String,
+    pub short_range: f32,
+    pub pursuit_distance: f32,
+    pub panic: PanicTicks,
+    pub alarm: AlarmSettings,
+}
+
+/// A combat profile's behaviour by range (`COMBAT_BEHAVIORS` names).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CombatBehaviors {
+    pub long: String,
+    pub medium: String,
+    pub short: String,
+    pub medium_retreat: String,
+    pub long_retreat: String,
+}
+
+/// How long each kind of fright lasts (ticks).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct PanicTicks {
+    pub melee: u32,
+    pub gunfire: u32,
+    pub sight: u32,
+    pub hurt: u32,
+}
+
+/// A combat profile's alarm settings.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AlarmSettings {
+    pub find_distance: f32,
+    pub ignore_enemy_distance: f32,
+    pub chase_enemy_distance: f32,
+    pub damage_threshold: u32,
+    pub fight_ticks: u32,
+    pub attack_if_knocked_down: bool,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
