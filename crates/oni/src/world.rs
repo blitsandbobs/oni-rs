@@ -214,6 +214,11 @@ pub struct World {
     obstruction_tick: Option<(u64, Rc<obstructions::Snapshot>)>,
     /// What agents see of each other during the goals' pass (`run_agents`).
     agent_view: Option<AgentView>,
+    /// What it asks to keep between runs, for whoever runs it to write
+    /// (`game::persist`); and whether the cheat codes may work (told by
+    /// whoever opens a level).
+    pub persist: Vec<crate::game::Persist>,
+    pub cheats_permitted: bool,
     /// Noises made since the last perception pass.
     pub sounds: Vec<Sound>,
     /// The level's folder (`levels/NN`), if known.
@@ -333,6 +338,8 @@ impl World {
             obstructions: Default::default(),
             obstruction_tick: None,
             agent_view: None,
+            persist: Vec::new(),
+            cheats_permitted: false,
             sounds: Vec::new(),
             level_ai: Default::default(),
             player_name: "player".into(),
@@ -1309,8 +1316,8 @@ impl World {
             &level_dir.join("../../common"),
         ));
         self.consoles = crate::consoles::load(level_dir);
-        // (Cheats: once the game is won — or the developers' switch.)
-        self.cheats.allowed = crate::game::won_game() || std::env::var_os("ONI_CHEATS").is_some();
+        // (Cheats: as whoever opened the level permits — `game::cheats_permitted`.)
+        self.cheats.allowed = self.cheats_permitted;
         self.neutrals = crate::neutrals::load(level_dir);
         self.corpses = corpses::load(level_dir);
         // (Q21: the shipped array holds 20 bodies in all.)

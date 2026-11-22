@@ -1098,7 +1098,10 @@ impl State {
                     };
                     crate::mission::game_tick(&mut host, Some(m), controls);
                 }
-                None => pw.world.step(controls),
+                None => {
+                    pw.world.step(controls);
+                    crate::game::persist(std::mem::take(&mut pw.world.persist));
+                }
             }
         }
 

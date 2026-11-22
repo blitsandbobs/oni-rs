@@ -333,6 +333,36 @@ fn read_continues(path: &std::path::Path) -> serde_json::Value {
     crate::json::read(path).unwrap_or_else(|| serde_json::json!({}))
 }
 
+/// What the game asks to keep between runs: the simulation queues it
+/// (`World::persist`); whoever runs it writes it ([`persist`]).
+#[derive(Clone, Debug)]
+pub enum Persist {
+    /// `level`'s continue for its save point.
+    Continue(u16, Continue),
+    /// What the player has met: item kinds, weapon classes.
+    Unlocks(u32, Vec<String>),
+    /// Whether the player killed Griffin.
+    KilledGriffin(bool),
+}
+
+/// Writes what the simulation asked to keep.
+pub fn persist(events: Vec<Persist>) {
+    for e in events {
+        match e {
+            Persist::Continue(level, c) => store_continue(level, &c),
+            Persist::Unlocks(items, weapons) => store_unlocks(items, &weapons),
+            Persist::KilledGriffin(murder) => set_killed_griffin(murder),
+        }
+    }
+}
+
+/// Whether the cheat codes work (`ONrPersist_GetWonGame`, or the
+/// developers' switch `ONI_CHEATS`): for whoever opens a level to tell the
+/// world.
+pub fn cheats_permitted() -> bool {
+    won_game() || std::env::var_os("ONI_CHEATS").is_some()
+}
+
 /// The continue kept for `level`'s save point `n`, if one was made.
 pub fn load_continue(level: u16, n: i64) -> Option<Continue> {
     let doc = read_continues(&continues_file()?);

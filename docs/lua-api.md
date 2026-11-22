@@ -83,7 +83,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `named(name: string)` | The fighter id of the live scripted character called `name` (its `chr_create` name; case matters), or nil. |
 | `play_film(id: int, name: string, mode: string?)` | Plays a level film on fighter `id` (mode "", "fromhere", "interp"); returns its length in ticks, or nil. |
 | `alarm(id: int, console: int?)` | Sends an AI to raise the alarm at console `console` (nil: the nearest). |
-| `console_reset(id: int)` | Resets a console (unused; active as authored). |
+| `console_reset(id: int)` | Resets console `id` as if never used: not triggered, and active or not as the level authored it. |
 | `collisions(id: int)` | walls, objects, characters, records, serious: what fighter id's movement met last tick, and its AI's collision records. |
 | `objects()` | {{name, at={x,y,z}, frame, animating}, …}: the live placed objects. |
 | `door_obstruction(id: int)` | {{x1, y1, z1, x2, y2, z2}, …}: where door id's leaves stand in the way of a path (each one's base edge at the end of its move; none for a leaf opening upward). |
@@ -155,7 +155,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `inventory(id: int)` | Fighter `id`'s inventory → ammo clips, energy cells, hypos (0s: no such fighter). |
 | `powerups_lying()` | How many powerups lie about the level. |
 | `powerups()` | {{kind, at={x,y,z}, falling}, …}: the powerups lying about (falling: still with physics). |
-| `weapons_lying()` | How many guns no one holds. |
+| `weapons_lying()` | How many guns no one holds (as `loose_guns`: not those gone). |
 | `laser(id: int, what: string, factor: number?)` | Orders laser trigger `id` ("activate", "deactivate", "reset", "hide", "show", "speed" with a factor). |
 | `laser_state(id: int)` | Laser trigger `id` → active, on, triggered, and how many beams are out (all nil: no such laser). |
 | `beams()` | Laser beams out now: a list of {x1, y1, z1, x2, y2, z2}. |
@@ -228,11 +228,10 @@ are logged once and do nothing.
 | `@word` | An engine variable's value, a value command's result, or nil (the word stands for itself). |
 | `@chr_at` | (For our fixes, `fixes/`: where a character stands, feet — the player by default; nil if it isn't present.) |
 | `@ticks` | A `sleep` argument (`SLEEP`) as ticks: a number as is, a word by its value (0 if none); never negative. |
-| `@fork`, `@adopt` | Runs a coroutine as a new task (`@adopt`: one the prelude already started and that yielded) after `delay` ticks, labelled for `mission_info()`.waiting. (No prelude code sends `@fork` now.) |
+| `@adopt` | Adopts a coroutine the prelude started and that yielded as a new task, run after `delay` ticks, labelled for `mission_info()`.waiting. |
 | `@error` | A script error (`ERR`, a missing script function): printed and kept in `mission_info()`.errors, once each. |
 | `@get` | Reads an engine variable (`G.name`): the fog's `gl_fog_*` from the draw engine, else what a script set (0 if unset). |
 | `@set` | Sets an engine variable (`G.name = v`); `gl_fog_*`, `ai2_boss_battle` and the camera's `cm_distance` / `cm_height` / `cm_canter_*` also change the engine. |
-| `@still` | Does nothing (no prelude code sends it now). |
 | `dprint`, `dmsg` | Prints its words to the terminal; `dmsg` also shows them in the HUD's message area for 10 s (`dprint` went to the developer console, unseen in the shipped game). |
 | `message` | `message name [ticks]` (`AIiScript_Message`): shows a message from the messages table (else a subtitle in the console strip), for `ticks` if given; warns if it is in neither. |
 | `message_remove` | `message_remove [name]`: that message (every one, without a name) fades from the HUD. |
@@ -338,7 +337,7 @@ are logged once and do nothing.
 | `ai2_dopath` | `ai2_dopath who path`: the AI walks the level's patrol path of that name (not while passive). |
 | `ai2_neutralbehavior` | A character's neutral behaviour, by name ("none": none; `AI2iScript_SetNeutralBehavior`). |
 | `ai2_setjobstate` | `ai2_setjobstate who`: what the AI is doing now becomes its job. |
-| `ai2_passive`, `chr_freeze`, `chr_neutral` | `ai2_passive` / `chr_freeze` / `chr_neutral who on`: the AI made passive (doing nothing, noticing nothing) or not. (`chr_freeze` and `chr_neutral` are treated the same.) |
+| `ai2_passive`, `chr_freeze`, `chr_neutral` | `ai2_passive` / `chr_freeze` / `chr_neutral who on`: the AI made passive (doing nothing, noticing nothing) or not. (`chr_freeze` and `chr_neutral` are the original's own aliases of it: one handler, `AI2iScript_Passive`.) |
 | `ai2_allpassive` | `ai2_allpassive on`: every AI passive or not: those present now and, while on, those spawned later. |
 | `ai2_attack`, `ai2_makeaware` | `ai2_attack who target`: the AI attacks `target` (a forced target); `ai2_makeaware`: it gets only a definite sighting of `target`. |
 | `ai2_makeignoreplayer` | `ai2_makeignoreplayer who on`: whether the AI pays the player no attention. |

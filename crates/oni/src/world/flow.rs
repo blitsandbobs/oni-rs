@@ -62,8 +62,9 @@ impl World {
         eprintln!("game: {} {n}", if autosave { "autosave" } else { "save" });
         // (Kept between runs in play, for `--save-point`.)
         if self.progress.persist_continues {
-            if let Some(c) = &self.progress.saved {
-                crate::game::store_continue(self.hud.level, c);
+            if let Some(c) = self.progress.saved.as_ref() {
+                self.persist
+                    .push(crate::game::Persist::Continue(self.hud.level, c.clone()));
             }
         }
     }

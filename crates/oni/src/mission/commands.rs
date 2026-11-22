@@ -408,10 +408,9 @@ pub fn dispatch(
             };
             done(Value::Integer(n.max(0)))
         }
-        // Runs a coroutine as a new task (`@adopt`: one the prelude already started
-        // and that yielded) after `delay` ticks, labelled for `mission_info()`.waiting.
-        // (No prelude code sends `@fork` now.)
-        "@fork" | "@adopt" => {
+        // Adopts a coroutine the prelude started and that yielded as a new task,
+        // run after `delay` ticks, labelled for `mission_info()`.waiting.
+        "@adopt" => {
             if let Some(Value::Thread(t)) = a(0) {
                 let delay = int(a(1)).unwrap_or(0).max(0) as u64;
                 let label = a(2).and_then(text).unwrap_or_else(|| "fork".into());
@@ -479,9 +478,6 @@ pub fn dispatch(
             state.vars.insert(k, a(1).cloned().unwrap_or(Value::Nil));
             nil()
         }
-        // Does nothing (no prelude code sends it now).
-        "@still" => nil(),
-
         // --- output ----------------------------------------------------------
         // Prints its words to the terminal; `dmsg` also shows them in the HUD's
         // message area for 10 s (`dprint` went to the developer console, unseen in
@@ -1749,7 +1745,9 @@ pub fn dispatch(
             let world = host.world();
             world.progress.killed_griffin = Some(murder);
             if world.progress.persist_continues {
-                crate::game::set_killed_griffin(murder);
+                world
+                    .persist
+                    .push(crate::game::Persist::KilledGriffin(murder));
             }
             nil()
         }
@@ -1802,7 +1800,7 @@ pub fn dispatch(
         }
         // `ai2_passive` / `chr_freeze` / `chr_neutral who on`: the AI made passive
         // (doing nothing, noticing nothing) or not. (`chr_freeze` and `chr_neutral`
-        // are treated the same.)
+        // are the original's own aliases of it: one handler, `AI2iScript_Passive`.)
         "ai2_passive" | "chr_freeze" | "chr_neutral" => {
             if let Some(id) = ai(host, a(0)) {
                 host.world().set_passive(id, truthy(a(1)));

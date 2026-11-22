@@ -1414,9 +1414,12 @@ impl World {
     }
 
     /// What the player has met, kept between runs (in play).
-    fn keep_unlocks(&self) {
+    fn keep_unlocks(&mut self) {
         if self.progress.persist_continues {
-            crate::game::store_unlocks(self.hud.items_seen, &self.hud.weapon_classes_seen);
+            self.persist.push(crate::game::Persist::Unlocks(
+                self.hud.items_seen,
+                self.hud.weapon_classes_seen.clone(),
+            ));
         }
     }
 

@@ -82,67 +82,114 @@ fn comp_count(ty: &str) -> usize {
     }
 }
 
+/// A malformed file's error.
+pub(crate) fn bad(what: &str) -> std::io::Error {
+    std::io::Error::new(std::io::ErrorKind::InvalidData, format!("glb: {what}"))
+}
+
+/// A JSON index (`what` names it in the error).
+pub(crate) fn index(v: &Value, what: &str) -> std::io::Result<usize> {
+    v.as_u64().map(|i| i as usize).ok_or_else(|| bad(what))
+}
+
 /// Splits a `.glb` into its JSON chunk and BIN chunk data.
-pub(crate) fn glb_json_bin(bytes: &[u8]) -> (Value, &[u8]) {
-    let json_len = u32::from_le_bytes([bytes[12], bytes[13], bytes[14], bytes[15]]) as usize;
-    let json: Value = serde_json::from_slice(&bytes[20..20 + json_len]).expect("glb json");
-    let bin_start = 20 + json_len + 8;
-    (json, &bytes[bin_start..])
+pub(crate) fn glb_json_bin(bytes: &[u8]) -> std::io::Result<(Value, &[u8])> {
+    let len = bytes.get(12..16).ok_or_else(|| bad("truncated header"))?;
+    let json_len = u32::from_le_bytes([len[0], len[1], len[2], len[3]]) as usize;
+    let chunk = bytes
+        .get(20..20 + json_len)
+        .ok_or_else(|| bad("truncated JSON chunk"))?;
+    let json: Value = serde_json::from_slice(chunk).map_err(|e| bad(&format!("JSON: {e}")))?;
+    let bin = bytes.get(20 + json_len + 8..).unwrap_or(&[]);
+    Ok((json, bin))
+}
+
+/// An accessor's data: where it starts in the BIN chunk, and how many
+/// elements of how many components.
+fn accessor(json: &Value, acc_idx: usize) -> std::io::Result<(usize, usize, usize)> {
+    let acc = &json["accessors"][acc_idx];
+    let bv = &json["bufferViews"][index(&acc["bufferView"], "accessor's buffer view")?];
+    let off = bv["byteOffset"].as_u64().unwrap_or(0) as usize
+        + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
+    let count = index(&acc["count"], "accessor's count")?;
+    let comp = comp_count(acc["type"].as_str().unwrap_or("SCALAR"));
+    Ok((off, count, comp))
+}
+
+/// `n` little-endian 4-byte words from `off` (none past the chunk's end).
+fn words(bin: &[u8], off: usize, n: usize) -> std::io::Result<impl Iterator<Item = [u8; 4]> + '_> {
+    let data = bin
+        .get(off..off + n * 4)
+        .ok_or_else(|| bad("accessor past the BIN chunk"))?;
+    Ok(data.chunks_exact(4).map(|w| [w[0], w[1], w[2], w[3]]))
 }
 
 /// Reads an accessor's floats (component type 5126) as rows of `comp` values.
-pub(crate) fn read_floats(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<f32> {
-    let acc = &json["accessors"][acc_idx];
-    let bv = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
-    let off = bv["byteOffset"].as_u64().unwrap_or(0) as usize
-        + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
-    let count = acc["count"].as_u64().unwrap() as usize;
-    let comp = comp_count(acc["type"].as_str().unwrap());
-    let mut out = Vec::with_capacity(count * comp);
-    for i in 0..count * comp {
-        let o = off + i * 4;
-        out.push(f32::from_le_bytes([
-            bin[o],
-            bin[o + 1],
-            bin[o + 2],
-            bin[o + 3],
-        ]));
-    }
-    out
+pub(crate) fn read_floats(json: &Value, bin: &[u8], acc_idx: usize) -> std::io::Result<Vec<f32>> {
+    let (off, count, comp) = accessor(json, acc_idx)?;
+    Ok(words(bin, off, count * comp)?
+        .map(f32::from_le_bytes)
+        .collect())
 }
 
 /// Reads an index accessor (u32, component type 5125).
-pub(crate) fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> Vec<u32> {
-    let acc = &json["accessors"][acc_idx];
-    let bv = &json["bufferViews"][acc["bufferView"].as_u64().unwrap() as usize];
-    let off = bv["byteOffset"].as_u64().unwrap_or(0) as usize
-        + acc["byteOffset"].as_u64().unwrap_or(0) as usize;
-    let count = acc["count"].as_u64().unwrap() as usize;
-    (0..count)
-        .map(|i| {
-            let o = off + i * 4;
-            u32::from_le_bytes([bin[o], bin[o + 1], bin[o + 2], bin[o + 3]])
-        })
-        .collect()
+pub(crate) fn read_indices(json: &Value, bin: &[u8], acc_idx: usize) -> std::io::Result<Vec<u32>> {
+    let (off, count, _) = accessor(json, acc_idx)?;
+    Ok(words(bin, off, count)?.map(u32::from_le_bytes).collect())
+}
+
+/// Each node's parent (from the nodes' `children`).
+pub(crate) fn parents(nodes: &[Value]) -> std::io::Result<Vec<Option<usize>>> {
+    let mut parent = vec![None; nodes.len()];
+    for (i, n) in nodes.iter().enumerate() {
+        for c in n["children"].as_array().into_iter().flatten() {
+            *parent
+                .get_mut(index(c, "child")?)
+                .ok_or_else(|| bad("child past the nodes"))? = Some(i);
+        }
+    }
+    Ok(parent)
+}
+
+/// A material as drawn: its base colour texture's image (its `uri`), and
+/// whether it blends, adds, lights itself.
+pub(crate) struct Material {
+    pub uri: Option<String>,
+    pub blend: bool,
+    pub additive: bool,
+    pub self_illum: bool,
+}
+
+pub(crate) fn material(json: &Value, idx: usize) -> std::io::Result<Material> {
+    let m = &json["materials"][idx];
+    let uri = match m["pbrMetallicRoughness"]["baseColorTexture"]["index"].as_u64() {
+        None => None,
+        Some(ti) => {
+            let src = index(&json["textures"][ti as usize]["source"], "texture's image")?;
+            Some(
+                json["images"][src]["uri"]
+                    .as_str()
+                    .unwrap_or("")
+                    .to_string(),
+            )
+        }
+    };
+    Ok(Material {
+        uri,
+        blend: m["alphaMode"].as_str() == Some("BLEND"),
+        additive: m["extras"]["additive"].as_bool().unwrap_or(false),
+        self_illum: m["extras"]["selfIllum"].as_bool().unwrap_or(false),
+    })
 }
 
 /// Loads a `.glb` file into a [`Scene`].
 pub fn load(path: &Path) -> std::io::Result<Scene> {
     let bytes = std::fs::read(path)?;
     let dir = path.parent().unwrap_or(Path::new("."));
-    let (json, bin) = glb_json_bin(&bytes);
+    let (json, bin) = glb_json_bin(&bytes)?;
 
     let nodes = json["nodes"].as_array().cloned().unwrap_or_default();
-
-    // Parent map (from each node's `children`).
-    let mut parent = vec![None; nodes.len()];
-    for (i, n) in nodes.iter().enumerate() {
-        if let Some(children) = n["children"].as_array() {
-            for c in children {
-                parent[c.as_u64().unwrap() as usize] = Some(i);
-            }
-        }
-    }
+    let parent = parents(&nodes)?;
     let local = |n: &Value| -> Mat4 {
         let t = n["translation"]
             .as_array()
@@ -172,25 +219,20 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
     let mut tex_paths: Vec<PathBuf> = Vec::new();
     let mut tex_index: BTreeMap<String, usize> = BTreeMap::new();
     // Returns (texture index, blend, additive, self_illuminated).
-    let mut material_texture = |mat_idx: usize| -> (Option<usize>, bool, bool, bool) {
-        let mat = &json["materials"][mat_idx];
-        // (Sidedness is read on its own, below.)
-        let blend = mat["alphaMode"].as_str() == Some("BLEND");
-        let additive = mat["extras"]["additive"].as_bool().unwrap_or(false);
-        let self_illum = mat["extras"]["selfIllum"].as_bool().unwrap_or(false);
-        let Some(ti) = mat["pbrMetallicRoughness"]["baseColorTexture"]["index"].as_u64() else {
-            return (None, blend, additive, self_illum);
+    // (Sidedness is read on its own, below.)
+    let mut material_texture =
+        |mat_idx: usize| -> std::io::Result<(Option<usize>, bool, bool, bool)> {
+            let m = material(&json, mat_idx)?;
+            let idx = m.uri.map(|uri| {
+                let path = normalize(dir, &uri);
+                let key = path.to_string_lossy().into_owned();
+                *tex_index.entry(key).or_insert_with(|| {
+                    tex_paths.push(path);
+                    tex_paths.len() - 1
+                })
+            });
+            Ok((idx, m.blend, m.additive, m.self_illum))
         };
-        let src = json["textures"][ti as usize]["source"].as_u64().unwrap() as usize;
-        let uri = json["images"][src]["uri"].as_str().unwrap_or("");
-        let path = normalize(dir, uri);
-        let key = path.to_string_lossy().into_owned();
-        let idx = *tex_index.entry(key).or_insert_with(|| {
-            tex_paths.push(path);
-            tex_paths.len() - 1
-        });
-        (Some(idx), blend, additive, self_illum)
-    };
 
     let mut prims = Vec::new();
     let mut min = Vec3::splat(f32::INFINITY);
@@ -238,26 +280,22 @@ pub fn load(path: &Path) -> std::io::Result<Scene> {
         };
         let (env_ref, glass) = (number_after("__ref"), number_after("__glass"));
         let normal_mat = Mat4::from_mat3(glam::Mat3::from_mat4(wm));
-        for prim in json["meshes"][mesh_idx]["primitives"].as_array().unwrap() {
+        let prims_of = json["meshes"][mesh_idx]["primitives"].as_array();
+        for prim in prims_of.into_iter().flatten() {
             let attrs = &prim["attributes"];
             let Some(pos_acc) = attrs["POSITION"].as_u64() else {
                 continue;
             };
-            let pos = read_floats(&json, bin, pos_acc as usize);
-            let nrm = attrs["NORMAL"]
-                .as_u64()
-                .map(|a| read_floats(&json, bin, a as usize));
-            let uv = attrs["TEXCOORD_0"]
-                .as_u64()
-                .map(|a| read_floats(&json, bin, a as usize));
-            let col = attrs["COLOR_0"]
-                .as_u64()
-                .map(|a| read_floats(&json, bin, a as usize));
-            let idx = read_indices(&json, bin, prim["indices"].as_u64().unwrap() as usize);
-            let (texture, blend, additive, self_illum) = prim["material"]
-                .as_u64()
-                .map(|m| material_texture(m as usize))
-                .unwrap_or((None, false, false, false));
+            let floats = |a: u64| read_floats(&json, bin, a as usize);
+            let pos = floats(pos_acc)?;
+            let nrm = attrs["NORMAL"].as_u64().map(floats).transpose()?;
+            let uv = attrs["TEXCOORD_0"].as_u64().map(floats).transpose()?;
+            let col = attrs["COLOR_0"].as_u64().map(floats).transpose()?;
+            let idx = read_indices(&json, bin, index(&prim["indices"], "primitive's indices")?)?;
+            let (texture, blend, additive, self_illum) = match prim["material"].as_u64() {
+                Some(m) => material_texture(m as usize)?,
+                None => (None, false, false, false),
+            };
             let one_sided = prim["material"].as_u64().is_some_and(|m| {
                 json["materials"][m as usize]["doubleSided"].as_bool() == Some(false)
             });
@@ -336,4 +374,37 @@ pub(crate) fn normalize(dir: &Path, uri: &str) -> PathBuf {
         }
     }
     p
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A file cut short anywhere is an error, never a panic.
+    #[test]
+    fn a_truncated_glb_is_an_error() {
+        let dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../../generated/oni/common/characters/konoko_body_high");
+        let Ok(bytes) = std::fs::read(dir.join("model.glb")) else {
+            eprintln!("SKIP: generated character not found");
+            return;
+        };
+        let tmp = std::env::temp_dir().join(format!("oni_trunc_{}", std::process::id()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        let path = tmp.join("model.glb");
+        for cut in [0, 10, 19, 40, bytes.len() / 2, bytes.len() - 4] {
+            std::fs::write(&path, &bytes[..cut]).unwrap();
+            assert!(load(&path).is_err(), "scene cut at {cut}");
+            assert!(
+                crate::skel::load_character(&path).is_err(),
+                "character cut at {cut}"
+            );
+        }
+        std::fs::write(&path, &bytes).unwrap();
+        assert!(
+            crate::skel::load_character(&path).is_ok(),
+            "the whole file loads"
+        );
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }

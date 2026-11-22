@@ -430,18 +430,9 @@ fn f(a: &[serde_json::Value], i: usize) -> f32 {
 pub fn load_character(path: &Path) -> std::io::Result<Character> {
     let bytes = std::fs::read(path)?;
     let dir = path.parent().unwrap_or(Path::new("."));
-    let (json, bin) = gltf::glb_json_bin(&bytes);
+    let (json, bin) = gltf::glb_json_bin(&bytes)?;
     let nodes = json["nodes"].as_array().cloned().unwrap_or_default();
-
-    // Parent links from `children`.
-    let mut parent = vec![None; nodes.len()];
-    for (i, n) in nodes.iter().enumerate() {
-        if let Some(children) = n["children"].as_array() {
-            for c in children {
-                parent[c.as_u64().unwrap() as usize] = Some(i);
-            }
-        }
-    }
+    let parent = gltf::parents(&nodes)?;
 
     let mut bones = Vec::with_capacity(nodes.len());
     let mut parts = Vec::new();
@@ -466,27 +457,28 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
             Some((Vec3::new(f(a, 0), f(a, 1), f(a, 2)), r))
         });
         if let Some(mesh) = n["mesh"].as_u64() {
-            for prim in json["meshes"][mesh as usize]["primitives"]
-                .as_array()
-                .unwrap()
-            {
+            let prims = json["meshes"][mesh as usize]["primitives"].as_array();
+            for prim in prims.into_iter().flatten() {
                 let at = &prim["attributes"];
                 let Some(pos_acc) = at["POSITION"].as_u64() else {
                     continue;
                 };
-                let pos = gltf::read_floats(&json, bin, pos_acc as usize);
-                let nrm = at["NORMAL"]
-                    .as_u64()
-                    .map(|a| gltf::read_floats(&json, bin, a as usize));
-                let uv = at["TEXCOORD_0"]
-                    .as_u64()
-                    .map(|a| gltf::read_floats(&json, bin, a as usize));
-                let idx =
-                    gltf::read_indices(&json, bin, prim["indices"].as_u64().unwrap() as usize);
-                let (texture, blend, additive) = prim["material"]
-                    .as_u64()
-                    .map(|m| material(&json, dir, m as usize))
-                    .unwrap_or((None, false, false));
+                let floats = |a: u64| gltf::read_floats(&json, bin, a as usize);
+                let pos = floats(pos_acc)?;
+                let nrm = at["NORMAL"].as_u64().map(floats).transpose()?;
+                let uv = at["TEXCOORD_0"].as_u64().map(floats).transpose()?;
+                let idx = gltf::read_indices(
+                    &json,
+                    bin,
+                    gltf::index(&prim["indices"], "primitive's indices")?,
+                )?;
+                let (texture, blend, additive) = match prim["material"].as_u64() {
+                    Some(m) => {
+                        let m = gltf::material(&json, m as usize)?;
+                        (m.uri.map(|u| gltf::normalize(dir, &u)), m.blend, m.additive)
+                    }
+                    None => (None, false, false),
+                };
 
                 let vcount = pos.len() / 3;
                 let mut verts = Vec::with_capacity(vcount);
@@ -532,7 +524,7 @@ pub fn load_character(path: &Path) -> std::io::Result<Character> {
 /// Loads an animation `.glb` clip (rotation tracks, bound by bone name).
 pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
     let bytes = std::fs::read(path)?;
-    let (json, bin) = gltf::glb_json_bin(&bytes);
+    let (json, bin) = gltf::glb_json_bin(&bytes)?;
     let nodes = json["nodes"].as_array().cloned().unwrap_or_default();
     let anim = &json["animations"][0];
     let samplers = anim["samplers"].as_array().cloned().unwrap_or_default();
@@ -543,11 +535,17 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         if ch["target"]["path"].as_str() != Some("rotation") {
             continue;
         }
-        let node = ch["target"]["node"].as_u64().unwrap() as usize;
-        let bone_name = nodes[node]["name"].as_str().unwrap_or("").to_string();
-        let s = &samplers[ch["sampler"].as_u64().unwrap() as usize];
-        let times = gltf::read_floats(&json, bin, s["input"].as_u64().unwrap() as usize);
-        let rot = gltf::read_floats(&json, bin, s["output"].as_u64().unwrap() as usize);
+        let node = gltf::index(&ch["target"]["node"], "channel's node")?;
+        let bone_name = nodes
+            .get(node)
+            .and_then(|n| n["name"].as_str())
+            .unwrap_or("")
+            .to_string();
+        let s = samplers
+            .get(gltf::index(&ch["sampler"], "channel's sampler")?)
+            .ok_or_else(|| gltf::bad("sampler past the samplers"))?;
+        let times = gltf::read_floats(&json, bin, gltf::index(&s["input"], "sampler's input")?)?;
+        let rot = gltf::read_floats(&json, bin, gltf::index(&s["output"], "sampler's output")?)?;
         let rotations: Vec<Quat> = rot
             .chunks_exact(4)
             .map(|q| Quat::from_xyzw(q[0], q[1], q[2], q[3]))
@@ -700,17 +698,4 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
             .collect(),
         self_damage: ex.self_damage.iter().map(|d| (d.tick, d.damage)).collect(),
     })
-}
-
-/// Resolves a material's texture path + blend/additive flags.
-fn material(json: &serde_json::Value, dir: &Path, idx: usize) -> (Option<PathBuf>, bool, bool) {
-    let m = &json["materials"][idx];
-    let blend = m["alphaMode"].as_str() == Some("BLEND");
-    let additive = m["extras"]["additive"].as_bool().unwrap_or(false);
-    let Some(ti) = m["pbrMetallicRoughness"]["baseColorTexture"]["index"].as_u64() else {
-        return (None, blend, additive);
-    };
-    let src = json["textures"][ti as usize]["source"].as_u64().unwrap() as usize;
-    let uri = json["images"][src]["uri"].as_str().unwrap_or("");
-    (Some(gltf::normalize(dir, uri)), blend, additive)
 }

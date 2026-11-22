@@ -22,6 +22,8 @@ pub fn game_tick(host: &mut dyn Host, mission: Option<&mut Mission>, controls: u
     if let Some(m) = mission {
         m.tick(host);
     }
+    // (What the tick asked to keep between runs, written.)
+    crate::game::persist(std::mem::take(&mut host.world().persist));
 }
 
 /// What the mission needs from whoever runs it.

@@ -49,6 +49,7 @@ pub fn open_world(
     progress(35);
     // The player is fighter 0.
     world.spawn(o.player, o.at, 0.0, false);
+    world.cheats_permitted = crate::game::cheats_permitted();
     world.load_level(o.level_dir);
     world.attach_corpse_models(|c| {
         classes

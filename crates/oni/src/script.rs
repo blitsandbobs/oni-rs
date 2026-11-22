@@ -1417,7 +1417,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         })?,
     )?;
 
-    // Resets a console (unused; active as authored).
+    // Resets console `id` as if never used: not triggered, and active or not as
+    // the level authored it.
     let h = host.clone();
     g.set(
         "console_reset",
@@ -2541,7 +2542,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             Ok(t)
         })?,
     )?;
-    // How many guns no one holds.
+    // How many guns no one holds (as `loose_guns`: not those gone).
     let h = host.clone();
     g.set(
         "weapons_lying",
@@ -2550,7 +2551,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
                 .world
                 .weapons()
                 .iter()
-                .filter(|g| g.owner.is_none())
+                .filter(|g| g.owner.is_none() && !g.gone)
                 .count())
         })?,
     )?;
