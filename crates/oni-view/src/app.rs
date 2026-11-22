@@ -758,11 +758,7 @@ impl ApplicationHandler for App {
                         && event.state == ElementState::Pressed
                         && !event.repeat
                     {
-                        if let Some(pw) = st
-                            .play
-                            .as_mut()
-                            .filter(|p| p.world.in_cutscene && !p.world.quirks.faithful)
-                        {
+                        if let Some(pw) = st.play.as_mut().filter(|p| p.world.in_cutscene) {
                             pw.world.skip_cutscene();
                         }
                     }

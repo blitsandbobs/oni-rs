@@ -2190,6 +2190,15 @@ impl World {
         }
     }
 
+    /// Every AI passive or not (`ai2_allpassive`, a cutscene): those there
+    /// now, and — while on — those spawned later.
+    pub fn set_all_passive(&mut self, on: bool) {
+        self.all_passive = on;
+        for id in 1..self.fighters.len() {
+            self.set_passive(id, on);
+        }
+    }
+
     /// Makes fighter `id` passive (doing nothing, noticing nothing) or not.
     pub fn set_passive(&mut self, id: usize, on: bool) {
         if let Some(f) = self.fighters.get_mut(id) {

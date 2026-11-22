@@ -2,7 +2,8 @@
 -- for 10 ticks or more into one, the screen fades to black over 20 frames
 -- with the sound off, the game then runs 32 ticks a frame unseen until the
 -- scripts end the cutscene, and the screen fades back in over 20 frames
--- with the sound back. (As shipped nothing asks: Space is restored, Q18.)
+-- with the sound back. (As shipped it can't be skipped — Space's call is
+-- commented out, Q18 — so under --faithful the asks do nothing.)
 --
 --   cargo run --release -p oni-view -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -22,6 +23,13 @@ skip_cutscene()
 assert(cutscene_skip() == "idle", "too soon after it began")
 step(6)
 skip_cutscene()
+if faithful() then
+    assert(cutscene_skip() == "idle", "faithful: no skip")
+    step(700)
+    assert(cutscene_skip() == "idle", "sat through to its end")
+    print("ok (faithful: unskippable)")
+    return
+end
 local mode, black = cutscene_skip()
 assert(mode == "starting" and black == 0, "the fade to black starts: " .. mode)
 

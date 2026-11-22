@@ -79,8 +79,6 @@ pub struct State {
     pub spawned: HashSet<usize>,
     /// Each spawned fighter's event scripts.
     pub scripts: HashMap<usize, HashMap<String, String>>,
-    /// `ai2_allpassive`.
-    pub all_passive: bool,
     /// Event scripts to start at the next tick (a spawn's script, …).
     pub(super) pending_events: Vec<(String, Vec<String>)>,
     /// Character event scripts fired, per fighter (once per life).

@@ -36,6 +36,9 @@ impl World {
     /// for 10 ticks, with none under way, the fade to black starts and the
     /// sound goes off (`OSrSetEnabled`).
     pub fn skip_cutscene(&mut self) {
+        if self.quirks.cutscenes_unskippable() {
+            return;
+        }
         if self.in_cutscene && self.cutscene_ticks >= SETTLE && self.skip == Skip::Idle {
             self.skip = Skip::Starting(FADE);
             self.sound_enabled(false);
@@ -113,6 +116,17 @@ impl World {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn faithful_cutscenes_cannot_be_skipped() {
+        // Q18: as shipped, Space's skip is commented out.
+        let mut w = World::new();
+        w.quirks = crate::quirks::Quirks::FAITHFUL;
+        w.in_cutscene = true;
+        w.cutscene_ticks = 10;
+        w.skip_cutscene();
+        assert_eq!(w.skip, Skip::Idle);
+    }
 
     #[test]
     fn a_skip_fades_out_runs_fast_and_fades_back() {

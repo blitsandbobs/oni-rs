@@ -242,6 +242,9 @@ impl ScriptHost {
     /// A frame as the player would see it, drawn offscreen and read back.
     fn frame_rgba(&mut self, w: u32, h: u32) -> Vec<u8> {
         let aspect = w as f32 / h as f32;
+        // (The screen's shape: the lens flares' view test reads it, as in
+        // the play app.)
+        self.world.camera.aspect = aspect;
         // (What the player sees: the game camera — once it is placed.)
         let mut cam = if self.world.camera.placed {
             self.world.camera.render_camera(aspect)

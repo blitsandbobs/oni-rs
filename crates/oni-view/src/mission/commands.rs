@@ -617,9 +617,6 @@ pub fn dispatch(
                     state.warn(format!("begin_cutscene: unknown flag {k}"));
                 }
             }
-            if !keeps("ai") {
-                state.all_passive = true;
-            }
             let world = host.world();
             world.in_cutscene = true;
             world.cutscene_ticks = 0;
@@ -645,10 +642,7 @@ pub fn dispatch(
                 }
             }
             if !keeps("ai") {
-                world.all_passive = true;
-                for id in 1..world.fighters.len() {
-                    world.set_passive(id, true);
-                }
+                world.set_all_passive(true);
             }
             if !keeps("jello") {
                 world.camera.jello = false;
@@ -690,7 +684,6 @@ pub fn dispatch(
             // `ONrGameState_EndCutscene`: input and jello back, every AI out
             // of passivity (those a script made passive too), the letterbox
             // gone, the gun put away for it drawn again.
-            state.all_passive = false;
             let world = host.world();
             world.in_cutscene = false;
             world.sync_enabled = false;
@@ -700,10 +693,7 @@ pub fn dispatch(
             world.input_enabled = true;
             world.camera.jello = true;
             world.hud.cinematics.clear();
-            world.all_passive = false;
-            for id in 1..world.fighters.len() {
-                world.set_passive(id, false);
-            }
+            world.set_all_passive(false);
             if world.fighters.first().is_some_and(|f| f.hand.is_none()) {
                 world.force_holster(0, false);
             }
@@ -1571,7 +1561,7 @@ pub fn dispatch(
                 Some(v) => fighter(host, Some(v)).unwrap_or(0),
                 None => 0,
             };
-            if !state.all_passive {
+            if !host.world().all_passive {
                 host.world().trip_alarm(group as u32, cause);
             }
             nil()
@@ -1723,13 +1713,7 @@ pub fn dispatch(
             nil()
         }
         "ai2_allpassive" => {
-            let on = truthy(a(0));
-            state.all_passive = on;
-            let world = host.world();
-            world.all_passive = on;
-            for id in 1..world.fighters.len() {
-                world.set_passive(id, on);
-            }
+            host.world().set_all_passive(truthy(a(0)));
             nil()
         }
         "ai2_attack" | "ai2_makeaware" => {
@@ -2125,7 +2109,7 @@ pub fn create(state: &mut State, host: &mut dyn Host, sid: i64) -> Option<(Strin
             }
         }
     }
-    if state.all_passive {
+    if world.all_passive {
         world.set_passive(id, true);
     }
     state.scripts.insert(id, setup.scripts.clone());
@@ -2189,7 +2173,7 @@ pub fn spawn(
     // above and let it settle.)
     let id = world.spawn(&kind, placed.at + Vec3::Y * 10.0, placed.facing, false);
     world.give_goals(id, Some(&placed), melee);
-    if state.all_passive {
+    if world.all_passive {
         world.set_passive(id, true);
     }
     state.scripts.insert(id, placed.scripts.clone());
