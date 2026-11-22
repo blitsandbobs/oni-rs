@@ -536,21 +536,7 @@ impl World {
     }
 }
 
-/// Whether the segment from `a` to `b` meets the sphere (`CLrSphere_Line`):
-/// either end inside it, or its nearest point between them.
-pub(super) fn segment_meets_sphere(a: Vec3, b: Vec3, centre: Vec3, r: f32) -> bool {
-    let r2 = r * r;
-    if a.distance_squared(centre) < r2 || b.distance_squared(centre) < r2 {
-        return true;
-    }
-    let ab = b - a;
-    let len2 = ab.length_squared();
-    if len2 <= 0.0 {
-        return false;
-    }
-    let u = (centre - a).dot(ab) / len2;
-    u > 0.0 && u < 1.0 && (a + ab * u).distance_squared(centre) < r2
-}
+use crate::geom::segment_meets_sphere;
 
 impl GameCamera {
     /// The render camera for its view, with its projection.

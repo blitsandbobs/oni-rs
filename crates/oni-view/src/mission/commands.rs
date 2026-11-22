@@ -130,26 +130,15 @@ pub struct Volume {
 impl Volume {
     /// Whether the vertical segment `from`..`to` crosses the box.
     pub fn crossed(&self, from: Vec3, to: Vec3) -> bool {
-        let (mut t0, mut t1) = (0.0f32, 1.0f32);
-        let (p, d) = (from - self.corner, to - from);
-        for k in 0..3 {
-            let (o, v) = (p.dot(self.axes[k]), d.dot(self.axes[k]));
-            let (lo, hi) = (0.0, self.size[k]);
-            if v.abs() < 1e-6 {
-                if o < lo || o > hi {
-                    return false;
-                }
-            } else {
-                let (a, b) = ((lo - o) / v, (hi - o) / v);
-                let (a, b) = if a < b { (a, b) } else { (b, a) };
-                t0 = t0.max(a);
-                t1 = t1.min(b);
-                if t0 > t1 {
-                    return false;
-                }
-            }
-        }
-        true
+        crate::geom::segment_box(
+            from,
+            to - from,
+            self.corner,
+            self.axes,
+            Vec3::ZERO,
+            self.size,
+        )
+        .is_some()
     }
 }
 

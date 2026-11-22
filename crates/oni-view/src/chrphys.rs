@@ -124,27 +124,7 @@ impl DoorBox {
     /// Whether the segment from `a` to `b` meets it (either end inside, or
     /// crossing it).
     pub fn meets_segment(&self, a: Vec3, b: Vec3) -> bool {
-        let (mut t0, mut t1) = (0.0f32, 1.0f32);
-        for k in 0..3 {
-            let (o, d) = (self.axes[k].dot(a - self.center), self.axes[k].dot(b - a));
-            let h = self.half[k];
-            if d.abs() < 1e-9 {
-                if o.abs() > h {
-                    return false;
-                }
-                continue;
-            }
-            let (mut lo, mut hi) = ((-h - o) / d, (h - o) / d);
-            if lo > hi {
-                std::mem::swap(&mut lo, &mut hi);
-            }
-            t0 = t0.max(lo);
-            t1 = t1.min(hi);
-            if t0 > t1 {
-                return false;
-            }
-        }
-        true
+        crate::geom::segment_box(a, b - a, self.center, self.axes, -self.half, self.half).is_some()
     }
 
     /// Its six faces: outward normal and corners.
@@ -852,37 +832,9 @@ impl DoorBox {
     /// Where a ray (`from` along `ray`) enters the box grown by `grow`: the
     /// fraction along it and the face's normal.
     pub fn ray(&self, from: Vec3, ray: Vec3, grow: f32) -> Option<(f32, Vec3)> {
-        let d = from - self.center;
-        let (mut t0, mut t1) = (0.0f32, 1.0f32);
-        let mut normal = Vec3::ZERO;
-        for k in 0..3 {
-            let (o, v, h) = (
-                d.dot(self.axes[k]),
-                ray.dot(self.axes[k]),
-                self.half[k] + grow,
-            );
-            if v.abs() < 1e-9 {
-                if o.abs() > h {
-                    return None;
-                }
-                continue;
-            }
-            let (mut a, mut b) = ((-h - o) / v, (h - o) / v);
-            let mut n = -self.axes[k];
-            if a > b {
-                std::mem::swap(&mut a, &mut b);
-                n = self.axes[k];
-            }
-            if a > t0 {
-                t0 = a;
-                normal = n;
-            }
-            t1 = t1.min(b);
-            if t0 > t1 {
-                return None;
-            }
-        }
-        (normal != Vec3::ZERO).then_some((t0, normal))
+        let half = self.half + Vec3::splat(grow);
+        let (t, normal) = crate::geom::segment_box(from, ray, self.center, self.axes, -half, half)?;
+        Some((t, normal?))
     }
 }
 

@@ -1470,7 +1470,7 @@ impl World {
             .iter()
             .any(|d| d.solid && d.meets_segment(a, b))
             || (0..self.objects.len()).any(|k| {
-                camera::segment_meets_sphere(
+                crate::geom::segment_meets_sphere(
                     a,
                     b,
                     self.object_matrix(k).w_axis.truncate(),
@@ -1488,15 +1488,10 @@ impl World {
             .filter_map(|k| {
                 let c = self.object_matrix(k).w_axis.truncate();
                 let r = self.object_setups[self.objects[k].setup].radius;
-                let eo = c - from;
-                let eo_sq = eo.length_squared();
-                if eo_sq < r * r {
-                    return Some(0.0);
+                match crate::geom::ray_sphere(from, dir, c, r)? {
+                    crate::geom::Entry::Inside => Some(0.0),
+                    crate::geom::Entry::At(t) => Some(t),
                 }
-                let v = eo.dot(dir);
-                let disc = r * r - (eo_sq - v * v);
-                let t = v - disc.max(0.0).sqrt();
-                (disc >= 0.0 && t >= 0.0).then_some(t)
             })
             .filter(|&t| t <= max)
             .min_by(f32::total_cmp)

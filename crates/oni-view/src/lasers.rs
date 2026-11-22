@@ -206,18 +206,10 @@ pub fn drawn(len: f32) -> f32 {
 /// Where a ray from `from` along unit `dir` first enters a sphere, within
 /// `max` (a start inside counts as 0).
 pub fn ray_sphere(from: Vec3, dir: Vec3, max: f32, centre: Vec3, radius: f32) -> Option<f32> {
-    let m = from - centre;
-    let c = m.length_squared() - radius * radius;
-    if c <= 0.0 {
-        return Some(0.0);
+    match crate::geom::ray_sphere(from, dir, centre, radius)? {
+        crate::geom::Entry::Inside => Some(0.0),
+        crate::geom::Entry::At(t) => (t <= max).then_some(t),
     }
-    let b = m.dot(dir);
-    let disc = b * b - c;
-    if b > 0.0 || disc < 0.0 {
-        return None;
-    }
-    let t = -b - disc.sqrt();
-    (t <= max).then_some(t)
 }
 
 pub fn load(level_dir: &Path) -> Vec<Laser> {

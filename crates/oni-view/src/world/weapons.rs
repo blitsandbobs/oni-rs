@@ -427,53 +427,17 @@ impl<'a> ShotHost<'a> {
 /// Where a ray `from → from + ray` enters the box `lo..hi`: the fraction
 /// along it and the face's outward axis (box space).
 fn ray_box(from: Vec3, ray: Vec3, lo: Vec3, hi: Vec3) -> Option<(f32, Vec3)> {
-    let (mut t0, mut t1) = (0.0f32, 1.0f32);
-    let mut normal = Vec3::ZERO;
-    for k in 0..3 {
-        let (o, d) = (from[k], ray[k]);
-        if d.abs() < 1e-9 {
-            if o < lo[k] || o > hi[k] {
-                return None;
-            }
-            continue;
-        }
-        let (mut a, mut b) = ((lo[k] - o) / d, (hi[k] - o) / d);
-        let mut n = Vec3::ZERO;
-        n[k] = -d.signum();
-        if a > b {
-            std::mem::swap(&mut a, &mut b);
-        }
-        if a > t0 {
-            t0 = a;
-            normal = n;
-        }
-        t1 = t1.min(b);
-        if t0 > t1 {
-            return None;
-        }
-    }
-    Some((t0, normal))
+    let (t, normal) = crate::geom::segment_box(from, ray, Vec3::ZERO, crate::geom::AXES, lo, hi)?;
+    Some((t, normal.unwrap_or(Vec3::ZERO)))
 }
 
 /// Where a ray first touches a sphere (fraction along it; 0 if it starts
 /// inside).
 fn ray_sphere(from: Vec3, ray: Vec3, centre: Vec3, r: f32) -> Option<f32> {
-    let oc = from - centre;
-    let c = oc.length_squared() - r * r;
-    if c <= 0.0 {
-        return Some(0.0);
+    match crate::geom::ray_sphere(from, ray, centre, r)? {
+        crate::geom::Entry::Inside => Some(0.0),
+        crate::geom::Entry::At(t) => (t <= 1.0).then_some(t),
     }
-    let a = ray.length_squared();
-    if a < 1e-12 {
-        return None;
-    }
-    let b = oc.dot(ray);
-    let disc = b * b - a * c;
-    if disc < 0.0 {
-        return None;
-    }
-    let t = (-b - disc.sqrt()) / a;
-    (0.0..=1.0).contains(&t).then_some(t)
 }
 
 impl ShotHost<'_> {

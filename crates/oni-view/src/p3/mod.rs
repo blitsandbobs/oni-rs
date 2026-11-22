@@ -164,23 +164,12 @@ pub struct Collision {
 /// (`PHrCollision_Point_SphereTree`): the fraction along it (0–1) and the
 /// normal there. Heading away from it, or starting inside, is no hit.
 pub fn ray_sphere_entry(from: Vec3, ray: Vec3, centre: Vec3, r: f32) -> Option<(f32, Vec3)> {
-    let oc = from - centre;
-    let (a, b, c) = (
-        ray.length_squared(),
-        2.0 * oc.dot(ray),
-        oc.length_squared() - r * r,
-    );
-    if a < 1e-12 || b > 0.0 || c <= 0.0 {
-        return None;
+    match crate::geom::ray_sphere(from, ray, centre, r)? {
+        crate::geom::Entry::Inside => None,
+        crate::geom::Entry::At(t) => {
+            (t <= 1.0).then(|| (t, (from + ray * t - centre).normalize_or(Vec3::Y)))
+        }
     }
-    let disc = b * b - 4.0 * a * c;
-    if disc < 0.0 {
-        return None;
-    }
-    let t = (-b - disc.sqrt()) / (2.0 * a);
-    (0.0..=1.0)
-        .contains(&t)
-        .then(|| (t, (from + ray * t - centre).normalize_or(Vec3::Y)))
 }
 
 /// A collision's id with this bit: a placed object (its index), not a
