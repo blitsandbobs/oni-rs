@@ -209,6 +209,15 @@ impl Quirks {
         self.faithful
     }
 
+    /// Q32: a shot tests a sized character's parts by boxes of their unsized
+    /// size (`ONrCharacter_Collide_Ray`: the transpose of the sized matrix
+    /// and the box sized once cancel), so Mutant Muro (1.75) is hit only
+    /// nearer each part's middle, the dream lab's small Striker (0.5) past
+    /// its parts' edges.
+    pub fn shot_boxes_unsized(self) -> bool {
+        self.faithful
+    }
+
     /// Whether the level scripts run as shipped, without our fixes to their
     /// most glaring mistakes (`docs/deviations.md`).
     pub fn scripts_as_shipped(self) -> bool {

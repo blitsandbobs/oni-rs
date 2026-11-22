@@ -301,7 +301,7 @@ pub fn events(state: &mut State, host: &mut dyn Host) -> Vec<(String, Vec<String
             (
                 i,
                 feet,
-                feet + Vec3::Y * f.motion.height().max(12.0),
+                feet + Vec3::Y * f.pelvis_height().max(12.0),
                 1u32 << (f.team() as u32),
             )
         })

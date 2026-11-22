@@ -545,12 +545,13 @@ impl Host for ShotHost<'_> {
             }
             // The whole body first.
             // (A generous sphere round the pelvis: the parts decide.)
-            let pelvis = f.motion.height();
+            let pelvis = f.pelvis_height();
             let centre = f.feet() + Vec3::Y * pelvis;
             if ray_sphere(from, ray, centre, pelvis * 1.8 + radius).is_none() {
                 continue;
             }
             let character = f.character.clone();
+            let (scale, quirks) = (f.scale, f.quirks);
             let bones = self.bones_of(i).to_vec();
             for part in &character.parts {
                 let Some(m) = bones.get(part.bone) else {
@@ -561,11 +562,12 @@ impl Host for ShotHost<'_> {
                         continue;
                     };
                     let wc = m.transform_point3(c);
-                    ray_sphere(from, ray, wc, r + radius)
+                    // (Its radius sized with the body: `ONrCharacter_Collide_SphereRay`.)
+                    ray_sphere(from, ray, wc, r * scale + radius)
                         .map(|t| (t, (from + ray * t - wc).normalize_or(Vec3::Y)))
                 } else {
                     let inv = m.inverse();
-                    let (lo, hi) = part.bound_box;
+                    let (lo, hi) = shot_box_sized(scale, quirks, part.bound_box);
                     ray_box(
                         inv.transform_point3(from),
                         inv.transform_vector3(ray),
@@ -615,7 +617,7 @@ impl Host for ShotHost<'_> {
         }
         let dir = dir.try_normalize().unwrap_or_else(|| {
             let f = &self.fighters[who];
-            (f.feet() + Vec3::Y * f.motion.height() - point)
+            (f.feet() + Vec3::Y * f.pelvis_height() - point)
                 .try_normalize()
                 .unwrap_or(Vec3::Z)
         });
@@ -656,7 +658,7 @@ impl Host for ShotHost<'_> {
             if !f.alive() || (self_immune && p3::owner::character(owner) == Some(who)) {
                 continue;
             }
-            let pelvis = f.feet() + Vec3::Y * f.motion.height();
+            let pelvis = f.feet() + Vec3::Y * f.pelvis_height();
             let v = pelvis - centre;
             let d = v.length() / radius.max(1e-6);
             if d > 1.0 {
@@ -697,7 +699,7 @@ impl Host for ShotHost<'_> {
             .filter(|(_, f)| f.alive())
             .map(|(who, f)| Target {
                 who,
-                position: f.feet() + Vec3::Y * (f.motion.height() + 4.0),
+                position: f.feet() + Vec3::Y * (f.pelvis_height() + 4.0),
                 velocity: f.velocity * p3::HZ as f32,
             })
             .collect()
@@ -809,7 +811,7 @@ impl RayBody {
             let Some(m) = bones.get(part.bone) else {
                 continue;
             };
-            let (lo, hi) = part.bound_box;
+            let (lo, hi) = shot_box(f, part.bound_box);
             for k in 0..8 {
                 let c = Vec3::new(
                     if k & 1 == 0 { lo.x } else { hi.x },
@@ -858,6 +860,29 @@ impl RayBody {
     }
 }
 
+/// The box a shot meets body part `bound` of fighter `f` by, in the part's
+/// own (posed, sized) space: the part as drawn — or, as shipped (Q32), the
+/// box at its unsized size (`ONrCharacter_Collide_Ray` takes the ray into
+/// the part by the transpose of its sized matrix and sizes the box once: the
+/// sizes cancel, so a big body's parts are hit only nearer their middle, a
+/// small one's past their edges).
+fn shot_box(f: &Fighter, bound: (Vec3, Vec3)) -> (Vec3, Vec3) {
+    shot_box_sized(f.scale, f.quirks, bound)
+}
+
+/// [`shot_box`] for a body sized `scale`.
+fn shot_box_sized(
+    scale: f32,
+    quirks: crate::quirks::Quirks,
+    (lo, hi): (Vec3, Vec3),
+) -> (Vec3, Vec3) {
+    if quirks.shot_boxes_unsized() && scale > 0.0 {
+        (lo / scale, hi / scale)
+    } else {
+        (lo, hi)
+    }
+}
+
 pub(super) fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Option<f32> {
     f.character
         .parts
@@ -865,7 +890,7 @@ pub(super) fn ray_body(f: &Fighter, bones: &[Mat4], from: Vec3, ray: Vec3) -> Op
         .filter_map(|part| {
             let m = bones.get(part.bone)?;
             let inv = m.inverse();
-            let (lo, hi) = part.bound_box;
+            let (lo, hi) = shot_box(f, part.bound_box);
             ray_box(
                 inv.transform_point3(from),
                 inv.transform_vector3(ray),
@@ -921,7 +946,7 @@ impl World {
             .iter()
             .find(|p| p.bone == 0)
             .and_then(|p| Some(bones.first()?.transform_point3(p.bound_sphere?.0)))
-            .unwrap_or_else(|| f.feet() + Vec3::Y * f.motion.height());
+            .unwrap_or_else(|| f.feet() + Vec3::Y * f.pelvis_height());
         let env = crate::chrphys::Env::new(&self.quads, &self.doors.boxes);
         // (A long gun held over a ledge counts as through it, the original's
         // known limit.)
@@ -1191,7 +1216,7 @@ impl World {
     fn drop_powerup(&mut self, who: usize, kind: usize, amount: u16) {
         let f = &self.fighters[who];
         let pelvis = f.sight_points().pelvis;
-        let mut at = Vec3::new(pelvis.x, f.feet().y + f.motion.height(), pelvis.z);
+        let mut at = Vec3::new(pelvis.x, f.feet().y + f.pelvis_height(), pelvis.z);
         let deviate = |w: &mut World, v: &mut Vec3, by: f32| {
             v.x += (w.random() * 2.0 - 1.0) * by;
             v.z += (w.random() * 2.0 - 1.0) * by;
@@ -2478,7 +2503,7 @@ impl World {
         let (off_yaw, off_pitch) = (s.y.atan2(s.x), s.z.clamp(-1.0, 1.0).asin());
         let (aim_yaw, aim_pitch) = (f.facing.aim() + f.aim.lr, f.aim.ud);
         let me = f.team();
-        let pelvis = f.feet() + Vec3::Y * f.motion.height();
+        let pelvis = f.feet() + Vec3::Y * f.pelvis_height();
         use crate::angle::wrap_pi as wrap;
         let mut found: Option<(f32, f32)> = None;
         for (i, t) in self.fighters.iter().enumerate() {
@@ -2488,13 +2513,13 @@ impl World {
             {
                 continue;
             }
-            let chest = t.feet() + Vec3::Y * (t.motion.height() + 4.0);
+            let chest = t.feet() + Vec3::Y * (t.pelvis_height() + 4.0);
             let to = chest - muzzle;
             let dist = to.length();
             if !(1.0..=500.0).contains(&dist) {
                 continue;
             }
-            let mid = t.feet() + Vec3::Y * t.motion.height();
+            let mid = t.feet() + Vec3::Y * t.pelvis_height();
             if !self
                 .quads
                 .clear(mid, pelvis, crate::quads::flag::LOS_SEE_PLAYER)
@@ -2631,7 +2656,7 @@ impl World {
                         );
                         if volume > 0.0 {
                             let at = self.fighters[who].feet()
-                                + Vec3::Y * self.fighters[who].motion.height();
+                                + Vec3::Y * self.fighters[who].pelvis_height();
                             self.sound(
                                 crate::ai::perception::Stimulus::SoundGunshot,
                                 at,
@@ -2827,6 +2852,18 @@ mod tests {
             ray_sphere(Vec3::new(-5.0, 0.0, 0.0), Vec3::X * 2.0, Vec3::ZERO, 1.0).is_none(),
             "short"
         );
+    }
+
+    /// A shot meets a sized body's part as drawn — or, as shipped (Q32),
+    /// by its box at the unsized size.
+    #[test]
+    fn a_sized_part_is_shot_as_drawn_or_as_shipped() {
+        use crate::quirks::Quirks;
+        let b = (Vec3::splat(-2.0), Vec3::splat(2.0));
+        assert_eq!(shot_box_sized(1.75, Quirks::FIXED, b), b);
+        let (lo, hi) = shot_box_sized(2.0, Quirks::FAITHFUL, b);
+        assert_eq!((lo, hi), (Vec3::splat(-1.0), Vec3::splat(1.0)));
+        assert_eq!(shot_box_sized(1.0, Quirks::FAITHFUL, b), b);
     }
 
     #[test]

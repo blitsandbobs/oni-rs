@@ -79,6 +79,8 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `passive_of(id: int)` | whether fighter id's AI is passive (`ai2_passive`, a cutscene); nil: no such fighter. |
 | `script_id_of(id: int)` | The id the level scripts know fighter `id` by: the player 0, a `chr_create`d character its setup's; nil for the rest. |
 | `difficulty(level: string)` | The AI's difficulty: "easy", "normal" or "hard". |
+| `scale_of(id: int)` | Fighter `id`'s size (`ONtCharacter.scale`, drawn from its class's range when it came), or nil. |
+| `set_scale(id: int, scale: number)` | Test hook: sizes fighter `id` (as the minime / behemoth cheats do). |
 | `class_of(id: int)` | Fighter `id`'s character class name, or nil. |
 | `count()` | How many fighters there are (the player included, removed ones too). |
 | `hp(id: int)` | Fighter `id`'s hit points (0: no such fighter). |

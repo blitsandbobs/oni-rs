@@ -470,7 +470,7 @@ impl World {
                 .map(|(i, _)| i);
             los = match target {
                 Some(i) => {
-                    let to = self.fighters[i].feet() + Vec3::Y * self.fighters[i].motion.height();
+                    let to = self.fighters[i].feet() + Vec3::Y * self.fighters[i].pelvis_height();
                     let d = to - from;
                     d.length() < LOS_START
                         || self.quads.shoots(from + d.normalize() * LOS_START, to)
@@ -486,7 +486,7 @@ impl World {
             t.desired = (0.0, 0.0);
             return;
         };
-        let at = self.fighters[i].feet() + Vec3::Y * self.fighters[i].motion.height();
+        let at = self.fighters[i].feet() + Vec3::Y * self.fighters[i].pelvis_height();
         let t = &mut self.turrets[k];
         let from = t.aim_origin();
         let m = t.matrix.get();

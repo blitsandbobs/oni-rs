@@ -164,7 +164,7 @@ impl World {
                     f.speech.finished = true;
                 }
             } else {
-                let eye = f.feet() + Vec3::Y * f.motion.height() * 2.0;
+                let eye = f.feet() + Vec3::Y * f.pelvis_height() * 2.0;
                 let eye = f
                     .bones()
                     .get(crate::fighter::part::HEAD)

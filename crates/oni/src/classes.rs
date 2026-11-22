@@ -302,6 +302,7 @@ fn tuning(c: &oni_schema::files::CharacterClass) -> ClassTuning {
         t.idle_restart_delay = s.idle_restart_delay;
         t.max_hit_points = s.max_hit_points as i32;
         t.knockdown_resistant = s.knockdown_resistant;
+        t.scale = (s.scale[0], s.scale[1]);
         t.left_handed = s.left_handed;
         t.super_hypo = s.super_hypo;
         t.super_shield = s.super_shield;

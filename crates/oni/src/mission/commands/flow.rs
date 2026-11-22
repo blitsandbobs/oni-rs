@@ -113,7 +113,7 @@ pub(super) fn dispatch(
             let Some(player) = world
                 .fighters
                 .first()
-                .map(|p| p.feet() + Vec3::Y * p.motion.height())
+                .map(|p| p.feet() + Vec3::Y * p.pelvis_height())
             else {
                 return nil();
             };
@@ -279,7 +279,7 @@ pub(super) fn dispatch(
                     .filter(|f| {
                         f.alive() && v.teams & (1 << f.team() as u32) != 0 && {
                             let feet = f.feet();
-                            v.crossed(feet, feet + Vec3::Y * f.motion.height().max(12.0))
+                            v.crossed(feet, feet + Vec3::Y * f.pelvis_height().max(12.0))
                         }
                     })
                     .count();

@@ -331,6 +331,20 @@ pub(super) fn register(r: &Reg) -> mlua::Result<()> {
         Ok((d.notice, d.dodge, d.block))
     })?;
 
+    // Fighter `id`'s size (`ONtCharacter.scale`, drawn from its class's
+    // range when it came), or nil.
+    r.def("scale_of", |_, host, id: usize| {
+        Ok(host.world.fighters.get(id).map(|f| f.scale))
+    })?;
+
+    // Test hook: sizes fighter `id` (as the minime / behemoth cheats do).
+    r.def("set_scale", |_, host, (id, scale): (usize, f32)| {
+        if let Some(f) = host.world.fighters.get_mut(id) {
+            f.set_scale(scale);
+        }
+        Ok(())
+    })?;
+
     // Fighter `id`'s character class name, or nil.
     r.def("class_of", |_, host, id: usize| {
         Ok(host.world.fighters.get(id).map(|f| f.class.to_string()))

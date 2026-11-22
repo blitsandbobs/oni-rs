@@ -214,6 +214,9 @@ pub struct Fighter {
     /// A boss shield on (`chr_boss_shield`; `ONcCharacterFlag_BossShield`):
     /// shots flare it and lose the class's share; drawn red.
     pub boss_shield: bool,
+    /// Its size (`ONtCharacter.scale`): the body drawn and posed this much
+    /// bigger about its feet, its hit parts with it.
+    pub scale: f32,
     /// Its Daodan power: what a script (or the cheat) sets
     /// (`external_super_amount`), and what it is now, easing toward that
     /// (`super_amount`).
@@ -480,8 +483,7 @@ impl Fighter {
         motion.idle_enabled = !passive;
         motion.feet_y = feet.y;
         let facing = Facing::new(facing_yaw);
-        let origin = Vec3::new(feet.x, feet.y + motion.height(), feet.z);
-        let placement = Mat4::from_rotation_translation(Quat::from_rotation_y(facing_yaw), origin);
+        let placement = placed(feet, facing_yaw, 1.0, motion.height());
         Fighter {
             model,
             magic_model: None,
@@ -500,6 +502,7 @@ impl Fighter {
             cheat_invincible: false,
             boss: false,
             boss_shield: false,
+            scale: 1.0,
             external_super: 0.0,
             super_amount: 0.0,
             super_particles: Default::default(),
@@ -1815,7 +1818,7 @@ impl Fighter {
     fn replace(&mut self) {
         if let Some((anim, frame)) = &self.env_anim {
             let clip = crate::geom::clip_matrix(anim, (*frame - 1).max(0));
-            self.placement = if self.env_anim_no_rotation {
+            let placed = if self.env_anim_no_rotation {
                 let s = &anim.scale;
                 let scale = Mat4::from_cols(
                     glam::Vec4::new(s[0], s[1], s[2], 0.0),
@@ -1827,12 +1830,28 @@ impl Fighter {
             } else {
                 clip * Mat4::from_rotation_x(std::f32::consts::FRAC_PI_2)
             };
+            // (Sized as any body is: `chrBaseMatrix` scaled after the clip's.)
+            self.placement = placed * Mat4::from_scale(Vec3::splat(self.scale));
             return;
         }
-        let feet = self.physics.feet;
-        let origin = Vec3::new(feet.x, feet.y + self.motion.height(), feet.z);
-        self.placement =
-            Mat4::from_rotation_translation(Quat::from_rotation_y(self.facing.facing), origin);
+        self.placement = placed(
+            self.physics.feet,
+            self.facing.facing,
+            self.scale,
+            self.motion.height(),
+        );
+    }
+
+    /// Sizes the character (`ONtCharacter.scale`), placed afresh.
+    pub fn set_scale(&mut self, scale: f32) {
+        self.scale = scale;
+        self.replace();
+    }
+
+    /// How high its pelvis is above its feet, sized (where
+    /// `ONrCharacter_GetPelvisPosition` finds it: the posed pelvis).
+    pub fn pelvis_height(&self) -> f32 {
+        self.motion.height() * self.scale
     }
 
     /// The aiming screen this tick (the original's `aimingScreen`): for a
@@ -2165,6 +2184,16 @@ impl FilmPlay {
         self.frame += 1;
         Some(out.unwrap_or((0, 0.0)))
     }
+}
+
+/// The body's world placement (`chrBaseMatrix`): at the feet, turned to
+/// `facing`, sized `scale` about the feet, then lifted to the pelvis
+/// `height` (so the lift is sized too).
+fn placed(feet: Vec3, facing: f32, scale: f32, height: f32) -> Mat4 {
+    Mat4::from_translation(feet)
+        * Mat4::from_rotation_y(facing)
+        * Mat4::from_scale(Vec3::splat(scale))
+        * Mat4::from_translation(Vec3::Y * height)
 }
 
 /// One bounding sphere per body part (bone), in the bone's own space: the

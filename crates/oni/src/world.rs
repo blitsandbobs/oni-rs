@@ -154,8 +154,8 @@ impl AgentView {
         crate::ai::goals::Other {
             feet: f.feet(),
             alive: f.alive() && !f.motion.dying,
-            pelvis: f.feet() + Vec3::Y * f.motion.height(),
-            height: f.motion.height() * 2.0,
+            pelvis: f.feet() + Vec3::Y * f.pelvis_height(),
+            height: f.pelvis_height() * 2.0,
             friend: f.team().regards(team) != crate::ai::perception::Relation::Hostile,
             dizzy: f.motion.dizzy_stun > 0 || f.motion.stagger_stun > 0,
             fallen: matches!(f.motion.state, st::FALLEN_BACK | st::FALLEN_FRONT),
@@ -414,6 +414,15 @@ impl World {
             f.snap_to_floor(&self.quads);
         }
         f.class = kind.class.clone();
+        // Its size, drawn from its class's range (`ONrGameState_NewCharacter`;
+        // a class of one size draws nothing).
+        let (lo, hi) = kind.tuning.scale;
+        if lo != hi {
+            let r = self.roll();
+            f.set_scale(lo + (hi - lo) * r);
+        } else {
+            f.set_scale(lo);
+        }
         f.magic_model = kind.magic_model;
         f.super_particles = kind.super_particles.clone();
         f.class_particles = kind.class_particles.clone();
@@ -746,7 +755,7 @@ impl World {
                     continue;
                 }
                 let known = p.about(j).is_some_and(|c| c.strength == Strength::Definite);
-                let aim = feet[j] + Vec3::Y * self.fighters[j].motion.height();
+                let aim = feet[j] + Vec3::Y * self.fighters[j].pelvis_height();
                 let Some(stimulus) = p.tuning.sees(aim - eye, look, up, known, faithful) else {
                     continue;
                 };
@@ -2034,7 +2043,7 @@ impl World {
                 .fighters
                 .get(who)
                 .filter(|f| !f.gone)
-                .map(|f| f.feet() + Vec3::Y * f.motion.height())
+                .map(|f| f.feet() + Vec3::Y * f.pelvis_height())
             else {
                 continue;
             };
@@ -2508,7 +2517,7 @@ impl World {
                 let head = p
                     .bones()
                     .get(crate::fighter::part::HEAD)
-                    .map_or(feet.y + p.motion.height() * 2.0, |m| m.w_axis.y);
+                    .map_or(feet.y + p.pelvis_height() * 2.0, |m| m.w_axis.y);
                 let f = p.facing.facing;
                 self.audio.listen(
                     Vec3::new(feet.x, head, feet.z),
