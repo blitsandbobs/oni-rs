@@ -158,6 +158,8 @@ pub struct Targeting {
     pub params: Params,
     pub gun: Gun,
     pub skill: Skill,
+    /// Aiming its gun's alternate fire.
+    pub alternate: bool,
     /// Where the target was, newest first.
     samples: VecDeque<Vec3>,
     pub target_pt: Vec3,
@@ -189,6 +191,15 @@ impl Targeting {
     /// Starts targeting from `shoulder` at a target at `at`. `initial`: the
     /// first sight of this enemy — the opening shots go wild (startle) unless
     /// the gun forbids it.
+    /// A new gun or fire mode (`AI2rTargeting_ChangeWeapon`): its
+    /// parameters and skill, the target's movement predicted afresh.
+    pub fn change_weapon(&mut self, gun: Gun, skill: Skill, alternate: bool) {
+        self.gun = gun;
+        self.skill = skill;
+        self.alternate = alternate;
+        self.samples.clear();
+    }
+
     pub fn new(
         params: Params,
         gun: Gun,
@@ -203,6 +214,7 @@ impl Targeting {
             params,
             gun,
             skill,
+            alternate: false,
             samples: VecDeque::new(),
             target_pt: at,
             target_distance: d,

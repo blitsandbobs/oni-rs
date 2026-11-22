@@ -123,8 +123,9 @@ pub struct WeaponClass {
     pub pickup_offset: Vec3,
     /// How loud a shot is to the AI (ranges of hearing), per shooter.
     pub detection_volume: [f32; 2],
-    /// How the AI shoots it.
+    /// How the AI shoots it, and its alternate fire (`ai_parameters_alt`).
     pub ai: AiGun,
+    pub ai_alternate: Option<AiGun>,
     /// The cone its fire makes, for others to dodge: length, base radius,
     /// half-angle (0 length: none).
     pub dodge_pattern: [f32; 3],
@@ -286,6 +287,7 @@ fn class(name: &str, c: &files::WeaponClass, dir: &Path, particles: &p3::Classes
             c.ai_alternate.as_ref().map_or(0.0, |a| a.detection_volume),
         ],
         ai: AiGun::from_file(&c.ai),
+        ai_alternate: c.ai_alternate.as_ref().map(AiGun::from_file),
         dodge_pattern: c.ai.dodge_pattern,
         attachments,
     }

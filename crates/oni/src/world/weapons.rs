@@ -1588,6 +1588,12 @@ impl World {
             matrix: gun.matrix.get(),
             ai,
             skill: f.shooting.get(ai.skill_index).copied().unwrap_or_default(),
+            alternate: gun.class.ai_alternate.map(|a| {
+                (
+                    a,
+                    f.shooting.get(a.skill_index).copied().unwrap_or_default(),
+                )
+            }),
             params: f.targeting,
             usable: gun.ammo > 0 || self.has_reload(who, w) || f.reloading(),
             firing: gun.firing,

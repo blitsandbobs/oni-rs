@@ -490,6 +490,9 @@ pub struct GunView {
     pub matrix: glam::Mat4,
     pub ai: crate::weapons::AiGun,
     pub skill: crate::ai::ranged::Skill,
+    /// Its alternate fire's, if it has one (`ai_parameters_alt`, with the
+    /// shooting skill they name).
+    pub alternate: Option<(crate::weapons::AiGun, crate::ai::ranged::Skill)>,
     pub params: crate::ai::ranged::Params,
     /// Loaded, or with something to reload it.
     pub usable: bool,
@@ -3403,11 +3406,21 @@ impl Agent {
         };
         let (at, shoulder) = (t.pelvis, cx.pelvis);
         let first = std::mem::replace(&mut k.first_sight, false);
+        // Its alternate fire aims by that fire's parameters and skill
+        // (`AI2iCombat_UpdateTargeting` → `AI2rTargeting_ChangeWeapon`).
+        let alternate = boss.is_some_and(|b| b.alternate);
+        let (ai, skill) = match g.alternate {
+            Some(alt) if alternate => alt,
+            _ => (g.ai, g.skill),
+        };
         let targeting = k.targeting.get_or_insert_with(|| {
             Box::new(crate::ai::ranged::Targeting::new(
-                g.params, g.ai.aim, g.skill, first, at, shoulder,
+                g.params, ai.aim, skill, first, at, shoulder,
             ))
         });
+        if targeting.alternate != alternate {
+            targeting.change_weapon(ai.aim, skill, alternate);
+        }
         targeting.predict(at, shoulder);
         // (Staring, it looks with the gun lowered and never fires.)
         let shooting = behavior != "stare" && boss.is_none_or(|b| b.shoot);
