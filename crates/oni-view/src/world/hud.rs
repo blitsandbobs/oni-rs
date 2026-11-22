@@ -79,7 +79,7 @@ impl World {
             }
         }
         let player = self.hud_player().unwrap_or_default();
-        let (letterbox, cutscene) = (self.letterbox, self.in_cutscene || self.now < 30);
+        let (letterbox, cutscene) = (self.cutscene.letterbox, self.cutscene.on || self.now < 30);
         if let Some(sound) = self.hud.tick(&player, letterbox, cutscene) {
             self.event_sound(sound, None);
         }
@@ -141,7 +141,7 @@ impl World {
     pub fn pause_toggle(&mut self) {
         let was = self.hud.pause.is_some();
         // (Not in a cutscene, nor dead: `ONiGameState_ProcessMiscActions`.)
-        if !was && (self.in_cutscene || self.fighters.first().is_some_and(|p| !p.alive())) {
+        if !was && (self.cutscene.on || self.fighters.first().is_some_and(|p| !p.alive())) {
             return;
         }
         let (lsi, weapon) = match self.fighters.first() {
@@ -198,7 +198,7 @@ impl World {
 
     pub fn hud_draw(&mut self, w: f32, h: f32) -> Vec<OverlayDraw> {
         let player = self.hud_player();
-        let letterboxed = self.letterbox;
+        let letterboxed = self.cutscene.letterbox;
         self.hud.draw(player.as_ref(), w, h, letterboxed)
     }
 }

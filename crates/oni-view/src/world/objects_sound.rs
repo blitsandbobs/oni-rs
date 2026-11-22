@@ -120,7 +120,7 @@ impl World {
     /// Like `event_sound`, but not during a cutscene or the level's first
     /// half second (the compass, objectives).
     pub fn event_sound_ui(&mut self, event: &str) {
-        if !self.in_cutscene && self.now >= 30 {
+        if !self.cutscene.on && self.now >= 30 {
             self.event_sound(event, None);
         }
     }
@@ -236,7 +236,7 @@ impl World {
     /// over its maximum (by how far), invisibility (by how much is left) —
     /// hushed during cutscenes and letterbox.
     pub(super) fn conditions_tick(&mut self) {
-        if self.in_cutscene || self.letterbox {
+        if self.cutscene.on || self.cutscene.letterbox {
             for k in 0..CONDITIONS.len() {
                 if let Some(Some(id)) = self.game_sounds.playing[k] {
                     self.audio.simple_volume(id, 0.0, 1.0);

@@ -3,6 +3,31 @@
 
 use super::World;
 
+/// A cutscene's state (`docs/GAME_FLOW.md`, *Cutscenes*).
+#[derive(Clone, Debug, Default)]
+pub struct Cutscene {
+    /// A cutscene is on (no compass / objective sounds; the condition loops
+    /// hushed).
+    pub on: bool,
+    /// Ticks into it (or since a splash over it went).
+    pub ticks: u32,
+    /// A skip under way (`world/skip.rs`).
+    pub skip: super::skip::Skip,
+    /// The sound turned off (a skip): the overall volume to restore.
+    pub(super) sound_off_volume: Option<f32>,
+    pub letterbox: bool,
+}
+
+/// The frame clock (`docs/GAME_FLOW.md`, *Frames*).
+#[derive(Clone, Debug, Default)]
+pub struct Clock {
+    /// A cutscene keeps up with the clock: whether, and the ticks owed.
+    pub sync: bool,
+    pub behind: u32,
+    /// Slow motion's ticks left.
+    pub slowmo: u32,
+}
+
 /// What a cutscene's start leaves alone: `begin_cutscene`'s flags.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct CutsceneKeeps {
@@ -51,15 +76,15 @@ impl World {
     /// visible; every AI passive; no jello; the dangerous projectiles
     /// cleared — each but the first two unless `keep` keeps it.
     pub fn begin_cutscene(&mut self, keep: CutsceneKeeps) {
-        self.in_cutscene = true;
-        self.cutscene_ticks = 0;
+        self.cutscene.on = true;
+        self.cutscene.ticks = 0;
         // (It keeps up with the clock, unless told not to.)
-        self.sync_enabled = !keep.nosync;
-        self.sync_behind = 0;
-        self.skip = super::skip::Skip::Idle;
+        self.clock.sync = !keep.nosync;
+        self.clock.behind = 0;
+        self.cutscene.skip = super::skip::Skip::Idle;
         self.sound_enabled(true);
-        self.letterbox = true;
-        self.input_enabled = false;
+        self.cutscene.letterbox = true;
+        self.input.enabled = false;
         if let Some(f) = self.fighters.first_mut() {
             f.motion.exit_fight_mode();
             if !keep.animation {
@@ -88,12 +113,12 @@ impl World {
     /// every AI out of passivity (those a script made passive too), the
     /// letterbox gone, the gun put away for it drawn again.
     pub fn end_cutscene(&mut self) {
-        self.in_cutscene = false;
-        self.sync_enabled = false;
+        self.cutscene.on = false;
+        self.clock.sync = false;
         self.cancel_skipping();
         self.sound_enabled(true);
-        self.letterbox = false;
-        self.input_enabled = true;
+        self.cutscene.letterbox = false;
+        self.input.enabled = true;
         self.camera.jello = true;
         self.hud.cinematics.clear();
         self.set_all_passive(false);
@@ -118,10 +143,10 @@ mod tests {
     fn a_cutscene_letterboxes_and_takes_input_until_it_ends() {
         let mut w = World::new();
         w.begin_cutscene(CutsceneKeeps::default());
-        assert!(w.in_cutscene && w.letterbox && !w.input_enabled && w.all_passive);
+        assert!(w.cutscene.on && w.cutscene.letterbox && !w.input.enabled && w.all_passive);
         assert!(!w.camera.jello);
         w.end_cutscene();
-        assert!(!w.in_cutscene && !w.letterbox && w.input_enabled && !w.all_passive);
+        assert!(!w.cutscene.on && !w.cutscene.letterbox && w.input.enabled && !w.all_passive);
         assert!(w.camera.jello);
     }
 }

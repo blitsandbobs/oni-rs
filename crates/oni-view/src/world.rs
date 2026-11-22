@@ -33,6 +33,7 @@ mod flow;
 pub mod fog;
 mod hud;
 mod hypo;
+pub mod input;
 mod lens;
 pub mod magic;
 pub mod neutral;
@@ -161,12 +162,8 @@ pub struct World {
     pub corpses: corpses::Corpses,
     /// Level parts shaded flat by script reference (`env_shade`).
     pub env_shades: std::collections::HashMap<u32, [f32; 3]>,
-    /// The frame clock (`docs/GAME_FLOW.md`, *Frames*): a cutscene keeps
-    /// up with the clock (`sync_enabled`, ticks owed); slow motion's ticks
-    /// left (`slowmo`).
-    pub sync_enabled: bool,
-    pub sync_behind: u32,
-    pub slowmo_timer: u32,
+    /// The frame clock.
+    pub clock: cutscene::Clock,
     /// Whether the player killed Griffin, once a script has said
     /// (`killed_griffen`).
     pub killed_griffin: Option<bool>,
@@ -198,10 +195,8 @@ pub struct World {
     pub persist_continues: bool,
     /// The overall volume the pause screen will restore.
     pub pause_volume: f32,
-    /// The game settings' hypo values (`world/hypo.rs`), and the hypo key
-    /// last tick (it acts as pressed).
+    /// The game settings' hypo values (`world/hypo.rs`).
     pub hypo: hypo::HypoSettings,
-    last_hypo_key: u32,
     /// The lens flares' fades (`world/lens.rs`): each's state and opacity.
     pub lens: std::collections::HashMap<crate::p3::Handle, (lens::LensState, f32)>,
     /// The countdown timer (`world/timer.rs`), and the script of one just
@@ -227,14 +222,8 @@ pub struct World {
     /// Script functions the world asks to run (consoles' events), with
     /// their argument.
     pub script_events: Vec<(String, Vec<String>)>,
-    /// Which of the player's buttons work (`lock_keys`).
-    pub key_mask: u32,
-    /// Whether the player's input works at all (`input`).
-    pub input_enabled: bool,
-    /// The AI movement system drives the player (`ai2_takecontrol`): her
-    /// keys come from her [`crate::ai::Brain::Steer`], not the input.
-    pub ai_control: bool,
-    last_controls: u32,
+    /// The player's input gates (`world/input.rs`).
+    pub input: input::InputGate,
     /// The player's name (its level placement's).
     pub player_name: String,
     /// The level's AI data: placed characters, patrol paths, flags, combat
@@ -271,16 +260,8 @@ pub struct World {
     /// The game's event and condition sounds, and the object classes'
     /// (`docs/AUDIO.md`, *Objects and the game*).
     pub(crate) game_sounds: objects_sound::GameSounds,
-    /// A cutscene or letterbox is on (no compass / objective sounds; the
-    /// condition loops hushed).
-    pub in_cutscene: bool,
-    /// Ticks into the cutscene (or since a splash over it went).
-    pub cutscene_ticks: u32,
-    /// A cutscene skip under way (`world/skip.rs`).
-    pub skip: skip::Skip,
-    /// The sound turned off (a skip): the overall volume to restore.
-    sound_off_volume: Option<f32>,
-    pub letterbox: bool,
+    /// The cutscene on, if any (`world/cutscene.rs`).
+    pub cutscene: cutscene::Cutscene,
     /// The level's environmental particles (`docs/PARTICLES.md`).
     pub(crate) env_particles: Vec<env_particles::EnvParticle>,
     env_particles_started: bool,
@@ -306,9 +287,6 @@ impl World {
             cheats: Default::default(),
             boss_battle: false,
             env_shades: Default::default(),
-            sync_enabled: false,
-            sync_behind: 0,
-            slowmo_timer: 0,
             killed_griffin: None,
             neutral_runs: Default::default(),
             doors: Default::default(),
@@ -321,7 +299,6 @@ impl World {
             pending_splash: None,
             saved: None,
             hypo: Default::default(),
-            last_hypo_key: 0,
             lens: Default::default(),
             timer: None,
             timer_expired: None,
@@ -335,14 +312,13 @@ impl World {
             object_setups: Vec::new(),
             objects: Vec::new(),
             script_events: Vec::new(),
-            key_mask: u32::MAX,
-            input_enabled: true,
-            ai_control: false,
-            last_controls: 0,
             now: 0,
             rng: 0x9E37_79B9,
             armory: Armory::default(),
             glass: Default::default(),
+            clock: Default::default(),
+            input: Default::default(),
+            cutscene: Default::default(),
             turrets: Vec::new(),
             all_passive: false,
             audio: crate::audio::Audio::empty(),
@@ -355,11 +331,6 @@ impl World {
             particle_ambients: Default::default(),
             flybys: Vec::new(),
             game_sounds: Default::default(),
-            in_cutscene: false,
-            cutscene_ticks: 0,
-            skip: skip::Skip::Idle,
-            sound_off_volume: None,
-            letterbox: false,
             env_particles: Vec::new(),
             env_particles_started: false,
         }
@@ -438,17 +409,17 @@ impl World {
     pub fn frame_ticks(&mut self, available: u32) -> u32 {
         const MAX_TICKS_PER_FRAME: u32 = 6;
         let mut timing = available;
-        if self.sync_enabled && self.sync_behind > 0 {
-            if self.sync_behind > 60 * 5 {
-                eprintln!("frames: {} ticks behind, out of sync", self.sync_behind);
+        if self.clock.sync && self.clock.behind > 0 {
+            if self.clock.behind > 60 * 5 {
+                eprintln!("frames: {} ticks behind, out of sync", self.clock.behind);
             } else {
-                timing += self.sync_behind;
+                timing += self.clock.behind;
             }
-            self.sync_behind = 0;
+            self.clock.behind = 0;
         }
         let engine = timing.min(MAX_TICKS_PER_FRAME);
-        if self.sync_enabled {
-            self.sync_behind = timing - engine;
+        if self.clock.sync {
+            self.clock.behind = timing - engine;
         }
         engine
     }
@@ -456,7 +427,7 @@ impl World {
     /// How much slower than the clock the game runs: 2 in slow motion
     /// (`slowmo`, the `carousel` cheat), else 1.
     pub fn time_scale(&self) -> f32 {
-        if self.slowmo_timer > 0 || self.cheats.slow_motion {
+        if self.clock.slowmo > 0 || self.cheats.slow_motion {
             2.0
         } else {
             1.0
@@ -2023,14 +1994,14 @@ impl World {
     /// reactions played.
     pub fn step(&mut self, controls: u32) {
         self.now += 1;
-        if self.in_cutscene {
-            self.cutscene_ticks += 1;
+        if self.cutscene.on {
+            self.cutscene.ticks += 1;
         }
         self.fog.tick();
         // The player's input: unless disabled, what the locked keys allow;
         // Action pressed by a console in reach starts using it.
-        let controls = if self.input_enabled {
-            controls & self.key_mask
+        let controls = if self.input.enabled {
+            controls & self.input.key_mask
         } else {
             0
         };
@@ -2038,20 +2009,20 @@ impl World {
         // would act, held back.)
         let controls = self.neutral_keys(controls);
         let action = controls & crate::anim::input::key::ACTION != 0
-            && self.last_controls & crate::anim::input::key::ACTION == 0;
-        self.last_controls = controls;
+            && self.input.last & crate::anim::input::key::ACTION == 0;
+        self.input.last = controls;
         let mut controls = controls;
         if let Some(p) = self.fighters.first_mut() {
             p.look_tick(controls & crate::anim::input::key::LOOK != 0);
         }
         // Tab pressed: a hypo (`LIc_BitMask_Hypo`).
         if controls & crate::anim::input::key::HYPO != 0
-            && self.last_hypo_key == 0
+            && self.input.last_hypo_key == 0
             && self.fighters.first().is_some_and(|p| p.alive())
         {
             self.use_hypo(0);
         }
-        self.last_hypo_key = controls & crate::anim::input::key::HYPO;
+        self.input.last_hypo_key = controls & crate::anim::input::key::HYPO;
         if action
             && self
                 .fighters
@@ -2134,7 +2105,7 @@ impl World {
                 .has(crate::weapons::flag::HAS_ALTERNATE)
         });
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
-        let ai_control = self.ai_control;
+        let ai_control = self.input.ai_control;
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
             // Who its attacks may turn toward: the living who aren't
@@ -2397,7 +2368,7 @@ impl World {
         self.audio.tick(Some(&self.quads));
         self.cheats_tick();
         self.anim_particles_tick();
-        self.slowmo_timer = self.slowmo_timer.saturating_sub(1);
+        self.clock.slowmo = self.clock.slowmo.saturating_sub(1);
         for i in 0..self.fighters.len() {
             self.inventory_tick(i);
             self.super_tick(i);

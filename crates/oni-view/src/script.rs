@@ -2584,7 +2584,7 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
             use crate::world::skip::Skip;
             let host = h.borrow();
             let w = &host.world;
-            let mode = match w.skip {
+            let mode = match w.cutscene.skip {
                 Skip::Idle => "idle",
                 Skip::Starting(_) => "starting",
                 Skip::Black => "black",
@@ -2602,8 +2602,8 @@ fn register(lua: &Lua, host: &Rc<RefCell<ScriptHost>>) -> mlua::Result<()> {
         lua.create_function(move |_, ()| {
             let host = h.borrow();
             let w = &host.world;
-            Ok(!w.in_cutscene
-                && w.input_enabled
+            Ok(!w.cutscene.on
+                && w.input.enabled
                 && w.fighters
                     .first()
                     .is_some_and(|p| p.env_anim.is_none() && !p.motion.dying && p.hp > 0))

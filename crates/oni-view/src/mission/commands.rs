@@ -757,7 +757,7 @@ pub fn dispatch(
             nil()
         }
         "letterbox" => {
-            host.world().letterbox = truthy(a(0)) && int(a(0)) != Some(0);
+            host.world().cutscene.letterbox = truthy(a(0)) && int(a(0)) != Some(0);
             nil()
         }
         "win" | "lose" => {
@@ -808,7 +808,7 @@ pub fn dispatch(
                     // second more (`OSrInGameDialog_Play`,
                     // `OScSubtitleStayTime`).
                     let world = host.world();
-                    let letterboxed = world.letterbox;
+                    let letterboxed = world.cutscene.letterbox;
                     world.hud.subtitle(&line, duration + 60, letterboxed);
                     nil()
                 }
@@ -1295,18 +1295,18 @@ pub fn dispatch(
                 .as_deref()
             {
                 None | Some("mark") => {}
-                Some("on") => world.sync_enabled = true,
-                Some("off") => world.sync_enabled = false,
+                Some("on") => world.clock.sync = true,
+                Some("off") => world.clock.sync = false,
                 Some(other) => state.warn(format!("cutscene_sync: invalid parameter {other}")),
             }
-            world.sync_behind = 0;
+            world.clock.behind = 0;
             nil()
         }
         // Slow motion for this many ticks (0: off at once; else at least).
         "slowmo" => {
             let n = int(a(0)).unwrap_or(0).max(0) as u32;
             let world = host.world();
-            world.slowmo_timer = if n == 0 { 0 } else { world.slowmo_timer.max(n) };
+            world.clock.slowmo = if n == 0 { 0 } else { world.clock.slowmo.max(n) };
             nil()
         }
         "particle_temp_start" | "particle_temp_stop" => {
@@ -1435,9 +1435,9 @@ pub fn dispatch(
             let world = host.world();
             match a(0).and_then(text) {
                 // Alone: every gameplay key locked.
-                None => world.key_mask = 0,
+                None => world.input.key_mask = 0,
                 Some(group) => {
-                    world.key_mask |= match group.as_str() {
+                    world.input.key_mask |= match group.as_str() {
                         "keys_movement" => {
                             k::FORWARD
                                 | k::BACKWARD
@@ -1461,7 +1461,7 @@ pub fn dispatch(
             nil()
         }
         "input" => {
-            host.world().input_enabled = truthy(a(0));
+            host.world().input.enabled = truthy(a(0));
             nil()
         }
         "ai2_doalarm" => {
@@ -1681,7 +1681,7 @@ pub fn dispatch(
             // player — no sprint, no look offset — or lets go.)
             let on = truthy(a(0));
             let world = host.world();
-            world.ai_control = on;
+            world.input.ai_control = on;
             if let Some(p) = world.fighters.first_mut() {
                 if on {
                     p.facing.facing_modifier = 0.0;

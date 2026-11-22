@@ -36,7 +36,7 @@ impl World {
     /// cutscene, nor over a modal screen (`ONiGameState_ProcessMiscActions`;
     /// the front-end adds its own splash).
     pub fn menu_allowed(&self) -> bool {
-        !self.in_cutscene && !self.hud.modal()
+        !self.cutscene.on && !self.hud.modal()
     }
 
     /// A skip asked for (`ONrGameState_SkipCutscene`): in a cutscene settled
@@ -46,8 +46,8 @@ impl World {
         if self.quirks.cutscenes_unskippable() {
             return;
         }
-        if self.in_cutscene && self.cutscene_ticks >= SETTLE && self.skip == Skip::Idle {
-            self.skip = Skip::Starting(FADE);
+        if self.cutscene.on && self.cutscene.ticks >= SETTLE && self.cutscene.skip == Skip::Idle {
+            self.cutscene.skip = Skip::Starting(FADE);
             self.sound_enabled(false);
         }
     }
@@ -56,21 +56,21 @@ impl World {
     /// count down. Returns how many game ticks this frame runs instead of
     /// the usual (skipping: 32).
     pub fn skip_frame(&mut self) -> Option<u32> {
-        self.skip = match self.skip {
+        self.cutscene.skip = match self.cutscene.skip {
             Skip::Starting(n) if n <= 1 => Skip::Black,
             Skip::Starting(n) => Skip::Starting(n - 1),
             Skip::FadingIn(n) if n <= 1 => Skip::Idle,
             Skip::FadingIn(n) => Skip::FadingIn(n - 1),
             s => s,
         };
-        (self.skip == Skip::Skipping).then_some(SKIP_TICKS)
+        (self.cutscene.skip == Skip::Skipping).then_some(SKIP_TICKS)
     }
 
     /// The frame drawn (`ONi_GameState_Display_SkipCutsceneFade`): black
     /// drawn, the skip proper begins.
     pub fn skip_drawn(&mut self) {
-        if self.skip == Skip::Black {
-            self.skip = Skip::Skipping;
+        if self.cutscene.skip == Skip::Black {
+            self.cutscene.skip = Skip::Skipping;
         }
     }
 
@@ -79,7 +79,7 @@ impl World {
     /// engine draws nothing, so the black stays.
     pub fn skip_blanket(&self) -> Option<f32> {
         let ramp = |left: u32| (left as f32 / FADE as f32).powf(1.9);
-        match self.skip {
+        match self.cutscene.skip {
             Skip::Idle => None,
             Skip::Starting(n) => Some(ramp(FADE - n)),
             Skip::Black | Skip::Skipping => Some(1.0),
@@ -90,13 +90,13 @@ impl World {
     /// Whether the game is running through a cutscene unseen: the HUD, the
     /// letterbox and the inserts aren't drawn.
     pub fn skipping(&self) -> bool {
-        self.in_cutscene && self.skip == Skip::Skipping
+        self.cutscene.on && self.cutscene.skip == Skip::Skipping
     }
 
     /// The cutscene over (`ONrGameState_CancelSkipping`): a skip fades back
     /// in — from as far as it got, if it was still fading out.
     pub fn cancel_skipping(&mut self) {
-        self.skip = match self.skip {
+        self.cutscene.skip = match self.cutscene.skip {
             Skip::Idle => Skip::Idle,
             Skip::Starting(n) => Skip::FadingIn(FADE - n),
             _ => Skip::FadingIn(FADE),
@@ -106,14 +106,14 @@ impl World {
     /// The sound on or off (`OSrSetEnabled`): off, the overall volume to 0,
     /// kept; on again, back.
     pub fn sound_enabled(&mut self, on: bool) {
-        match (self.sound_off_volume, on) {
+        match (self.cutscene.sound_off_volume, on) {
             (None, false) => {
-                self.sound_off_volume = Some(self.audio.volume());
+                self.cutscene.sound_off_volume = Some(self.audio.volume());
                 self.audio.set_volume(0.0);
             }
             (Some(v), true) => {
                 self.audio.set_volume(v);
-                self.sound_off_volume = None;
+                self.cutscene.sound_off_volume = None;
             }
             _ => {}
         }
@@ -129,10 +129,10 @@ mod tests {
         // Q18: as shipped, Space's skip is commented out.
         let mut w = World::new();
         w.quirks = crate::quirks::Quirks::FAITHFUL;
-        w.in_cutscene = true;
-        w.cutscene_ticks = 10;
+        w.cutscene.on = true;
+        w.cutscene.ticks = 10;
         w.skip_cutscene();
-        assert_eq!(w.skip, Skip::Idle);
+        assert_eq!(w.cutscene.skip, Skip::Idle);
     }
 
     #[test]
@@ -140,14 +140,14 @@ mod tests {
         let mut w = World::new();
         // Not in a cutscene: nothing.
         w.skip_cutscene();
-        assert_eq!(w.skip, Skip::Idle);
-        w.in_cutscene = true;
-        w.cutscene_ticks = 5;
+        assert_eq!(w.cutscene.skip, Skip::Idle);
+        w.cutscene.on = true;
+        w.cutscene.ticks = 5;
         w.skip_cutscene();
-        assert_eq!(w.skip, Skip::Idle, "too soon after it began");
-        w.cutscene_ticks = 10;
+        assert_eq!(w.cutscene.skip, Skip::Idle, "too soon after it began");
+        w.cutscene.ticks = 10;
         w.skip_cutscene();
-        assert_eq!(w.skip, Skip::Starting(20));
+        assert_eq!(w.cutscene.skip, Skip::Starting(20));
         assert_eq!(w.skip_blanket(), Some(0.0));
         let mut frames = 0;
         while w.skip_frame().is_none() {
@@ -160,20 +160,20 @@ mod tests {
         assert!(w.skipping());
         assert_eq!(w.skip_frame(), Some(32));
         // The cutscene ends: back in over 20 frames.
-        w.in_cutscene = false;
+        w.cutscene.on = false;
         w.cancel_skipping();
         assert_eq!(w.skip_blanket(), Some(1.0));
         for _ in 0..20 {
             assert_eq!(w.skip_frame(), None);
         }
-        assert_eq!(w.skip, Skip::Idle);
+        assert_eq!(w.cutscene.skip, Skip::Idle);
         // Ended while still fading out: back from as far as it got.
-        w.in_cutscene = true;
+        w.cutscene.on = true;
         w.skip_cutscene();
         for _ in 0..5 {
             w.skip_frame();
         }
         w.cancel_skipping();
-        assert_eq!(w.skip, Skip::FadingIn(5));
+        assert_eq!(w.cutscene.skip, Skip::FadingIn(5));
     }
 }

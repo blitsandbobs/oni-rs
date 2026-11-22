@@ -740,7 +740,7 @@ impl ApplicationHandler for App {
                         && event.state == ElementState::Pressed
                         && !event.repeat
                     {
-                        if let Some(pw) = st.play.as_mut().filter(|p| p.world.in_cutscene) {
+                        if let Some(pw) = st.play.as_mut().filter(|p| p.world.cutscene.on) {
                             pw.world.skip_cutscene();
                         }
                     }
@@ -1175,7 +1175,7 @@ impl State {
         let after = after?;
         flow.splash = None;
         // (A splash over a cutscene: its skip waits to settle again.)
-        pw.world.cutscene_ticks = 0;
+        pw.world.cutscene.ticks = 0;
         Some(after)
     }
 
