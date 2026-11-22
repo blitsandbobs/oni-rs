@@ -2152,6 +2152,12 @@ impl World {
         if let Some(c) = gun_controls.first_mut() {
             *c = controls;
         }
+        // (A film's buttons fire its actor's gun.)
+        for (c, f) in gun_controls.iter_mut().zip(&self.fighters) {
+            if let Some(keys) = f.film_keys {
+                *c = keys;
+            }
+        }
         self.weapons_tick(&gun_controls);
         self.settle_dead();
         self.remove_deleted_dead();
@@ -2292,6 +2298,18 @@ impl World {
                 .has(crate::weapons::flag::HAS_ALTERNATE)
         });
         let teams: Vec<_> = self.fighters.iter().map(|f| f.team()).collect();
+        // (A film's actor's guns, as the player's: its fire buttons strike
+        // only unarmed; a gun scales its turns.)
+        let film_guns: Vec<(bool, bool, Option<f32>)> = (0..self.fighters.len())
+            .map(|i| {
+                let alternate = self.fighters[i].hand.is_some_and(|w| {
+                    self.armory.weapons[w]
+                        .class
+                        .has(crate::weapons::flag::HAS_ALTERNATE)
+                });
+                (self.armed(i), alternate, self.aiming_speed(i))
+            })
+            .collect();
         let ai_control = self.input.ai_control;
         let mut moves: Vec<Option<Vec3>> = Vec::with_capacity(self.fighters.len());
         for (i, f) in self.fighters.iter_mut().enumerate() {
@@ -2318,7 +2336,8 @@ impl World {
                 moves.push(f.plan(0, 0, &others));
                 continue;
             }
-            if let Some(m) = f.film_move(&others) {
+            let (armed_i, alternate_i, speed) = film_guns[i];
+            if let Some(m) = f.film_move(armed_i, alternate_i, speed, &others) {
                 moves.push(m);
                 continue;
             }

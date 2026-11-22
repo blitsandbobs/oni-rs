@@ -246,6 +246,9 @@ pub struct Fighter {
     pub gone: bool,
     /// A film it is playing (its controls come from the recording).
     pub film: Option<FilmPlay>,
+    /// The film's buttons this tick (for its gun as for its body: the
+    /// recording is its input, `ONrFilm_GetFrame`); None without a film.
+    pub film_keys: Option<u32>,
     /// Using a console (its controls are the console's meanwhile).
     pub console: Option<crate::consoles::Use>,
     /// An alarm it answers went off (its alarm script is due).
@@ -516,6 +519,7 @@ impl Fighter {
             cheat_unstoppable: false,
             gone: false,
             film: None,
+            film_keys: None,
             console: None,
             alarmed: false,
             alarm_groups: 0,
@@ -603,7 +607,20 @@ impl Fighter {
     /// Playing a film: this tick's recorded controls (and its position
     /// eased toward the recording's), as a move. None: no film, or it has
     /// just ended (it is dropped).
-    pub fn film_move(&mut self, opponents: &[Opponent]) -> Option<Option<Vec3>> {
+    /// One tick of the film it plays, as the original reads a film's frame
+    /// for its input (`ONrFilm_GetFrame` into `ONrCharacter_UpdateInput`):
+    /// its turns (scaled by a held gun's aiming speed, `HandleTurnInput`;
+    /// up/down aims, left/right turns — or, in look mode, aims), its
+    /// buttons (fire strikes only while `armed` is false, as for the
+    /// player), kept for its gun in [`Fighter::film_keys`].
+    pub fn film_move(
+        &mut self,
+        armed: bool,
+        alternate: bool,
+        aiming_speed: Option<f32>,
+        opponents: &[Opponent],
+    ) -> Option<Option<Vec3>> {
+        self.film_keys = None;
         let (frame, interp) = self.film.as_mut().map(|p| (p.next(), p.interp.take()))?;
         if let Some((step, n)) = interp {
             self.physics.feet += step;
@@ -614,9 +631,17 @@ impl Fighter {
             }
         }
         match frame {
-            Some((keys, turn)) => {
-                self.facing.adjust_desired(-turn / 64.0);
-                let held = crate::anim::input::fire_as_melee(keys, false, false);
+            Some((keys, turn_lr, turn_ud)) => {
+                let scale = aiming_speed.map_or(1.0, |s| s * 0.5);
+                let (x, y) = (turn_lr * scale / 64.0, turn_ud * scale / 64.0);
+                if keys & crate::anim::input::key::LOOK != 0 {
+                    self.aim.lr -= x;
+                } else {
+                    self.facing.adjust_desired(-x);
+                }
+                self.aim.ud += y;
+                self.film_keys = Some(keys);
+                let held = crate::anim::input::fire_as_melee(keys, armed, alternate);
                 Some(self.plan(held, 0, opponents))
             }
             None => {
@@ -2166,23 +2191,26 @@ pub struct FilmPlay {
 }
 
 impl FilmPlay {
-    /// This tick's controls and turn (the original's `ONrFilm_GetFrame`):
-    /// the buttons of the last key at or before this tick; its turn only on
-    /// the key's own tick. None once the film is over.
-    pub fn next(&mut self) -> Option<(u32, f32)> {
+    /// This tick's controls and turns (left/right, up/down; the original's
+    /// `ONrFilm_GetFrame`): the buttons of the last key at or before this
+    /// tick; its turns only on the key's own tick. None once the film is
+    /// over.
+    pub fn next(&mut self) -> Option<(u32, f32, f32)> {
         if self.frame >= self.film.length {
             return None;
         }
         let keys = &self.film.keys;
         let k = keys.iter().rposition(|k| k.0 <= self.frame).unwrap_or(0);
-        let out = keys.get(k).map(|&(t, b, turn)| {
+        let out = keys.get(k).map(|&(t, b, lr, ud)| {
+            let now = t == self.frame;
             (
                 crate::anim::input::from_original_buttons(b),
-                if t == self.frame { turn } else { 0.0 },
+                if now { lr } else { 0.0 },
+                if now { ud } else { 0.0 },
             )
         });
         self.frame += 1;
-        Some(out.unwrap_or((0, 0.0)))
+        Some(out.unwrap_or((0, 0.0, 0.0)))
     }
 }
 

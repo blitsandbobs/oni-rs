@@ -229,8 +229,9 @@ pub struct Film {
     pub desired_facing: f32,
     pub aim: (f32, f32),
     pub length: u32,
-    /// Tick, buttons (the original's button bits), turn left/right.
-    pub keys: Vec<(u32, u64, f32)>,
+    /// Tick, buttons (the original's button bits), turn left/right and
+    /// up/down (mouse units).
+    pub keys: Vec<(u32, u64, f32, f32)>,
 }
 
 /// Everything AI about a level.
@@ -358,7 +359,7 @@ impl LevelAi {
                 keys: f
                     .keys
                     .iter()
-                    .map(|k| (k.time, k.buttons, k.turn_lr))
+                    .map(|k| (k.time, k.buttons, k.turn_lr, k.turn_ud))
                     .collect(),
             };
             out.films

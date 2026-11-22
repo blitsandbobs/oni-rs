@@ -35,7 +35,8 @@ pub mod key {
 
 /// The original's button bits (`LIc_Bit_*`, as films record them) as ours.
 pub fn from_original_buttons(b: u64) -> u32 {
-    const MAP: [(u32, u32); 15] = [
+    const MAP: [(u32, u32); 19] = [
+        (15, key::LOOK),
         (21, key::FORWARD),
         (22, key::BACKWARD),
         (23, key::TURN_LEFT),
@@ -48,6 +49,9 @@ pub fn from_original_buttons(b: u64) -> u32 {
         (30, key::KICK),
         (32, key::WALK),
         (33, key::ACTION),
+        (35, key::RELOAD),
+        (36, key::SWAP),
+        (37, key::DROP),
         (38, key::FIRE1),
         (39, key::FIRE2),
         (40, key::FIRE3),
@@ -60,8 +64,7 @@ pub fn from_original_buttons(b: u64) -> u32 {
 /// What the fire buttons do without a usable weapon, as in the original:
 /// fire 1 also counts as punch when the character holds no weapon (or it is
 /// empty); fire 2 also counts as kick unless the weapon has a working
-/// alternate fire; fire 3 always also counts as crouch. Weapons aren't
-/// modelled yet, so everyone is unarmed (`armed = false`).
+/// alternate fire; fire 3 always also counts as crouch.
 pub fn fire_as_melee(held: u32, armed: bool, alternate_fire: bool) -> u32 {
     let mut out = held;
     if held & key::FIRE1 != 0 && !armed {
