@@ -2369,8 +2369,8 @@ impl World {
                     for t in &c.touches {
                         let with = match (t.wall, t.door, t.object) {
                             (Some(p), _, _) => crate::ai::avoid::With::Wall(p),
-                            (_, Some(k), _) => crate::ai::avoid::With::Object(k),
-                            (_, _, Some(k)) => crate::ai::avoid::With::Object(1 << 20 | k),
+                            (_, Some(k), _) => crate::ai::avoid::With::Door(k),
+                            (_, _, Some(k)) => crate::ai::avoid::With::Sphere(k),
                             _ => continue,
                         };
                         f.avoid.notify(with, t.point, t.normal, t.d, feet);

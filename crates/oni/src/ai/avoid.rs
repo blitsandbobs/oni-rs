@@ -50,8 +50,11 @@ const AI_LEAF_RADIUS: f32 = 3.0;
 pub enum With {
     /// A level quad's plane (its index; the top bit: the reversed side).
     Wall(u32),
-    /// A moving object (a door leaf's box).
-    Object(usize),
+    /// A door leaf's box (by index in `Doors::boxes`).
+    Door(usize),
+    /// A placed object's (or, for an AI, a loose gun's) sphere (by index in
+    /// the spheres its movement met).
+    Sphere(usize),
     /// Another character.
     Character(usize),
 }
