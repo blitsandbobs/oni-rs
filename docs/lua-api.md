@@ -241,6 +241,7 @@ Globals a scenario (`--script file.lua`) can call. Types: `int`,
 | `menu_press(id: int, f: number)` | the left button down on control `id`, a fraction `f` of the way across it (held, for menu_timer / menu_release) → what the menu asks for, as menu_click. |
 | `menu_timer(n: int)` | Fires the menu's timer `n` times (200 ms each) while `menu_press()` holds the button, so a held slider steps on → what the menu asks for, as menu_click. |
 | `menu_release()` | Lets go of the button `menu_press()` held → what the menu asks for, as menu_click (nil: nothing held). |
+| `launcher_show(state: any)` | the launcher (#104) over everything — choosing (state nil), its error (`{error = "…"}`) or an install under way (`{step = "…", done = 0.4}`; none runs); launcher_show(false) hides it. Screenshots draw it. |
 | `menu_loading(percent: int?)` | the level-load dialog alone over black, its bar at `percent` (screenshots draw it); menu_loading() hides it. |
 | `menu_key(name: string)` | Presses a key on the menu: "enter", "escape", "up", "down", "left", "right", "home", "end", "pageup", "pagedown" → what the menu asks for, as menu_click. |
 

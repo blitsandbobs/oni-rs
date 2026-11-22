@@ -1940,6 +1940,29 @@ impl Renderer {
         }
     }
 
+    /// An overlay texture made in memory (`name`: how draws refer to it;
+    /// given again, replaced), drawn smoothed or pixel for pixel.
+    pub fn overlay_texture(
+        &mut self,
+        gpu: &Gpu,
+        name: &std::path::Path,
+        w: u32,
+        h: u32,
+        rgba: &[u8],
+        smooth: bool,
+    ) {
+        let sampler = if smooth { &self.sampler } else { &self.nearest };
+        self.tex_bgs
+            .push(make_texture_bg(gpu, &self.tex_bgl, sampler, w, h, rgba));
+        let i = self.tex_bgs.len() - 1;
+        self.overlay_textures.insert(name.to_path_buf(), i);
+    }
+
+    /// Whether an overlay texture `name` is there (made or loaded).
+    pub fn has_overlay_texture(&self, name: &std::path::Path) -> bool {
+        self.overlay_textures.contains_key(name)
+    }
+
     /// A texture from a PNG file, loaded once.
     fn texture_index(&mut self, gpu: &Gpu, path: &std::path::Path) -> usize {
         if let Some(&i) = self.textures_by_path.get(path) {

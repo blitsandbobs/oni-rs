@@ -28,8 +28,9 @@ Reference data lives **outside** the workspace in `../original/` and
 ## Playing the game
 
 Bring your own Oni: the Anniversary Edition's `.7z` (or its extracted
-folder). Install it once (a few seconds), then run the game; with no
-arguments it opens Oni's main menu:
+folder). Run the game with nothing installed and its launcher asks for it
+(the system's own file dialog), installs it with a progress bar — a few
+seconds — and opens the main menu. Or install from the command line:
 
 ```sh
 cargo run --release -p oni -- --install "path/to/Oni - Anniversary Edition.7z"

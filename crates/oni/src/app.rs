@@ -18,6 +18,7 @@ use crate::camera::Camera;
 use crate::gltf::Scene;
 
 mod front;
+pub(crate) mod launcher;
 mod mouse;
 use crate::render::{Gpu, Renderer};
 
@@ -257,6 +258,8 @@ struct State {
     quit: bool,
     /// The ending movie playing.
     movie: Option<MoviePlay>,
+    /// No game installed: the launcher (#104).
+    launcher: Option<launcher::Launcher>,
 }
 
 /// The ending movie playing: the player, its sound's own mixer and output,
@@ -290,6 +293,8 @@ pub struct App {
     front_end: Option<std::path::PathBuf>,
     /// First the ending movie (`--outro`, for testing).
     outro: bool,
+    /// No game installed: the launcher first (#104).
+    launcher: bool,
     display: crate::display::Overrides,
     state: Option<State>,
 }
@@ -325,6 +330,8 @@ pub struct PlaySetup {
     pub outro: bool,
     /// The command line's say on the window.
     pub display: crate::display::Overrides,
+    /// No game installed: the launcher installs it, then the main menu.
+    pub launcher: bool,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -349,6 +356,7 @@ pub fn run(
         front_end,
         outro,
         display,
+        launcher,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -369,6 +377,7 @@ pub fn run(
         sound_law,
         front_end,
         outro,
+        launcher,
         display,
         state: None,
     };
@@ -432,13 +441,14 @@ impl ApplicationHandler for App {
         renderer.flares_behind_characters = user.flares_behind_characters;
         let settings = Settings {
             player: self.cast.player.clone(),
-            difficulty: if self.front_end.is_some() {
+            difficulty: if self.front_end.is_some() || self.launcher {
                 user.difficulty.clone()
             } else {
                 self.cast.difficulty.clone()
             },
             faithful: self.faithful,
-            subtitles: self.subtitles || (self.front_end.is_some() && user.subtitles),
+            subtitles: self.subtitles
+                || ((self.front_end.is_some() || self.launcher) && user.subtitles),
             sound_law: self.sound_law,
             volume: user.overall_volume,
         };
@@ -647,6 +657,7 @@ impl ApplicationHandler for App {
             gamma: user.gamma,
             quit: false,
             movie: None,
+            launcher: self.launcher.then(launcher::Launcher::new),
         });
         // No level given: the main menu (after the ending movie, asked to).
         if let Some(st) = self.state.as_mut().filter(|_| self.front_end.is_some()) {
@@ -825,6 +836,9 @@ impl ApplicationHandler for App {
             WindowEvent::CursorMoved { position, .. } => {
                 let scale = st.ui_scale();
                 st.cursor = [position.x as f32 / scale, position.y as f32 / scale];
+                if let Some(l) = st.launcher.as_mut() {
+                    l.hover(st.cursor[0], st.cursor[1]);
+                }
                 st.menu_cursor();
             }
             WindowEvent::MouseWheel { delta, .. } => {
@@ -843,6 +857,13 @@ impl ApplicationHandler for App {
                 // The movie: so does a left click.
                 if let Some(m) = st.movie.as_mut() {
                     m.skip |= pressed && button == MouseButton::Left;
+                    return;
+                }
+                // The launcher up: its buttons.
+                if st.launcher.is_some() {
+                    if pressed && button == MouseButton::Left {
+                        st.launcher_click();
+                    }
                     return;
                 }
                 // The main menu up: the left button is on its dialogs.
@@ -921,6 +942,7 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                st.launcher_poll();
                 st.update();
                 st.render();
             }
@@ -965,6 +987,41 @@ impl ApplicationHandler for App {
 }
 
 impl State {
+    /// A click on the launcher: a source chosen in the system's own dialog
+    /// starts the install; Cancel stops it.
+    fn launcher_click(&mut self) {
+        let [x, y] = self.cursor;
+        let Some(ask) = self.launcher.as_mut().and_then(|l| l.click(x, y)) else {
+            return;
+        };
+        let dialog = rfd::FileDialog::new().set_parent(&*self.window);
+        let picked = match ask {
+            launcher::Ask::PickArchive => dialog
+                .set_title("The Anniversary Edition's archive")
+                .add_filter("7z archive", &["7z"])
+                .pick_file(),
+            launcher::Ask::PickFolder => dialog
+                .set_title("The Anniversary Edition's folder")
+                .pick_folder(),
+            launcher::Ask::Cancel => None,
+        };
+        if let (Some(path), Some(l)) = (picked, self.launcher.as_mut()) {
+            l.start(path);
+        }
+    }
+
+    /// The launcher's install done: the game's main menu.
+    fn launcher_poll(&mut self) {
+        let Some(root) = self.launcher.as_mut().and_then(|l| l.poll()) else {
+            return;
+        };
+        eprintln!("oni: installed at {}", root.display());
+        self.launcher = None;
+        let user = crate::settings::Settings::load();
+        self.front = Some(front::Front::new(root, user, true));
+        self.open_menu();
+    }
+
     /// The 2D screens' scale (#97): the setting's, else from the window's
     /// height (a Retina display's own doubling included).
     fn ui_scale(&self) -> f32 {
@@ -1477,6 +1534,20 @@ impl State {
                     additive: false,
                 },
             ];
+            self.renderer.overlay_size = [w, h];
+        }
+        // The launcher, with no game yet.
+        if let Some(l) = self.launcher.as_mut() {
+            let ui = crate::display::ui_scale(
+                self.display.ui_scale,
+                self.config.height,
+                self.window.scale_factor(),
+            );
+            let (w, h) = (
+                self.config.width as f32 / ui,
+                self.config.height as f32 / ui,
+            );
+            self.renderer.overlay = l.draw(&mut self.renderer, &self.gpu, w, h, ui);
             self.renderer.overlay_size = [w, h];
         }
         // The main menu over everything (black behind it).

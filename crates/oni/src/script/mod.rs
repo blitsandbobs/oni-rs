@@ -71,6 +71,8 @@ struct ScriptHost {
     menu_held: Option<([f32; 2], std::time::Instant)>,
     /// The level-load dialog shown alone (`menu_loading`).
     loading: Option<(crate::hud::menu::Data, crate::hud::menu::Window)>,
+    /// The launcher shown (`launcher_show`).
+    launcher: Option<crate::app::launcher::Launcher>,
 }
 
 impl crate::mission::Host for ScriptHost {
@@ -141,6 +143,7 @@ impl ScriptHost {
             menu: None,
             menu_held: None,
             loading: None,
+            launcher: None,
         })
     }
 
@@ -212,6 +215,10 @@ impl ScriptHost {
         let ui = crate::display::ui_scale(None, h, 1.0);
         let (uw, uh) = (w as f32 / ui, h as f32 / ui);
         self.renderer.overlay = match (&self.loading, &self.menu) {
+            _ if self.launcher.is_some() => {
+                let l = self.launcher.as_mut().expect("shown");
+                l.draw(&mut self.renderer, &self.gpu, uw, uh, ui)
+            }
             (Some((data, d)), _) => std::iter::once(crate::frame::black(uw, uh, 1.0))
                 .chain(d.draw(&data.look, uw, uh))
                 .collect(),

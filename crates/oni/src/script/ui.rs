@@ -345,6 +345,31 @@ pub(super) fn register(r: &Reg) -> mlua::Result<()> {
         Ok(run(host, cmds))
     })?;
 
+    // launcher_show(state): the launcher (#104) over everything — choosing
+    // (state nil), its error (`{error = "…"}`) or an install under way
+    // (`{step = "…", done = 0.4}`; none runs); launcher_show(false) hides
+    // it. Screenshots draw it.
+    r.def("launcher_show", |_, host, state: mlua::Value| {
+        let mut l = crate::app::launcher::Launcher::new();
+        match state {
+            mlua::Value::Boolean(false) => {
+                host.launcher = None;
+                return Ok(());
+            }
+            mlua::Value::Table(t) => {
+                if let Some(e) = t.get::<Option<String>>("error")? {
+                    l.show_error(&e);
+                }
+                if let Some(step) = t.get::<Option<String>>("step")? {
+                    l.show_progress(&step, t.get::<Option<f32>>("done")?.unwrap_or(0.0));
+                }
+            }
+            _ => {}
+        }
+        host.launcher = Some(l);
+        Ok(())
+    })?;
+
     // menu_loading(percent): the level-load dialog alone over black, its
     // bar at `percent` (screenshots draw it); menu_loading() hides it.
     r.def("menu_loading", |_, host, percent: Option<u32>| {

@@ -162,19 +162,18 @@ fn main() {
         }
         return;
     }
+    // For testing: the launcher, as if the game weren't installed (#104).
+    if first.as_deref() == Some("--launcher") {
+        run_game(None, false, display);
+        return;
+    }
     // For testing: the ending movie, then the main menu.
     let outro = first.as_deref() == Some("--outro");
     let first = if outro { None } else { first };
     let Some(scene_path) = first.map(PathBuf::from) else {
-        // No arguments: the game, from its main menu.
-        match find_assets() {
-            Some(root) => run_game(root, outro, display),
-            None => {
-                eprintln!("{NO_GAME}");
-                eprintln!("usage: oni [--fullscreen | --windowed] [--window WxH] [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
-                std::process::exit(2);
-            }
-        }
+        // No arguments: the game, from its main menu (installed first by
+        // the launcher when it isn't yet).
+        run_game(find_assets(), outro, display);
         return;
     };
 
@@ -355,6 +354,7 @@ fn main() {
                 front_end: None,
                 outro: false,
                 display,
+                launcher: false,
             },
         ),
     }
@@ -432,8 +432,13 @@ fn console_progress() -> impl FnMut(install::Step) -> bool {
 
 /// The game as the player has it: the main menu, then the levels it
 /// starts (`app::run` with no level, the menus' assets at `root`).
-fn run_game(root: PathBuf, outro: bool, display: display::Overrides) {
-    eprintln!("oni: assets at {}", root.display());
+/// `root`: the converted tree; none: the launcher installs it first.
+fn run_game(root: Option<PathBuf>, outro: bool, display: display::Overrides) {
+    let launcher = root.is_none();
+    match &root {
+        Some(r) => eprintln!("oni: assets at {}", r.display()),
+        None => eprintln!("oni: the game isn't installed: the launcher asks for it"),
+    }
     let scene = gltf::Scene {
         prims: Vec::new(),
         textures: Vec::new(),
@@ -445,7 +450,9 @@ fn run_game(root: PathBuf, outro: bool, display: display::Overrides) {
         player: "konoko_generic".into(),
         opponent: None,
         difficulty: "normal".into(),
-        level_dir: root.join("levels/01"),
+        level_dir: root
+            .as_ref()
+            .map_or_else(PathBuf::new, |r| r.join("levels/01")),
     };
     app::run(
         scene,
@@ -464,9 +471,10 @@ fn run_game(root: PathBuf, outro: bool, display: display::Overrides) {
             subtitles: false,
             save_point: 0,
             sound_law: audio::mixer::Law::Pc,
-            front_end: Some(root),
+            front_end: root,
             outro,
             display,
+            launcher,
         },
     );
 }
