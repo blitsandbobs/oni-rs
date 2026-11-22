@@ -3110,7 +3110,17 @@ impl Agent {
             cx.fights.leave(cx.me);
         }
         let dist = (target_feet - cx.feet).with_y_zero().length();
-        self.look = Look::At(target_feet);
+        // It looks at its target's middle (`AI2rMovement_LookAtCharacter`),
+        // but not while it lies dazed (`AI2cCombatMessage_Fallen`: it stops
+        // aiming) — else, eyes on the floor, it looks away from its target.
+        let k = self.combat();
+        let dazed = cx.fallen
+            && (k.daze.is_some_and(|n| n > 0) || k.melee.as_ref().is_some_and(|m| m.daze > 0));
+        self.look = match cx.others.get(target) {
+            _ if dazed => Look::None,
+            Some(o) => Look::At(o.pelvis),
+            None => Look::At(target_feet),
+        };
         // (Secondary movement: the modifiers are made again each tick.)
         self.modifiers.clear();
         self.modifier_avoid = None;
