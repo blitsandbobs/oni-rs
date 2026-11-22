@@ -27,6 +27,7 @@ mod classes;
 mod consoles;
 mod control;
 mod decal;
+mod display;
 mod doors;
 mod draw;
 mod fighter;
@@ -125,7 +126,10 @@ impl CharView {
 }
 
 fn main() {
-    let mut args = std::env::args().skip(1);
+    let mut argv: Vec<String> = std::env::args().skip(1).collect();
+    // (The window's say, wherever on the line: `display::Overrides`.)
+    let display = display::Overrides::take(&mut argv);
+    let mut args = argv.into_iter();
     let first = args.next();
     // For testing: every level and its save points in the load game list.
     if first.as_deref() == Some("--unlock-all") {
@@ -147,10 +151,10 @@ fn main() {
     let Some(scene_path) = first.map(PathBuf::from) else {
         // No arguments: the game, from its main menu.
         match find_assets() {
-            Some(root) => run_game(root, outro),
+            Some(root) => run_game(root, outro, display),
             None => {
                 eprintln!("oni: no converted assets found (set ONI_ROOT to the converter's output, …/oni)");
-                eprintln!("usage: oni [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
+                eprintln!("usage: oni [--fullscreen | --windowed] [--window WxH] [<scene.glb> [--play] [--mission] [--screenshot out.png] [--size WxH] [--eye x,y,z] [--target x,y,z] [--particles particles.json] [--character model.glb] [--anim clip.glb] [--char-pos x,y,z] [--time s]]");
                 std::process::exit(2);
             }
         }
@@ -333,6 +337,7 @@ fn main() {
                 sound_law,
                 front_end: None,
                 outro: false,
+                display,
             },
         ),
     }
@@ -402,7 +407,7 @@ fn find_assets() -> Option<PathBuf> {
 
 /// The game as the player has it: the main menu, then the levels it
 /// starts (`app::run` with no level, the menus' assets at `root`).
-fn run_game(root: PathBuf, outro: bool) {
+fn run_game(root: PathBuf, outro: bool, display: display::Overrides) {
     eprintln!("oni: assets at {}", root.display());
     let scene = gltf::Scene {
         prims: Vec::new(),
@@ -436,6 +441,7 @@ fn run_game(root: PathBuf, outro: bool) {
             sound_law: audio::mixer::Law::Pc,
             front_end: Some(root),
             outro,
+            display,
         },
     );
 }

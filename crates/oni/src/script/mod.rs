@@ -208,17 +208,17 @@ impl ScriptHost {
             (Some(e), None) => cam.look_at(e, self.scene.center()),
             _ => {}
         }
+        // (The 2D screens scaled as the game scales them, #97.)
+        let ui = crate::display::ui_scale(None, h);
+        let (uw, uh) = (w as f32 / ui, h as f32 / ui);
         self.renderer.overlay = match (&self.loading, &self.menu) {
-            (Some((data, d)), _) => {
-                let (w, h) = (w as f32, h as f32);
-                std::iter::once(crate::frame::black(w, h, 1.0))
-                    .chain(d.draw(&data.look, w, h))
-                    .collect()
-            }
-            (None, Some((data, m))) => m.draw(data, w as f32, h as f32),
-            (None, None) => crate::frame::world_overlay(&mut self.world, w as f32, h as f32),
+            (Some((data, d)), _) => std::iter::once(crate::frame::black(uw, uh, 1.0))
+                .chain(d.draw(&data.look, uw, uh))
+                .collect(),
+            (None, Some((data, m))) => m.draw(data, uw, uh),
+            (None, None) => crate::frame::world_overlay(&mut self.world, uw, uh),
         };
-        self.renderer.overlay_size = [w as f32, h as f32];
+        self.renderer.overlay_size = [uw, uh];
         let frame = crate::frame::WorldFrame::build(
             &self.world,
             &mut self.renderer,

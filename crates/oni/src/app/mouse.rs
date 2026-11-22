@@ -73,7 +73,7 @@ impl State {
                 let _ = self
                     .window
                     .set_cursor_position(PhysicalPosition::new(size.width / 2, size.height / 2));
-                let scale = self.window.scale_factor() as f32;
+                let scale = self.ui_scale();
                 self.cursor = [
                     size.width as f32 / 2.0 / scale,
                     size.height as f32 / 2.0 / scale,

@@ -28,6 +28,11 @@ pub struct Settings {
     /// characters hide the lens flares behind them (default on; off draws
     /// them as shipped). The options' "Hide Lens Flares" box.
     pub flares_behind_characters: bool,
+    /// The window (#97): fullscreen, its size (physical pixels; none: from
+    /// the monitor), the 2D screens' scale (none: from the window).
+    pub fullscreen: bool,
+    pub window_size: Option<(u32, u32)>,
+    pub ui_scale: Option<f32>,
 }
 
 impl Default for Settings {
@@ -41,6 +46,9 @@ impl Default for Settings {
             quality: 2,
             resolution: (640, 480),
             flares_behind_characters: true,
+            fullscreen: false,
+            window_size: None,
+            ui_scale: None,
         }
     }
 }
@@ -60,6 +68,9 @@ impl Settings {
             "gamma": self.gamma, "quality": self.quality,
             "resolution": [self.resolution.0, self.resolution.1],
             "flaresBehindCharacters": self.flares_behind_characters,
+            "fullscreen": self.fullscreen,
+            "windowSize": self.window_size.map(|(w, h)| [w, h]),
+            "uiScale": self.ui_scale,
         })
     }
 
@@ -84,7 +95,34 @@ impl Settings {
                 _ => d.resolution,
             },
             flares_behind_characters: b("flaresBehindCharacters", d.flares_behind_characters),
+            fullscreen: b("fullscreen", d.fullscreen),
+            window_size: {
+                let w = &v["windowSize"];
+                match (w[0].as_u64(), w[1].as_u64()) {
+                    (Some(x), Some(y)) if x >= 320 && y >= 240 => Some((x as u32, y as u32)),
+                    _ => None,
+                }
+            },
+            ui_scale: v["uiScale"]
+                .as_f64()
+                .map(|x| x as f32)
+                .filter(|x| (0.5..=8.0).contains(x)),
         }
+    }
+
+    /// How the game is shown.
+    pub fn display(&self) -> crate::display::Display {
+        crate::display::Display {
+            fullscreen: self.fullscreen,
+            window: self.window_size,
+            ui_scale: self.ui_scale,
+        }
+    }
+
+    pub fn set_display(&mut self, d: &crate::display::Display) {
+        self.fullscreen = d.fullscreen;
+        self.window_size = d.window;
+        self.ui_scale = d.ui_scale;
     }
 
     /// The options kept (the defaults if none).
@@ -119,6 +157,9 @@ mod tests {
             subtitles: true,
             invert_mouse: false,
             difficulty: "hard".into(),
+            fullscreen: true,
+            window_size: Some((2560, 1440)),
+            ui_scale: Some(2.0),
             ..Settings::default()
         };
         assert_eq!(Settings::from_json(&s.to_json()), s);

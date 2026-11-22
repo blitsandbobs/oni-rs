@@ -167,7 +167,9 @@ impl State {
 
     fn menu_action(&mut self, action: Action) {
         match action {
-            Action::Options(s) => {
+            Action::Options(mut s) => {
+                // (The window as it is now, not as the menu was opened.)
+                s.set_display(&self.display);
                 s.store();
                 self.tuning.invert_y = s.invert_mouse;
                 self.settings.subtitles = s.subtitles;
@@ -221,7 +223,7 @@ impl State {
     }
 
     fn screen(&self) -> (f32, f32) {
-        let scale = self.window.scale_factor() as f32;
+        let scale = self.ui_scale();
         (
             self.config.width as f32 / scale,
             self.config.height as f32 / scale,
@@ -380,7 +382,7 @@ impl State {
         saved: Option<crate::game::Continue>,
     ) -> Result<(), String> {
         let format = self.config.format;
-        let scale = self.window.scale_factor() as f32;
+        let scale = self.ui_scale();
         let mut dialog = self
             .front
             .as_ref()

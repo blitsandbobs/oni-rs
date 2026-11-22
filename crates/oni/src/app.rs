@@ -215,6 +215,10 @@ const TICK: f32 = 1.0 / 60.0;
 const MOUSE_SENS: f32 = 0.0022;
 
 struct State {
+    /// How the game is shown (#97), kept when it changes and at the end.
+    display: crate::display::Display,
+    /// Alt (Option) held: Alt+Enter toggles fullscreen.
+    alt: bool,
     gpu: Gpu,
     surface: wgpu::Surface<'static>,
     config: wgpu::SurfaceConfiguration,
@@ -286,6 +290,7 @@ pub struct App {
     front_end: Option<std::path::PathBuf>,
     /// First the ending movie (`--outro`, for testing).
     outro: bool,
+    display: crate::display::Overrides,
     state: Option<State>,
 }
 
@@ -318,6 +323,8 @@ pub struct PlaySetup {
     pub front_end: Option<std::path::PathBuf>,
     /// With the menu: play the ending movie first (`oni --outro`).
     pub outro: bool,
+    /// The command line's say on the window.
+    pub display: crate::display::Overrides,
 }
 
 /// Runs the windowed viewer (consumes the scene, optional character, particles).
@@ -341,6 +348,7 @@ pub fn run(
         sound_law,
         front_end,
         outro,
+        display,
     } = setup;
     let event_loop = EventLoop::new().expect("event loop");
     event_loop.set_control_flow(ControlFlow::Poll);
@@ -361,6 +369,7 @@ pub fn run(
         sound_law,
         front_end,
         outro,
+        display,
         state: None,
     };
     event_loop.run_app(&mut app).expect("run");
@@ -372,9 +381,15 @@ impl ApplicationHandler for App {
             return;
         }
         let scene = self.scene.take().expect("scene");
+        // The window as kept, as the command line has it (#97).
+        let mut display = crate::settings::Settings::load().display();
+        self.display.apply(&mut display);
         let window = Arc::new(
             event_loop
-                .create_window(Window::default_attributes().with_title("oni — level"))
+                .create_window(crate::display::attributes(
+                    &display,
+                    event_loop.primary_monitor(),
+                ))
                 .expect("window"),
         );
 
@@ -602,6 +617,8 @@ impl ApplicationHandler for App {
         let now = Instant::now();
         let focused = window.has_focus();
         self.state = Some(State {
+            display,
+            alt: false,
             gpu,
             surface,
             config,
@@ -656,12 +673,29 @@ impl ApplicationHandler for App {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
             WindowEvent::Resized(new) => {
+                // (A window's size is kept; fullscreen's is the monitor's.)
+                if st.window.fullscreen().is_none() && !st.display.fullscreen {
+                    st.display.window = Some((new.width, new.height));
+                }
                 st.config.width = new.width.max(1);
                 st.config.height = new.height.max(1);
                 st.surface.configure(&st.gpu.device, &st.config);
                 st.cam.aspect = st.config.width as f32 / st.config.height as f32;
             }
+            WindowEvent::ModifiersChanged(m) => st.alt = m.state().alt_key(),
             WindowEvent::KeyboardInput { event, .. } => {
+                // Alt+Enter: fullscreen or a window, at any time.
+                if st.alt
+                    && event.state == ElementState::Pressed
+                    && !event.repeat
+                    && matches!(
+                        event.physical_key,
+                        PhysicalKey::Code(KeyCode::Enter | KeyCode::NumpadEnter)
+                    )
+                {
+                    st.toggle_fullscreen();
+                    return;
+                }
                 // The movie: a key ends it (`BFW_Bink.c`).
                 if let Some(m) = st.movie.as_mut() {
                     if event.state == ElementState::Pressed && !event.repeat {
@@ -787,7 +821,7 @@ impl ApplicationHandler for App {
             WindowEvent::CursorEntered { .. } => st.mouse.inside = true,
             WindowEvent::CursorLeft { .. } => st.mouse.inside = false,
             WindowEvent::CursorMoved { position, .. } => {
-                let scale = st.window.scale_factor() as f32;
+                let scale = st.ui_scale();
                 st.cursor = [position.x as f32 / scale, position.y as f32 / scale];
                 st.menu_cursor();
             }
@@ -819,7 +853,7 @@ impl ApplicationHandler for App {
                 // The pause screen up: a click is on its buttons.
                 if let Some(pw) = st.play.as_mut().filter(|p| p.world.hud.pause.is_some()) {
                     if pressed && button == MouseButton::Left {
-                        let scale = st.window.scale_factor() as f32;
+                        let scale = crate::display::ui_scale(st.display.ui_scale, st.config.height);
                         let (w, h) = (
                             st.config.width as f32 / scale,
                             st.config.height as f32 / scale,
@@ -838,7 +872,7 @@ impl ApplicationHandler for App {
                     .filter(|p| p.world.hud.text_console.is_some())
                 {
                     if pressed && button == MouseButton::Left {
-                        let scale = st.window.scale_factor() as f32;
+                        let scale = crate::display::ui_scale(st.display.ui_scale, st.config.height);
                         let (w, h) = (
                             st.config.width as f32 / scale,
                             st.config.height as f32 / scale,
@@ -903,6 +937,12 @@ impl ApplicationHandler for App {
         }
     }
 
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(st) = self.state.as_ref() {
+            crate::display::keep(&st.display);
+        }
+    }
+
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
         if self.state.as_ref().is_some_and(|st| st.quit) {
             event_loop.exit();
@@ -915,6 +955,19 @@ impl ApplicationHandler for App {
 }
 
 impl State {
+    /// The 2D screens' scale (#97): the setting's, else from the window's
+    /// height (a Retina display's own doubling included).
+    fn ui_scale(&self) -> f32 {
+        crate::display::ui_scale(self.display.ui_scale, self.config.height)
+    }
+
+    /// Fullscreen (borderless, native) or back to the window, kept.
+    fn toggle_fullscreen(&mut self) {
+        self.display.fullscreen = !self.display.fullscreen;
+        crate::display::set_fullscreen(&self.window, self.display.fullscreen);
+        crate::display::keep(&self.display);
+    }
+
     fn update(&mut self) {
         let now = Instant::now();
         let dt = (now - self.last).as_secs_f32().min(0.1);
@@ -1323,7 +1376,7 @@ impl State {
         if let Some(pw) = &mut self.play {
             // The HUD, in the window's logical pixels (its size on a 640 × 480
             // screen of the time on a high-density display).
-            let scale = self.window.scale_factor() as f32;
+            let scale = crate::display::ui_scale(self.display.ui_scale, self.config.height);
             let (w, h) = (
                 self.config.width as f32 / scale,
                 self.config.height as f32 / scale,
@@ -1364,7 +1417,7 @@ impl State {
             if let Some(rgba) = m.movie.take_picture() {
                 self.renderer.movie_frame(&self.gpu, mw, mh, rgba);
             }
-            let scale = self.window.scale_factor() as f32;
+            let scale = crate::display::ui_scale(self.display.ui_scale, self.config.height);
             let (w, h) = (
                 self.config.width as f32 / scale,
                 self.config.height as f32 / scale,
@@ -1391,7 +1444,7 @@ impl State {
         }
         // The main menu over everything (black behind it).
         if let Some(o) = self.menu_overlay() {
-            let scale = self.window.scale_factor() as f32;
+            let scale = self.ui_scale();
             self.renderer.overlay = o;
             self.renderer.overlay_size = [
                 self.config.width as f32 / scale,

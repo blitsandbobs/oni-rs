@@ -296,8 +296,11 @@ our own additions. Not affected by `--faithful`.
   `$ONI_ROOT`, else a `generated/oni` here or above. Command-line level
   launches stay as the developers' way in (Esc opens the menu there too).
 - The New Game dialog has our **Faithful** box. Subtitles are off by
-  default (`--subtitles`). Resolution is kept but unused (the window sizes
-  freely). Settings live in `$ONI_SAVE_DIR/settings.json` (or
+  default (`--subtitles`). No display modes (#97): a window (resizable,
+  its size kept) or borderless fullscreen at the display's native
+  resolution (Alt+Enter); the 2D screens scale with the window's height
+  (a half step per 360 lines past 720; `uiScale` 1 draws them pixel for
+  pixel as shipped). The options' resolution is kept but unused for now. Settings live in `$ONI_SAVE_DIR/settings.json` (or
   `~/.oni-rs/`), apart from the save; continues in `continues.json` there
   (in memory for scripted runs). `--unlock-all`, `--save-point N`,
   `--outro` are ours.

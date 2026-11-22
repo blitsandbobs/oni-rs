@@ -39,6 +39,12 @@ Controls are the shipped defaults (W/S/A/D, mouse, Space, Shift, Ctrl, Q,
 Tab, R, F1 for the pause screen). `--faithful` plays with the original's
 known bugs (`docs/deviations.md`).
 
+The game opens in a window (its size kept between runs) or fullscreen at
+the display's native resolution; Alt+Enter switches between them, as do
+`--fullscreen`, `--windowed` and `--window 2560x1440` on the command line.
+The HUD and menus scale with the screen (1080p 1.5×, 1440p 2×, 4K 3×;
+`uiScale` in `settings.json` fixes it, 1 as shipped).
+
 ### Starting any level
 
 ```sh
