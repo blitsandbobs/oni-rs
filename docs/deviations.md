@@ -237,8 +237,6 @@ our own additions. Not affected by `--faithful`.
 - Melee look-ahead on levels without nav data: danger is a floor drop beyond
   the class's fall-damage height, found by a collision probe. The melee AI
   plans with its own class's animations, not the profile's `char_classname`.
-- `ai2_lookatme` / `ai2_followme` act on where the player stood when the
-  command ran; the original keeps tracking her.
 - Placed characters have no script id (found by name); the player is 0;
   unnamed setups are `ai_<n>`. A brainless passive fighter gets up after
   1.5 s (stands in for the daze timer); passive dummies deal no hits.

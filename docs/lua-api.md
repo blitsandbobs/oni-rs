@@ -313,7 +313,7 @@ are logged once and do nothing.
 | `chr_boss_shield` | `chr_boss_shield who` (`ONcCharacterFlag_BossShield`): a boss shield on the character for good: shots flare it and do only the class's share; drawn red. |
 | `chr_super` | `chr_super who amount`: sets the character's Daodan power (`external_super_amount`; its power eases toward it). |
 | `ai2_barabbas_retrievegun` | `ai2_barabbas_retrievegun who` (`WPrFindBarabbasWeapon`): Barabbas's gun back in his hand at once, unless he holds a gun, someone else holds it, or it lies on the building's top floor. |
-| `ai2_followme` | (`AI2rPath_FollowCharacter`: one AI, or every AI, walks to where the player is — stopping within 12 of her.) |
+| `ai2_followme` | (`AI2rPath_FollowCharacter`: one AI, or every AI, walks to where the player is — stopping within 12 of her; each new path heads for where she is then.) |
 | `env_show` | `env_show ref on`: shows or hides a level part: drawn, solid and blocking sight only while shown (hiding glass breaks it; showing mends it). |
 | `trig_activate`, `trig_deactivate`, `trig_reset`, `trig_hide`, `trig_show`, `trig_speed` | Laser trigger `id` (none or -1: every one, `OBJrTrigger_*`): switched on or off, reset to its start, hidden or shown; `trig_speed id factor` scales its sweep speed. |
 | `door_lock`, `door_unlock`, `door_jam`, `door_unjam` | `door_lock` / `door_unlock` / `door_jam` / `door_unjam [id]`: locks or jams door `id` (none or −1: every door), or undoes it. |
@@ -346,7 +346,7 @@ are logged once and do nothing.
 | `ai2_takecontrol` | (`AI2iScript_TakeControl`: the AI movement system takes the player — no sprint, no look offset — or lets go.) |
 | `ai2_movetoflag` | (`AI2rPath_GoToPoint` within 3 — `AI2cMoveToPoint_DefaultDistance` — then the flag's facing with "setfacing".) |
 | `ai2_lookatchar` | (Stays where it is, turned toward the character, looking at it.) |
-| `ai2_lookatme` | (`AI2rDebug_LookHere`: one AI, or every AI, looks at the player — where she stands now.) |
+| `ai2_lookatme` | (`AI2rDebug_LookHere`: one AI, or every AI, looks at the player — and keeps looking as she moves.) |
 | `ai2_forget` | (`AI2rForget`: one AI, or every AI, forgets one character, or everyone.) |
 | `ai2_makeblind`, `ai2_makedeaf` | `ai2_makeblind` / `ai2_makedeaf who on`: the AI sees nothing / hears nothing, or again does. |
 | `chr_peace` | `chr_peace who` (`ONrCharacter_ExitFightMode`): the character leaves its fight stance at once. |

@@ -54,6 +54,9 @@ pub struct Navigator {
     /// A character it may path through (`curPathIgnoreChar`): whom it
     /// follows or goes up to.
     pub ignore: Option<usize>,
+    /// A character it follows (`AI2cDestinationType_FollowCharacter`):
+    /// each new path heads for where it is then.
+    pub follow: Option<usize>,
     stuck_from: (Vec3, u32),
 }
 
@@ -71,6 +74,7 @@ impl Navigator {
             plan_failed: false,
             careful: false,
             ignore: None,
+            follow: None,
             stuck_from: (Vec3::ZERO, 0),
         }
     }

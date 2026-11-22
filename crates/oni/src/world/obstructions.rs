@@ -228,7 +228,23 @@ impl World {
             if !n.wants_plan(now) {
                 continue;
             }
-            let (careful, goal) = (n.careful, n.goal);
+            let (careful, follow) = (n.careful, n.follow);
+            // Following someone: the path heads for where they are now
+            // (`AI2iPath_MakePath` reads the followed character's place).
+            if let Some(at) = follow.and_then(|j| self.fighters.get(j)).map(|f| f.feet()) {
+                if let Some(n) = self.fighters[i]
+                    .brain
+                    .as_mut()
+                    .and_then(|b| b.navigator_mut())
+                {
+                    n.goal = at;
+                }
+            }
+            let goal = self.fighters[i]
+                .brain
+                .as_ref()
+                .and_then(|b| b.navigator())
+                .map_or(from, |n| n.goal);
             let snap = self.tick_snapshot();
             let through = self.paths_through(i);
             // Doors it may not open shut their portals to it.

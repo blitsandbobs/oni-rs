@@ -1472,7 +1472,8 @@ pub fn dispatch(
         }
         "ai2_followme" => {
             // (`AI2rPath_FollowCharacter`: one AI, or every AI, walks to where
-            // the player is — stopping within 12 of her.)
+            // the player is — stopping within 12 of her; each new path heads
+            // for where she is then.)
             let world = host.world();
             let Some(player) = world.fighters.first().map(|p| p.feet()) else {
                 return nil();
@@ -1489,6 +1490,9 @@ pub fn dispatch(
                     .map_or(crate::ai::perception::Alert::Lull, |p| p.alert);
                 if let Some(crate::ai::Brain::Agent(ag)) = world.fighters[id].brain.as_mut() {
                     ag.script_move(player, FOLLOW_DISTANCE, None, None, alert, Some(0));
+                    if let Some(n) = ag.nav.as_mut() {
+                        n.follow = Some(0);
+                    }
                 }
             }
             nil()
@@ -1917,7 +1921,7 @@ pub fn dispatch(
         }
         "ai2_lookatme" => {
             // (`AI2rDebug_LookHere`: one AI, or every AI, looks at the
-            // player — where she stands now.)
+            // player — and keeps looking as she moves.)
             let world = host.world();
             let Some(player) = world
                 .fighters
@@ -1933,7 +1937,7 @@ pub fn dispatch(
             for id in who {
                 if let Some(crate::ai::Brain::Agent(ag)) = host.world().fighters[id].brain.as_mut()
                 {
-                    ag.look_at(player);
+                    ag.look_at_char(0, player);
                 }
             }
             nil()

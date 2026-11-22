@@ -3,7 +3,8 @@
 -- keeps up with (`cutscene_sync`), slow motion (`slowmo`), level parts and
 -- objects lit flat (`env_shade`, `obj_shade`), whether Griffin was killed,
 -- a Daodan power (`chr_super`) with its super particles, a boss shield, an
--- AI coming to the player (`ai2_followme`) and Barabbas taking his gun back.
+-- AI coming to the player (`ai2_followme`), Barabbas taking his gun back and
+-- an AI watching her as she moves (`ai2_lookatme`).
 --
 --   cargo run --release -p oni -- \
 --     ../generated/oni/levels/01/environment.glb \
@@ -24,6 +25,7 @@ F.super = function() C.chr_super(0, 1) end
 F.unsuper = function() C.chr_super(0, 0) end
 F.boss = function() C.chr_boss_shield("Bay2_Thug_2") C.ai2_passive("Bay2_Thug_2", 1) end
 F.follow = function() C.ai2_passive("Bay2_Thug_2", 0) C.ai2_followme("Bay2_Thug_2") end
+F.look = function() C.ai2_passive("Mid_Thug_1", 1) C.ai2_lookatme("Mid_Thug_1") end
 F.gun = function() C.ai2_barabbas_retrievegun("Mid_Thug_1") end
 F.gun2 = function() C.ai2_barabbas_retrievegun("Bay2_Thug_2") end
 ]])
@@ -119,4 +121,25 @@ spawn_weapon("w11_ba1", px + 60, py + 2, pz + 60)
 step(5)
 run("gun")
 assert(weapon(m) == "w11_ba1", "the gun in its hand")
+
+-- Told to look at Konoko (held passive, so no fight), its eyes keep
+-- following her as she moves.
+local mx, my, mz = pos_of(m)
+local function bearing_to_her()
+    local x, _, z = pos()
+    return math.deg(math.atan(x - mx, z - mz)) % 360
+end
+local function off(a, b) return math.abs((a - b + 540) % 360 - 180) end
+teleport(0, mx + 30, my, mz)
+step(5)
+run("look")
+step(20)
+local before = eye_of(m) or facing_of(m)
+assert(off(before, bearing_to_her()) < 15, "it looks at her")
+teleport(0, mx, my, mz + 30)
+step(40)
+local after = eye_of(m) or facing_of(m)
+print(string.format("looking at her: %.0f°, then %.0f° once she moved (toward her: %.0f°)",
+    before, after, bearing_to_her()))
+assert(off(after, bearing_to_her()) < 15, "and follows her with its eyes")
 print("ok")

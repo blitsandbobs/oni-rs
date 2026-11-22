@@ -619,6 +619,9 @@ enum Look {
     None,
     At(Vec3),
     Dir(f32),
+    /// At a character, where it is now (`AI2cAimingMode_LookAtCharacter`):
+    /// who, and where it was last seen (its middle).
+    Char(usize, Vec3),
 }
 
 // --- goals -------------------------------------------------------------------------
@@ -1342,10 +1345,23 @@ impl Agent {
         }
     }
 
-    /// Looks at `at` (`AI2rMovement_LookAtCharacter`, as `ai2_lookatme` has
-    /// it): its eyes, and its body when they can't turn that far.
+    /// Looks at `at`: its eyes, and its body when they can't turn that far.
     pub fn look_at(&mut self, at: Vec3) {
         self.look = Look::At(at);
+    }
+
+    /// Looks at character `who`, now at `at`, and keeps looking at it as it
+    /// moves (`AI2rMovement_LookAtCharacter`, as `ai2_lookatme` has it).
+    pub fn look_at_char(&mut self, who: usize, at: Vec3) {
+        self.look = Look::Char(who, at);
+    }
+
+    /// The character it keeps looking at, if any.
+    pub fn looking_at_char(&self) -> Option<usize> {
+        match self.look {
+            Look::Char(who, _) => Some(who),
+            _ => None,
+        }
     }
 
     /// Stops looking at anything (`AI2rMovement_StopAiming`).
@@ -1784,7 +1800,9 @@ impl Agent {
             } else {
                 let (want, range) = match (self.glance, self.look) {
                     (Some((g, _)), _) => (Some(g), STANDING_GLANCE_RANGE),
-                    (None, Look::At(p)) => (Some(yaw_toward(feet, p)), self.look_range()),
+                    (None, Look::At(p) | Look::Char(_, p)) => {
+                        (Some(yaw_toward(feet, p)), self.look_range())
+                    }
                     (None, Look::Dir(d)) => (Some(d), self.look_range()),
                     (None, Look::None) => (None, 0.0),
                 };
@@ -1830,7 +1848,7 @@ impl Agent {
         let yaw = |y: f32| Vec3::new(y.sin(), 0.0, y.cos());
         let dir = match (self.glance, self.look) {
             (Some((g, _)), _) => yaw(g),
-            (None, Look::At(p)) => p - shoulder,
+            (None, Look::At(p) | Look::Char(_, p)) => p - shoulder,
             (None, Look::Dir(d)) => yaw(d),
             (None, Look::None) => return None,
         };

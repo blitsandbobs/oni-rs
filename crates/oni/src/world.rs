@@ -1878,6 +1878,31 @@ impl World {
         }
     }
 
+    /// An AI looking at a character looks where it is now (the movement
+    /// layer re-aims `AI2cAimingMode_LookAtCharacter` every tick, goals or
+    /// not).
+    fn track_looks(&mut self) {
+        for i in 0..self.fighters.len() {
+            let Some(who) = (match &self.fighters[i].brain {
+                Some(crate::ai::Brain::Agent(a)) => a.looking_at_char(),
+                _ => None,
+            }) else {
+                continue;
+            };
+            let Some(at) = self
+                .fighters
+                .get(who)
+                .filter(|f| !f.gone)
+                .map(|f| f.feet() + Vec3::Y * f.motion.height())
+            else {
+                continue;
+            };
+            if let Some(crate::ai::Brain::Agent(a)) = self.fighters[i].brain.as_mut() {
+                a.look_at_char(who, at);
+            }
+        }
+    }
+
     /// The melee AIs decide (all against the same snapshot of the world).
     fn melee_decisions(&mut self) -> Vec<Option<crate::ai::melee::brain::Output>> {
         use crate::ai::melee::brain::view;
@@ -2010,6 +2035,7 @@ impl World {
         for f in &mut self.fighters {
             f.lift.owner_at = f.lift.owner.and_then(|o| places.get(o).copied());
         }
+        self.track_looks();
         let decisions = self.melee_decisions();
         // A melee AI ordering a throw may throw its target.
         for (i, d) in decisions.iter().enumerate() {
