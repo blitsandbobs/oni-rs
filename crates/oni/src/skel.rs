@@ -548,7 +548,9 @@ pub fn load_clip(path: &Path) -> std::io::Result<Clip> {
         let times = gltf::read_floats(&json, bin, gltf::index(&s["input"], "sampler's input")?)?;
         let rot = gltf::read_floats(&json, bin, gltf::index(&s["output"], "sampler's output")?)?;
         let rotations: Vec<Quat> = rot
-            .chunks_exact(4)
+            .as_chunks::<4>()
+            .0
+            .iter()
             .map(|q| Quat::from_xyzw(q[0], q[1], q[2], q[3]))
             .collect();
         if let Some(&t) = times.last() {

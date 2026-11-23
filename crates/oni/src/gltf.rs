@@ -121,7 +121,11 @@ fn words(bin: &[u8], off: usize, n: usize) -> std::io::Result<impl Iterator<Item
     let data = bin
         .get(off..off + n * 4)
         .ok_or_else(|| bad("accessor past the BIN chunk"))?;
-    Ok(data.chunks_exact(4).map(|w| [w[0], w[1], w[2], w[3]]))
+    Ok(data
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .map(|w| [w[0], w[1], w[2], w[3]]))
 }
 
 /// Reads an accessor's floats (component type 5126) as rows of `comp` values.

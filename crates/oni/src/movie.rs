@@ -89,8 +89,10 @@ impl Movie {
             if n == due {
                 for (out, rgb) in self
                     .rgba
-                    .chunks_exact_mut(4)
-                    .zip(picture.to_rgb().chunks_exact(3))
+                    .as_chunks_mut::<4>()
+                    .0
+                    .iter_mut()
+                    .zip(picture.to_rgb().as_chunks::<3>().0)
                 {
                     out[..3].copy_from_slice(rgb);
                     out[3] = 255;

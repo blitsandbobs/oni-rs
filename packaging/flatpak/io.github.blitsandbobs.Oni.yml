@@ -37,6 +37,8 @@ modules:
       - install -Dm755 target/release/oni /app/bin/oni
       - install -Dm644 packaging/linux/io.github.blitsandbobs.Oni.desktop /app/share/applications/io.github.blitsandbobs.Oni.desktop
       - install -Dm644 packaging/linux/io.github.blitsandbobs.Oni.metainfo.xml /app/share/metainfo/io.github.blitsandbobs.Oni.metainfo.xml
+      - install -Dm644 packaging/icons/oni-128.png /app/share/icons/hicolor/128x128/apps/io.github.blitsandbobs.Oni.png
+      - install -Dm644 packaging/icons/oni-256.png /app/share/icons/hicolor/256x256/apps/io.github.blitsandbobs.Oni.png
       - install -Dm644 packaging/icons/oni-512.png /app/share/icons/hicolor/512x512/apps/io.github.blitsandbobs.Oni.png
       - install -Dm644 packaging/NOTICE.md /app/share/licenses/io.github.blitsandbobs.Oni/NOTICE.md
       - install -Dm644 LICENSE /app/share/licenses/io.github.blitsandbobs.Oni/LICENSE

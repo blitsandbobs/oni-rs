@@ -8,4 +8,4 @@ Icon=io.github.blitsandbobs.Oni
 Terminal=false
 Categories=Game;ActionGame;
 Keywords=oni;konoko;bungie;anniversary;
-StartupWMClass=oni
+StartupWMClass=io.github.blitsandbobs.Oni

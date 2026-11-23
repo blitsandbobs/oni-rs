@@ -414,7 +414,9 @@ fn upload_background(renderer: &mut Renderer, gpu: &Gpu) -> Option<(u32, u32)> {
     let (w, h) = (u32::from(info.width), u32::from(info.height));
     let rgba: Vec<u8> = match info.pixel_format {
         jpeg_decoder::PixelFormat::RGB24 => pixels
-            .chunks_exact(3)
+            .as_chunks::<3>()
+            .0
+            .iter()
             .flat_map(|p| [p[0], p[1], p[2], 255])
             .collect(),
         jpeg_decoder::PixelFormat::L8 => pixels.iter().flat_map(|&l| [l, l, l, 255]).collect(),
@@ -439,7 +441,7 @@ fn rasterize(font: &fontdue::Font, s: &str, px: f32) -> (u32, u32, Vec<u8>) {
         .max(1.0) as usize
         + 2;
     let mut rgba = vec![0u8; w * h * 4];
-    for px in rgba.chunks_exact_mut(4) {
+    for px in rgba.as_chunks_mut::<4>().0 {
         px[..3].fill(255);
     }
     let mut pen = 0.0f32;
@@ -472,7 +474,7 @@ mod tests {
         let font = fontdue::Font::from_bytes(FONT, fontdue::FontSettings::default()).unwrap();
         let (w, h, rgba) = rasterize(&font, "Install Oni", 19.0);
         assert!(w > 50 && h >= 18);
-        assert!(rgba.chunks_exact(4).any(|p| p[3] > 200), "ink");
+        assert!(rgba.as_chunks::<4>().0.iter().any(|p| p[3] > 200), "ink");
     }
 
     #[test]

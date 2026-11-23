@@ -531,7 +531,7 @@ pub fn split_leaves(scene: &mut crate::gltf::Scene, doors: &[Door]) {
             continue;
         };
         let mut parts: [Vec<u32>; 2] = Default::default();
-        for t in p.indices.chunks_exact(3) {
+        for t in p.indices.as_chunks::<3>().0 {
             let c = t.iter().fold(Vec3::ZERO, |a, &i| {
                 a + Vec3::from(p.vertices[i as usize].pos)
             }) / 3.0;
@@ -762,7 +762,9 @@ impl Doors {
                 let inv = d.leaf_matrix(l, 0).inverse();
                 // (Each triangle to the leaf nearest its middle, as drawn.)
                 let pts: Vec<Vec3> = idx
-                    .chunks_exact(3)
+                    .as_chunks::<3>()
+                    .0
+                    .iter()
                     .map(|t| [0, 1, 2].map(|j| Vec3::from(v[t[j] as usize])))
                     .filter(|t| d.leaf_of((t[0] + t[1] + t[2]) / 3.0) == l)
                     .flatten()

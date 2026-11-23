@@ -56,8 +56,10 @@ impl Clip {
             return None;
         }
         let samples = b[data?]
-            .chunks_exact(2)
-            .map(|s| f32::from(i16::from_le_bytes([s[0], s[1]])) / 32768.0)
+            .as_chunks::<2>()
+            .0
+            .iter()
+            .map(|s| f32::from(i16::from_le_bytes(*s)) / 32768.0)
             .collect();
         Some(Clip {
             name: name.to_string(),

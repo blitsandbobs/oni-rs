@@ -162,8 +162,18 @@ pub fn attributes(d: &Display, monitor: Option<MonitorHandle>) -> WindowAttribut
     if d.fullscreen {
         a = a.with_fullscreen(Some(Fullscreen::Borderless(monitor)));
     }
+    // The app's id (Wayland) / window class (X11), which the desktop matches
+    // with the installed .desktop file for the window's icon and name.
+    #[cfg(any(target_os = "linux", target_os = "freebsd"))]
+    {
+        a = winit::platform::wayland::WindowAttributesExtWayland::with_name(a, APP_ID, "oni");
+    }
     a
 }
+
+/// The app's id: the Flatpak's, the .desktop file's name.
+#[cfg(any(target_os = "linux", target_os = "freebsd"))]
+const APP_ID: &str = "io.github.blitsandbobs.Oni";
 
 /// Fullscreen on or off for `window` (on: borderless on the monitor it is
 /// on).
